@@ -15,6 +15,7 @@
  * rate, net expectancy, score calibration, cross-sectional rank IC and the
  * probabilistic Sharpe ratio, with an indicative go/no-go check.
  */
+import { baseOf as pairBase } from "@/lib/quotes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, Download, Loader2, Lock, ShieldCheck, Trash2, Upload } from "lucide-react";
 import { exportFileName, toCSV } from "@rsl/core-kit/core/rsl-export.js";
@@ -155,7 +156,9 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
         }
         return k;
       };
-      const btc = await klinesOf("BTCUSDT");
+      // v2.7 (review #8): this ledger's own BTC pair (BTCPHP on Coins.ph, BTCUSDC in a USDC scan…).
+      const btcPair = byPair.has("BTCUSDT") ? "BTCUSDT" : [...byPair.keys()].find((p) => pairBase(p, source) === "BTC") ?? (source === "coinsph" ? "BTCPHP" : "BTCUSDT");
+      const btc = await klinesOf(btcPair);
       const momentumSign = new Map<string, -1 | 0 | 1>();
       const fresh = new Map<string, Record<string, OutcomeSnapshot>>();
       let fromSnapshots = 0;
@@ -181,8 +184,8 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
               fromSnapshots++;
             }
             if (!o) continue;
-            if (pair !== "BTCUSDT" && btc.length) {
-              const b = measureOutcome({ ...row, pair: "BTCUSDT", m: 1 }, btc, h, c, intervalMs);
+            if (pair !== btcPair && btc.length) {
+              const b = measureOutcome({ ...row, pair: btcPair, m: 1 }, btc, h, c, intervalMs);
               if (b) o.btcGross = b.gross;
             }
             outcomes.get(h)!.push(o);

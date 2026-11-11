@@ -154,6 +154,12 @@ export function usdtDeviationPct(table: FxTable | null): number | undefined {
   return valid(u) ? (1 / u - 1) * 100 : undefined;
 }
 
+/** Coins.ph: USDT's peso price against the official USD/PHP rate → USDT premium in %, or undefined. */
+export function impliedUsdtPremiumPct(usdtLocal: number | null | undefined, currency: string, table: FxTable | null): number | undefined {
+  const official = currency === "USD" ? 1 : table?.rates[currency];
+  return valid(usdtLocal) && valid(official) ? (usdtLocal / official - 1) * 100 : undefined;
+}
+
 /* ---------------- automatic currency from the device region ---------------- */
 const REGION_CURRENCY: Record<string, string> = {
   US: "USD", SA: "SAR", AE: "AED", QA: "QAR", OM: "OMR", BH: "BHD", KW: "KWD", JO: "JOD", EG: "EGP", PH: "PHP",

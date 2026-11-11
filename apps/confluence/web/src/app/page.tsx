@@ -98,6 +98,9 @@ import { OrderFlowPanel } from "@/components/order-flow-panel";
 import { DerivativesPanel } from "@/components/derivatives-panel";
 import { ChartReplay } from "@/components/chart-replay";
 import { PriceChart } from "@/components/price-chart";
+import { BEST, baseOf as pairBase, normalizeQuoteMode, quoteModesFor, stableQuote, type DepegReading } from "@/lib/quotes";
+import { autoCurrency, BANDS, cachedCurrencies, cachedTable, canConvert, convert, impliedUsdtPremiumPct, isStale, loadCurrencies, PEGS, rateKind, refreshRates, usdtDeviationPct, type FiatCurrency, type FxTable } from "@/lib/fx-rates";
+import { formatMoney, formatMoneyCompact } from "@/lib/money";
 import { PrivateApiDialog } from "@/components/private-api-dialog";
 import type { PrivateApiProfile } from "@/lib/private-api";
 import { Button } from "@/components/ui/button";
@@ -174,9 +177,17 @@ const inNativeShell = () => {
 /** v2.6: what the last scan of a source carried besides rows (price currency, Coins.ph extras). */
 interface ScanMeta {
   source: string;
-  currency: "USD" | "PHP";
+  currency: "USD" | "EUR" | "PHP";
   premium: Record<string, number>;
   thin: string[];
+  /** v2.7: timeframe and quote mode of these rows, the quote of each row, venue quote counts, depeg readings. */
+  tf?: string;
+  quote?: string;
+  quoteBySymbol?: Record<string, string>;
+  quoteCounts?: Record<string, number>;
+  approx?: string[];
+  depeg?: DepegReading[];
+  usdPhp?: number | null;
 }
 
 const refreshCadence = (timeframe: TF) => {
@@ -187,6 +198,9 @@ const refreshCadence = (timeframe: TF) => {
 };
 
 interface AssetRow {
+  /** v2.7 (review #2): source and timeframe the row was scored on — detail-sheet actions use these, never the header's. */
+  src: DataSource;
+  tf: TF;
   rank: number;
   symbol: string; // e.g. BTC
   pair: string; // e.g. BTCUSDT
@@ -468,6 +482,8 @@ export default function Home() {
   const { t, id } = rsl;
   const [aboutOpen, setAboutOpen] = useState(false);
   const loadRef = useRef<() => void>(() => undefined);
+  // v2.7 (review #2): what the header currently asks for; detail-sheet actions compare their row with it.
+  const currentScanRef = useRef<{ source: DataSource; tf: string }>({ source: DEFAULT_APP_PREFERENCES.dataSource, tf: DEFAULT_APP_PREFERENCES.timeframe });
   useEffect(() => rsl.onMenuAction((menuId) => {
     if (menuId === "about" || menuId === "settings" || menuId.startsWith("backup.")) setAboutOpen(true);
     else if (menuId === "refresh") loadRef.current();
@@ -508,6 +524,13 @@ export default function Home() {
   const [chartDepth, setChartDepth] = useState<StoredChartDepth>(DEFAULT_APP_PREFERENCES.chartDepth);
   const [reversalAlert, setReversalAlert] = useState<AssetRow[]>([]);
   const [assetClass, setAssetClass] = useState<AssetClassFilter>(DEFAULT_APP_PREFERENCES.assetClass);
+  // v2.7 (WP12/WP13): stablecoin quote per source, display currency and its rate table.
+  const [quoteBySource, setQuoteBySource] = useState<Partial<Record<DataSource, string>>>(DEFAULT_APP_PREFERENCES.quoteBySource);
+  const quote = normalizeQuoteMode(dataSource, quoteBySource[dataSource]);
+  const [displayPref, setDisplayPref] = useState<string>(DEFAULT_APP_PREFERENCES.displayCurrency);
+  const [fx, setFx] = useState<FxTable | null>(null);
+  const [fiatList, setFiatList] = useState<FiatCurrency[]>([]);
+  const displayCurrency = displayPref === "AUTO" ? autoCurrency() : displayPref;
   const [ledgerOpen, setLedgerOpen] = useState(false);
   const [paperOpen, setPaperOpen] = useState(false);
   const [chartReplay, setChartReplay] = useState(false);
@@ -596,6 +619,8 @@ export default function Home() {
         setAutoRefresh(saved.autoRefresh);
         setChartDepth(saved.chartDepth);
         setAssetClass(saved.assetClass);
+        setQuoteBySource(saved.quoteBySource);
+        setDisplayPref(saved.displayCurrency);
         applyBackground(saved.background);
       } else {
         let legacy: string | null = null;
@@ -622,9 +647,32 @@ export default function Home() {
       autoRefresh,
       chartDepth,
       assetClass,
+      quoteBySource,
+      displayCurrency: displayPref,
     };
     saveAppPreferences(preferences);
-  }, [preferencesReady, timeframe, dataSource, universeLimit, background, monitorAssets, sortKey, sortDir, autoRefresh, chartDepth, assetClass]);
+  }, [preferencesReady, timeframe, dataSource, universeLimit, background, monitorAssets, sortKey, sortDir, autoRefresh, chartDepth, assetClass, quoteBySource, displayPref]);
+
+  // v2.7 (WP13): display-currency rates — cached on the device, refreshed at most every 6 h,
+  // only fetched when a non-USD currency is shown. Display only: the scan never sees them.
+  useEffect(() => {
+    if (!preferencesReady) return;
+    let active = true;
+    const cached = cachedTable();
+    const cachedList = cachedCurrencies();
+    const run = () => {
+      if (displayCurrency === "USD" && !cached) return;
+      void refreshRates().then((table) => { if (active) setFx(table); });
+      void loadCurrencies().then((list) => { if (active) setFiatList(list); });
+    };
+    const first = window.setTimeout(() => {
+      if (cached) setFx(cached);
+      if (cachedList.length) setFiatList(cachedList);
+      run();
+    }, 0);
+    const id = window.setInterval(run, 6 * 3_600_000);
+    return () => { active = false; window.clearTimeout(first); window.clearInterval(id); };
+  }, [preferencesReady, displayCurrency]);
   /**
    * Load the full universe in a single request. The server returns tickers +
    * all klines (throttled & cached upstream), then we run the 21-indicator
@@ -655,7 +703,7 @@ export default function Home() {
     setProfileReady(true);
   }
 
-  const load = useCallback(async (tf: TF, source: DataSource, assets: string[], limit: number, cls: AssetClassFilter) => {
+  const load = useCallback(async (tf: TF, source: DataSource, assets: string[], limit: number, cls: AssetClassFilter, quoteMode: string) => {
     if (!profileReady) return;
     abortRef.current?.abort();
     const ac = new AbortController();
@@ -678,6 +726,7 @@ export default function Home() {
         limit: watchlistScope ? watchlistScope.symbols.length : limit,
         signal: ac.signal,
         assetClass: watchlistScope ? "all" : cls,
+        quote: quoteMode,
         // Warm start (v2.1.1): ask for the full engine window only when this
         // session has not yet seen ENGINE_BARS contiguous bars for the series.
         klineLimit: (symbol) => {
@@ -771,8 +820,10 @@ export default function Home() {
         }
         return {
           rank: t.rank,
-          symbol: t.symbol.replace(/(USDT|PHP)$/, ""),
+          symbol: pairBase(t.symbol, source), // v2.7: any quote (BTCUSDC → BTC)
           pair: t.symbol,
+          src: source,
+          tf,
           price: parseFloat(t.lastPrice),
           change24h: parseFloat(t.priceChangePercent),
           quoteVolume: parseFloat(t.quoteVolume),
@@ -895,7 +946,11 @@ export default function Home() {
       setRows(out);
       // Currency, premium and thin list change with the rows they describe, never before
       // (otherwise the previous source's rows show ₱ while the new scan is still scoring).
-      setScanMeta({ source, currency: data.priceCurrency ?? "USD", premium: data.premiumBySymbol ?? {}, thin: data.thinSymbols ?? [] });
+      setScanMeta({
+        source, currency: data.priceCurrency ?? "USD", premium: data.premiumBySymbol ?? {}, thin: data.thinSymbols ?? [],
+        tf, quote: data.quote, quoteBySymbol: data.quoteBySymbol, quoteCounts: data.quoteCounts, approx: data.approxVolume,
+        depeg: data.depeg, usdPhp: data.usdPhp,
+      });
       setDetailAsset((current) => current ? out.find((row) => row.pair === current.pair) ?? null : null);
       setScanStats({
         durationMs: data.durationMs,
@@ -924,7 +979,14 @@ export default function Home() {
     historyAbortRef.current = controller;
     setHistoryLoading(true);
     setHistoryError(null);
+    // v2.7 (review #2): the row's own source/timeframe; a row left over from another scan is refused,
+    // so its bars are never stored under the new source's history key.
+    const dataSource = asset.src;
+    const timeframe = asset.tf;
     try {
+      if (asset.src !== currentScanRef.current.source || asset.tf !== currentScanRef.current.tf) {
+        throw new Error("This row is from an earlier scan of another source or timeframe. Wait for the current scan, then try again.");
+      }
       if (asset.klines.length >= MAX_STORED_BARS) {
         throw new Error(`Stored history is at its ${MAX_STORED_BARS.toLocaleString()}-bar limit for this asset.`);
       }
@@ -965,25 +1027,26 @@ export default function Home() {
     } finally {
       if (historyAbortRef.current === controller) setHistoryLoading(false);
     }
-  }, [dataSource, timeframe, scoringProfile]);
+  }, [scoringProfile]);
 
+  useEffect(() => { currentScanRef.current = { source: dataSource, tf: timeframe }; });
   useEffect(() => {
-    loadRef.current = () => void load(timeframe, dataSource, monitorAssets, universeLimit, assetClass);
+    loadRef.current = () => void load(timeframe, dataSource, monitorAssets, universeLimit, assetClass, quote);
   });
 
   // Initial load + on timeframe change.
   useEffect(() => {
     if (!preferencesReady) return;
-    const initialLoad = window.setTimeout(() => void load(timeframe, dataSource, monitorAssets, universeLimit, assetClass), 0);
+    const initialLoad = window.setTimeout(() => void load(timeframe, dataSource, monitorAssets, universeLimit, assetClass, quote), 0);
     return () => window.clearTimeout(initialLoad);
-  }, [preferencesReady, timeframe, dataSource, monitorAssets, universeLimit, assetClass, load]);
+  }, [preferencesReady, timeframe, dataSource, monitorAssets, universeLimit, assetClass, quote, load]);
 
   // Refresh cadence follows the selected market timeframe.
   useEffect(() => {
     if (!preferencesReady || !autoRefresh) return;
-    const id = setInterval(() => void load(timeframe, dataSource, monitorAssets, universeLimit, assetClass), refreshCadenceFor(timeframe, dataSource));
+    const id = setInterval(() => void load(timeframe, dataSource, monitorAssets, universeLimit, assetClass, quote), refreshCadenceFor(timeframe, dataSource));
     return () => clearInterval(id);
-  }, [preferencesReady, autoRefresh, timeframe, dataSource, monitorAssets, universeLimit, assetClass, load]);
+  }, [preferencesReady, autoRefresh, timeframe, dataSource, monitorAssets, universeLimit, assetClass, quote, load]);
 
   /* ---- derived / filtered / sorted ---- */
   const visible = useMemo(() => {
@@ -1042,6 +1105,24 @@ export default function Home() {
   // Scheduled macro releases within the next 24 h (or the last 2 h), measured from the last scan.
   const macroEvents = useMemo(() => (lastUpdate ? eventsNear(lastUpdate.getTime()) : []), [lastUpdate]);
   const selectedSource = DATA_SOURCES.find((s) => s.value === dataSource) ?? DATA_SOURCES[0];
+
+  /* ---- v2.7 (WP13): display currency — formatting only, rows stay in their native currency ---- */
+  const nativeCurrency = scanMeta.currency;
+  const priceCurrency = canConvert(nativeCurrency, displayCurrency, fx) ? displayCurrency : nativeCurrency;
+  const volumeCurrency = canConvert("USD", displayCurrency, fx) ? displayCurrency : "USD";
+  const showPrice = useCallback((v: number) => formatMoney(convert(v, nativeCurrency, priceCurrency, fx), priceCurrency), [nativeCurrency, priceCurrency, fx]);
+  const showVolume = (usd: number) => formatMoneyCompact(convert(usd, "USD", volumeCurrency, fx), volumeCurrency);
+  const chartAxis = useCallback((v: number) => {
+    const c = convert(v, nativeCurrency, priceCurrency, fx);
+    const a = Math.abs(c);
+    return a >= 1e6 ? (c / 1e6).toFixed(2) + "M" : a >= 1000 ? (c / 1000).toFixed(a >= 1e5 ? 1 : 2) + "k" : a >= 1 ? c.toFixed(2) : a >= 0.01 ? c.toFixed(4) : c.toPrecision(3);
+  }, [nativeCurrency, priceCurrency, fx]);
+  const liveQuotes = scanMeta.source === dataSource && scanMeta.quoteCounts ? Object.keys(scanMeta.quoteCounts) : undefined;
+  const quoteModes = quoteModesFor(dataSource, liveQuotes);
+  const setQuote = (mode: string) => { setDetailAsset(null); setQuoteBySource((cur) => ({ ...cur, [dataSource]: mode })); };
+  const PRIORITY_FIAT = ["USD", "SAR", "PHP", "EUR", "AED", "QAR", "KWD", "BHD", "OMR", "GBP", "JPY", "INR", "CNY", "SGD", "AUD", "CAD", "CHF", "HKD", "KRW", "IDR", "MYR", "THB", "TRY", "NZD"];
+  const fiatCodes = [...new Set([...PRIORITY_FIAT, ...fiatList.map((c) => c.code)])];
+  const fiatName = new Map(fiatList.map((c) => [c.code, c.name]));
   // Backup reminder: after 7 days, or always while storage is not durable (builder skill §3.5).
   const backupDueDays = (() => {
     const last = rsl.lastBackupAt ? Date.parse(rsl.lastBackupAt) : null;
@@ -1059,6 +1140,31 @@ export default function Home() {
         </SelectTrigger>
         <SelectContent className="border-zinc-800 bg-zinc-900">
           {ASSET_CLASS_FILTERS.map((c) => <SelectItem key={c} value={c}>{t(`ac.${c}`)}</SelectItem>)}
+        </SelectContent>
+      </Select>
+  );
+  const renderQuoteSelect = (cls = "") => (
+      <Select value={quote} onValueChange={setQuote} disabled={quoteModes.length < 2}>
+        <SelectTrigger aria-label={t("ctl.quote")} data-testid="quote-select" className={`h-8 w-auto min-w-[92px] gap-2 border-zinc-800 bg-zinc-900 text-xs ${cls}`}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent className="border-zinc-800 bg-zinc-900">
+          {quoteModes.map((m) => (
+            <SelectItem key={m} value={m}>{m === BEST ? t("quote.best") : m}{m !== BEST && stableQuote(m)?.peg === "EUR" ? " (EUR)" : ""}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+  );
+  const renderCurrencySelect = (cls = "") => (
+      <Select value={displayPref} onValueChange={setDisplayPref}>
+        <SelectTrigger aria-label={t("ctl.currency")} data-testid="currency-select" className={`h-8 w-auto min-w-[96px] gap-2 border-zinc-800 bg-zinc-900 text-xs ${cls}`}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent className="max-h-80 border-zinc-800 bg-zinc-900">
+          <SelectItem value="AUTO">{t("fx.auto", { code: autoCurrency() })}</SelectItem>
+          {fiatCodes.map((code) => (
+            <SelectItem key={code} value={code}>{code}{fiatName.get(code) ? ` · ${fiatName.get(code)}` : ""}</SelectItem>
+          ))}
         </SelectContent>
       </Select>
   );
@@ -1148,7 +1254,7 @@ export default function Home() {
             </div>
             {isPhone && <span className="ms-auto"><CustomerChip onClick={() => setAboutOpen(true)} /></span>}
 
-            <Select value={timeframe} onValueChange={(v) => setTimeframe(v as TF)}>
+            <Select value={timeframe} onValueChange={(v) => { setDetailAsset(null); setTimeframe(v as TF); }}>
               <SelectTrigger aria-label={t("ctl.timeframe")} className="h-8 min-w-0 flex-1 border-zinc-800 bg-zinc-900 text-xs sm:w-[150px] sm:flex-none">
                 <SelectValue />
               </SelectTrigger>
@@ -1159,7 +1265,7 @@ export default function Home() {
               </SelectContent>
             </Select>
 
-            <Select value={dataSource} onValueChange={(v) => setDataSource(v as DataSource)}>
+            <Select value={dataSource} onValueChange={(v) => { setDetailAsset(null); setDataSource(v as DataSource); }}>
               <SelectTrigger aria-label={t("ctl.source")} className="h-8 min-w-0 flex-1 border-zinc-800 bg-zinc-900 text-xs sm:w-[150px] sm:flex-none">
                 <SelectValue />
               </SelectTrigger>
@@ -1170,9 +1276,13 @@ export default function Home() {
               </SelectContent>
             </Select>
 
+            {!isPhone && renderQuoteSelect()}
+
             {!isPhone && renderAssetClassSelect()}
 
             {!isPhone && renderUniverseSelect()}
+
+            {!isPhone && renderCurrencySelect()}
 
             <button
               type="button"
@@ -1189,6 +1299,8 @@ export default function Home() {
               className={`${moreControlsOpen ? "flex" : "hidden"} w-full flex-wrap items-center gap-1.5 sm:contents`}>
             {isPhone && (
               <div className="flex w-full flex-wrap items-center gap-1.5">
+                {renderQuoteSelect()}
+                {renderCurrencySelect()}
                 {renderAssetClassSelect()}
                 {renderUniverseSelect()}
                 {renderApiButton()}
@@ -1306,7 +1418,7 @@ export default function Home() {
 
               <Button
                 size="sm"
-                onClick={() => void load(timeframe, dataSource, monitorAssets, universeLimit, assetClass)}
+                onClick={() => void load(timeframe, dataSource, monitorAssets, universeLimit, assetClass, quote)}
                 disabled={loading}
                 aria-label={t("ctl.refresh")}
                 className="h-8 border border-emerald-300/20 bg-gradient-to-r from-cyan-500 to-emerald-500 px-2 text-xs font-semibold text-[#061018] shadow-[0_0_16px_rgb(36_200_117/0.13)] hover:from-cyan-400 hover:to-emerald-400"
@@ -1420,6 +1532,16 @@ export default function Home() {
         </div>
       )}
 
+      <FxInfoLine t={t} native={nativeCurrency} display={displayCurrency} shown={priceCurrency} fx={fx}
+        usdtPhp={scanMeta.source === "coinsph" && dataSource === "coinsph" ? scanMeta.usdPhp ?? null : null} />
+      {scanMeta.source === dataSource && (scanMeta.depeg ?? []).map((d) => (
+        <div key={d.coin} role="status" data-testid="depeg-banner"
+          className={`shrink-0 border-b px-4 py-1.5 text-xs ${d.level === "severe" ? "border-rose-500/40 bg-rose-500/10 text-rose-200" : "border-amber-500/40 bg-amber-500/10 text-amber-200"}`}>
+          <strong className="me-1">{t(`depeg.${d.level}`)}:</strong>
+          {t("depeg.note", { coin: d.coin, dev: `${d.deviationPct > 0 ? "+" : ""}${d.deviationPct.toFixed(2)} %` })}
+        </div>
+      ))}
+
       {rateLimitUntil !== null && rateLimitUntil > Date.now() && (
         <div role="alert" className="shrink-0 border-b border-amber-500/40 bg-amber-500/10 px-4 py-1.5 text-xs text-amber-200">
           {t("scan.rateLimited", { s: Math.ceil((rateLimitUntil - Date.now()) / 1000) })}
@@ -1430,7 +1552,7 @@ export default function Home() {
         <div role="alert" className="shrink-0 flex flex-wrap items-center justify-between gap-2 border-b border-rose-500/40 bg-rose-500/10 px-4 py-1.5 text-xs text-rose-300">
           <span className="min-w-0 flex-1 truncate" title={error}>{error}</span>
           <div className="flex gap-2">
-            <Button size="sm" variant="outline" className="h-7 border-rose-500/40 text-xs" onClick={() => void load(timeframe, dataSource, monitorAssets, universeLimit, assetClass)}>{t("err.retry")}</Button>
+            <Button size="sm" variant="outline" className="h-7 border-rose-500/40 text-xs" onClick={() => void load(timeframe, dataSource, monitorAssets, universeLimit, assetClass, quote)}>{t("err.retry")}</Button>
             {dataSource !== "bybit-spot" && (
               <Button size="sm" variant="outline" className="h-7 border-rose-500/40 text-xs" onClick={() => setDataSource("bybit-spot")}>{t("err.useBybit")}</Button>
             )}
@@ -1465,7 +1587,7 @@ export default function Home() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => void load(timeframe, dataSource, monitorAssets, universeLimit, assetClass)}
+                onClick={() => void load(timeframe, dataSource, monitorAssets, universeLimit, assetClass, quote)}
                 disabled={loading}
                 aria-label={t("ctl.refresh")}
                 title={t("ctl.refresh")}
@@ -1563,13 +1685,13 @@ export default function Home() {
                       </div>
                     </td>
                     <td className="px-3 py-1.5 text-right font-mono tabular-nums text-zinc-200">
-                      {scanMeta.currency === "PHP" ? "₱" : "$"}{fmtPrice(r.price)}
+                      {showPrice(r.price)}
                     </td>
                     <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${r.change24h >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                       {fmtPct(r.change24h)}
                     </td>
                     <td className="px-3 py-1.5 text-right font-mono tabular-nums text-zinc-400">
-                      ${fmtVol(r.quoteVolume)}
+                      {showVolume(r.quoteVolume)}{scanMeta.approx?.includes(r.pair) ? " ≈" : ""}
                     </td>
                     <td className="px-3 py-1.5 min-w-[160px] max-w-[220px]">
                       {r.confluence.indicators.length > 0 ? (
@@ -1677,9 +1799,9 @@ export default function Home() {
               {!chartReplay && <>
               {/* key stats row */}
               <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4">
-                <MiniStat label="Price" value={`${scanMeta.currency === "PHP" ? "₱" : "$"}${fmtPrice(detailAsset.price)}`} />
+                <MiniStat label="Price" value={showPrice(detailAsset.price)} />
                 <MiniStat label="24h Change" value={fmtPct(detailAsset.change24h)} tone={detailAsset.change24h >= 0 ? "up" : "down"} />
-                <MiniStat label="24h Volume" value={`$${fmtVol(detailAsset.quoteVolume)}`} />
+                <MiniStat label="24h Volume" value={showVolume(detailAsset.quoteVolume)} />
                 <MiniStat label="Confluence" value={`${detailAsset.confluence.score > 0 ? "+" : ""}${detailAsset.confluence.score}`} tone={detailAsset.confluence.score > 0 ? "up" : detailAsset.confluence.score < 0 ? "down" : undefined} />
                 {scanMeta.source === "coinsph" && scanMeta.premium[detailAsset.pair] !== undefined && (
                   <MiniStat label={t("ph.premium")} value={`${scanMeta.premium[detailAsset.pair] > 0 ? "+" : ""}${scanMeta.premium[detailAsset.pair].toFixed(2)} %`} />
@@ -1732,9 +1854,11 @@ export default function Home() {
               {chartReplay ? (
                 <ChartReplay key={detailAsset.pair} candles={detailAsset.klines}
                   visible={chartDepth === "all" ? detailAsset.klines.length : Number(chartDepth)}
-                  instrument={{ pair: detailAsset.pair, src: dataSource, tf: timeframe, intervalMs: INTERVAL_MS[timeframe], assetClass: detailAsset.assetClass }} />
+                  instrument={{ pair: detailAsset.pair, src: detailAsset.src, tf: detailAsset.tf, intervalMs: INTERVAL_MS[detailAsset.tf], assetClass: detailAsset.assetClass }} />
               ) : detailAsset.klines.length > 1 ? (
                 <PriceChart
+                  formatPrice={showPrice}
+                  formatAxis={chartAxis}
                   klines={detailAsset.klines}
                   visible={chartDepth === "all" ? detailAsset.klines.length : Number(chartDepth)}
                 />
@@ -1752,12 +1876,12 @@ export default function Home() {
 
               <BlocPanel c={detailAsset.confluence} />
               {detailAsset.context && <ContextPanel x={detailAsset.context} />}
-              {dataSource === "bybit-perp" && <DerivativesPanel port={rsl.port} pair={detailAsset.pair} />}
-              {dataSource === "bybit-perp" && <OrderFlowPanel key={detailAsset.pair} pair={detailAsset.pair} />}
-              <FvgPanel c={detailAsset.confluence} />
+              {detailAsset.src === "bybit-perp" && <DerivativesPanel port={rsl.port} pair={detailAsset.pair} />}
+              {detailAsset.src === "bybit-perp" && <OrderFlowPanel key={detailAsset.pair} pair={detailAsset.pair} />}
+              <FvgPanel c={detailAsset.confluence} fmt={showPrice} />
 
               {/* key levels */}
-              <KeyLevels klines={detailAsset.klines} price={detailAsset.price} />
+              <KeyLevels klines={detailAsset.klines} price={detailAsset.price} fmt={showPrice} />
 
               {/* indicator breakdown by category */}
               <div className="min-w-0 overflow-hidden rounded-lg border border-zinc-800">
@@ -2074,7 +2198,7 @@ function BlocPanel({ c }: { c: ConfluenceResult }) {
 }
 
 /** v2.1.1: FVG confidence modifier, reason and active zones (computed, previously hidden). */
-function FvgPanel({ c }: { c: ConfluenceResult }) {
+function FvgPanel({ c, fmt: fmtPrice }: { c: ConfluenceResult; fmt: (p: number) => string }) {
   const { t } = useRsl();
   if (c.fvgModifier === undefined) return null;
   const zones = c.fvgZones ?? [];
@@ -2205,7 +2329,43 @@ function PatternPanel({ pattern }: { pattern: PatternSignal }) {
  * current price sits relative to them. Support/resistance derived from a
  * classic pivot calculation on the last completed swing.
  */
-function KeyLevels({ klines, price }: { klines: Kline[]; price: number }) {
+/** v2.7 (WP13.3): which rate converts the prices, from whom, as of when — and its honesty labels. */
+function FxInfoLine({ t, native, display, shown, fx, usdtPhp }: {
+  t: (key: string, vars?: Record<string, string | number>) => string;
+  native: string; display: string; shown: string; fx: FxTable | null; usdtPhp: number | null;
+}) {
+  const parts: string[] = [];
+  if (display !== shown) parts.push(t("fx.unavailable", { code: display, native: shown }));
+  else if (display !== "USD" || native !== "USD") {
+    const ref = display === "USD" ? native : display;
+    const rate = convert(1, "USD", ref, fx);
+    if (Number.isFinite(rate) && ref !== "USD") {
+      parts.push(t("fx.info", { code: ref, rate: rate >= 100 ? rate.toFixed(2) : rate.toPrecision(5).replace(/0+$/, "").replace(/\.$/, "") }));
+      const kind = rateKind(ref);
+      parts.push(kind === "peg" ? t("fx.kind.peg", { authority: PEGS[ref].authority }) : kind === "band" ? t("fx.kind.band", { band: BANDS[ref] }) : t(`fx.kind.${kind}`));
+      if (fx) {
+        parts.push(t(`fx.src.${fx.source}`));
+        if (fx.dates[ref] || fx.asOf) parts.push(t("fx.asOf", { date: fx.dates[ref] ?? fx.asOf }));
+      }
+    }
+  }
+  if (!parts.length) return null;
+  const dev = usdtDeviationPct(fx);
+  if (native === "USD") parts.push(t("fx.usdt", { price: dev === undefined ? "—" : `$${(1 + dev / 100).toFixed(4)}` }));
+  const stale = isStale(fx);
+  const phPrem = impliedUsdtPremiumPct(usdtPhp, "PHP", fx);
+  return (
+    <div data-testid="fx-info" className="shrink-0 border-b border-zinc-800 bg-zinc-900/60 px-4 py-1 text-[11px] text-zinc-400">
+      {parts.join(" · ")}
+      {stale && <span className="ms-2 rounded border border-amber-500/40 px-1 text-amber-300">{t("fx.stale")}</span>}
+      {phPrem !== undefined && (
+        <span className="ms-2 text-sky-300/90">{t("ph.usdtPremium", { dev: `${phPrem > 0 ? "+" : ""}${phPrem.toFixed(2)} %` })}</span>
+      )}
+    </div>
+  );
+}
+
+function KeyLevels({ klines, price, fmt: fmtShown }: { klines: Kline[]; price: number; fmt: (p: number) => string }) {
   const levels = useMemo(() => {
     if (klines.length < 2) return null;
     const win = klines.slice(-20);
@@ -2224,7 +2384,7 @@ function KeyLevels({ klines, price }: { klines: Kline[]; price: number }) {
   if (!levels) {
     return <div className="rounded-lg border border-zinc-800 px-3 py-2 text-xs text-zinc-500">Key levels unavailable</div>;
   }
-  const fmt = (p: number) => (p >= 1000 ? p.toLocaleString("en-US", { maximumFractionDigits: 2 }) : p >= 1 ? p.toFixed(4) : p.toExponential(3));
+  const fmt = fmtShown; // v2.7: one formatter (review #9: 0.5 used to read "5.000e-1")
   const rows: { label: string; val: number; tone: string }[] = [
     { label: "R2", val: levels.r2, tone: "text-rose-300" },
     { label: "R1", val: levels.r1, tone: "text-rose-300/80" },

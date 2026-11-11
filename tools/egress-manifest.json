@@ -22,7 +22,10 @@
         "https://data-api.binance.vision",
         "https://api.bybit.com",
         "https://api.bitget.com",
-        "https://effervescent-bubblegum-1e5c03.netlify.app"
+        "https://effervescent-bubblegum-1e5c03.netlify.app",
+        "https://api.frankfurter.dev",
+        "https://cdn.jsdelivr.net",
+        "https://latest.currency-api.pages.dev"
       ],
       "nativeHosts": [
         "api.pro.coins.ph"

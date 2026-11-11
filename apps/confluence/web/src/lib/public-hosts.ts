@@ -19,6 +19,24 @@
  * order, wallet) endpoints on the same host, so the HOST is never allowed whole.
  */
 
+/**
+ * v2.7 (review #7, ADR-0003 amendment v2.7): every host the WebView may `fetch` directly.
+ * `csp.ts` builds `connect-src` from this table, release check R8 reads it (and checks that the
+ * desktop CSP lists exactly these hosts), and each origin must be named in ADR-0003.
+ * String literals only — the release checks parse this block statically.
+ */
+export const CSP_HOSTS = [
+  { origin: "http://127.0.0.1:8787", purpose: "local read-only API gateway (desktop)" },
+  { origin: "http://localhost:8787", purpose: "local read-only API gateway (desktop)" },
+  { origin: "https://data-api.binance.vision", purpose: "Binance public market data" },
+  { origin: "https://api.bybit.com", purpose: "Bybit public market data" },
+  { origin: "https://api.bitget.com", purpose: "Bitget public market data" },
+  { origin: "https://effervescent-bubblegum-1e5c03.netlify.app", purpose: "update notice: GET /updates/latest.json (ADR-0012)" },
+  { origin: "https://api.frankfurter.dev", purpose: "display-currency rates, central-bank blend (ADR-0015)" },
+  { origin: "https://cdn.jsdelivr.net", purpose: "display-currency rates fallback, fawazahmed0 (ADR-0015)" },
+  { origin: "https://latest.currency-api.pages.dev", purpose: "display-currency rates fallback mirror (ADR-0015)" },
+] as const;
+
 export const COINSPH_ORIGIN = "https://api.pro.coins.ph";
 
 /** Same-origin prefix of the rewrite on the web (Netlify and the local launcher). */

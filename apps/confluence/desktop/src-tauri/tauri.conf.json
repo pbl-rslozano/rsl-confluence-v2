@@ -34,7 +34,7 @@
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data: blob:",
         "font-src": "'self' data:",
-        "connect-src": "'self' ipc: http://ipc.localhost https://data-api.binance.vision https://api.bybit.com https://api.bitget.com http://127.0.0.1:8787 http://localhost:8787 https://effervescent-bubblegum-1e5c03.netlify.app",
+        "connect-src": "'self' ipc: http://ipc.localhost https://data-api.binance.vision https://api.bybit.com https://api.bitget.com http://127.0.0.1:8787 http://localhost:8787 https://effervescent-bubblegum-1e5c03.netlify.app https://api.frankfurter.dev https://cdn.jsdelivr.net https://latest.currency-api.pages.dev",
         "worker-src": "'self'",
         "object-src": "'none'",
         "base-uri": "'self'",
