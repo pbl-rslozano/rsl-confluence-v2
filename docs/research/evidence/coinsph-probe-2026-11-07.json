@@ -1,0 +1,52 @@
+{
+  "id": "PH-1",
+  "date": "2026-11-07T13:14Z/13:18Z",
+  "method": "Claude desktop built-in browser (Chromium), owner's computer, Asia/Riyadh; Cloudflare edge reported SOF",
+  "result": "CORS_REFUSED",
+  "fetch_path_chosen": "rewrite-and-native (ADR-0013 decision 2, second branch)",
+  "cors_tests": {
+    "origin": "https://effervescent-bubblegum-1e5c03.netlify.app (page /sw.js, no meta CSP)",
+    "controls": {
+      "GET https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=1": "200",
+      "GET https://api.bybit.com/v5/market/time": "200"
+    },
+    "coinsph": {
+      "GET https://api.pro.coins.ph/openapi/v1/time": "blocked: No 'Access-Control-Allow-Origin' header is present on the requested resource",
+      "GET https://api.pro.coins.ph/openapi/quote/v1/klines?symbol=BTCPHP&interval=1h&limit=1": "blocked: same",
+      "GET https://api.pro.coins.ph/openapi/quote/v1/ticker/24hr?symbol=ETHPHP": "blocked: same"
+    },
+    "also_refused_from": ["https://example.com"]
+  },
+  "geo": "No geo block from Saudi Arabia: all same-origin reads returned 200.",
+  "same_origin_reads": {
+    "GET /openapi/v1/time": { "status": 200, "body": { "serverTime": 1794057310984 } },
+    "GET /openapi/v1/exchangeInfo": {
+      "status": 200,
+      "top_keys": ["timezone", "serverTime", "exchangeFilters", "symbols"],
+      "symbols": 184,
+      "by_quote": { "PHP": 141, "USDT": 34, "USDC": 7, "XRP": 1, "456": 1 },
+      "status_values": ["trading", "break"],
+      "symbol_keys": ["symbol", "status", "baseAsset", "baseAssetPrecision", "quoteAsset", "quoteAssetPrecision", "orderTypes", "filters"],
+      "note": "status is lower-case ('trading'), unlike Binance ('TRADING'); 'rateLimits' is absent"
+    },
+    "GET /openapi/quote/v1/klines?symbol=BTCPHP&interval=1h&limit=5": {
+      "status": 200,
+      "content_type": "text/plain;charset=UTF-8 (body is JSON)",
+      "row_fields": 11,
+      "sample_row": [1794042000000, "4797056.7", "4798627.8", "4785980.1", "4789170.5", "0.0582002", 1794045599999, "278973.093568", 377, "0.024669", "118253.43419698"],
+      "note": "last row is the open bar"
+    },
+    "GET /openapi/quote/v1/klines?symbol=BTCPHP&interval=8h&limit=2": { "status": 200, "note": "8h served natively; bars open 00:00/08:00/16:00 UTC" },
+    "GET /openapi/quote/v1/ticker/price?symbol=USDTPHP": { "status": 200, "body": { "price": "63", "symbol": "USDTPHP" } },
+    "GET /openapi/quote/v1/ticker/24hr (all)": {
+      "status": 200,
+      "rows": 218,
+      "keys": ["symbol", "priceChange", "priceChangePercent", "weightedAvgPrice", "prevClosePrice", "lastPrice", "lastQty", "bidPrice", "bidQty", "askPrice", "askQty", "openPrice", "highPrice", "lowPrice", "volume", "quoteVolume", "openTime", "closeTime", "firstId", "lastId", "count"],
+      "top_quote_volume_php": { "USDTPHP": "617126770.83", "USDCPHP": "605320385.2", "BTCPHP": "18903435.86", "XRPPHP": "14398159.23", "ETHPHP": "7738459.21", "SOLPHP": "4270892.65" },
+      "note": "218 rows vs 184 exchangeInfo symbols: tickers include pairs not listed in exchangeInfo"
+    },
+    "GET /openapi/v1/check-sys-status": { "status": 200, "body": { "code": -1002, "msg": "You are not authorized to execute this request" }, "note": "needs a key; not usable keyless" }
+  },
+  "rate_limit_header": "x-sapi-used-ip-weight-1m (weight used by this IP in the current minute) — confirms the limit is counted in weight",
+  "not_tested": ["Android WebView", "iPhone WKWebView", "Tauri desktop", "WebSocket wsapi.pro.coins.ph", "the documented 120/min ceiling itself"]
+}

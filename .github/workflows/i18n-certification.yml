@@ -1,0 +1,42 @@
+name: i18n-certification
+
+# v2.5 WP4 — a certified translation, or a re-worded safety statement, needs the named native-speaker
+# reviewer's approval on the PR head commit (tools/check-certification-pr.mjs, docs/translation-review.md).
+# Runs again when a review is submitted or dismissed, so the check turns green once the reviewer approves.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: i18n-certification-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22.23.4"
+
+jobs:
+  i18n-certification:
+    name: i18n — certification needs the named reviewer's approval
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with: { node-version: "${{ env.NODE_VERSION }}", package-manager-cache: false }
+      - name: Catalog status rules (keys, ICU, plurals, brand tokens, status, safety lock)
+        run: node apps/confluence/web/scripts/validate-catalogs.mjs
+      - name: Certification and safety-lock changes carry the reviewer's approval on the head commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node tools/check-certification-pr.mjs

@@ -1,0 +1,124 @@
+/* rsl-shell.css — rsL Core Kit · v1.0 2026
+ * Adaptive app shell for one UI across phone, tablet and desktop (Windows, macOS, iOS, Android).
+ * Requires rsl-tokens.css. Logical properties only, so Arabic/Urdu mirror without extra CSS.
+ *
+ *  ≥ 1200 px  expanded : app bar + expanded nav rail (labels) + workspace (+ optional inspector)
+ *  600–1199   medium   : app bar + icon rail
+ *  < 600 px   compact  : app bar + bottom navigation bar; dialogs become bottom sheets
+ *  pointer: coarse     : every control ≥ 48 px (Material 48 dp / Apple 44 pt / WCAG 2.5.8 ≥ 24 px)
+ *
+ * Markup:
+ *  <div class="rsl-app">
+ *    <header class="rsl-appbar">[brand block] <div class="rsl-appbar-context"/> <div class="rsl-appbar-actions"/></header>
+ *    <nav class="rsl-nav" aria-label="Main"><a class="rsl-nav-item" aria-current="page">…</a></nav>
+ *    <main class="rsl-workspace" id="main">…</main>
+ *    <footer class="rsl-status">…</footer>
+ *  </div>
+ */
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--color-bg); color: var(--color-text); font: 400 var(--size-text-md)/1.5 var(--font-ui);
+  -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+:lang(ar), :lang(ur) { font-family: var(--font-arabic); }
+code, kbd, .rsl-mono-text, .rsl-num { font-family: var(--font-mono); }
+.rsl-num { font-variant-numeric: tabular-nums; text-align: end; }
+
+.rsl-app {
+  display: grid; height: 100%;
+  grid-template-areas: "bar bar" "nav main" "nav status";
+  grid-template-columns: var(--size-rail-expanded) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+/* App bar: fixed brand → context → actions. Respects notches and the macOS/Windows title-bar insets. */
+.rsl-appbar {
+  grid-area: bar; display: flex; align-items: center; gap: var(--space-4);
+  min-block-size: calc(var(--size-appbar) + env(safe-area-inset-top, 0px));
+  padding: env(safe-area-inset-top, 0px) max(var(--space-4), env(safe-area-inset-right, 0px)) 0 max(var(--space-4), env(safe-area-inset-left, 0px));
+  background: linear-gradient(180deg, var(--rsl-bar), var(--rsl-bar-2)); color: #fff;
+}
+.rsl-appbar-context { flex: 1 1 auto; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rsl-meta-on-bar); font-size: var(--size-text-sm); }
+.rsl-appbar-actions { display: flex; align-items: center; gap: var(--space-2); }
+
+/* Brand block (order fixed: monogram → rsL + app → byline → build). Quiet by size, never by opacity. */
+.rsl-brand { display: flex; align-items: center; gap: var(--space-2); max-inline-size: 260px; flex: 0 0 auto; }
+.rsl-brand .rsl-mono { inline-size: 40px; block-size: 32px; flex: none; }
+.rsl-brand-text { display: grid; line-height: 1.1; min-inline-size: 0; }
+.rsl-name { font: 800 20px/1.1 var(--font-brand); white-space: nowrap; letter-spacing: -0.01em; }
+.rsl-r { background: linear-gradient(90deg, var(--rsl-blue), var(--rsl-violet)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.rsl-app { color: #fff; }
+.rsl-meta { font: 300 var(--size-meta)/1.3 var(--font-mono); letter-spacing: .02em; color: var(--rsl-meta-on-bar); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Navigation */
+.rsl-nav { grid-area: nav; display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3);
+  padding-inline-start: max(var(--space-3), env(safe-area-inset-left, 0px));
+  background: var(--color-surface); border-inline-end: 1px solid var(--color-border); overflow-y: auto; }
+.rsl-nav-item { display: flex; align-items: center; gap: var(--space-3); min-block-size: 40px; padding-inline: var(--space-3);
+  border-radius: var(--radius-md); color: var(--color-text-muted); text-decoration: none; font-weight: 500; }
+.rsl-nav-item svg { inline-size: 22px; block-size: 22px; flex: none; }
+.rsl-nav-item:hover { background: var(--color-surface-2); color: var(--color-text); }
+.rsl-nav-item[aria-current="page"] { background: color-mix(in srgb, var(--rsl-blue) 12%, transparent); color: var(--color-text); }
+
+.rsl-workspace { grid-area: main; overflow: auto; padding: var(--space-5);
+  padding-inline-end: max(var(--space-5), env(safe-area-inset-right, 0px)); }
+.rsl-page-head { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-3) var(--space-5); margin-block-end: var(--space-5); }
+.rsl-page-title { font: 700 var(--size-text-xl)/1.2 var(--font-brand); margin: 0; text-wrap: balance; }
+.rsl-page-context { color: var(--color-text-muted); font-size: var(--size-text-sm); }
+.rsl-page-actions { margin-inline-start: auto; display: flex; gap: var(--space-2); }
+
+.rsl-status { grid-area: status; display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); align-items: center;
+  padding: var(--space-2) var(--space-5); padding-block-end: max(var(--space-2), env(safe-area-inset-bottom, 0px));
+  border-block-start: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-muted); font-size: var(--size-text-xs); }
+
+/* Controls */
+.rsl-btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-block-size: 40px; padding-inline: var(--space-4);
+  border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text);
+  font: 600 var(--size-text-sm)/1 var(--font-ui); cursor: pointer; transition: background var(--motion-micro) var(--motion-ease); }
+.rsl-btn--primary { background: var(--color-accent-strong); border-color: transparent; color: var(--color-on-accent); }
+.rsl-btn:hover { background: var(--color-surface-2); }
+.rsl-btn--primary:hover { background: var(--color-accent-strong); filter: brightness(1.08); }
+:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; }
+
+.rsl-chip { display: inline-flex; align-items: center; gap: 6px; min-block-size: 28px; padding-inline: 10px; border-radius: var(--radius-pill);
+  font: 600 var(--size-text-xs)/1 var(--font-ui); border: 1px solid currentColor; }
+.rsl-chip--ok { color: var(--color-ok); } .rsl-chip--warn { color: var(--color-warn); } .rsl-chip--crit { color: var(--color-crit); } .rsl-chip--info { color: var(--color-info); }
+.rsl-appbar .rsl-chip { color: #fff; border-color: rgb(255 255 255 / 0.45); }
+
+/* License watermark: below dialogs/toasts, hidden from assistive tech */
+.rsl-watermark { position: fixed; inset: 0; pointer-events: none; z-index: 5; overflow: hidden; }
+.rsl-watermark::before { content: attr(data-text); position: absolute; inset: -50%; display: flex; flex-wrap: wrap; align-content: center; gap: 120px 200px;
+  transform: rotate(-28deg); font: 700 28px/1 var(--font-brand); color: var(--color-watermark-trial); white-space: pre; word-spacing: 200px; }
+.rsl-watermark[data-state="due"]::before { color: var(--color-watermark-due); }
+
+/* Medium: icon rail */
+@media (max-width: 1199.98px) {
+  .rsl-app { grid-template-columns: var(--size-rail) minmax(0, 1fr); }
+  .rsl-nav-item { flex-direction: column; justify-content: center; gap: 2px; min-block-size: 56px; padding: var(--space-1); font-size: 11px; text-align: center; }
+}
+/* Compact: bottom navigation, bottom sheets, no rail */
+@media (max-width: 599.98px) {
+  .rsl-app { grid-template-areas: "bar" "main" "status" "nav"; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto auto; }
+  .rsl-nav { flex-direction: row; justify-content: space-around; padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+    border-inline-end: 0; border-block-start: 1px solid var(--color-border); overflow: visible; }
+  .rsl-nav-item { flex: 1 1 0; min-block-size: 56px; }
+  .rsl-status { padding-block-end: var(--space-2); }
+  .rsl-workspace { padding: var(--space-4); }
+  .rsl-meta .rsl-by, .rsl-meta .rsl-sep { display: none; }      /* keep the build, drop the byline */
+  .rsl-appbar-context { display: none; }
+  dialog.rsl-sheet { margin: auto 0 0; inline-size: 100%; max-inline-size: none; border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    padding-block-end: max(var(--space-4), env(safe-area-inset-bottom, 0px)); }
+}
+/* Touch: 48 px targets everywhere */
+@media (pointer: coarse) {
+  .rsl-btn, .rsl-nav-item, input:not([type="checkbox"]):not([type="radio"]), select, textarea { min-block-size: var(--size-touch); }
+  input[type="checkbox"], input[type="radio"] { inline-size: 24px; block-size: 24px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+@media print {
+  .rsl-appbar, .rsl-nav, .rsl-status { display: none !important; }
+  .rsl-app { display: block; } .rsl-workspace { overflow: visible; padding: 0; }
+  @page { size: A4; margin: 16mm 14mm 18mm; }
+}

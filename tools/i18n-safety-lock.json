@@ -1,0 +1,75 @@
+{
+  "@note": "Hashes of the safety statements per language (SAFETY_KEYS). Renew only in a reviewed PR.",
+  "ar": {
+    "paper.banner": "cc61db3838d6424f539ab9152ab6603d1fe7a377f40f44cdd51d552924b065da",
+    "status.disclaimer": "3fdf4fa84d3b5f25c06441861a4d0501d79a9b43e631f00764a4811d89cd8d02"
+  },
+  "bn": {
+    "paper.banner": "41e0bf8263ad089c64df903b58c6d1703ef6e8a44c30d66dff481002e5232a7b",
+    "status.disclaimer": "95a527f4f766d0a88a7016ce0e99be751c0793c9e1a0d1f1ef41255f0ec2d226"
+  },
+  "de": {
+    "paper.banner": "28df9a2ad0c2be98bc0e83cfd450705aeb531dc70de0f975dc15a4f198e66771",
+    "status.disclaimer": "781279dc21b3756a1e3257a2458f69576c514969acd5e286ed529ffdbc59ad6a"
+  },
+  "en": {
+    "paper.banner": "9a01055f18502d1a9d76aefa2b0c079411c091aa2db2dd87ecf776b5c9d47bf6",
+    "status.disclaimer": "07b42587075e22f9c0b9af67a8243cbc3b2522f78f06478ee0ddeb25405305f8"
+  },
+  "es": {
+    "paper.banner": "af23a07b9f8ccc905bf86d63c192469452e134be0cc3814db25b06e87ab203e1",
+    "status.disclaimer": "47a87497231bc793045bd264705c16b887072f5939d959bee05800255f518e7c"
+  },
+  "fil": {
+    "paper.banner": "48a2da01af938682895bceef390f3b747be12ab1d2ebefbcd5c23e3331b8d7cc",
+    "status.disclaimer": "454c2719426c0b7013b83846ae25ffbea006e633bfec300c6c6ac07fed8f2d8c"
+  },
+  "fr": {
+    "paper.banner": "d80beec57431697eec93379528381c4a69e86183221c83a3589ccbc8bec4266f",
+    "status.disclaimer": "e3a3add23deee86e81c9153c720695235f6509e5950d32c25e75a9397ea9c8a2"
+  },
+  "hi": {
+    "paper.banner": "6a2f7e0a8dae778cf36211eaaf6d7664dd86158d98e414ba8f7f0b5390813e7a",
+    "status.disclaimer": "cd962587a32c30c535e961d1fe8656f9a7bd427a07e77fb7ed8c388148f1124e"
+  },
+  "id": {
+    "paper.banner": "a96e66a645b3f3e7d89949882360f263000016e87c611b928a6dbad906f5e491",
+    "status.disclaimer": "e02ec1f732f5d07cf333f0bca75336a948089b868788af49f0e3b0dc1d35da5d"
+  },
+  "it": {
+    "paper.banner": "587220920dcc3e3ca6a41811d4f0f0ac3875a85953a1f244bf715a2844aff387",
+    "status.disclaimer": "8f747a308a481cc8713b9d0e262cb60f21f4c9817cd7a5dcb0a6921385dfa6b1"
+  },
+  "ja": {
+    "paper.banner": "bcd3294e391b711f608345054fc589f9b97f6df518d00bdbf04249f8fcae511a",
+    "status.disclaimer": "ac6f8f7070edba1c0e686ac5b4e9d3812cbfeb899f572055fc68048a4a4d728e"
+  },
+  "ko": {
+    "paper.banner": "3dcf7f3570a204e5cd53f2a7ee7164e1f845e3c02f2532925eace3117f3e6a95",
+    "status.disclaimer": "56ce976c4b3c86c16bf0c6c0a018d3c1d022d5a525b544029e30fbb98a650940"
+  },
+  "ms": {
+    "paper.banner": "e98cc79978b5a1625ad38eb412bce961ad516b1159421a2caffb89ed8ae20b68",
+    "status.disclaimer": "60dc5e990c8d2161531b9698632a4acecd646430645786ecc963e575af88ed21"
+  },
+  "pt": {
+    "paper.banner": "01efb83e0c0ba903393ab340a83f9553bc141ecb22624c2670cc6a7d56f9438d",
+    "status.disclaimer": "cf47f5edeba6a17fb3d6a55a97dd1dcc690eb26f498b33a2b8857c59252a362f"
+  },
+  "ru": {
+    "paper.banner": "e8708987397bc9d46f1451d6a38a67ee975acc095bca1861cd9fb8b4232636e2",
+    "status.disclaimer": "04fc6b5aef680b23101e123c06009be157d8e72dea337b34f9cfd784907b745f"
+  },
+  "tr": {
+    "paper.banner": "8b34b779210e97ad4c9870ad2fc93def65bd5efac647a83c69baa86ae6accc25",
+    "status.disclaimer": "ce05b2349152bd8d0320be285f1a7cfd9cced1f31fcf9860c7a43199369ca738"
+  },
+  "ur": {
+    "paper.banner": "5445c030041f173c295a6f25e85b1da3f7ac4f9812e04b15206e3ae81086023b",
+    "status.disclaimer": "fec8ae9b99e7479e366c86ddbbf84c2be6f6462059c87081c301c3f995ab9cd9"
+  },
+  "zh": {
+    "paper.banner": "df98837ae3b6ac84f701932832ca13123515d2ae751bf9a314a96ba1ed409ddf",
+    "status.disclaimer": "f4f53d330a4b6b6b68e1f4159c805a8bb57e180037812398c81a7dc88ae1cd00"
+  }
+}

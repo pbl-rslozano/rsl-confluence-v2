@@ -1,0 +1,3 @@
+# Recorder output (ledger, candles, heartbeat, alert state) — personal data, never committed.
+recorder-data/
+*.tmp

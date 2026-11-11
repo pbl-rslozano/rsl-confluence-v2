@@ -1,0 +1,22 @@
+{
+  "name": "@rsl/confluence-mcp",
+  "version": "2.5.1",
+  "private": true,
+  "type": "module",
+  "description": "Local, read-only MCP server (stdio) that lets Claude analyse the forward-test signal ledger. No trading, no funds, no network.",
+  "author": "rsLozano",
+  "engines": {
+    "node": ">=22.15"
+  },
+  "bin": {
+    "rsl-confluence-mcp": "src/cli.mjs"
+  },
+  "scripts": {
+    "start": "node src/cli.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "zod": "4.6.7"
+  }
+}

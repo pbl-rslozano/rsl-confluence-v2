@@ -1,0 +1,11 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build:static": { "outputs": ["out/**", "dist-minified/**", "build-manifest.json"] },
+    "build:tauri": { "outputs": ["out/**", "dist-minified/**", "build-manifest.json"] },
+    "build:capacitor": { "outputs": ["out/**", "dist-minified/**", "build-manifest.json"] },
+    "test": {},
+    "typecheck": {},
+    "lint": {}
+  }
+}

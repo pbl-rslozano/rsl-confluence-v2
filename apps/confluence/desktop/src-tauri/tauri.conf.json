@@ -1,0 +1,65 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "rsL Confluence Terminal",
+  "version": "2.6.0",
+  "identifier": "com.rslozano.confluence",
+  "build": {
+    "frontendDist": "../../web/out",
+    "devUrl": "http://localhost:3000",
+    "beforeDevCommand": "pnpm --filter @rsl/confluence-web dev",
+    "beforeBuildCommand": "pnpm --filter @rsl/confluence-web build:tauri"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "rsL Confluence Terminal",
+        "width": 1500,
+        "height": 940,
+        "minWidth": 980,
+        "minHeight": 640,
+        "center": true,
+        "backgroundColor": "#090d14",
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "pattern": { "use": "isolation", "options": { "dir": "../isolation" } },
+      "freezePrototype": true,
+      "capabilities": ["main-capability"],
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: blob:",
+        "font-src": "'self' data:",
+        "connect-src": "'self' ipc: http://ipc.localhost https://data-api.binance.vision https://api.bybit.com https://api.bitget.com http://127.0.0.1:8787 http://localhost:8787 https://effervescent-bubblegum-1e5c03.netlify.app",
+        "worker-src": "'self'",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "form-action": "'self'",
+        "frame-ancestors": "'none'"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi", "nsis", "dmg", "app"],
+    "publisher": "rsLozano",
+    "copyright": "© 2026 rsLozano",
+    "category": "Finance",
+    "shortDescription": "rsL Confluence Terminal",
+    "longDescription": "Personal, read-only crypto market screener: closed-bar multi-indicator confluence signals from public exchange data. Analysis tool, not financial advice.",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "fileAssociations": [
+      { "ext": ["rslbak"], "name": "rsL Confluence backup", "description": "rsL Confluence Terminal backup", "role": "Editor", "mimeType": "application/json" }
+    ],
+    "windows": {
+      "webviewInstallMode": { "type": "embedBootstrapper" },
+      "wix": { "language": "en-US" },
+      "nsis": { "installMode": "currentUser" }
+    },
+    "macOS": { "minimumSystemVersion": "15.0" }
+  }
+}

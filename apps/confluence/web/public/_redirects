@@ -1,0 +1,7 @@
+# v2.6 (ADR-0013): Coins.ph public market data, read paths only. Coins.ph sends no
+# Access-Control-Allow-Origin header, so the hosted PWA reaches it through these
+# same-origin rewrites. No headers, no secrets. Must match
+# apps/confluence/web/src/lib/public-hosts.ts — release check R16.
+/x/coinsph/openapi/v1/time            https://api.pro.coins.ph/openapi/v1/time            200
+/x/coinsph/openapi/v1/exchangeInfo    https://api.pro.coins.ph/openapi/v1/exchangeInfo    200
+/x/coinsph/openapi/quote/v1/*         https://api.pro.coins.ph/openapi/quote/v1/:splat    200

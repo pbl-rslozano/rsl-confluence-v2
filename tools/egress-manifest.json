@@ -1,0 +1,89 @@
+{
+  "schema": 1,
+  "description": "Allowed outbound hosts per process (ADR-0003, amended by ADR-0008). tools/check-egress.mjs fails when a source file under a process root contains an http(s) URL whose host is not listed for that process; the recorder also enforces this list at runtime.",
+  "processes": {
+    "web": {
+      "description": "Browser / Tauri / Capacitor app. Enforced by CSP connect-src (apps/confluence/web/src/lib/csp.ts) and release-check R8; listed here for one overview, not scanned by check-egress. v2.6: nativeHosts are reached outside the CSP (no CORS header) — web through the same-origin rewrite in public/_redirects, Capacitor/Tauri through nativeGet — and only on the read paths in src/lib/public-hosts.ts (release-check R16).",
+      "roots": [],
+      "hosts": [
+        "data-api.binance.vision",
+        "api.bybit.com",
+        "api.bitget.com",
+        "127.0.0.1:8787",
+        "localhost:8787",
+        "effervescent-bubblegum-1e5c03.netlify.app"
+      ],
+      "csp": [
+        "'self'",
+        "ipc:",
+        "http://ipc.localhost",
+        "http://127.0.0.1:8787",
+        "http://localhost:8787",
+        "https://data-api.binance.vision",
+        "https://api.bybit.com",
+        "https://api.bitget.com",
+        "https://effervescent-bubblegum-1e5c03.netlify.app"
+      ],
+      "nativeHosts": [
+        "api.pro.coins.ph"
+      ]
+    },
+    "launcher": {
+      "description": "Local PWA launcher (tools/pwa-launcher/serve-pwa.mjs), run by the user on their own computer. v2.6: proxies Coins.ph public market-data read paths for the page (same list as src/lib/public-hosts.ts, R16).",
+      "roots": [
+        "tools/pwa-launcher"
+      ],
+      "hosts": [
+        "api.pro.coins.ph"
+      ],
+      "loopbackListen": true
+    },
+    "recorder": {
+      "description": "Headless forward-test recorder (apps/confluence/recorder, ADR-0008). Market data only; alert hosts are added at runtime only when the matching environment variables are set.",
+      "roots": [
+        "apps/confluence/recorder"
+      ],
+      "hosts": [
+        "data-api.binance.vision",
+        "api.bybit.com",
+        "api.bitget.com"
+      ],
+      "conditionalHosts": {
+        "api.telegram.org": "only when TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are both set"
+      },
+      "userConfiguredHosts": {
+        "ALERT_WEBHOOK_URL": "the host of the user's own https webhook, only when ALERT_WEBHOOK_URL is set; never a literal in source"
+      },
+      "websocketHosts": [
+        "stream.bybit.com"
+      ]
+    },
+    "mcp": {
+      "description": "Local MCP server (apps/confluence/mcp): reads recorder/app files only and makes NO network requests (its own no-network guard and tests). Any host added here needs an ADR amendment.",
+      "roots": [
+        "apps/confluence/mcp"
+      ],
+      "hosts": []
+    },
+    "tools": {
+      "description": "Node tools run by the user on their own computer, never by the app (ADR-0003 addendum, v2.3). fetch-binance-archive.mjs downloads checksummed monthly kline archives and lists archived (incl. delisted) symbols.",
+      "roots": [
+        "tools/fetch-binance-archive.mjs"
+      ],
+      "hosts": [
+        "data.binance.vision",
+        "s3-ap-northeast-1.amazonaws.com",
+        "data-api.binance.vision"
+      ]
+    },
+    "publish": {
+      "description": "CI-only publisher of the update channel (tools/publish-update.mjs, ADR-0012): deploys the PWA, /updates/latest.json and the APK to Netlify with NETLIFY_AUTH_TOKEN. Never run by the app.",
+      "roots": [
+        "tools/publish-update.mjs"
+      ],
+      "hosts": [
+        "api.netlify.com"
+      ]
+    }
+  }
+}

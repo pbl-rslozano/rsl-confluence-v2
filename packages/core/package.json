@@ -1,0 +1,16 @@
+{
+  "name": "@rsl/core-kit",
+  "version": "1.0.2026",
+  "description": "rsL Core Kit v1.0 2026 — copied unchanged from the kit artifact (see KIT-MANIFEST.sha256). Do not edit here; change the kit and bump its version.",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./core/*": "./core/*",
+    "./tokens/*": "./tokens/*",
+    "./ui/*": "./ui/*"
+  },
+  "scripts": {
+    "test": "node --test tests/core.test.mjs",
+    "verify": "sha256sum -c KIT-MANIFEST.sha256 --quiet"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "@rsl/confluence-mobile",
+  "version": "2.6.0",
+  "private": true,
+  "description": "rsL Confluence Terminal — Capacitor 8 mobile shell (iOS / iPadOS, Android).",
+  "scripts": {
+    "web": "pnpm --filter @rsl/confluence-web build:capacitor",
+    "sync": "pnpm run web && cap sync",
+    "add:android": "cap add android",
+    "add:ios": "cap add ios --packagemanager SPM",
+    "android:apk": "pnpm run sync && cd android && ./gradlew assembleRelease",
+    "android:aab": "pnpm run sync && cd android && ./gradlew bundleRelease"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.6.0",
+    "@capacitor/android": "8.6.0",
+    "@capacitor/ios": "8.6.0",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/filesystem": "8.1.5",
+    "@capacitor/share": "8.0.3",
+    "@capacitor/splash-screen": "8.0.2",
+    "@capacitor/status-bar": "8.0.4",
+    "@capacitor-community/sqlite": "8.1.1"
+  },
+  "devDependencies": { "@capacitor/cli": "8.6.0" }
+}

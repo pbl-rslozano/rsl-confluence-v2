@@ -1,0 +1,19 @@
+# Netlify response headers for the hosted PWA + update channel (ADR-0012). Ignored by the native shells.
+/updates/latest.json
+  Cache-Control: no-cache
+  Access-Control-Allow-Origin: *
+  Content-Type: application/json; charset=utf-8
+  X-Content-Type-Options: nosniff
+
+/updates/*
+  Content-Type: application/vnd.android.package-archive
+  Content-Disposition: attachment
+  X-Content-Type-Options: nosniff
+
+/sw.js
+  Cache-Control: no-cache
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: no-referrer

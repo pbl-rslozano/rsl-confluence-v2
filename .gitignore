@@ -1,0 +1,33 @@
+node_modules/
+.next/
+out/
+# v2.6 WP8 protected-build audit artefacts (CI artifacts, never committed)
+apps/confluence/web/dist-minified/
+apps/confluence/web/build-manifest.json
+apps/confluence/web/build-golden.json
+apps/confluence/web/build-evidence.json
+dist/
+release/
+target/
+apps/confluence/desktop/src-tauri/gen/
+apps/confluence/mobile/android/
+apps/confluence/mobile/ios/
+*.tsbuildinfo
+.turbo/
+# Recorder / replay output (market data, not source)
+recorder-data/
+replay-out/
+klines/
+# Keys never live in the repository (builder skill §8.3)
+*.key
+*.pem
+*.p12
+*.jks
+*.keystore
+*.enc.json
+*-PRIVATE*
+.superpowers/
+
+# Python bytecode (tools/*.py tests)
+__pycache__/
+*.pyc

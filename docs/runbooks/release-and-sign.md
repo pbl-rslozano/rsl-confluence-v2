@@ -1,0 +1,20 @@
+# Runbook — Release and sign
+
+1. **Bump** `package.json` version, `apps/confluence/web/src/lib/build-info.ts`, `src/rsl/app-info.ts` (`version`, `build`), `tauri.conf.json` `version`, `public/sw.js` `CACHE_VERSION`, and add a CHANGELOG entry.
+2. **Local gate** (Node 22.5+, pnpm 10.34.9):
+   ```
+   pnpm install --frozen-lockfile
+   pnpm typecheck && pnpm lint
+   pnpm sbom
+   node tools/release-check.mjs --with-tests      # must print 10/10
+   pnpm build:pwa
+   (cd apps/confluence/web/out && python3 -m http.server 8770 --bind 127.0.0.1 &) && pnpm e2e   # must print all passed
+   ```
+3. **Tag** `v2.2.0` and push. `.github/workflows/release.yml` runs the gate again, then builds Windows (.msi/.exe), macOS (universal .dmg), Android (.aab/.apk) and an iOS simulator compile.
+4. **Signing secrets** (GitHub → Settings → Secrets; never in the repo):
+   - macOS: `APPLE_CERTIFICATE` (base64 .p12 Developer ID Application), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_PATH` (notarisation).
+   - Windows: add a `bundle.windows.signCommand` (e.g. Azure Trusted Signing) once a certificate exists.
+   - Android: `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
+   - iOS: personal device install via Xcode with your Apple ID, or an Apple Business custom app if ever shared (no public App Store build).
+5. **Before the first shared release:** pin every `uses:` action to a full commit SHA.
+6. **Publish**: attach installers, `rsL-Confluence-v<ver>-2026-pwa.zip` + `.sha256`, and the SBOM. Keep keys offline; report only their location.

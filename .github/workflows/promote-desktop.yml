@@ -1,0 +1,81 @@
+name: Promote verified desktop builds
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/workflows/promote-desktop.yml]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            run: '42024979141'
+            source: 90fa621f0da44504f6607309a8e23fe0068d9714
+            job: Desktop — windows-latest
+          - platform: macos
+            run: '42026588665'
+            source: 9466611ee023f3b2edee5c28ed23accd88bf3ada
+            job: Desktop — macos-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN: ${{ matrix.run }}
+      SOURCE_SHA: ${{ matrix.source }}
+      PLATFORM: ${{ matrix.platform }}
+      BUILD_JOB: ${{ matrix.job }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with: { fetch-depth: 0 }
+      - name: Verify source inputs and wait for completed build
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Only CI/release control files changed after the compiled snapshots.
+          git diff --exit-code "$SOURCE_SHA" "$GITHUB_SHA" -- apps packages package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json .npmrc tools ':!tools/release-policy.mjs' ':!tools/release-policy.test.mjs' ':!tools/build-ios-release.sh'
+          actual="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" --jq .head_sha)"
+          [ "$actual" = "$SOURCE_SHA" ]
+          for attempt in $(seq 1 120); do
+            jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN/jobs")"
+            gate="$(jq -r '.jobs[] | select(.name == "Gate — tests, release-check, PWA, acceptance") | .conclusion' <<< "$jobs")"
+            result="$(jq -r --arg name "$BUILD_JOB" '.jobs[] | select(.name == $name) | .conclusion' <<< "$jobs")"
+            [ "$gate" = success ] || { echo 'Source verification gate did not pass'; exit 1; }
+            if [ "$result" = success ]; then exit 0; fi
+            if [ "$result" != null ] && [ -n "$result" ]; then echo "Build ended: $result"; exit 1; fi
+            sleep 15
+          done
+          echo 'Timed out waiting for desktop build'; exit 1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: installer-${{ matrix.platform }}
+          path: release-files
+          run-id: ${{ matrix.run }}
+          github-token: ${{ github.token }}
+      - name: Create separate draft release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          tag="v$version-$PLATFORM"
+          notes="$RUNNER_TEMP/notes.md"
+          printf 'Confluence Terminal %s for %s.\n\nCompiled source: %s\nRelease control commit: %s\nApplication and desktop build inputs verified identical.\n' "$version" "$PLATFORM" "$SOURCE_SHA" "$GITHUB_SHA" > "$notes"
+          if [ "$PLATFORM" = macos ]; then
+            printf '\nAd-hoc signed, unnotarized macOS DMG.\n' >> "$notes"
+          else
+            printf '\nWindows installers are unsigned.\n' >> "$notes"
+          fi
+          mapfile -d '' installers < <(find release-files -type f -print0)
+          [ "${#installers[@]}" -gt 0 ]
+          for file in "${installers[@]}"; do (cd "$(dirname "$file")" && sha256sum "$(basename "$file")") > "$file.sha256"; done
+          if gh release view "$tag" >/dev/null 2>&1; then
+            target="$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha 2>/dev/null || gh release view "$tag" --json targetCommitish --jq .targetCommitish)"
+            node tools/release-policy.mjs true "$(gh release view "$tag" --json isDraft --jq .isDraft)" "$target" "$GITHUB_SHA"
+          else
+            gh release create "$tag" --draft --target "$GITHUB_SHA" --title "Confluence Terminal $version — $PLATFORM" --notes-file "$notes"
+          fi
+          mapfile -d '' assets < <(find release-files -type f -print0)
+          gh release upload "$tag" "${assets[@]}" --clobber

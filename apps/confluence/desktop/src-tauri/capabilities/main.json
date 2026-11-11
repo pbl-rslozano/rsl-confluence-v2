@@ -1,0 +1,58 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-capability",
+  "description": "Least privilege for the main window: SQLite records, save/open dialogs (paths the user picks are added to the fs scope by the dialog plugin), file read/write in app data only, and the developer-contact mailto link, and GET of Coins.ph public market-data paths (ADR-0013; must match src/lib/public-hosts.ts, release check R16).",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-set-theme",
+    "sql:allow-load",
+    "sql:allow-execute",
+    "sql:allow-select",
+    "sql:allow-close",
+    "dialog:allow-save",
+    "dialog:allow-open",
+    {
+      "identifier": "fs:allow-write-file",
+      "allow": [
+        {
+          "path": "$APPDATA/**"
+        }
+      ]
+    },
+    {
+      "identifier": "fs:allow-read-file",
+      "allow": [
+        {
+          "path": "$APPDATA/**"
+        }
+      ]
+    },
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "mailto:rslozano@gmail.com*"
+        }
+      ]
+    },
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "https://api.pro.coins.ph/openapi/v1/time"
+        },
+        {
+          "url": "https://api.pro.coins.ph/openapi/v1/exchangeInfo"
+        },
+        {
+          "url": "https://api.pro.coins.ph/openapi/quote/v1/*"
+        }
+      ]
+    }
+  ]
+}

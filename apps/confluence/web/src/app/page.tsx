@@ -1,0 +1,2271 @@
+"use client";
+
+import { ScoringProfileEditor } from "@/components/scoring-profile-editor";
+import { normalizeScoringProfile, type ScoringProfile } from "@/lib/scoring-profile";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { TokenIcon } from "@web3icons/react/dynamic";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  CircleDot,
+  Bell,
+  KeyRound,
+  Loader2,
+  Database,
+  History,
+  Minus,
+  RefreshCw,
+  Maximize2,
+  Minimize2,
+  SlidersHorizontal,
+  Monitor,
+  Sun,
+  Moon,
+  RotateCcw,
+  Search,
+  TrendingDown,
+  TrendingUp,
+  Zap,
+  Info,
+  Mail,
+  BarChart3,
+  FlaskConical,
+} from "lucide-react";
+import { contactMailto } from "@rsl/core-kit/core/rsl-brand.js";
+import { useMediaQuery, PHONE_QUERY } from "@/lib/use-media-query";
+import { applyTheme, cssSupportsColorMix, migrateThemePref, resolveTheme, toStoredBackground, THEME_PREF_KEY, type ThemePref } from "@/lib/theme";
+import { useRsl } from "@/rsl/RslContext";
+import { APP } from "@/rsl/app-info";
+import { BrandBlock } from "@/rsl/components/BrandBlock";
+import { CustomerChip } from "@/rsl/components/CustomerChip";
+import { LanguageMenu } from "@/rsl/components/LanguageMenu";
+import { AboutDialog } from "@/rsl/components/AboutDialog";
+import { StatusFooter } from "@/rsl/components/StatusFooter";
+import { UpdateNotice } from "@/rsl/components/UpdateNotice";
+import {
+  type ConfluenceResult,
+  type IndicatorResult,
+  type Kline,
+  type SignalState,
+} from "@/lib/indicators";
+import type { ReversalResult } from "@/lib/reversal";
+import type { PatternSignal } from "@/lib/pattern-signal";
+import { runScanJobs, scanMode } from "@/lib/scan-runner";
+import { packKlines, type ScanJob } from "@/lib/scan-jobs";
+import { createLedgerStore } from "@/lib/signal-ledger";
+import { createIndexedDBAdapter } from "@rsl/core-kit/core/rsl-storage.js";
+import { emptyReversal, suppressedConfluence, type SeriesScore } from "@/lib/scan-pipeline";
+import { emptySignal } from "@/lib/pattern-signal";
+import { ENGINE_BARS, engineConfigId } from "@/lib/engine-config";
+import { ASSET_CLASS_FILTERS, barWhileClosed, classifySymbol, hasSessionGaps, type AssetClassFilter } from "@/lib/asset-classes";
+import type { AssetClass, LedgerRow } from "@/lib/ledger-metrics";
+import { LedgerDialog } from "@/components/ledger-dialog";
+import { PaperDialog } from "@/components/paper-dialog";
+import { createPaperStore, memoryPaperPort, PAPER_COLLECTIONS, PAPER_DB_NAME } from "@/lib/paper-store";
+import { eventsNear } from "@/lib/macro-calendar";
+import { loadHistoricalSeries, MAX_STORED_BARS, mergeKlines, saveHistoricalSeries } from "@/lib/history-store";
+import {
+  barCloseTime,
+  contiguousTail,
+  DATA_SOURCES,
+  fetchHistory,
+  fetchMarketData,
+  INTERVAL_MS,
+  fetchOrderBook,
+  MAX_HISTORY_BARS,
+  slippageBps,
+  usesDirectFetch,
+  venueTypeOf,
+  type DataSource,
+} from "@/lib/market-client";
+import { COINSPH_MIN_REFRESH_MS, COINSPH_MIN_USD_TURNOVER } from "@/lib/coinsph";
+import { healthFromError, healthFromScan, type SourceHealth } from "@/lib/source-health";
+import { catchUpContext, enrichCatchUp, liveRow, scanShared, type ScanRecordContext, type ScanSeries } from "@/lib/scan-record";
+import {
+  DEFAULT_APP_PREFERENCES,
+  loadAppPreferences,
+  saveAppPreferences,
+  type AppPreferences,
+  type StoredChartDepth,
+} from "@/lib/preferences-store";
+import { ScannerInbox } from "@/components/scanner-inbox";
+import { ScannerWatchlists, type Watchlist } from "@/components/scanner-watchlists";
+import { SavedScans } from "@/components/saved-scans";
+import { OrderFlowPanel } from "@/components/order-flow-panel";
+import { DerivativesPanel } from "@/components/derivatives-panel";
+import { ChartReplay } from "@/components/chart-replay";
+import { PriceChart } from "@/components/price-chart";
+import { PrivateApiDialog } from "@/components/private-api-dialog";
+import type { PrivateApiProfile } from "@/lib/private-api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+
+/* ========================================================================== *
+ *  Constants & types
+ * ========================================================================== */
+
+const TIMEFRAMES = [
+  { value: "1M", label: "Monthly" },
+  { value: "1w", label: "Weekly" },
+  { value: "1d", label: "Daily" },
+  { value: "4d", label: "4 Days" },
+  { value: "2d", label: "2 Days" },
+  { value: "12h", label: "12 Hours" },
+  { value: "8h", label: "8 Hours" },
+  { value: "6h", label: "6 Hours" },
+  { value: "4h", label: "4 Hour" },
+  { value: "1h", label: "1 Hour" },
+  { value: "15m", label: "15 Minutes (Intraday)" },
+  { value: "5m", label: "5 Minutes" },
+  { value: "1m", label: "1 Minute" },
+] as const;
+
+type TF = (typeof TIMEFRAMES)[number]["value"];
+
+type BackgroundOption = "dark" | "white" | "system";
+
+/** Bars of silence before the same pair may re-alert in the same direction. */
+const ALERT_COOLDOWN_BARS = 6;
+
+/* ENGINE_BARS (fixed engine window) now lives in lib/engine-config.ts (v2.1.1) and is
+ * shared with the scan worker, the signal ledger and the replay backtest. */
+/** Upper bound on remembered alert keys, so a long session cannot leak memory. */
+const ALERT_MEMORY_LIMIT = 2000;
+
+/** v2.6: Coins.ph allows ~120 weight/min per IP, so its auto-refresh is never faster than 5 min. */
+const refreshCadenceFor = (timeframe: TF, source: string) =>
+  Math.max(refreshCadence(timeframe), source === "coinsph" ? COINSPH_MIN_REFRESH_MS : 0);
+
+/** True inside the Capacitor or Tauri shell (real HTTP status codes are visible there). */
+const inNativeShell = () => {
+  const g = globalThis as unknown as { __TAURI_INTERNALS__?: unknown; Capacitor?: { isNativePlatform?: () => boolean } };
+  return !!g.__TAURI_INTERNALS__ || !!g.Capacitor?.isNativePlatform?.();
+};
+
+/** v2.6: what the last scan of a source carried besides rows (price currency, Coins.ph extras). */
+interface ScanMeta {
+  source: string;
+  currency: "USD" | "PHP";
+  premium: Record<string, number>;
+  thin: string[];
+}
+
+const refreshCadence = (timeframe: TF) => {
+  if (timeframe === "1m" || timeframe === "5m") return 30_000;
+  if (timeframe === "15m" || timeframe === "1h") return 60_000;
+  if (timeframe.endsWith("h")) return 5 * 60_000;
+  return 15 * 60_000;
+};
+
+interface AssetRow {
+  rank: number;
+  symbol: string; // e.g. BTC
+  pair: string; // e.g. BTCUSDT
+  price: number;
+  change24h: number;
+  quoteVolume: number;
+  confluence: ConfluenceResult;
+  reversal: ReversalResult;
+  pattern: PatternSignal;
+  klines: Kline[];
+  assetClass: AssetClass;
+  /** Stocks/FX: the newest bar printed while the underlying market was shut. */
+  underlyingClosed: boolean;
+  /** v2.3: context fields logged with the ledger row (never scored). */
+  context?: Partial<LedgerRow>;
+}
+
+type SortKey =
+  | "rank"
+  | "symbol"
+  | "price"
+  | "change24h"
+  | "quoteVolume"
+  | "bull"
+  | "bear"
+  | "score";
+type SortDir = "asc" | "desc";
+
+/* ========================================================================== *
+ *  Formatting helpers
+ * ========================================================================== */
+
+function fmtPrice(p: number): string {
+  if (!isFinite(p)) return "—";
+  if (p >= 1000) return p.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (p >= 1) return p.toFixed(4);
+  if (p >= 0.01) return p.toFixed(5);
+  return p.toExponential(3);
+}
+
+function fmtVol(v: number): string {
+  if (!isFinite(v)) return "—";
+  if (v >= 1e9) return (v / 1e9).toFixed(2) + "B";
+  if (v >= 1e6) return (v / 1e6).toFixed(2) + "M";
+  if (v >= 1e3) return (v / 1e3).toFixed(2) + "K";
+  return v.toFixed(2);
+}
+
+function fmtPct(p: number): string {
+  if (!isFinite(p)) return "--";
+  return (p >= 0 ? "+" : "") + p.toFixed(2) + "%";
+}
+
+function parseAssetInput(value: string): string[] {
+  return value
+    .split(/[\s,]+/)
+    .map((v) => v.trim().toUpperCase())
+    .filter(Boolean);
+}
+
+
+/* ========================================================================== *
+ *  Market data fetching
+ * ----------------------------------------------------------------------------
+ * Uses the unified `fetchMarketData` layer which works in three contexts:
+ * Next.js server (fast proxy), Capacitor native shell (direct Binance), and
+ * standalone PWA (direct Binance fallback). See src/lib/market-client.ts.
+ * ========================================================================== */
+
+/* ========================================================================== *
+ *  Signal visual primitives
+ * ========================================================================== */
+
+function SignalDot({ state, size = 12 }: { state: SignalState; size?: number }) {
+  const color =
+    state === "BULLISH"
+      ? "bg-emerald-400"
+      : state === "BEARISH"
+        ? "bg-rose-400"
+        : "bg-zinc-500";
+  return <span className={`inline-block rounded-full ${color}`} style={{ width: size, height: size }} />;
+}
+
+function AssetLogo({ symbol, size = 28 }: { symbol: string; size?: number }) {
+  const fallback = (
+    <span
+      className="flex h-full w-full items-center justify-center rounded-full bg-zinc-800 text-[9px] font-bold text-zinc-300"
+      aria-hidden="true"
+    >
+      {symbol.slice(0, 3)}
+    </span>
+  );
+
+  return (
+    <span className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full" style={{ width: size, height: size }}>
+      <TokenIcon symbol={symbol.toLowerCase()} variant="branded" size={size} fallback={fallback} aria-label={`${symbol} logo`} />
+    </span>
+  );
+}
+
+function MasterBadge({ c }: { c: ConfluenceResult }) {
+  const { t } = useRsl();
+  const map = {
+    BULLISH: { cls: "bg-emerald-500/15 text-emerald-300 border-emerald-500/40", icon: TrendingUp },
+    BEARISH: { cls: "bg-rose-500/15 text-rose-300 border-rose-500/40", icon: TrendingDown },
+    NEUTRAL: { cls: "bg-zinc-500/15 text-zinc-300 border-zinc-500/40", icon: Minus },
+  } as const;
+  // "Not enough information" and "no directional edge" are different states.
+  // Rendering them identically is how thin-data assets end up looking like
+  // opportunities, so suppressed rows get their own badge.
+  if (c.suppressed) {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-800/40 px-2 py-0.5 text-[11px] font-semibold text-zinc-500"
+        title={c.warnings.join(" ")}
+      >
+        <AlertTriangle className="h-3 w-3" />
+        {t("sig.noData")}
+      </span>
+    );
+  }
+  const { cls, icon: Icon } = map[c.master];
+  const strength = t(c.strength === "STRONG" ? "sig.strong" : c.strength === "MODERATE" ? "sig.moderate" : "sig.weak");
+  const label =
+    c.master === "NEUTRAL"
+      ? t("sig.neutral")
+      : `${t(c.master === "BULLISH" ? "sig.buy" : "sig.sell")} · ${strength}`;
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-semibold ${cls}`}
+      title={c.warnings.join(" ")}
+    >
+      <Icon className="h-3 w-3" />
+      {label}
+      {c.lowVolatility && <span className="font-normal text-zinc-300" title="Compressed volatility — strength capped">·lv</span>}
+    </span>
+  );
+}
+
+/**
+ * Compact reversal indicator for the table. Shows an arrow + confidence only
+ * when a genuine reversal (opposing the current trend) is detected, otherwise
+ * a muted dash. Tooltip lists every contributing reversal signal.
+ */
+function ReversalBadge({ r }: { r: ReversalResult }) {
+  if (r.confidence === "NONE" || r.direction === "NONE" || !r.isReversal) {
+    return (
+      <TooltipProvider delayDuration={150}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex items-center gap-1 text-xs text-zinc-600">
+              <Minus className="h-3 w-3" />
+              <span>—</span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="border-zinc-700 bg-zinc-900 text-xs">
+            <div className="font-semibold text-zinc-300">{r.summary}</div>
+            {r.signals.length > 0 && (
+              <div className="mt-1 text-zinc-500">{r.upCount} up / {r.downCount} down signals</div>
+            )}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+  const isUp = r.direction === "UP";
+  const toneCls = isUp
+    ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+    : "bg-rose-500/15 text-rose-300 border-rose-500/40";
+  const confLabel =
+    r.confidence === "HIGH" ? "HIGH" : r.confidence === "MODERATE" ? "MOD" : "LOW";
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold ${toneCls}`}>
+            {isUp ? <RotateCcw className="h-3 w-3" /> : <RotateCcw className="h-3 w-3 -scale-y-100" />}
+            {isUp ? "REV↑" : "REV↓"} {confLabel}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="w-72 p-0 border-zinc-700 bg-zinc-900">
+          <div className="px-3 py-2 border-b border-zinc-800 text-xs font-semibold text-zinc-200">
+            Reversal Detection · {r.currentTrend}
+          </div>
+          <div className="px-3 py-1.5 text-[11px] text-zinc-400 border-b border-zinc-800">
+            {r.summary}
+          </div>
+          <div className="max-h-56 overflow-y-auto p-1">
+            {r.signals.map((s, i) => (
+              <div key={i} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-xs hover:bg-zinc-800/60">
+                <span className="flex items-center gap-2 text-zinc-300">
+                  <span className={`inline-block h-2 w-2 rounded-full ${s.direction === "UP" ? "bg-emerald-400" : "bg-rose-400"}`} />
+                  {s.name}
+                </span>
+                <span className="font-mono text-[10px] text-zinc-500">{s.detail}</span>
+              </div>
+            ))}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+function PatternBadge({ pattern }: { pattern: PatternSignal }) {
+  if (pattern.direction === "NONE" || pattern.confidence === "NONE") {
+    return (
+      <span className="text-[11px] text-zinc-600" title={pattern.summary}>
+        {pattern.matches > 0 ? `${pattern.matches} mixed` : "—"}
+      </span>
+    );
+  }
+  const up = pattern.direction === "UP";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold ${
+        up
+          ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-300"
+          : "border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-300"
+      }`}
+      title={`${pattern.summary} Expected historical mean: ${fmtPct(pattern.expectedMovePct)}. Asset base rate: ${Math.round(pattern.baseRate * 100)}%. Similarity: ${Math.round(pattern.averageSimilarity * 100)}%. Descriptive only — not a validated forecast.`}
+    >
+      {up ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+      {Math.round(pattern.winRate * 100)}% · {pattern.confidence.slice(0, 3)}
+    </span>
+  );
+}
+
+/** Horizontal 20-cell bar summarising each indicator's state at a glance. */
+function IndicatorBar({ c }: { c: ConfluenceResult }) {
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button type="button" aria-label={`Indicator breakdown: ${c.bull} bullish, ${c.neutral} neutral, ${c.bear} bearish, ${c.excludedCount} excluded`} className="flex h-5 w-full overflow-hidden rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">
+            {c.indicators.map((ind, i) => (
+              <div
+                key={i}
+                title={ind.qualityNote ?? ind.detail}
+                className={`flex-1 ${ind.valid === false ? "bg-amber-400/50" :
+                  ind.state === "BULLISH"
+                    ? "bg-emerald-400/80"
+                    : ind.state === "BEARISH"
+                      ? "bg-rose-400/80"
+                      : "bg-zinc-600/60"
+                } ${i > 0 ? "border-l border-zinc-950/60" : ""}`}
+              />
+            ))}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="w-72 p-0 border-zinc-700 bg-zinc-900">
+          <div className="px-3 py-2 border-b border-zinc-800 text-xs font-semibold text-zinc-200">
+            Indicator breakdown · 18 voting, 3 context
+          </div>
+          <div className="max-h-72 overflow-y-auto p-1">
+            {c.indicators.map((ind, i) => (
+              <div key={i} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-xs hover:bg-zinc-800/60">
+                <span className="flex items-center gap-2 text-zinc-400">
+                  <SignalDot state={ind.state} size={8} />
+                  <span className="font-medium text-zinc-300">{ind.name}</span>
+                  <span className="text-zinc-600">{ind.category}</span>
+                </span>
+                <span className="max-w-32 text-right font-mono text-[10px] text-zinc-500">{ind.qualityNote ?? ind.detail}</span>
+              </div>
+            ))}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+/* ========================================================================== *
+ *  Main page component
+ * ========================================================================== */
+
+export default function Home() {
+  const rsl = useRsl();
+  const { t, id } = rsl;
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const loadRef = useRef<() => void>(() => undefined);
+  useEffect(() => rsl.onMenuAction((menuId) => {
+    if (menuId === "about" || menuId === "settings" || menuId.startsWith("backup.")) setAboutOpen(true);
+    else if (menuId === "refresh") loadRef.current();
+    else if (menuId === "contact") rsl.openExternal(contactMailto({ name: APP.name }, APP.contactSubject));
+  }), [rsl]);
+  const [timeframe, setTimeframe] = useState<TF>(DEFAULT_APP_PREFERENCES.timeframe);
+  const [dataSource, setDataSource] = useState<DataSource>(DEFAULT_APP_PREFERENCES.dataSource);
+  const [universeLimit, setUniverseLimit] = useState(DEFAULT_APP_PREFERENCES.universeLimit);
+  const [background, setBackground] = useState<BackgroundOption>(DEFAULT_APP_PREFERENCES.background);
+  const [scoringProfile, setScoringProfile] = useState<ScoringProfile | null>(null);
+  const [profileReady, setProfileReady] = useState(false);
+  const [profileFailure, setProfileFailure] = useState("");
+  const activeConfigId = engineConfigId(scoringProfile);
+  const [preferencesReady, setPreferencesReady] = useState(false);
+  const [privateApiOpen, setPrivateApiOpen] = useState(false);
+  const [privateApiProfile, setPrivateApiProfile] = useState<PrivateApiProfile | null>(null);
+  const [alertsOpen, setAlertsOpen] = useState(false);
+  const [scanStats, setScanStats] = useState({ durationMs: 0, errors: 0, stale: 0, newestBarTime: 0 });
+  const [monitorDraft, setMonitorDraft] = useState("");
+  const [monitorAssets, setMonitorAssets] = useState<string[]>([]);
+  const [watchlistScope, setWatchlistScope] = useState<Watchlist | null>(null);
+  const [unavailableMembers, setUnavailableMembers] = useState<string[]>([]);
+  const [rows, setRows] = useState<AssetRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [error, setError] = useState<string | null>(null);
+  // v2.6 (WP10): source health line and per-scan currency / Coins.ph extras.
+  const [health, setHealth] = useState<(SourceHealth & { source: string }) | null>(null);
+  const [scanMeta, setScanMeta] = useState<ScanMeta>({ source: "binance", currency: "USD", premium: {}, thin: [] });
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>(DEFAULT_APP_PREFERENCES.sortKey);
+  const [sortDir, setSortDir] = useState<SortDir>(DEFAULT_APP_PREFERENCES.sortDir);
+  const [autoRefresh, setAutoRefresh] = useState(DEFAULT_APP_PREFERENCES.autoRefresh);
+  const [detailAsset, setDetailAsset] = useState<AssetRow | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [chartDepth, setChartDepth] = useState<StoredChartDepth>(DEFAULT_APP_PREFERENCES.chartDepth);
+  const [reversalAlert, setReversalAlert] = useState<AssetRow[]>([]);
+  const [assetClass, setAssetClass] = useState<AssetClassFilter>(DEFAULT_APP_PREFERENCES.assetClass);
+  const [ledgerOpen, setLedgerOpen] = useState(false);
+  const [paperOpen, setPaperOpen] = useState(false);
+  const [chartReplay, setChartReplay] = useState(false);
+  const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
+  // v2.5 (restores build 20261101): "Expand list" hides the control header and informational
+  // notes so the asset table gets the screen (mainly for phones). Alerts and the footer stay.
+  // Home renders only on the client after boot, so reading storage here is safe; it can throw.
+  const [listExpanded, setListExpanded] = useState(() => {
+    try { return typeof window !== "undefined" && localStorage.getItem("ct-list-expanded") === "1"; } catch { return false; }
+  });
+  const toggleListExpanded = () => setListExpanded((v) => {
+    const next = !v;
+    try { localStorage.setItem("ct-list-expanded", next ? "1" : "0"); } catch { /* session-only */ }
+    return next;
+  });
+  /** Phones (< 640 px): secondary header controls live behind "More controls". */
+  const [moreControlsOpen, setMoreControlsOpen] = useState(false);
+  const isPhone = useMediaQuery(PHONE_QUERY);
+  // The screener is a fixed full-viewport shell; lock document scrolling while it is mounted so
+  // nothing (a blank strip, an offset left by an input zoom) can show below the footer.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.add("ct-shell");
+    return () => root.classList.remove("ct-shell");
+  }, []);
+  // v2.2: in the browser the ledger has its own IndexedDB database, so adding it
+  // never forces a version upgrade of the main one (an open older tab would block
+  // that upgrade and push identity/preferences to a fallback store).
+  const ledgerStore = useMemo(
+    () => createLedgerStore(
+      rsl.port.kind === "indexeddb"
+        ? createIndexedDBAdapter({ dbName: "rsl-conf-ledger", collections: ["ledger", "ledger_meta"] }).catch(() => rsl.port)
+        : rsl.port,
+    ),
+    [rsl.port],
+  );
+  // v2.3: paper trading (simulated only — no order path exists). Own IndexedDB
+  // database in the browser; the main database does not declare its collections.
+  const paperStore = useMemo(
+    () => createPaperStore(
+      rsl.port.kind === "indexeddb"
+        ? createIndexedDBAdapter({ dbName: PAPER_DB_NAME, collections: [...PAPER_COLLECTIONS] }).catch(() => memoryPaperPort())
+        : rsl.port,
+    ),
+    [rsl.port],
+  );
+  /** Stored-history length per series, so a scan asks for 1,000 bars only when the engine window is not yet covered. */
+  const historyLenRef = useRef<Map<string, { len: number; newest: number }>>(new Map());
+  /** Newest bar already handed to the ledger per series (this session), so catch-up only scores new holes. */
+  const lastRecordedRef = useRef<Map<string, number>>(new Map());
+  /** v2.3: last order-book depth sample per source (once per 24 h, top 10 pairs). */
+  const depthSampledRef = useRef<Map<string, number>>(new Map());
+  const abortRef = useRef<AbortController | null>(null);
+  const historyAbortRef = useRef<AbortController | null>(null);
+  const alertedReversalRef = useRef<Map<string, number>>(new Map());
+
+  // v2.5: theme preference (System / Light / Dark) → resolved theme → tokens on <html data-theme>.
+  const systemDark = useMediaQuery("(prefers-color-scheme: dark)");
+  const themePref: ThemePref = migrateThemePref({ background }, null);
+  const resolvedTheme = resolveTheme(themePref, systemDark, cssSupportsColorMix());
+  const applyBackground = useCallback((value: BackgroundOption) => {
+    setBackground(value);
+    try {
+      localStorage.setItem(THEME_PREF_KEY, migrateThemePref({ background: value }, null));
+      localStorage.removeItem("ct-theme");
+    } catch {
+      // Theme still works for the current session when storage is unavailable.
+    }
+  }, []);
+  useEffect(() => {
+    if (!preferencesReady) return;
+    applyTheme(resolvedTheme, rsl.adapters.theme, themePref);
+  }, [resolvedTheme, themePref, preferencesReady, rsl.adapters.theme]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const saved = loadAppPreferences();
+      if (saved) {
+        setTimeframe(saved.timeframe);
+        setDataSource(saved.dataSource);
+        setUniverseLimit(saved.universeLimit);
+        setMonitorAssets(saved.monitorAssets);
+        setMonitorDraft(saved.monitorAssets.join(", "));
+        setSortKey(saved.sortKey);
+        setSortDir(saved.sortDir);
+        setAutoRefresh(saved.autoRefresh);
+        setChartDepth(saved.chartDepth);
+        setAssetClass(saved.assetClass);
+        applyBackground(saved.background);
+      } else {
+        let legacy: string | null = null;
+        try {
+          legacy = localStorage.getItem(THEME_PREF_KEY) ?? localStorage.getItem("ct-theme");
+        } catch {}
+        applyBackground(toStoredBackground(migrateThemePref(legacy === "system" || legacy === "dark" || legacy === "light" ? { background: legacy } : null, legacy)));
+      }
+      setPreferencesReady(true);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [applyBackground]);
+
+  useEffect(() => {
+    if (!preferencesReady) return;
+    const preferences: AppPreferences = {
+      timeframe,
+      dataSource,
+      universeLimit,
+      background,
+      monitorAssets,
+      sortKey,
+      sortDir,
+      autoRefresh,
+      chartDepth,
+      assetClass,
+    };
+    saveAppPreferences(preferences);
+  }, [preferencesReady, timeframe, dataSource, universeLimit, background, monitorAssets, sortKey, sortDir, autoRefresh, chartDepth, assetClass]);
+  /**
+   * Load the full universe in a single request. The server returns tickers +
+   * all klines (throttled & cached upstream), then we run the 21-indicator
+   * confluence engine client-side for each asset.
+   */
+  useEffect(() => {
+    let active = true;
+    void rsl.port.get("preferences", "scoring-profile-v1").then((value) => {
+      const profile = normalizeScoringProfile(value);
+      if (active) { setScoringProfile(profile); setProfileReady(true); }
+    }).catch(() => {
+      if (active) setProfileFailure("Saved scoring profile could not be loaded. Restore default to resume scanning.");
+    });
+    return () => { active = false; };
+  }, [rsl.port]);
+
+  async function applyScoringProfile(value: ScoringProfile | null) {
+    const profile = normalizeScoringProfile(value);
+    await rsl.port.put("preferences", "scoring-profile-v1", profile);
+    if (profileReady && engineConfigId(profile) === activeConfigId) return;
+    historyAbortRef.current?.abort();
+    setHistoryLoading(false);
+    abortRef.current?.abort();
+    setDetailAsset(null);
+    setRows([]);
+    setScoringProfile(profile);
+    setProfileFailure("");
+    setProfileReady(true);
+  }
+
+  const load = useCallback(async (tf: TF, source: DataSource, assets: string[], limit: number, cls: AssetClassFilter) => {
+    if (!profileReady) return;
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+    setLoading(true);
+    setError(null);
+    setProgress({ done: 0, total: 1 });
+    setUnavailableMembers([]);
+    try {
+      if (watchlistScope && (!watchlistScope.symbols.length || watchlistScope.source !== source)) {
+        setRows([]);
+        setDetailAsset(null);
+        setUnavailableMembers(watchlistScope.symbols);
+        return;
+      }
+      const intervalMs = INTERVAL_MS[tf];
+      const data = await fetchMarketData(tf, {
+        source,
+        assets: watchlistScope?.symbols ?? assets,
+        limit: watchlistScope ? watchlistScope.symbols.length : limit,
+        signal: ac.signal,
+        assetClass: watchlistScope ? "all" : cls,
+        // Warm start (v2.1.1): ask for the full engine window only when this
+        // session has not yet seen ENGINE_BARS contiguous bars for the series.
+        klineLimit: (symbol) => {
+          const h = historyLenRef.current.get(`${source}:${tf}:${symbol}`);
+          return h && h.len >= ENGINE_BARS && Date.now() - h.newest < intervalMs * 150 ? 200 : 1000;
+        },
+      });
+      if (ac.signal.aborted) return;
+      setRateLimitUntil(data.rateLimitedUntil ?? null);
+      setHealth({ source, ...healthFromScan(source, data) });
+
+      // 1 — merge stored + fresh bars per series (main thread: IndexedDB access).
+      const scopedTickers = watchlistScope
+        ? data.tickers.filter((ticker) => watchlistScope.symbols.includes(ticker.symbol))
+        : data.tickers;
+      if (watchlistScope) {
+        const available = new Set(scopedTickers.map((ticker) => ticker.symbol));
+        setUnavailableMembers(watchlistScope.symbols.filter((symbol) => !available.has(symbol)));
+      }
+      const prepared = await Promise.all(scopedTickers.map(async (t) => {
+        const recent = data.klines[t.symbol] ?? [];
+        let saved: Kline[] = [];
+        try {
+          saved = await loadHistoricalSeries(source, tf, t.symbol);
+        } catch {
+          // A blocked/private browser store must not break live scanning.
+        }
+        // Build 2.02: keep only the newest gap-free run, so stored and fresh
+        // bars are never scored as one series across a hole.
+        const kl = contiguousTail(mergeKlines(saved, recent), data.intervalMs);
+        if (recent.length) {
+          void saveHistoricalSeries(source, tf, t.symbol, recent).catch(() => undefined);
+        }
+        if (kl.length) historyLenRef.current.set(`${source}:${tf}:${t.symbol}`, { len: kl.length, newest: kl[kl.length - 1].time });
+        // v2.2 review fix: a symbol whose fetch failed this scan (stale feed,
+        // HTTP error, rate-limit skip) must not be scored from cached history
+        // and presented — or recorded — as a live signal.
+        const failure = recent.length ? null : data.errors.find((e) => e.symbol === t.symbol);
+        return { t, kl, fresh: recent.length > 0, failure: failure ? `${failure.reason}: ${failure.message}` : "no fresh candles" };
+      }));
+      if (ac.signal.aborted) return;
+
+      // 2 — score off the main thread (worker), same fixed window as the ledger and replay.
+      const classOf = (symbol: string): AssetClass => {
+        const c = classifySymbol(source, symbol, venueTypeOf(source, symbol));
+        return c === "excluded" ? "crypto" : c;
+      };
+      const jobs: ScanJob[] = prepared.filter((p) => p.fresh).map(({ t, kl }) => ({
+        key: `${source}:${tf}:${t.symbol}`,
+        packed: packKlines(kl),
+        intervalMs: data.intervalMs,
+        // v2.3 (review C11): volume usability is decided by scoreSeries on the
+        // scored window itself (as replay and the recorder do), not by a flag
+        // computed on today's fetch — identical rows for the same bar everywhere.
+        volumeAvailable: true,
+        assetClass: classOf(t.symbol),
+        profile: scoringProfile,
+      }));
+      const results = await runScanJobs(jobs);
+      if (ac.signal.aborted) return;
+      const byKey = new Map(results.map((res) => [res.key, res]));
+
+      const ledgerRows: LedgerRow[] = [];
+      // v2.3: rows are assembled by lib/scan-record.ts — the same code the
+      // headless recorder uses — with the logged context fields (never scored).
+      const seriesOf = (t: (typeof prepared)[number]["t"], kl: Kline[]): ScanSeries => ({
+        symbol: t.symbol, rank: t.rank, quoteVolume: parseFloat(t.quoteVolume) || 0, ac: classOf(t.symbol), kl,
+      });
+      const recordCtx: ScanRecordContext = {
+        src: source, tf, intervalMs: data.intervalMs, appVersion: APP.version,
+        universe: data.universe, basisBySymbol: data.basisBySymbol,
+      };
+      const shared = scanShared(prepared.filter((p) => p.fresh && p.kl.length).map((p) => seriesOf(p.t, p.kl)), data.universe);
+      const out: AssetRow[] = prepared.map(({ t, kl, fresh, failure }) => {
+        const scored = byKey.get(`${source}:${tf}:${t.symbol}`);
+        const res = scored && !scored.error
+          ? scored
+          : {
+              score: { usable: false, warmBars: 0, confluence: suppressedConfluence(`Feed unavailable this scan (${scored?.error ?? failure}) — not scored, not recorded.`), reversal: emptyReversal() },
+              pattern: emptySignal("Feed unavailable"),
+            };
+        const assetCls = classOf(t.symbol);
+        let context: Partial<LedgerRow> | undefined;
+        // 3 — forward-test ledger: one row per series per closed bar (idempotent).
+        if (fresh && res.score.usable && kl.length) {
+          const row = liveRow(seriesOf(t, kl), res.score as SeriesScore, recordCtx, shared);
+          if (row) {
+            context = row;
+            ledgerRows.push(row);
+          }
+        }
+        return {
+          rank: t.rank,
+          symbol: t.symbol.replace(/(USDT|PHP)$/, ""),
+          pair: t.symbol,
+          price: parseFloat(t.lastPrice),
+          change24h: parseFloat(t.priceChangePercent),
+          quoteVolume: parseFloat(t.quoteVolume),
+          confluence: res.score.confluence,
+          reversal: res.score.reversal,
+          pattern: res.pattern,
+          klines: kl,
+          assetClass: assetCls,
+          underlyingClosed: kl.length > 0 && barWhileClosed(assetCls, kl[kl.length - 1].time, data.intervalMs),
+          context,
+        };
+      });
+      const newestClosed = prepared.reduce((m, p) => (p.fresh && p.kl.length ? Math.max(m, p.kl[p.kl.length - 1].time) : m), 0);
+      const liveWrite = ledgerRows.length
+        ? ledgerStore.record(ledgerRows, data.universe ? { t: newestClosed, list: data.universe } : undefined).catch(() => 0)
+        : Promise.resolve(0);
+
+      // Catch-up (v2.3: per-series cursors): score bars that closed while the
+      // app was shut (up to 48 per series, full 1,000-bar windows only) in the
+      // background worker. Each pair resumes from ITS own last recorded bar.
+      // A pair with no cursor yet starts forward from now — back-filling bars
+      // from before it entered the scan would add selection look-ahead
+      // (review C6). Catch-up rows carry today's rank (rank_source "now").
+      if (scanMode() === "worker" && newestClosed > 0) {
+        void (async () => {
+          const cursors = await ledgerStore.seriesCursors(source, tf, scoringProfile ? activeConfigId : undefined);
+          const fresh = prepared.filter((p) => p.fresh && p.kl.length > 1);
+          const jobs = fresh.map(({ t, kl }) => {
+            const key = `${activeConfigId}|${source}:${tf}:${t.symbol}`;
+            const known = cursors[t.symbol] ?? lastRecordedRef.current.get(key);
+            const since = Math.max(cursors[t.symbol] ?? 0, lastRecordedRef.current.get(key) ?? 0);
+            const job: ScanJob = {
+              key,
+              packed: packKlines(kl),
+              intervalMs: data.intervalMs,
+              volumeAvailable: true,
+              assetClass: classOf(t.symbol),
+              profile: scoringProfile,
+              catchUp: { since, max: 48, ctx: catchUpContext(seriesOf(t, kl), recordCtx, shared) },
+            };
+            return { job, kl, key, pair: t.symbol, pending: known !== undefined && since < kl[kl.length - 2].time };
+          });
+          const pending = jobs.filter((j) => j.pending);
+          const done: Record<string, number> = {};
+          for (const j of jobs) if (!j.pending) done[j.pair] = j.kl[j.kl.length - 1].time;
+          if (pending.length) {
+            const res = await runScanJobs(pending.map((j) => j.job), { allowMainThread: false });
+            const byKey = new Map(res.map((x) => [x.key, x]));
+            const rowsToAdd: LedgerRow[] = [];
+            for (const j of pending) {
+              const r = byKey.get(j.job.key);
+              if (!r || r.error) continue; // cursor not advanced: retried next scan (review C5)
+              rowsToAdd.push(...enrichCatchUp(r.catchUpRows ?? [], j.kl, recordCtx, shared));
+              if (r.gap) void ledgerStore.addGap(source, tf, j.pair, r.gap);
+              done[j.pair] = j.kl[j.kl.length - 1].time;
+            }
+            if (rowsToAdd.length) await ledgerStore.record(rowsToAdd);
+          }
+          await liveWrite;
+          // Storage full: nothing was written, so nothing may be marked as recorded.
+          if (ledgerStore.isFull()) return;
+          for (const j of jobs) if (done[j.pair] !== undefined) lastRecordedRef.current.set(j.key, done[j.pair]);
+          await ledgerStore.setSeriesCursors(source, tf, done, scoringProfile ? activeConfigId : undefined);
+        })().catch(() => undefined);
+      }
+
+      // v2.3: measured slippage — sample the public order book of the top 10
+      // pairs once per 24 h per source ($10,000 notional) for per-pair costs.
+      const lastDepth = depthSampledRef.current.get(source) ?? 0;
+      if (usesDirectFetch() && Date.now() - lastDepth > 24 * 3_600_000 && out.length) {
+        depthSampledRef.current.set(source, Date.now());
+        void (async () => {
+          const known = await ledgerStore.slippage(source);
+          const measured: Record<string, number> = {};
+          for (const r of out.slice(0, 10)) {
+            if (known[r.pair] && Date.now() - known[r.pair].at < 24 * 3_600_000) continue;
+            try {
+              // $10,000: at $1,000 a liquid book only shows the half-spread (review S15).
+              const bps = slippageBps(await fetchOrderBook(source, r.pair), 10_000);
+              if (Number.isFinite(bps)) measured[r.pair] = Math.round(bps * 100) / 100;
+            } catch {
+              break; // rate limit or network: try again tomorrow
+            }
+            await new Promise((ok) => setTimeout(ok, 300));
+          }
+          if (Object.keys(measured).length) await ledgerStore.setSlippage(source, measured);
+        })().catch(() => undefined);
+      }
+
+      if (ac.signal.aborted) return;
+      const activeReversals = out.filter(
+        (r) =>
+          r.reversal.isReversal &&
+          r.reversal.direction !== "NONE" &&
+          (r.reversal.confidence === "HIGH" || r.reversal.confidence === "MODERATE"),
+      );
+      // The dedup key deliberately excludes confidence: an asset oscillating
+      // MODERATE -> HIGH -> MODERATE is one reversal, not three. The cooldown
+      // is expressed in bar lengths so it scales with the timeframe, and the
+      // map is bounded so a long session cannot grow it without limit.
+      const now = Date.now();
+      const cooldownMs = (data.intervalMs || refreshCadence(tf)) * ALERT_COOLDOWN_BARS;
+      const newReversals = activeReversals.filter((r) => {
+        const key = `${source}:${tf}:${r.pair}:${r.reversal.direction}`;
+        const lastAlerted = alertedReversalRef.current.get(key);
+        return lastAlerted === undefined || now - lastAlerted > cooldownMs;
+      });
+      newReversals.forEach((r) => {
+        alertedReversalRef.current.set(`${source}:${tf}:${r.pair}:${r.reversal.direction}`, now);
+      });
+      if (alertedReversalRef.current.size > ALERT_MEMORY_LIMIT) {
+        const oldest = [...alertedReversalRef.current.entries()]
+          .sort((a, b) => a[1] - b[1])
+          .slice(0, alertedReversalRef.current.size - ALERT_MEMORY_LIMIT);
+        oldest.forEach(([key]) => alertedReversalRef.current.delete(key));
+      }
+      if (newReversals.length > 0) {
+        setReversalAlert(newReversals.slice(0, 12));
+      }
+      setRows(out);
+      // Currency, premium and thin list change with the rows they describe, never before
+      // (otherwise the previous source's rows show ₱ while the new scan is still scoring).
+      setScanMeta({ source, currency: data.priceCurrency ?? "USD", premium: data.premiumBySymbol ?? {}, thin: data.thinSymbols ?? [] });
+      setDetailAsset((current) => current ? out.find((row) => row.pair === current.pair) ?? null : null);
+      setScanStats({
+        durationMs: data.durationMs,
+        errors: data.errors.length,
+        stale: data.staleCount,
+        newestBarTime: data.newestBarTime,
+      });
+      setProgress({ done: 1, total: 1 });
+      setLastUpdate(new Date());
+    } catch (e) {
+      if (!ac.signal.aborted) {
+        setError(e instanceof Error ? e.message : "Failed to load market data");
+        const h = healthFromError(e, inNativeShell());
+        if (h) setHealth({ source, ...h });
+      }
+    } finally {
+      if (!ac.signal.aborted) setLoading(false);
+    }
+  }, [ledgerStore, watchlistScope, scoringProfile, profileReady, activeConfigId]);
+
+  useEffect(() => () => { historyAbortRef.current?.abort(); }, [dataSource, timeframe, scoringProfile]);
+
+  const backfillHistory = useCallback(async (asset: AssetRow) => {
+    historyAbortRef.current?.abort();
+    const controller = new AbortController();
+    historyAbortRef.current = controller;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      if (asset.klines.length >= MAX_STORED_BARS) {
+        throw new Error(`Stored history is at its ${MAX_STORED_BARS.toLocaleString()}-bar limit for this asset.`);
+      }
+      const oldest = asset.klines[0]?.time;
+      const endTime = oldest ? oldest - 1 : Date.now();
+      let older: Kline[];
+      if (usesDirectFetch()) {
+        // Static / desktop / Android builds have no /api routes: page the
+        // exchange directly (Build 2.02 — 2.01 always called the server route).
+        older = (await fetchHistory(dataSource, asset.pair, timeframe, MAX_HISTORY_BARS, endTime, controller.signal)).klines;
+      } else {
+        const qs = new URLSearchParams({
+          source: dataSource,
+          interval: timeframe,
+          symbol: asset.pair,
+          limit: String(MAX_HISTORY_BARS),
+          endTime: String(endTime),
+        });
+        const response = await fetch(`/api/market/history?${qs.toString()}`, { cache: "no-store", signal: controller.signal });
+        const payload = await response.json() as { klines?: Kline[]; error?: string };
+        if (!response.ok || !payload.klines) throw new Error(payload.error ?? `History request failed (${response.status})`);
+        older = payload.klines;
+      }
+      if (controller.signal.aborted) return;
+      const intervalMs = INTERVAL_MS[timeframe];
+      const stored = await saveHistoricalSeries(dataSource, timeframe, asset.pair, mergeKlines(asset.klines, older));
+      const klines = contiguousTail(stored, intervalMs);
+      const seriesKey = `${dataSource}:${timeframe}:${asset.pair}`;
+      const [res] = await runScanJobs([{ key: seriesKey, packed: packKlines(klines), intervalMs, volumeAvailable: true, assetClass: asset.assetClass, profile: scoringProfile }]);
+      if (controller.signal.aborted) return;
+      historyLenRef.current.set(seriesKey, { len: klines.length, newest: klines.at(-1)?.time ?? 0 });
+      const updated = { ...asset, klines, confluence: res.score.confluence, reversal: res.score.reversal, pattern: res.pattern };
+      setRows((current) => current.map((row) => row.pair === asset.pair ? updated : row));
+      setDetailAsset(updated);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setHistoryError(error instanceof Error ? error.message : "Unable to retrieve history.");
+    } finally {
+      if (historyAbortRef.current === controller) setHistoryLoading(false);
+    }
+  }, [dataSource, timeframe, scoringProfile]);
+
+  useEffect(() => {
+    loadRef.current = () => void load(timeframe, dataSource, monitorAssets, universeLimit, assetClass);
+  });
+
+  // Initial load + on timeframe change.
+  useEffect(() => {
+    if (!preferencesReady) return;
+    const initialLoad = window.setTimeout(() => void load(timeframe, dataSource, monitorAssets, universeLimit, assetClass), 0);
+    return () => window.clearTimeout(initialLoad);
+  }, [preferencesReady, timeframe, dataSource, monitorAssets, universeLimit, assetClass, load]);
+
+  // Refresh cadence follows the selected market timeframe.
+  useEffect(() => {
+    if (!preferencesReady || !autoRefresh) return;
+    const id = setInterval(() => void load(timeframe, dataSource, monitorAssets, universeLimit, assetClass), refreshCadenceFor(timeframe, dataSource));
+    return () => clearInterval(id);
+  }, [preferencesReady, autoRefresh, timeframe, dataSource, monitorAssets, universeLimit, assetClass, load]);
+
+  /* ---- derived / filtered / sorted ---- */
+  const visible = useMemo(() => {
+    let r = rows;
+    if (search.trim()) {
+      const q = search.trim().toUpperCase();
+      r = r.filter((x) => x.symbol.includes(q) || x.pair.includes(q));
+    }
+    const sorted = [...r].sort((a, b) => {
+      let av: number | string, bv: number | string;
+      switch (sortKey) {
+        case "symbol": av = a.symbol; bv = b.symbol; break;
+        case "price": av = a.price; bv = b.price; break;
+        case "change24h": av = a.change24h; bv = b.change24h; break;
+        case "quoteVolume": av = a.quoteVolume; bv = b.quoteVolume; break;
+        case "bull": av = a.confluence.bull; bv = b.confluence.bull; break;
+        case "bear": av = a.confluence.bear; bv = b.confluence.bear; break;
+        case "score": av = a.confluence.score; bv = b.confluence.score; break;
+        default: av = a.rank; bv = b.rank;
+      }
+      if (typeof av === "string") {
+        return sortDir === "asc" ? av.localeCompare(bv as string) : (bv as string).localeCompare(av);
+      }
+      return sortDir === "asc" ? (av as number) - (bv as number) : (bv as number) - (av as number);
+    });
+    return sorted;
+  }, [rows, search, sortKey, sortDir]);
+
+  const totals = useMemo(() => {
+    let bull = 0, bear = 0, neutral = 0, revUp = 0, revDown = 0;
+    for (const r of rows) {
+      if (r.confluence.master === "BULLISH") bull++;
+      else if (r.confluence.master === "BEARISH") bear++;
+      else neutral++;
+      if (r.reversal.isReversal) {
+        if (r.reversal.direction === "UP") revUp++;
+        else if (r.reversal.direction === "DOWN") revDown++;
+      }
+    }
+    return { bull, bear, neutral, revUp, revDown, total: rows.length };
+  }, [rows]);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  };
+
+  const pct = (n: number) => (totals.total ? (n / totals.total) * 100 : 0);
+  // The ledger view reads current candles on demand, so a refresh does not re-run its measurement.
+  const rowsRef = useRef(rows);
+  useEffect(() => { rowsRef.current = rows; }, [rows]);
+  const getLiveKlines = useCallback(() => Object.fromEntries(rowsRef.current.map((row) => [row.pair, row.klines])), []);
+  // Scheduled macro releases within the next 24 h (or the last 2 h), measured from the last scan.
+  const macroEvents = useMemo(() => (lastUpdate ? eventsNear(lastUpdate.getTime()) : []), [lastUpdate]);
+  const selectedSource = DATA_SOURCES.find((s) => s.value === dataSource) ?? DATA_SOURCES[0];
+  // Backup reminder: after 7 days, or always while storage is not durable (builder skill §3.5).
+  const backupDueDays = (() => {
+    const last = rsl.lastBackupAt ? Date.parse(rsl.lastBackupAt) : null;
+    const days = last ? Math.floor((Date.now() - last) / 86_400_000) : 0;
+    if (last === null) return rsl.port.durable ? null : 0;
+    return days >= 7 || !rsl.port.durable ? days : null;
+  })();
+  const applyMonitorAssets = () => setMonitorAssets(parseAssetInput(monitorDraft));
+
+  /* v2.5: each control is rendered once — inline on ≥ 640 px, inside "More controls" on phones. */
+  const renderAssetClassSelect = (cls = "") => (
+      <Select value={assetClass} onValueChange={(v) => setAssetClass(v as AssetClassFilter)}>
+        <SelectTrigger aria-label={t("ctl.assetClass")} className={`h-8 w-auto min-w-[128px] gap-2 border-zinc-800 bg-zinc-900 text-xs ${cls}`}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent className="border-zinc-800 bg-zinc-900">
+          {ASSET_CLASS_FILTERS.map((c) => <SelectItem key={c} value={c}>{t(`ac.${c}`)}</SelectItem>)}
+        </SelectContent>
+      </Select>
+  );
+  const renderUniverseSelect = (cls = "") => (
+      <Select value={String(universeLimit)} onValueChange={(value) => setUniverseLimit(Number(value))}>
+        <SelectTrigger aria-label={t("ctl.universe")} className={`h-8 w-auto min-w-[92px] gap-2 border-zinc-800 bg-zinc-900 text-xs ${cls}`}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent className="border-zinc-800 bg-zinc-900">
+          {[25, 50, 100, 200].map((size) => <SelectItem key={size} value={String(size)}>{t("ctl.top", { n: size })}</SelectItem>)}
+        </SelectContent>
+      </Select>
+  );
+  const renderApiButton = (cls = "") => (
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setPrivateApiOpen(true)}
+        aria-label={`${privateApiProfile ? privateApiProfile.provider : "API"} — ${t("ctl.api")}`}
+        className={`h-8 border-zinc-800 px-2 text-xs ${privateApiProfile ? "text-emerald-400" : "text-zinc-300"} ${cls}`}
+      >
+        <KeyRound className="h-3.5 w-3.5" />
+        <span className="hidden xl:inline">{privateApiProfile ? privateApiProfile.provider : "API"}</span>
+      </Button>
+  );
+  const renderContactButton = (cls = "") => (
+      <Button variant="outline" size="sm" asChild className={`h-8 border-zinc-800 px-2 text-xs text-zinc-300 ${cls}`}>
+        <a href={contactMailto({ name: APP.name }, APP.contactSubject)} aria-label={t("ctl.contact")} title={t("ctl.contact")}>
+          <Mail className="h-3.5 w-3.5" />
+        </a>
+      </Button>
+  );
+  const renderAboutButton = (cls = "") => (
+      <Button variant="outline" size="sm" onClick={() => setAboutOpen(true)} aria-label={t("ctl.about")} title={t("ctl.about")} className={`h-8 border-zinc-800 px-2 text-xs text-zinc-300 ${cls}`}>
+        <Info className="h-3.5 w-3.5" />
+      </Button>
+  );
+  const renderThemeButton = (cls = "") => (
+      <div role="radiogroup" aria-label={t("theme.label")} className={`inline-flex h-8 shrink-0 items-center rounded-md border border-zinc-800 bg-zinc-900 p-0.5 ${cls}`}
+        onKeyDown={(e) => {
+          const order: ThemePref[] = ["system", "light", "dark"];
+          const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+          if (!step) return;
+          e.preventDefault();
+          const next = order[(order.indexOf(themePref) + (document.dir === "rtl" && e.key.startsWith("Arrow") && (e.key === "ArrowRight" || e.key === "ArrowLeft") ? -step : step) + order.length) % order.length];
+          applyBackground(toStoredBackground(next));
+          (e.currentTarget.querySelector(`[data-theme-option="${next}"]`) as HTMLElement | null)?.focus();
+        }}>
+        {(["system", "light", "dark"] as const).map((opt) => (
+          <button key={opt} type="button" role="radio" aria-checked={themePref === opt} tabIndex={themePref === opt ? 0 : -1}
+            data-theme-option={opt} title={t(`theme.${opt}`)} aria-label={t(`theme.${opt}`)}
+            onClick={() => applyBackground(toStoredBackground(opt))}
+            className={`rsl-touch inline-flex h-full items-center justify-center rounded px-1.5 text-zinc-400 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 ${themePref === opt ? "bg-zinc-800 text-zinc-100" : ""}`}>
+            {opt === "system" ? <Monitor className="h-3.5 w-3.5" aria-hidden="true" /> : opt === "light" ? <Sun className="h-3.5 w-3.5" aria-hidden="true" /> : <Moon className="h-3.5 w-3.5" aria-hidden="true" />}
+          </button>
+        ))}
+      </div>
+  );
+
+  /* ========================================================================== *
+   *  Render
+   * ========================================================================== */
+  return (
+    <div
+      className="ct-app-shell flex flex-col overflow-hidden bg-zinc-950 text-zinc-100"
+      style={{ paddingTop: "env(safe-area-inset-top)" }}
+      data-list-expanded={listExpanded ? "true" : undefined}
+    >
+      {/* ----------------------------------------------------------------- *
+       *  Header — deliberately dense.
+       *
+       *  Chrome is overhead: every pixel spent on it is a row of the asset
+       *  panel the operator cannot see. The prior layout spent roughly 240px
+       *  on a tall header, four large stat cards, and an info bar before the
+       *  first row of data. This collapses the same information into two thin
+       *  rows (~76px) and gives the reclaimed height to the table.
+       * ----------------------------------------------------------------- */}
+      <header hidden={listExpanded} className="brand-surface relative z-30 shrink-0 border-b border-cyan-400/15 backdrop-blur">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent" />
+        <div className="mx-auto w-full max-w-[1600px] px-3">
+          {/* Row 1 — brand + controls */}
+          <div className="flex flex-wrap items-center gap-1.5 py-1.5">
+            {/* rsL brand block: monogram → rsL Confluence Terminal → by rsLozano → build (fixed order). */}
+            <div className="me-2 flex min-w-0 items-center">
+              <BrandBlock />
+              <h1 className="sr-only">{t("ctx.page")} — {id.customer.legalName}</h1>
+            </div>
+            {isPhone && <span className="ms-auto"><CustomerChip onClick={() => setAboutOpen(true)} /></span>}
+
+            <Select value={timeframe} onValueChange={(v) => setTimeframe(v as TF)}>
+              <SelectTrigger aria-label={t("ctl.timeframe")} className="h-8 min-w-0 flex-1 border-zinc-800 bg-zinc-900 text-xs sm:w-[150px] sm:flex-none">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="border-zinc-800 bg-zinc-900">
+                {TIMEFRAMES.map((tf) => (
+                  <SelectItem key={tf.value} value={tf.value}>{t(`tf.${tf.value}`)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={dataSource} onValueChange={(v) => setDataSource(v as DataSource)}>
+              <SelectTrigger aria-label={t("ctl.source")} className="h-8 min-w-0 flex-1 border-zinc-800 bg-zinc-900 text-xs sm:w-[150px] sm:flex-none">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-80 border-zinc-800 bg-zinc-900">
+                {DATA_SOURCES.map((source) => (
+                  <SelectItem key={source.value} value={source.value}>{source.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {!isPhone && renderAssetClassSelect()}
+
+            {!isPhone && renderUniverseSelect()}
+
+            <button
+              type="button"
+              data-testid="more-controls"
+              aria-expanded={moreControlsOpen}
+              aria-controls="ct-more-controls"
+              onClick={() => setMoreControlsOpen((v) => !v)}
+              className="rsl-touch inline-flex h-8 items-center gap-1 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-xs text-zinc-300 sm:hidden"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+              <span className="sr-only">{t("ctl.moreControls")}</span>
+            </button>
+            <div id="ct-more-controls" data-testid="more-controls-panel"
+              className={`${moreControlsOpen ? "flex" : "hidden"} w-full flex-wrap items-center gap-1.5 sm:contents`}>
+            {isPhone && (
+              <div className="flex w-full flex-wrap items-center gap-1.5">
+                {renderAssetClassSelect()}
+                {renderUniverseSelect()}
+                {renderApiButton()}
+                {renderContactButton()}
+                {renderAboutButton()}
+                {renderThemeButton()}
+              </div>
+            )}
+            <ScannerWatchlists port={rsl.port} source={dataSource}
+              results={rows.filter((row) => !search.trim() || row.pair.includes(search.trim().toUpperCase())).map((row) => row.pair)}
+              monitored={rows.filter((row) => monitorAssets.includes(row.symbol)).map((row) => row.pair)}
+              active={watchlistScope} onScope={(list) => {
+                setWatchlistScope(list);
+                if (list) setDataSource(list.source);
+              }} />
+            <ScannerInbox port={rsl.port} list={watchlistScope} timeframe={timeframe} ledger={ledgerStore} />
+            <ScoringProfileEditor profile={scoringProfile} configId={activeConfigId} onApply={applyScoringProfile} disabled={!profileReady} />
+            <SavedScans port={rsl.port}
+              current={{ timeframe, dataSource, universeLimit, assetClass, sortKey, sortDir, search, monitorAssets }}
+              onApply={(preset) => {
+                setWatchlistScope(null);
+                setTimeframe(preset.timeframe);
+                setDataSource(preset.dataSource);
+                setUniverseLimit(preset.universeLimit);
+                setAssetClass(preset.assetClass);
+                setSortKey(preset.sortKey);
+                setSortDir(preset.sortDir);
+                setSearch(preset.search);
+                setMonitorAssets(preset.monitorAssets);
+                setMonitorDraft(preset.monitorAssets.join(", "));
+              }} />
+            <div className="relative">
+              <Search className="absolute start-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t("ctl.filter")}
+                aria-label={t("ctl.filterLabel")}
+                className="h-8 w-32 border-zinc-800 bg-zinc-900 ps-7 text-xs"
+              />
+            </div>
+
+            <Input
+              value={monitorDraft}
+              onChange={(e) => setMonitorDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") applyMonitorAssets(); }}
+              placeholder={t("ctl.watch")}
+              aria-label={t("ctl.watchLabel")}
+              className="h-8 w-36 border-zinc-800 bg-zinc-900 text-xs"
+            />
+            <Button variant="outline" size="sm" onClick={applyMonitorAssets} className="h-8 border-zinc-800 px-2 text-xs text-zinc-300">
+              {t("ctl.apply")}
+            </Button>
+            </div>
+
+            <div className="ms-auto flex flex-wrap items-center gap-1.5">
+              {!isPhone && <CustomerChip onClick={() => setAboutOpen(true)} />}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setAutoRefresh((v) => !v)}
+                aria-label={autoRefresh ? t("ctl.auto") : t("ctl.manual")}
+                aria-pressed={autoRefresh}
+                className={`h-8 border-zinc-800 px-2 text-xs ${autoRefresh ? "text-emerald-400" : "text-zinc-500"}`}
+              >
+                <Zap className="h-3.5 w-3.5" />
+                <span className="hidden lg:inline">{autoRefresh ? t("ctl.auto") : t("ctl.manual")}</span>
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setAlertsOpen(true)}
+                className="relative h-8 border-zinc-800 px-2 text-xs text-zinc-300"
+                aria-label={t("ctl.alerts", { count: reversalAlert.length })}
+              >
+                <Bell className="h-3.5 w-3.5" />
+                {reversalAlert.length > 0 && (
+                  <span className="absolute -right-1.5 -top-1.5 min-w-4 rounded-full bg-amber-500 px-1 text-[9px] font-bold leading-4 text-black">
+                    {reversalAlert.length}
+                  </span>
+                )}
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setLedgerOpen(true)}
+                aria-label={`${t("ctl.ledgerShort")} — ${t("ctl.ledger")}`}
+                title={t("ctl.ledger")}
+                className="h-8 border-zinc-800 px-2 text-xs text-zinc-300"
+              >
+                <BarChart3 className="h-3.5 w-3.5" />
+                <span className="hidden xl:inline">{t("ctl.ledgerShort")}</span>
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPaperOpen(true)}
+                aria-label={`${t("paper.toolbar")} — ${t("paper.title")}`}
+                title={t("paper.banner")}
+                className="h-8 border-zinc-800 px-2 text-xs text-zinc-300"
+              >
+                <FlaskConical className="h-3.5 w-3.5" />
+                <span className="hidden xl:inline">{t("paper.toolbar")}</span>
+              </Button>
+
+              {!isPhone && renderApiButton()}
+
+              <LanguageMenu />
+              {!isPhone && renderContactButton()}
+              {!isPhone && renderAboutButton()}
+              {!isPhone && renderThemeButton()}
+
+              <Button
+                size="sm"
+                onClick={() => void load(timeframe, dataSource, monitorAssets, universeLimit, assetClass)}
+                disabled={loading}
+                aria-label={t("ctl.refresh")}
+                className="h-8 border border-emerald-300/20 bg-gradient-to-r from-cyan-500 to-emerald-500 px-2 text-xs font-semibold text-[#061018] shadow-[0_0_16px_rgb(36_200_117/0.13)] hover:from-cyan-400 hover:to-emerald-400"
+              >
+                {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                <span className="hidden lg:inline">{t("ctl.refresh")}</span>
+              </Button>
+            </div>
+          </div>
+
+          {/* Row 2 — counts and scan telemetry, one line */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-zinc-800/60 py-1 text-[11px] text-zinc-500">
+            <StatChip icon={<Activity className="h-3 w-3 text-zinc-400" />} label={t("stat.assets")} value={totals.total} />
+            <StatChip icon={<TrendingUp className="h-3 w-3 text-emerald-400" />} label={t("stat.bull")} value={totals.bull} sub={`${pct(totals.bull).toFixed(0)}%`} tone="emerald" />
+            <StatChip icon={<TrendingDown className="h-3 w-3 text-rose-400" />} label={t("stat.bear")} value={totals.bear} sub={`${pct(totals.bear).toFixed(0)}%`} tone="rose" />
+            <StatChip icon={<Minus className="h-3 w-3 text-zinc-400" />} label={t("stat.neutral")} value={totals.neutral} sub={`${pct(totals.neutral).toFixed(0)}%`} />
+            <StatChip icon={<RotateCcw className="h-3 w-3 text-amber-400" />} label={t("stat.rev")} value={`${totals.revUp}/${totals.revDown}`} tone="amber" />
+
+            <span className="hidden text-zinc-700 sm:inline">|</span>
+            <span className="hidden truncate sm:inline">
+              <bdi className="text-zinc-300">{id.customer.shortName}</bdi>
+              <span className="mx-1.5 text-zinc-700">·</span>
+              <span className="text-zinc-400">{selectedSource.label}</span>
+              <span className="mx-1.5 text-zinc-700">·</span>
+              {t("scan.duration", { s: (scanStats.durationMs / 1000).toFixed(1) })}
+              <span className="mx-1.5 text-zinc-700">·</span>
+              <span className={scanStats.errors ? "text-amber-400" : ""}>{t("scan.errors", { n: scanStats.errors })}</span>
+              {scanStats.stale > 0 && (
+                <>
+                  <span className="mx-1.5 text-zinc-700">·</span>
+                  <span className="font-semibold text-rose-400">{t("scan.stale", { n: scanStats.stale })}</span>
+                </>
+              )}
+              <span className="mx-1.5 text-zinc-700">·</span>
+              {lastUpdate ? t("scan.updated", { time: rsl.i18n.formatDate(lastUpdate, { timeStyle: "medium", hour12: false }) }) : "—"}
+              {scanStats.newestBarTime > 0 && (
+                <>
+                  <span className="mx-1.5 text-zinc-700">·</span>
+                  <span title={t("scan.barHint")}>
+                    {t("scan.bar", { time: rsl.i18n.formatDate(scanStats.newestBarTime, { timeStyle: "medium", hour12: false }) })}
+                  </span>
+                </>
+              )}
+            </span>
+            {monitorAssets.length > 0 && (
+              <span className="text-emerald-400/80">{t("scan.watching", { list: monitorAssets.join(", ") })}</span>
+            )}
+          </div>
+
+          {loading && progress.total > 0 && (
+            <div className="h-0.5 w-full overflow-hidden rounded bg-zinc-800">
+              <div className="h-full bg-gradient-to-r from-cyan-400 to-emerald-400 transition-all duration-300" style={{ width: `${(progress.done / progress.total) * 100}%` }} />
+            </div>
+          )}
+        </div>
+      </header>
+
+      {watchlistScope && unavailableMembers.length > 0 && (
+        <p role="status" className="px-4 py-1 text-xs text-amber-300">Unavailable watchlist instruments: {unavailableMembers.join(", ")}</p>
+      )}
+
+      {profileFailure && <p role="alert" className="px-4 py-1 text-xs text-amber-300">
+        {profileFailure} <button type="button" onClick={() => void applyScoringProfile(null).catch(() => setProfileFailure("Default profile could not be saved."))}>Restore default scoring profile</button>
+      </p>}
+      {/* Stale-feed banner — a degraded feed should be loud, not subtle. */}
+      {scanStats.stale > 0 && scanStats.stale >= Math.max(3, totals.total * 0.05) && (
+        <div role="alert" className="shrink-0 border-b border-rose-500/40 bg-rose-500/10 px-4 py-1.5 text-xs text-rose-300">
+          {t("banner.stale", { n: scanStats.stale })}
+        </div>
+      )}
+
+      {/* Storage is never silently best-effort (builder skill rule 4). */}
+      {!listExpanded && (rsl.notice || backupDueDays !== null) && (
+        <div role="status" className="shrink-0 flex flex-wrap items-center justify-between gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-1 text-xs text-amber-200">
+          <span>
+            {rsl.notice ? t(rsl.port.sessionOnly ? "notice.session" : "notice.bestEffort") : null}
+            {rsl.notice && backupDueDays !== null ? " " : null}
+            {backupDueDays !== null ? t("notice.backupDue", { days: backupDueDays }) : null}
+          </span>
+          <Button size="sm" variant="outline" className="h-7 border-amber-500/40 text-xs" onClick={() => setAboutOpen(true)}>{t("about.export")}</Button>
+        </div>
+      )}
+
+      {!listExpanded && (assetClass === "all" ? rows.some((x) => hasSessionGaps(x.assetClass)) : hasSessionGaps(assetClass as AssetClass)) && (
+        <div role="note" className="shrink-0 border-b border-sky-500/30 bg-sky-500/10 px-4 py-1 text-xs text-sky-200">
+          {t("ac.sessionNote")}
+        </div>
+      )}
+
+      {!listExpanded && lastUpdate && macroEvents.length > 0 && (
+        <div role="note" className="shrink-0 border-b border-violet-500/30 bg-violet-500/10 px-4 py-1 text-xs text-violet-200">
+          {macroEvents.map((e) => {
+            const hours = Math.round(Math.abs(e.at - lastUpdate.getTime()) / 3_600_000);
+            return (
+              <span key={e.id} className="me-3 inline-block">
+                {t(e.at >= lastUpdate.getTime() ? "macro.upcoming" : "macro.recent", { event: t(`macro.${e.kind}`), hours })}
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {scanMeta.source === "coinsph" && dataSource === "coinsph" && (
+        <div data-testid="ph-market-note" className="shrink-0 border-b border-sky-500/30 bg-sky-500/10 px-4 py-1.5 text-xs text-sky-200">
+          {t("ph.localMarket")}
+          {scanMeta.thin.length > 0 && (
+            <span className="ms-2 text-sky-300/80" title={scanMeta.thin.map((p) => p.replace(/PHP$/, "")).join(", ")}>
+              · {t("ph.thin", { n: scanMeta.thin.length, floor: `$${Math.round(COINSPH_MIN_USD_TURNOVER / 1000)}k` })}
+            </span>
+          )}
+        </div>
+      )}
+
+      {rateLimitUntil !== null && rateLimitUntil > Date.now() && (
+        <div role="alert" className="shrink-0 border-b border-amber-500/40 bg-amber-500/10 px-4 py-1.5 text-xs text-amber-200">
+          {t("scan.rateLimited", { s: Math.ceil((rateLimitUntil - Date.now()) / 1000) })}
+        </div>
+      )}
+
+      {error && (
+        <div role="alert" className="shrink-0 flex flex-wrap items-center justify-between gap-2 border-b border-rose-500/40 bg-rose-500/10 px-4 py-1.5 text-xs text-rose-300">
+          <span className="min-w-0 flex-1 truncate" title={error}>{error}</span>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" className="h-7 border-rose-500/40 text-xs" onClick={() => void load(timeframe, dataSource, monitorAssets, universeLimit, assetClass)}>{t("err.retry")}</Button>
+            {dataSource !== "bybit-spot" && (
+              <Button size="sm" variant="outline" className="h-7 border-rose-500/40 text-xs" onClick={() => setDataSource("bybit-spot")}>{t("err.useBybit")}</Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ---------- Data table — fills all remaining height ---------- */}
+      <main className={`mx-auto flex w-full max-w-[1600px] min-h-0 flex-1 flex-col ${listExpanded ? "px-1.5 py-1" : "px-3 py-2"}`}>
+        {listExpanded && <h1 className="sr-only">{t("ctx.page")} — {id.customer.legalName}</h1>}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/50">
+          {/* List toolbar — the expand control lives with the list it enlarges. */}
+          <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 px-2 py-0.5 text-[11px] text-zinc-500">
+            <span className="min-w-0 flex-1 truncate">
+              {t("stat.assets")} <span className="font-mono tabular-nums text-zinc-300">{visible.length}</span>
+              {listExpanded && (
+                <>
+                  <span className="mx-1.5 text-zinc-700">·</span>
+                  <span className="text-zinc-400">{t(`tf.${timeframe}`)}</span>
+                  <span className="mx-1.5 text-zinc-700">·</span>
+                  <span className="text-zinc-400">{selectedSource.label}</span>
+                  {lastUpdate && (
+                    <>
+                      <span className="mx-1.5 text-zinc-700">·</span>
+                      {t("scan.updated", { time: rsl.i18n.formatDate(lastUpdate, { timeStyle: "short", hour12: false }) })}
+                    </>
+                  )}
+                </>
+              )}
+            </span>
+            {listExpanded && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void load(timeframe, dataSource, monitorAssets, universeLimit, assetClass)}
+                disabled={loading}
+                aria-label={t("ctl.refresh")}
+                title={t("ctl.refresh")}
+                className="rsl-touch h-7 shrink-0 border-zinc-800 px-2 text-xs text-zinc-300"
+              >
+                {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={toggleListExpanded}
+              title={listExpanded ? t("list.collapse") : t("list.expandHint")}
+              data-testid="list-expand"
+              className="rsl-touch h-7 shrink-0 gap-1.5 border-zinc-800 px-2 text-xs text-zinc-300"
+            >
+              {listExpanded ? <Minimize2 className="h-3.5 w-3.5" aria-hidden="true" /> : <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />}
+              <span>{listExpanded ? t("list.collapse") : t("list.expand")}</span>
+            </Button>
+          </div>
+          {loading && progress.total > 0 && listExpanded && (
+            <div className="h-0.5 w-full shrink-0 overflow-hidden bg-zinc-800">
+              <div className="h-full bg-gradient-to-r from-cyan-400 to-emerald-400 transition-all duration-300" style={{ width: `${(progress.done / progress.total) * 100}%` }} />
+            </div>
+          )}
+          <div className="min-h-0 flex-1 overflow-auto custom-scroll">
+            <table className="market-table w-full min-w-[1180px] border-collapse text-sm">
+              <thead className="sticky top-0 z-10 bg-zinc-900 shadow-[0_1px_0_0_rgb(63_63_70)]">
+                <tr className="text-left text-xs uppercase tracking-wider text-zinc-500">
+                  <Th onClick={() => toggleSort("rank")} active={sortKey === "rank"} dir={sortDir} className="w-14 text-center">#</Th>
+                  <Th onClick={() => toggleSort("symbol")} active={sortKey === "symbol"} dir={sortDir}>{t("col.asset")}</Th>
+                  <Th onClick={() => toggleSort("price")} active={sortKey === "price"} dir={sortDir} className="text-end">{t("col.price")}</Th>
+                  <Th onClick={() => toggleSort("change24h")} active={sortKey === "change24h"} dir={sortDir} className="text-end">{t("col.change")}</Th>
+                  <Th onClick={() => toggleSort("quoteVolume")} active={sortKey === "quoteVolume"} dir={sortDir} className="text-end">{t("col.volume")}</Th>
+                  <th className="px-3 py-1.5 font-medium">
+                    <div className="flex items-center gap-1.5">
+                      <CircleDot className="h-3.5 w-3.5" /> {t("col.indicators")}
+                    </div>
+                  </th>
+                  <th className="min-w-[108px] whitespace-nowrap px-3 py-1.5 font-medium text-center">{t("col.bns")}</th>
+                  <Th onClick={() => toggleSort("score")} active={sortKey === "score"} dir={sortDir} className="text-center">{t("col.score")}</Th>
+                  <th className="px-3 py-1.5 font-medium text-center">
+                    <div className="flex items-center justify-center gap-1.5">
+                      <RotateCcw className="h-3.5 w-3.5" /> {t("col.reversal")}
+                    </div>
+                  </th>
+                  <th className="px-3 py-1.5 font-medium text-center">{t("col.pattern")}</th>
+                  <th className="px-3 py-1.5 pe-4 text-end font-medium">{t("col.signal")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.length === 0 && !loading && (
+                  <tr>
+                    <td colSpan={11} className="py-16 text-center text-zinc-500">
+                      {rows.length > 0 ? (
+                        t("empty.filtered")
+                      ) : (
+                        <span className="inline-flex flex-col items-center gap-1">
+                          <span className="text-sm text-zinc-300">{t("empty.title", { customer: id.customer.shortName })}</span>
+                          {!error && <span className="text-xs">{t("empty.body")}</span>}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                {visible.map((r) => (
+                  <tr
+                    key={r.pair}
+                    onClick={() => setDetailAsset(r)}
+                    className="border-t border-zinc-800/70 hover:bg-zinc-800/40 cursor-pointer transition-colors focus-within:bg-zinc-800/40"
+                  >
+                    <td className="px-3 py-1.5 text-center text-zinc-500 text-xs">{r.rank}</td>
+                    <td className="px-3 py-1.5">
+                      <div className="flex items-center gap-2">
+                        <AssetLogo symbol={r.symbol} />
+                        {/* v2.1: a real button keeps the row's cells readable to screen readers (no role=button on <tr>). */}
+                        <button
+                          type="button"
+                          onClick={(event) => { event.stopPropagation(); setDetailAsset(r); }}
+                          title={t("row.openDetails")}
+                          className="rounded text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                        >
+                          <span className="block font-semibold text-zinc-100 leading-tight">
+                            {r.symbol}
+                            {r.assetClass !== "crypto" && (
+                              <span className="ms-1 rounded border border-zinc-700 px-1 align-middle text-[9px] font-normal uppercase text-zinc-400">{t(`ac.${r.assetClass}`)}</span>
+                            )}
+                            {r.underlyingClosed && (
+                              <span className="ms-1 rounded border border-amber-500/40 px-1 align-middle text-[9px] font-normal text-amber-300" title={t("ac.sessionNote")}>{t("ac.closed")}</span>
+                            )}
+                          </span>
+                          <span className="block text-[10px] text-zinc-500 leading-tight">{r.pair}</span>
+                          <span className="sr-only">{t("row.openDetails")}</span>
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-3 py-1.5 text-right font-mono tabular-nums text-zinc-200">
+                      {scanMeta.currency === "PHP" ? "₱" : "$"}{fmtPrice(r.price)}
+                    </td>
+                    <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${r.change24h >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                      {fmtPct(r.change24h)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right font-mono tabular-nums text-zinc-400">
+                      ${fmtVol(r.quoteVolume)}
+                    </td>
+                    <td className="px-3 py-1.5 min-w-[160px] max-w-[220px]">
+                      {r.confluence.indicators.length > 0 ? (
+                        <IndicatorBar c={r.confluence} />
+                      ) : (
+                        <span className="text-xs text-zinc-600">{t("sig.insufficient")}</span>
+                      )}
+                    </td>
+                    <td className="min-w-[108px] whitespace-nowrap px-3 py-1.5 text-center">
+                      <span className="inline-flex flex-row items-center justify-center gap-1 font-mono text-xs">
+                        <span className="text-emerald-400">{r.confluence.bull}</span>
+                        <span className="text-zinc-600">/</span>
+                        <span className="text-zinc-400">{r.confluence.neutral}</span>
+                        <span className="text-zinc-600">/</span>
+                        <span className="text-rose-400">{r.confluence.bear}</span>
+                      </span>
+                    </td>
+                    <td className="px-3 py-1.5 text-center">
+                      <ScorePill score={r.confluence.score} />
+                    </td>
+                    <td className="px-3 py-1.5 text-center">
+                      <ReversalBadge r={r.reversal} />
+                    </td>
+                    <td className="px-3 py-1.5 text-center">
+                      <PatternBadge pattern={r.pattern} />
+                    </td>
+                    <td className="px-3 py-1.5 text-right pr-4">
+                      <MasterBadge c={r.confluence} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+
+      {/* v2.5.1: update notice (ADR-0012) — in the column above the footer, so the footer stays last. */}
+      <UpdateNotice />
+
+      {/* ---------- Footer — one thin line ---------- */}
+      <footer
+        className="shrink-0 border-t border-zinc-800 bg-zinc-950"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
+        <StatusFooter>
+          {health && health.source === dataSource && (
+            <span
+              data-testid="source-health"
+              data-state={health.state}
+              className={`whitespace-nowrap ${health.state === "ok" ? "text-emerald-400" : health.state === "slow" ? "text-zinc-300" : "text-amber-300"}`}
+              title={health.state === "blocked" ? t("health.blockedHelp") : health.state === "network-blocked" ? t("health.networkBlockedHelp") : undefined}
+            >
+              {t("health.label", { source: selectedSource.label })}: {health.state === "rate-limited"
+                ? t("health.rateLimited", { time: new Date(health.until ?? Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) })
+                : t(`health.${{ ok: "ok", slow: "slow", blocked: "blocked", "network-blocked": "networkBlocked", stale: "stale" }[health.state]}`)}
+            </span>
+          )}
+          <Legend />
+        </StatusFooter>
+      </footer>
+      <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
+      <LedgerDialog
+        open={ledgerOpen}
+        onOpenChange={setLedgerOpen}
+        store={ledgerStore}
+        source={dataSource}
+        timeframe={timeframe}
+        assetClass={assetClass}
+        getLiveKlines={getLiveKlines}
+        configId={activeConfigId}
+      />
+      <PaperDialog
+        open={paperOpen}
+        onOpenChange={setPaperOpen}
+        store={paperStore}
+        rows={rows}
+        source={dataSource}
+        timeframe={timeframe}
+        engineConfigId={activeConfigId}
+      />
+
+      {/* ---------- Detail modal ---------- */}
+      <Dialog open={!!detailAsset} onOpenChange={(o) => { if (!o) { setChartReplay(false); setDetailAsset(null); } }}>
+        <DialogContent
+          className="w-[min(100vw-1.5rem,56rem)] max-w-[min(100vw-1.5rem,56rem)] max-h-[92dvh] overflow-y-auto overflow-x-hidden border-zinc-800 bg-zinc-900 p-4 text-zinc-100 sm:p-5"
+        >
+          <DialogHeader>
+            <DialogTitle className="flex min-w-0 flex-wrap items-center justify-between gap-2 pr-8 text-base">
+              <span className="flex items-center gap-2">
+                {detailAsset && <AssetLogo symbol={detailAsset.symbol} size={30} />}
+                {detailAsset?.symbol}
+                <Badge variant="outline" className="text-zinc-500 border-zinc-700 font-mono">
+                  {detailAsset?.pair}
+                </Badge>
+                <Badge variant="outline" className="text-zinc-500 border-zinc-700 font-normal">
+                  {timeframe}
+                </Badge>
+              </span>
+              {detailAsset && !chartReplay && <MasterBadge c={detailAsset.confluence} />}
+            </DialogTitle>
+          </DialogHeader>
+          {detailAsset && (
+            <div className="min-w-0 space-y-3">
+              {!chartReplay && <>
+              {/* key stats row */}
+              <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4">
+                <MiniStat label="Price" value={`${scanMeta.currency === "PHP" ? "₱" : "$"}${fmtPrice(detailAsset.price)}`} />
+                <MiniStat label="24h Change" value={fmtPct(detailAsset.change24h)} tone={detailAsset.change24h >= 0 ? "up" : "down"} />
+                <MiniStat label="24h Volume" value={`$${fmtVol(detailAsset.quoteVolume)}`} />
+                <MiniStat label="Confluence" value={`${detailAsset.confluence.score > 0 ? "+" : ""}${detailAsset.confluence.score}`} tone={detailAsset.confluence.score > 0 ? "up" : detailAsset.confluence.score < 0 ? "down" : undefined} />
+                {scanMeta.source === "coinsph" && scanMeta.premium[detailAsset.pair] !== undefined && (
+                  <MiniStat label={t("ph.premium")} value={`${scanMeta.premium[detailAsset.pair] > 0 ? "+" : ""}${scanMeta.premium[detailAsset.pair].toFixed(2)} %`} />
+                )}
+              </div>
+              {scanMeta.source === "coinsph" && scanMeta.premium[detailAsset.pair] !== undefined && (
+                <p className="text-[10px] text-zinc-500">{t("ph.premiumHelp")}</p>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Database className="h-4 w-4 shrink-0 text-cyan-400" />
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-zinc-200">Saved market history</div>
+                    <div className="truncate text-[10px] text-zinc-500">
+                      {detailAsset.klines.length.toLocaleString()} closed bars · {detailAsset.klines[0] ? new Date(detailAsset.klines[0].time).toLocaleDateString() : "none"} to present
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Select value={chartDepth} onValueChange={(value) => setChartDepth(value as StoredChartDepth)}>
+                    <SelectTrigger aria-label="Chart history depth" className="h-8 w-[108px] border-zinc-700 bg-zinc-900 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="border-zinc-700 bg-zinc-900">
+                      <SelectItem value="60">60 bars</SelectItem>
+                      <SelectItem value="250">250 bars</SelectItem>
+                      <SelectItem value="1000">1K bars</SelectItem>
+                      <SelectItem value="all">All saved</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 border-cyan-500/30 bg-cyan-500/5 text-xs text-cyan-300 hover:bg-cyan-500/10"
+                    disabled={historyLoading}
+                    onClick={() => void backfillHistory(detailAsset)}
+                  >
+                    {historyLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <History className="h-3.5 w-3.5" />}
+                    {historyLoading ? "Backfilling…" : "Load 5K older"}
+                  </Button>
+                </div>
+                {historyError && <div className="w-full text-xs text-rose-400">{historyError}</div>}
+              </div>
+
+              </>}
+              {/* price chart */}
+              {detailAsset.klines.length > 2 && <button type="button" onClick={() => setChartReplay(!chartReplay)}
+                className="rounded border border-zinc-700 px-2 py-1 text-sm">{chartReplay ? "Close chart replay" : "Open chart replay"}</button>}
+              {chartReplay ? (
+                <ChartReplay key={detailAsset.pair} candles={detailAsset.klines}
+                  visible={chartDepth === "all" ? detailAsset.klines.length : Number(chartDepth)}
+                  instrument={{ pair: detailAsset.pair, src: dataSource, tf: timeframe, intervalMs: INTERVAL_MS[timeframe], assetClass: detailAsset.assetClass }} />
+              ) : detailAsset.klines.length > 1 ? (
+                <PriceChart
+                  klines={detailAsset.klines}
+                  visible={chartDepth === "all" ? detailAsset.klines.length : Number(chartDepth)}
+                />
+              ) : (
+                <div className="flex h-32 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950/50 text-sm text-zinc-500">
+                  Chart unavailable — insufficient candle data
+                </div>
+              )}
+
+              {!chartReplay && <>
+              {/* reversal + trend panel */}
+              <ReversalPanel r={detailAsset.reversal} />
+
+              <PatternPanel pattern={detailAsset.pattern} />
+
+              <BlocPanel c={detailAsset.confluence} />
+              {detailAsset.context && <ContextPanel x={detailAsset.context} />}
+              {dataSource === "bybit-perp" && <DerivativesPanel port={rsl.port} pair={detailAsset.pair} />}
+              {dataSource === "bybit-perp" && <OrderFlowPanel key={detailAsset.pair} pair={detailAsset.pair} />}
+              <FvgPanel c={detailAsset.confluence} />
+
+              {/* key levels */}
+              <KeyLevels klines={detailAsset.klines} price={detailAsset.price} />
+
+              {/* indicator breakdown by category */}
+              <div className="min-w-0 overflow-hidden rounded-lg border border-zinc-800">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  <span>Indicator panel · {detailAsset.confluence.validCount} voting</span>
+                  <span className="flex items-center gap-2 font-mono normal-case">
+                    <span className="text-emerald-400">{detailAsset.confluence.bull}B</span>
+                    <span className="text-zinc-600">·</span>
+                    <span className="text-zinc-400">{detailAsset.confluence.neutral}N</span>
+                    <span className="text-zinc-600">·</span>
+                    <span className="text-rose-400">{detailAsset.confluence.bear}S</span>
+                  </span>
+                </div>
+                <CategoryIndicatorList indicators={detailAsset.confluence.indicators} />
+                {detailAsset.confluence.warnings.map((warning) => <div key={warning} className="border-t border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">{warning}</div>)}
+              </div>
+              </>}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+
+      {/* ---------- Reversal warning popup ---------- */}
+      <Dialog open={alertsOpen} onOpenChange={setAlertsOpen}>
+        <DialogContent className="w-[min(100vw-1.5rem,36rem)] max-w-[min(100vw-1.5rem,36rem)] overflow-x-hidden border-amber-500/40 bg-zinc-900 p-4 text-zinc-100">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-300">
+              <AlertTriangle className="h-5 w-5" />
+              Reversal Warning
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-zinc-400">
+              New active reversal signals detected on {selectedSource.label} / {timeframe}. Review before acting; this is not financial advice.
+            </p>
+            <div className="max-h-72 overflow-y-auto rounded-lg border border-zinc-800 custom-scroll">
+              {reversalAlert.map((r) => (
+                <button
+                  key={r.pair}
+                  type="button"
+                  onClick={() => {
+                    setDetailAsset(r);
+                    setAlertsOpen(false);
+                  }}
+                  className="flex w-full items-center justify-between gap-3 border-b border-zinc-800 px-3 py-2 text-left last:border-b-0 hover:bg-zinc-800/60"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <AssetLogo symbol={r.symbol} size={26} />
+                    <span className="min-w-0">
+                      <span className="block font-semibold text-zinc-100">{r.symbol}</span>
+                    <span className="block text-xs text-zinc-500">{r.reversal.summary}</span>
+                    </span>
+                  </span>
+                  <span className={`shrink-0 rounded-md border px-2 py-1 text-xs font-semibold ${r.reversal.direction === "UP" ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" : "border-rose-500/40 bg-rose-500/10 text-rose-300"}`}>
+                    {r.reversal.direction === "UP" ? "REV UP" : "REV DOWN"} · {r.reversal.confidence}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" className="border-zinc-700 text-zinc-300" onClick={() => { setReversalAlert([]); setAlertsOpen(false); }}>
+                Clear alerts
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <PrivateApiDialog open={privateApiOpen} onOpenChange={setPrivateApiOpen} profile={privateApiProfile} onProfileChange={setPrivateApiProfile} />
+      {/* custom scrollbar styles */}
+      <style jsx global>{`
+        body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+        /* v2.5: theme colours come from tokens in globals.css (data-theme), not class-substring overrides. */
+        @media (max-width: 640px) {
+          .market-table th, .market-table td { padding-left: .55rem; padding-right: .55rem; }
+          .market-table { min-width: 1080px; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+/* ========================================================================== *
+ *  Small presentational sub-components
+ * ========================================================================== */
+
+/**
+ * Compact inline stat. Replaces the four large cards that previously consumed
+ * ~100px of vertical space above the table for four numbers.
+ */
+function StatChip({
+  icon, label, value, sub, tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string | number;
+  sub?: string;
+  tone?: "emerald" | "rose" | "amber";
+}) {
+  const valueTone =
+    tone === "emerald" ? "text-emerald-400"
+    : tone === "rose" ? "text-rose-400"
+    : tone === "amber" ? "text-amber-400"
+    : "text-zinc-200";
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+      {icon}
+      <span className="uppercase tracking-wider text-zinc-500">{label}</span>
+      <span className={`font-mono font-semibold tabular-nums ${valueTone}`}>{value}</span>
+      {sub && <span className="text-zinc-600">{sub}</span>}
+    </span>
+  );
+}
+
+function Th({
+  children, onClick, active, dir, className = "",
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  active: boolean;
+  dir: SortDir;
+  className?: string;
+}) {
+  return (
+    <th className={`px-3 py-1.5 font-medium ${className}`}>
+      <button onClick={onClick} className={`inline-flex items-center gap-1 hover:text-zinc-200 ${active ? "text-zinc-200" : ""}`}>
+        {children}
+        {active ? (dir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+      </button>
+    </th>
+  );
+}
+
+function ScorePill({ score }: { score: number }) {
+  const tone = score > 0 ? "text-emerald-400" : score < 0 ? "text-rose-400" : "text-zinc-400";
+  const bg = score > 0 ? "bg-emerald-500/10" : score < 0 ? "bg-rose-500/10" : "bg-zinc-700/30";
+  return (
+    <span className={`inline-block min-w-[52px] rounded px-2 py-0.5 font-mono text-xs font-semibold ${tone} ${bg}`}>
+      {score > 0 ? "+" : ""}{score}
+    </span>
+  );
+}
+
+function MiniStat({ label, value, tone }: { label: string; value: string; tone?: "up" | "down" }) {
+  const color = tone === "up" ? "text-emerald-400" : tone === "down" ? "text-rose-400" : "text-zinc-200";
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 px-3 py-2">
+      <div className="text-[11px] uppercase tracking-wider text-zinc-500">{label}</div>
+      <div className={`mt-0.5 text-base font-semibold tabular-nums ${color}`}>{value}</div>
+    </div>
+  );
+}
+
+function DetailRow({ ind }: { ind: IndicatorResult }) {
+  const tone =
+    ind.state === "BULLISH" ? "text-emerald-400" : ind.state === "BEARISH" ? "text-rose-400" : "text-zinc-400";
+  const label =
+    ind.state === "BULLISH" ? "BULL" : ind.state === "BEARISH" ? "BEAR" : "NEUTRAL";
+  return (
+    <div className={`flex min-w-0 items-center justify-between gap-2 px-3 py-1.5 text-sm ${ind.valid ? "" : "opacity-50"}`}>
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <SignalDot state={ind.state} size={8} />
+        <span className="truncate font-medium text-zinc-200">{ind.name}</span>
+        {ind.informational && (
+          <Badge variant="outline" className="shrink-0 border-zinc-700 px-1 py-0 text-[9px] font-normal text-zinc-500">
+            filter
+          </Badge>
+        )}
+      </div>
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="truncate font-mono text-[10px] text-zinc-500" title={ind.qualityNote ?? ind.detail}>
+          {ind.detail}
+        </span>
+        <span className={`w-11 shrink-0 text-right font-mono text-[11px] font-semibold ${tone}`}>{label}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Separate the 21 indicators into chart-category tabs. */
+function CategoryIndicatorList({ indicators }: { indicators: IndicatorResult[] }) {
+  // v2.1.1: "Structure" (FVG) was computed but had no tab, so it never appeared.
+  const categories = ["Trend", "Momentum", "Volatility", "Volume", "Structure"] as const;
+  if (indicators.length === 0) {
+    return <div className="px-3 py-6 text-center text-sm text-zinc-500">Insufficient data for indicator breakdown</div>;
+  }
+
+  const categoryData = categories.map((category) => {
+    const items = indicators.filter((indicator) => indicator.category === category);
+    return {
+      category,
+      items,
+      bull: items.filter((indicator) => indicator.state === "BULLISH").length,
+      neutral: items.filter((indicator) => indicator.state === "NEUTRAL").length,
+      bear: items.filter((indicator) => indicator.state === "BEARISH").length,
+    };
+  });
+
+  return (
+    <Tabs defaultValue="Trend" className="gap-0">
+      {/* No min-width and no horizontal scroller here: a fixed 480px tab strip
+          was the main thing forcing the detail dialog to overflow sideways. */}
+      <div className="border-b border-zinc-800 bg-zinc-950/50 px-2 py-1.5">
+        <TabsList className="grid h-8 w-full grid-cols-5 bg-zinc-900 p-0.5">
+          {categoryData.map(({ category, items }) => (
+            <TabsTrigger key={category} value={category} className="min-w-0 gap-1 px-1 text-[11px] data-[state=active]:bg-zinc-800">
+              <span className="truncate">{category}</span>
+              <span className="rounded bg-zinc-950/70 px-1 font-mono text-[9px] text-zinc-400">{items.length}</span>
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </div>
+      {categoryData.map(({ category, items, bull, neutral, bear }) => (
+        <TabsContent key={category} value={category} className="mt-0">
+          <div className="flex items-center justify-between border-b border-zinc-800/70 bg-zinc-900/60 px-3 py-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">{category} indicators</span>
+            <span className="font-mono text-[10px]" aria-label={`${bull} bullish, ${neutral} neutral, ${bear} bearish`}>
+              <span className="text-emerald-400">{bull}B</span>
+              <span className="text-zinc-600"> / </span>
+              <span className="text-zinc-400">{neutral}N</span>
+              <span className="text-zinc-600"> / </span>
+              <span className="text-rose-400">{bear}S</span>
+            </span>
+          </div>
+          {items.length > 0 ? (
+            <div className="divide-y divide-zinc-800/40">
+              {items.map((indicator) => <DetailRow key={indicator.name} ind={indicator} />)}
+            </div>
+          ) : (
+            <div className="px-3 py-6 text-center text-sm text-zinc-500">No {category.toLowerCase()} indicators available</div>
+          )}
+        </TabsContent>
+      ))}
+    </Tabs>
+  );
+}
+
+const BLOC_LABEL: Record<string, string> = {
+  trend: "detail.blocTrend",
+  meanReversion: "detail.blocMeanReversion",
+  breakout: "detail.blocBreakout",
+  flow: "detail.blocFlow",
+};
+
+/** v2.1.1: bloc scores and the regime gate were computed but never shown. */
+/** v2.3 — context fields recorded with the ledger row. Shown for research; they never change the score. */
+function ContextPanel({ x }: { x: Partial<LedgerRow> }) {
+  const { t } = useRsl();
+  const num = (v: number | null | undefined, d = 2) => (v === null || v === undefined || !Number.isFinite(v) ? "—" : v.toFixed(d));
+  // Symbols are paired with words for screen readers (review S16).
+  const items: [string, string, string?][] = [
+    ["detail.rs", x.rs === null || x.rs === undefined ? "—" : `${x.rs}`],
+    ["detail.beta", num(x.beta)],
+    ["detail.htf", x.htf === 1 ? "▲" : x.htf === -1 ? "▼" : x.htf === 0 ? "■" : "—", x.htf === 1 ? t("detail.htfUp") : x.htf === -1 ? t("detail.htfDown") : x.htf === 0 ? t("detail.htfFlat") : undefined],
+    ["detail.td", num(x.td)],
+    ["detail.mev", x.mev === null || x.mev === undefined ? "—" : `${x.mev > 0 ? "+" : ""}${x.mev.toFixed(1)} h`],
+  ];
+  if (x.bp !== undefined) items.push(["detail.basis", `${num(x.bp, 3)} %`]);
+  if (x.pin) items.push(["detail.pinned", "●", t("detail.yes")]);
+  if (x.spl) items.push(["detail.split", "●", t("detail.yes")]);
+  if (x.earn) items.push(["detail.earn", "●", t("detail.yes")]);
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+      <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">{t("detail.context")}</div>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-3">
+        {items.map(([k, v, spoken]) => (
+          <div key={k} className="flex justify-between gap-2">
+            <dt className="text-zinc-400">{t(k)}</dt>
+            <dd className="font-mono tabular-nums text-zinc-200">
+              {spoken ? <><span aria-hidden="true">{v}</span><span className="sr-only">{spoken}</span></> : v}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+function BlocPanel({ c }: { c: ConfluenceResult }) {
+  const { t } = useRsl();
+  if (!c.blocs.length) return null;
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <span className="font-semibold uppercase tracking-wider text-zinc-400">{t("detail.blocs")}</span>
+        {c.er != null && (
+          <span className="font-mono text-zinc-400">
+            {t("detail.regime")} {c.er.toFixed(2)} · {t("detail.mrWeight", { pct: Math.round((1 - (c.trendGate ?? 0)) * 100) })}
+          </span>
+        )}
+      </div>
+      <div className="grid gap-1.5">
+        {c.blocs.map((b) => {
+          const pct = Math.round(b.score * 100);
+          return (
+            <div key={b.bloc} className="grid grid-cols-[8rem_1fr_3.5rem] items-center gap-2 text-xs">
+              <span className="truncate text-zinc-300">{t(BLOC_LABEL[b.bloc] ?? b.bloc)}</span>
+              <div className="relative h-2 rounded bg-zinc-800" role="img" aria-label={`${t(BLOC_LABEL[b.bloc] ?? b.bloc)} ${pct}`}>
+                <div className="absolute inset-y-0 start-1/2 w-px bg-zinc-600" />
+                <div
+                  className={`absolute inset-y-0 rounded ${pct >= 0 ? "bg-emerald-500/70" : "bg-rose-500/70"}`}
+                  style={pct >= 0 ? { insetInlineStart: "50%", width: `${pct / 2}%` } : { insetInlineEnd: "50%", width: `${-pct / 2}%` }}
+                />
+              </div>
+              <span className={`text-end font-mono tabular-nums ${b.weight === 0 ? "text-zinc-500" : pct > 0 ? "text-emerald-400" : pct < 0 ? "text-rose-400" : "text-zinc-400"}`}>
+                {pct > 0 ? "+" : ""}{pct}{b.weight < 1 ? ` ×${b.weight.toFixed(1)}` : ""}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** v2.1.1: FVG confidence modifier, reason and active zones (computed, previously hidden). */
+function FvgPanel({ c }: { c: ConfluenceResult }) {
+  const { t } = useRsl();
+  if (c.fvgModifier === undefined) return null;
+  const zones = c.fvgZones ?? [];
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3 text-xs">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <span className="font-semibold uppercase tracking-wider text-zinc-400">{t("detail.fvg")}</span>
+        <span className="font-mono text-zinc-300">
+          {t("detail.fvgModifier")} ×{c.fvgModifier.toFixed(2)}{c.confidence !== undefined ? ` · ${t("detail.confidence")} ${c.confidence}` : ""}
+        </span>
+      </div>
+      {c.fvgReason && <p className="text-zinc-400">{c.fvgReason}</p>}
+      {zones.length === 0 ? (
+        <p className="mt-1 text-zinc-500">{t("detail.fvgNone")}</p>
+      ) : (
+        <ul className="mt-1 grid gap-1 sm:grid-cols-2">
+          {zones.slice(0, 6).map((z, i) => (
+            <li key={`${z.type}-${z.top}-${z.bottom}-${i}`} className="flex justify-between gap-2 rounded bg-zinc-900 px-2 py-1 font-mono tabular-nums">
+              <span className={z.type === "bull" ? "text-emerald-400" : "text-rose-400"}>{z.type === "bull" ? t("detail.fvgBull") : t("detail.fvgBear")}</span>
+              <span className="text-zinc-300">{fmtPrice(z.bottom)} – {fmtPrice(z.top)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Reversal + current-trend summary panel for the detail modal. */
+function ReversalPanel({ r }: { r: ReversalResult }) {
+  const trendIcon =
+    r.currentTrend === "UPTREND" ? <TrendingUp className="h-4 w-4 text-emerald-400" />
+    : r.currentTrend === "DOWNTREND" ? <TrendingDown className="h-4 w-4 text-rose-400" />
+    : <Minus className="h-4 w-4 text-zinc-400" />;
+  const revActive = r.isReversal && r.direction !== "NONE";
+  const revTone = !revActive ? "text-zinc-400"
+    : r.direction === "UP" ? "text-emerald-400"
+    : "text-rose-400";
+  const revBg = !revActive ? "bg-zinc-800/40 border-zinc-700"
+    : r.direction === "UP" ? "bg-emerald-500/10 border-emerald-500/40"
+    : "bg-rose-500/10 border-rose-500/40";
+  return (
+    <div className={`rounded-lg border ${revBg} px-3 py-2.5`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <RotateCcw className="h-4 w-4 text-amber-400" />
+          <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Trend & Reversal</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="flex items-center gap-1.5 text-zinc-300">
+            {trendIcon}
+            <span className="font-medium">{r.currentTrend}</span>
+          </span>
+          <span className="text-zinc-600">·</span>
+          <span className={`flex items-center gap-1.5 font-semibold ${revTone}`}>
+            {revActive ? (r.direction === "UP" ? "Reversing ↑" : "Reversing ↓") : "No reversal"}
+            {revActive && <span className="text-zinc-500 font-normal">({r.confidence.toLowerCase()})</span>}
+          </span>
+        </div>
+      </div>
+      <p className="mt-1.5 text-xs text-zinc-400">{r.summary}</p>
+      {r.signals.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {r.signals.map((s, i) => (
+            <span
+              key={i}
+              className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium ${
+                s.direction === "UP"
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                  : "border-rose-500/40 bg-rose-500/10 text-rose-300"
+              }`}
+              title={s.detail}
+            >
+              {s.direction === "UP" ? "↑" : "↓"} {s.name}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PatternPanel({ pattern }: { pattern: PatternSignal }) {
+  const active = pattern.direction !== "NONE" && pattern.confidence !== "NONE";
+  const up = pattern.direction === "UP";
+  const tone = !active ? "border-zinc-700 bg-zinc-800/30"
+    : up ? "border-cyan-500/40 bg-cyan-500/10"
+    : "border-fuchsia-500/40 bg-fuchsia-500/10";
+  return (
+    <div className={`rounded-lg border px-3 py-2.5 ${tone}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Zap className="h-4 w-4 text-cyan-400" />
+          <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+            Historical pattern signal
+          </span>
+        </div>
+        {active ? (
+          <span className={`text-sm font-semibold ${up ? "text-cyan-300" : "text-fuchsia-300"}`}>
+            {up ? "Future bias ↑" : "Future bias ↓"} · {pattern.confidence}
+          </span>
+        ) : (
+          <span className="text-xs text-zinc-500">No validated edge</span>
+        )}
+      </div>
+      <p className="mt-1.5 text-xs text-zinc-400">{pattern.summary}</p>
+      {pattern.matches > 0 && (
+        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <MiniStat label="Analogues" value={String(pattern.matches)} />
+          <MiniStat label="Directional hit" value={`${Math.round(pattern.winRate * 100)}%`} />
+          <MiniStat
+            label={`${pattern.horizonBars}-bar mean`}
+            value={fmtPct(pattern.expectedMovePct)}
+            tone={pattern.expectedMovePct > 0 ? "up" : pattern.expectedMovePct < 0 ? "down" : undefined}
+          />
+          <MiniStat label="Similarity" value={`${Math.round(pattern.averageSimilarity * 100)}%`} />
+        </div>
+      )}
+      <p className="mt-2 text-[10px] leading-relaxed text-zinc-600">
+        Based only on earlier closed-bar analogues. This is a probabilistic research signal, not a forecast or financial advice.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Key levels panel: recent high/low, pivot support/resistance, and where the
+ * current price sits relative to them. Support/resistance derived from a
+ * classic pivot calculation on the last completed swing.
+ */
+function KeyLevels({ klines, price }: { klines: Kline[]; price: number }) {
+  const levels = useMemo(() => {
+    if (klines.length < 2) return null;
+    const win = klines.slice(-20);
+    const high = Math.max(...win.map((c) => c.high));
+    const low = Math.min(...win.map((c) => c.low));
+    // Pivot point from the prior bar's H/L/C — classic floor trader pivots.
+    const prev = klines[klines.length - 2];
+    const pivot = (prev.high + prev.low + prev.close) / 3;
+    const r1 = 2 * pivot - low;
+    const s1 = 2 * pivot - high;
+    const r2 = pivot + (high - low);
+    const s2 = pivot - (high - low);
+    return { high, low, pivot, r1, s1, r2, s2 };
+  }, [klines]);
+
+  if (!levels) {
+    return <div className="rounded-lg border border-zinc-800 px-3 py-2 text-xs text-zinc-500">Key levels unavailable</div>;
+  }
+  const fmt = (p: number) => (p >= 1000 ? p.toLocaleString("en-US", { maximumFractionDigits: 2 }) : p >= 1 ? p.toFixed(4) : p.toExponential(3));
+  const rows: { label: string; val: number; tone: string }[] = [
+    { label: "R2", val: levels.r2, tone: "text-rose-300" },
+    { label: "R1", val: levels.r1, tone: "text-rose-300/80" },
+    { label: "Pivot", val: levels.pivot, tone: "text-zinc-300" },
+    { label: "S1", val: levels.s1, tone: "text-emerald-300/80" },
+    { label: "S2", val: levels.s2, tone: "text-emerald-300" },
+  ];
+  return (
+    <div className="rounded-lg border border-zinc-800 px-3 py-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Key Levels (20-bar)</span>
+        <span className="font-mono text-xs text-zinc-300">
+          High <span className="text-emerald-400">{fmt(levels.high)}</span>
+          <span className="mx-1.5 text-zinc-600">·</span>
+          Low <span className="text-rose-400">{fmt(levels.low)}</span>
+        </span>
+      </div>
+      <div className="mt-2 grid grid-cols-5 gap-1.5">
+        {rows.map((row) => {
+          const isAbove = price > row.val;
+          return (
+            <div key={row.label} className="rounded border border-zinc-800 bg-zinc-950/50 px-2 py-1.5 text-center">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500">{row.label}</div>
+              <div className={`font-mono text-xs font-semibold ${row.tone}`}>{fmt(row.val)}</div>
+              <div className={`text-[9px] mt-0.5 ${isAbove ? "text-emerald-500/70" : "text-rose-500/70"}`}>
+                {isAbove ? "below price" : "above price"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function Legend() {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-400" /> Bullish</span>
+      <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-zinc-500" /> Neutral</span>
+      <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-rose-400" /> Bearish</span>
+    </div>
+  );
+}

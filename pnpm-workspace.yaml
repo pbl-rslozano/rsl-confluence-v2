@@ -1,0 +1,10 @@
+packages:
+  - "packages/*"
+  - "packages/adapters/*"
+  - "apps/confluence/*"
+
+# Supply chain (builder skill rule 11): lifecycle scripts are OFF unless listed here.
+onlyBuiltDependencies:
+  - sharp
+  - "@tailwindcss/oxide"
+  - unrs-resolver

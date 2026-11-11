@@ -1,0 +1,66 @@
+PASS  ID-3.2  First-run wizard appears on first launch
+PASS  ID-8.1a  Brand order monogram → rsL → App → by rsLozano → build (LTR)  — rsl-mono → rsl-r → rsl-app → rsl-by → rsl-build
+PASS  ID-8.2  Build stamp identical in app bar and footer  — v2.2 2026 · build 20261031
+PASS  ID-8.3  Brand meta text ≥ 4.5:1, no opacity dimming (dark)  — 7.53:1 rgb(142, 163, 189) on rgba(9, 13, 20, 0.94)
+PASS  ID-8.4  Brand block recedes: ≤ 260 px wide, name ≤ 21 px, meta ≤ 11 px / weight 300  — {"brandW":260,"nameFont":19,"metaFont":10.5,"metaWeight":"300"}
+PASS  BLD-9.4-4  Legacy ≤2.02 preferences imported (timeframe 1h, not the new 4h default)  — 1 hour
+PASS  ID-8.5a  Workspace name in chip and context line  — RDPersonal — Workspace: rsLozano — Personal trading desk | Personal
+PASS  BLD-9.4-6  Audit trail intact and chained (app.start, migration.import, identity events)  — intact (4)
+PASS  ID-8.7a  About shows 18 catalogs; 16 DRAFT, en+ar approved
+PASS  BLD-9.4-2  PWA shows best-effort storage (IndexedDB) — not SQLite in a browser  — Storage: browser 
+PASS  ID-8.8a  3D monogram renders (WebGL) or static fallback  — WebGL canvas
+PASS  ID-2.4  About ends with personal credit, no corporate lines
+PASS  BLD-3.5a  Backup file name + checksum + audit head  — ConfluenceTerminal_PERS_backup_20261031.rslbak
+PASS  BLD-9.4-5b  Tampered backup refused (checksum)
+PASS  ID-8.5b  120-character workspace name truncates with full name in title  — chip 93 px
+PASS  ID-8.5c  Arabic workspace name renders (isolated with <bdi>)
+PASS  ID-8.6  Identity persists across reload; wizard not shown again
+PASS  ID-8.6b  Identity exports as JSON (schema + customer)  — ConfluenceTerminal_PERS_identity_20261031.json
+PASS  BLD-9.4-5a  Valid backup restores (identity returns to the backed-up workspace)  — Workspace: rsLozano — Personal trading desk
+PASS  ID-8.9  3D monogram: no context exhaustion or leftover canvases after 20 open/close cycles  — rAF 23/s headless (SwiftShader); warnings 0; canvases left 0
+PASS  ID-8.11  Keyboard: Tab reaches header controls and rows; language menu opens with Enter, Esc closes and restores focus  — {"refresh":true,"row":true,"listOpen":true,"listClosed":true,"focusBack":true}; 70 stops: Timeframe › Data source › Asset class › Universe size › Filter table › Monitor specific assets › Apply › RDPersonal — Workspace: rsLozano — Perso
+PASS  ID-8.7b  18 languages in rsL order  — 18 options
+PASS  ID-8.1b  Brand order unchanged in RTL (Arabic)
+PASS  ID-6.3a  Arabic UI: dir=rtl, translated headers  — #الأصلالسعرتغيّر 24 س %الحجم المؤشرات (18 مصوّتًا)ص / م / ها
+PASS  ID-6.3b  Latin digits in Arabic UI
+PASS  ID-2.2-rtl  In RTL the brand block moves to the inline-start (right) side  — right
+PASS  ID-8.7c  No raw keys in any of the 18 languages  — none
+PASS  ID-8.3b  Brand meta text ≥ 4.5:1 (light)  — 7.53:1 rgb(142, 163, 189) on rgba(9, 13, 20, 0.94)
+PASS  BLD-9.4-10b  axe: no critical or serious violations (light)  — none
+PASS  ID-8.3c  Light theme keeps the on-bar wordmark colours (bar stays navy)
+PASS  BLD-9.4-10a  axe: no critical or serious violations (dark)  — none
+PASS  ID-7  No console errors at load / language / theme / workspace switch  — none
+PASS  BLD-9.4-3a  Only same-origin and allow-listed exchange hosts contacted  — 127.0.0.1:8770, data-api.binance.vision
+PASS  BLD-9.4-3b  Airplane mode: UI stays usable, status shows Offline, last scan kept  — 4 rows
+PASS  BLD-9.4-11a  Cold start to first scored rows (laptop, mocked feed) ≤ 2 s budget  — 5392 ms incl. wizard
+PASS  BLD-9.4-9-390-ltr  390px LTR: no page h-scroll, app name not wrapped, 48px targets  — {"hScroll":false,"brandWraps":false,"anim":"none","small":0}
+PASS  BLD-9.4-10-390-ltr  axe: no critical/serious violations at 390px LTR  — none
+PASS  ID-8.8b  Reduced motion disables the wordmark shine  — none
+PASS  BLD-9.4-9-390-rtl  390px RTL: no page h-scroll, app name not wrapped, 48px targets  — {"hScroll":false,"brandWraps":false,"anim":"none","small":0}
+PASS  BLD-9.4-10-390-rtl  axe: no critical/serious violations at 390px RTL  — none
+PASS  BLD-9.4-9-820-ltr  820px LTR: no page h-scroll, app name not wrapped, 48px targets  — {"hScroll":false,"brandWraps":false,"anim":"none","small":0}
+PASS  BLD-9.4-10-820-ltr  axe: no critical/serious violations at 820px LTR  — none
+PASS  BLD-9.4-9-820-rtl  820px RTL: no page h-scroll, app name not wrapped, 48px targets  — {"hScroll":false,"brandWraps":false,"anim":"none","small":0}
+PASS  BLD-9.4-10-820-rtl  axe: no critical/serious violations at 820px RTL  — none
+PASS  BLD-9.4-9-1366-ltr  1366px LTR: no page h-scroll, app name not wrapped  — {"hScroll":false,"brandWraps":false,"anim":"none","small":17}
+PASS  BLD-9.4-10-1366-ltr  axe: no critical/serious violations at 1366px LTR  — none
+PASS  BLD-9.4-9-1366-rtl  1366px RTL: no page h-scroll, app name not wrapped  — {"hScroll":false,"brandWraps":false,"anim":"none","small":17}
+PASS  BLD-9.4-10-1366-rtl  axe: no critical/serious violations at 1366px RTL  — none
+PASS  M-1  New installs default to the 4h timeframe  — 4 hours
+PASS  M-2  Crypto class excludes stablecoins, tokenised stocks, gold and FX  — 4 rows
+PASS  M-3  Warm start asks for 1,000 bars on the first scan  — data-api.binance.vision/api/v3/klines?limit=1000 data-api.binance.vision/api/v3/klines?limit=1000
+PASS  M-4  Scoring runs in a Web Worker  — http://127.0.0.1:8770/_next/static/chunks/turbopack-worker-2gqdcwp7k90ea.js#params=%5B%5B%22.%2F_next%2Fstatic%2Fchunks%
+PASS  M-5  Stocks class lists the tokenised stock with a class badge and the market-hours note  — 1TSLTSLABStocks (tokenised)underlying closedTSLABUSDTOpen de
+PASS  M-6  All classes: 7 rows (USDC still excluded)
+PASS  M-7  Detail shows bloc scores, regime, FVG panel and a Structure tab
+PASS  M-8b  Browser engine id equals the Node/replay engine id (bundle-independent)  — Engine 6dbcfdc424942e02 vs 6dbcfdc424942e02
+PASS  M-8  Signal ledger records every scored series (one row per bar, deduplicated)  — recorded 4; engine id shown
+PASS  M-9  Ledger CSV export: header with config id + one line per row  — ConfluenceTerminal_PERS_ledger-binance-4h_20261031.csv · 4 rows
+PASS  M-10  axe: no critical/serious violations in the ledger dialog  — none
+PASS  M-11  No page errors with the worker, ledger and class switching  — none
+PASS  M-12  HTTP 429 halts the scan and shows a pause banner  — Exchange rate limit reached — scanning is paused for 60 s to protect your IP. Partial results are shown. | 
+PASS  M-13  Failed-feed symbol is not presented as a signal and not recorded  — SOL row: 3SOLSOLUSDTOpen details$101.0000+1.00%$1000.00Minsufficient data0/0/00 · recorded 3
+PASS  ID-8.8c  Reduced motion: splash name appears complete, no glyph-noise frames  — 1 distinct frame(s): rsLozano — Personal trading desk
+PASS  ID-8.8d  WebGL disabled: About shows the static monogram, no 3D canvas  — canvas 0, static 2
+
+64/64 passed

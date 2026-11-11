@@ -1,0 +1,46 @@
+name: Audit draft release assets
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/workflows/release-audit.yml]
+permissions:
+  contents: write
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Verify Android signing and normalize draft checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          for platform in windows android macos iphone; do
+            tag="v$version-$platform"
+            if ! gh release view "$tag" >/dev/null 2>&1; then
+              echo "Package still pending: $platform"
+              continue
+            fi
+            state="$(gh release view "$tag" --json isDraft --jq .isDraft)"
+            target="$(gh release view "$tag" --json targetCommitish --jq .targetCommitish)"
+            node tools/release-policy.mjs true "$state" "$target" "$target"
+            dir="$RUNNER_TEMP/assets-$platform"
+            mkdir -p "$dir"
+            gh release download "$tag" --dir "$dir"
+            if [ "$platform" = android ]; then
+              signer="$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)"
+              "$signer" verify --print-certs "$dir/app-release.apk"
+              jarsigner -verify "$dir/app-release.aab" | tee "$RUNNER_TEMP/aab-verification.log"
+              grep -q 'jar verified' "$RUNNER_TEMP/aab-verification.log"
+            fi
+            for file in "$dir"/*; do
+              [[ "$file" != *.sha256 ]] || continue
+              (cd "$dir" && sha256sum "$(basename "$file")") > "$file.sha256"
+            done
+            (cd "$dir" && sha256sum -c -- *.sha256)
+            gh release upload "$tag" "$dir"/*.sha256 --clobber
+            echo "Verified checksums: $platform"
+          done

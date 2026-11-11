@@ -1,0 +1,90 @@
+{
+  "schema": 1,
+  "description": "v2.6 WP8 (ADR-0014): which files of the static export tools/protect-build.mjs obfuscates, and which files it removes. Release check R17 re-applies these rules to the kept minified build, so the protected set can be audited from this file alone.",
+  "why_content_not_names": "Next 16 / Turbopack names chunks by content hash and, in production, replaces module paths with numeric ids, so neither file names nor source paths (src/lib/engine-config.ts, coinsph.ts, market-client.ts) survive in out/. What does survive are export names in Turbopack's export tables (e.s([\"name\",...])) and the app's own string literals. Each marker below is one of those, unique to this repository's sources (apps/confluence/web/src, packages/core, packages/adapters), checked against a real build on 2026-11-07.",
+  "scope": {
+    "pattern": "^_next/static/chunks/[^/]+\\.js$",
+    "note": "Only Turbopack chunks are candidates. sw.js, the build-id manifests and inline HTML are never obfuscated."
+  },
+  "includeMarkers": [
+    { "marker": "runScanJobSafe", "source": "src/lib/scan-jobs.ts", "role": "engine (scan worker and main-thread fallback)" },
+    { "marker": "normalizeScoringProfile", "source": "src/lib/scoring-profile.ts", "role": "engine" },
+    { "marker": "engineConfigId", "source": "src/lib/engine-config.ts", "role": "engine" },
+    { "marker": "detectSplit", "source": "src/lib/splits.ts", "role": "engine / workers" },
+    { "marker": "ASSET_CLASS_FILTERS", "source": "src/lib/asset-classes.ts", "role": "engine / scan worker" },
+    { "marker": "DEFAULT_HORIZONS", "source": "src/lib/ledger-metrics.ts", "role": "measure / report worker" },
+    { "marker": "COINSPH_INTERVALS", "source": "src/lib/coinsph.ts", "role": "Coins.ph public source" },
+    { "marker": "scan worker timed out", "source": "src/lib/scan-runner.ts", "role": "page (scan runner)" },
+    { "marker": "RslProvider", "source": "src/rsl/RslContext.tsx", "role": "app shell" },
+    { "marker": "ServiceWorkerRegister", "source": "src/components/service-worker-register.tsx", "role": "app shell" },
+    { "marker": "createIdentityStore", "source": "packages/core/core/rsl-identity.js", "role": "rsL Core Kit" },
+    { "marker": "canonicalJSON", "source": "packages/core/core/rsl-crypto.js", "role": "rsL Core Kit" },
+    { "marker": "by rsLozano", "source": "packages/core/core/rsl-brand.js", "role": "brand block" },
+    { "marker": "createAdapters", "source": "packages/adapters/*/index.js", "role": "shell adapters (web; Tauri and Capacitor chunks are excluded below because they bundle the vendor SDK)" }
+  ],
+  "excludeMarkers": [
+    { "marker": "Minified React error", "vendor": "react / react-dom" },
+    { "marker": "__NEXT_ERROR_CODE", "vendor": "next client runtime" },
+    { "marker": "next-router-state-tree", "vendor": "next router" },
+    { "marker": "TURBOPACK_NEXT_CHUNK_URLS", "vendor": "Turbopack chunk loader and worker bootstrap" },
+    { "marker": "Worker entrypoint must be loaded", "vendor": "Turbopack worker bootstrap" },
+    { "marker": "ACESFilmicToneMapping", "vendor": "three.js" },
+    { "marker": "__iconNode", "vendor": "icon libraries (lucide-react, @web3icons/react) split chunks" },
+    { "marker": "registerPlugin", "vendor": "@capacitor/core (chunk also holds the Capacitor adapter)" },
+    { "marker": "__TAURI_TO_IPC_KEY__", "vendor": "@tauri-apps/api (chunk also holds the Tauri adapter)" }
+  ],
+  "rule": "A chunk in scope is a target when it contains at least one includeMarker and no excludeMarker (exclusion wins). Workers (scan.worker, report.worker entry chunks) are selected by the same markers.",
+  "knownMixedChunks": "Turbopack inlines a few small libraries into the app's own chunks (Radix primitives, clsx, class-variance-authority, styled-jsx, the @web3icons BaseIcon). They are obfuscated together with the chunk; they are not separate files, so there is nothing to keep byte-identical. Every chunk that is not a target stays byte-identical (R17).",
+  "requiredMarkers": [
+    "runScanJobSafe",
+    "DEFAULT_HORIZONS",
+    "COINSPH_INTERVALS",
+    "scan worker timed out",
+    "RslProvider"
+  ],
+  "requiredMarkersNote": "Each of these must end up in at least one protected chunk, otherwise protect-build fails: a Next/Turbopack change that moves the engine, the workers, Coins.ph or the app shell into an excluded chunk must not silently ship unprotected.",
+  "removeFiles": [
+    { "pattern": "\\.map$", "reason": "source map (BG-1)" },
+    { "pattern": "^_next/static/media/[^/]+\\.(ts|tsx|mts|cts)$", "reason": "TypeScript source that Turbopack copies for new URL('./x.worker.ts', import.meta.url); the workers run from the bundled chunks, nothing loads these files" }
+  ],
+  "stripCommentsIn": ["\\.js$", "\\.mjs$", "\\.css$", "\\.html$"],
+  "obfuscatedSignature": {
+    "pattern": "\\b_0x[0-9a-f]{4,}\\b",
+    "minCount": 20,
+    "note": "javascript-obfuscator's hexadecimal identifier names. The minified build contains none, so a JS file with many of them that is not listed as protected in build-manifest.json fails R17."
+  },
+  "obfuscator": {
+    "package": "javascript-obfuscator",
+    "options": {
+      "compact": true,
+      "identifierNamesGenerator": "hexadecimal",
+      "renameGlobals": false,
+      "renameProperties": false,
+      "stringArray": false,
+      "stringArrayThreshold": 0.5,
+      "stringArrayEncoding": ["none"],
+      "stringArrayCallsTransform": false,
+      "splitStrings": false,
+      "controlFlowFlattening": false,
+      "deadCodeInjection": false,
+      "selfDefending": false,
+      "debugProtection": false,
+      "disableConsoleOutput": false,
+      "domainLock": [],
+      "sourceMap": false,
+      "transformObjectKeys": false,
+      "unicodeEscapeSequence": false,
+      "numbersToExpressions": false,
+      "simplify": true,
+      "target": "browser",
+      "reservedNames": [],
+      "reservedStrings": [],
+      "advertisement": false,
+      "log": false
+    },
+    "whyNoStringArray": "Measured 2026-11-07 with tools/protect-golden.mjs on the real engine chunks (identical results in every variant): the string array alone, even with encoding 'none', made engine scans 2.7x slower, because strings read in hot loops go through a lookup call; with it off the protected engine is within 1 % of the minified build. BG-5 caps first-scan time at +15 %, so the string array stays off (base64/rc4 encoding is slower still). Protection is identifier renaming, compaction and simplify.",
+    "perFile": "seed = first 8 hex digits of the chunk's SHA-256 (reproducible output); identifiersPrefix = _r<6 hex of the path's SHA-256>_ so the helper functions each chunk adds at script top level never collide between chunks loaded into the same page or worker.",
+    "whyNoReservedStrings": "String literals stay in place (stringArray false), so postMessage fields, i18n keys, CSS class names, localStorage keys and exchange JSON field names keep their values. Object keys (transformObjectKeys false) and property names (renameProperties false) are never changed; globals are never renamed. The pipeline compiles every output and the acceptance suite runs on the protected build (BG-3).",
+    "forbidden": "No option that injects eval or new Function (the CSP has no 'unsafe-eval'): selfDefending, debugProtection, disableConsoleOutput and domainLock all use a Function('return this') global lookup and stay off. protect-build fails if any target gains an eval( / Function( call."
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "@note": "Inputs and outputs of tools/build-menu-fonts.py (fonts SIL OFL 1.1).",
+  "families": {
+    "rsL Menu Arab": {
+      "package": "@fontsource/noto-naskh-arabic@5.3.0",
+      "source": "noto-naskh-arabic-arabic-400-normal.woff2",
+      "sourceSha256": "9cc2d2e90f7b51904468558b4ed529de8a8206497c8edb5e33122bd077e0158c",
+      "text": "العربية",
+      "output": "apps/confluence/web/public/fonts/menu/rsl-menu-arab.woff2",
+      "outputSha256": "0321e9b9a3f0b921536b0c9c3ba017e221ea8b28adb4f7b02ac0f7362ba236c0",
+      "bytes": 3328
+    },
+    "rsL Menu Nastaliq": {
+      "package": "@fontsource/noto-nastaliq-urdu@5.3.0",
+      "source": "noto-nastaliq-urdu-arabic-400-normal.woff2",
+      "sourceSha256": "fecd45d69436d911d79ff10fc39ca7f7022cbe05214bc07f931820b7c7a7d15c",
+      "text": "اردو",
+      "output": "apps/confluence/web/public/fonts/menu/rsl-menu-nastaliq.woff2",
+      "outputSha256": "5577c7c196fdcf623b8dd4ccf6fac6243a58a75d1b7ce33fa96162a52b5e357e",
+      "bytes": 1252
+    },
+    "rsL Menu Deva": {
+      "package": "@fontsource/noto-sans-devanagari@5.3.0",
+      "source": "noto-sans-devanagari-devanagari-400-normal.woff2",
+      "sourceSha256": "f86f14cbd1004f5795689ee9cc70d5d87d915f5135b30283525c1c7b8f0eb192",
+      "text": "हिन्दी",
+      "output": "apps/confluence/web/public/fonts/menu/rsl-menu-deva.woff2",
+      "outputSha256": "fc9b0df00477e9e516838633ca1a3e8e268847b23f807cdda7354f008eb0c0f3",
+      "bytes": 2384
+    },
+    "rsL Menu Beng": {
+      "package": "@fontsource/noto-sans-bengali@5.3.0",
+      "source": "noto-sans-bengali-bengali-400-normal.woff2",
+      "sourceSha256": "adb805ae2eb639cc5d7276ee0e3798a8092fbfe02a6e5a0e19d82587680b528c",
+      "text": "বাংলা",
+      "output": "apps/confluence/web/public/fonts/menu/rsl-menu-beng.woff2",
+      "outputSha256": "9643e9ba72f15c60a8c612301995cf8073b97d06f8396a30d1c68e01b4a5e461",
+      "bytes": 1016
+    },
+    "rsL Menu SC": {
+      "package": "@fontsource/noto-sans-sc@5.3.1",
+      "source": "noto-sans-sc-chinese-simplified-400-normal.woff2",
+      "sourceSha256": "95e3633b6a98f764ba3adfb54504a0cd4799328c009adf9081d6c1850f9c4c78",
+      "text": "中文（简体）",
+      "output": "apps/confluence/web/public/fonts/menu/rsl-menu-sc.woff2",
+      "outputSha256": "365c07c048a43c1202162df8b1671b5de4939156d82c498fb85c0ebed054a5d6",
+      "bytes": 1588
+    },
+    "rsL Menu JP": {
+      "package": "@fontsource/noto-sans-jp@5.3.1",
+      "source": "noto-sans-jp-japanese-400-normal.woff2",
+      "sourceSha256": "5ae4b6b5f176a590babe96d6bb62ee8805f4ddf15877738eda807db1fa20f136",
+      "text": "日本語",
+      "output": "apps/confluence/web/public/fonts/menu/rsl-menu-jp.woff2",
+      "outputSha256": "e3a30b42c4c414af282ca392567aae6423903df531ee55099dead2a9896c47a6",
+      "bytes": 1048
+    },
+    "rsL Menu KR": {
+      "package": "@fontsource/noto-sans-kr@5.3.1",
+      "source": "noto-sans-kr-korean-400-normal.woff2",
+      "sourceSha256": "809450f0b886d49a453c91a95908834ddff32a1b4ffea610a4a23128002a7296",
+      "text": "한국어",
+      "output": "apps/confluence/web/public/fonts/menu/rsl-menu-kr.woff2",
+      "outputSha256": "ad6eedc69613130b3633b6d34252eb439af4b74e43c0a559b868f49cd617c28e",
+      "bytes": 1040
+    }
+  }
+}

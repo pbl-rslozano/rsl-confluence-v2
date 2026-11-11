@@ -1,0 +1,108 @@
+/* rsl-tokens.css — GENERATED from rsl.tokens.json + rsl.dark.tokens.json (DTCG 2025.10). Do not edit by hand. */
+:root {
+  --rsl-blue: #0755F5;
+  --rsl-violet: #7524F4;
+  --rsl-cyan: #00D9F5;
+  --rsl-bar: #0B1B33;
+  --rsl-bar-2: #0F213D;
+  --rsl-meta-on-bar: #8EA3BD;
+  --rsl-meta-on-light: #5B6B82;
+  --customer-primary: #FF6B0C;
+  --customer-secondary: #FF9E00;
+  --color-bg: #F6F7F9;
+  --color-surface: #FFFFFF;
+  --color-surface-2: #EEF1F5;
+  --color-panel: #1E242C;
+  --color-text: #0E1726;
+  --color-text-muted: #4A5668;
+  --color-border: #D5DBE3;
+  --color-accent: #B7791F;
+  --color-accent-strong: #8A5A12;
+  --color-on-accent: #FFFFFF;
+  --color-focus: var(--rsl-blue);
+  --color-ok: #1E7B45;
+  --color-warn: #A15C00;
+  --color-crit: #B42318;
+  --color-info: var(--rsl-blue);
+  --color-watermark-trial: rgb(11 27 51 / 0.1);
+  --color-watermark-due: rgb(180 35 24 / 0.16);
+  --nutrimark-a: #038141;
+  --nutrimark-b: #85BB2F;
+  --nutrimark-c: #FECB02;
+  --nutrimark-d: #EE8100;
+  --nutrimark-e: #E63E11;
+  --font-brand: "Space Grotesk", Inter, sans-serif;
+  --font-ui: Inter, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --font-arabic: "Noto Naskh Arabic", "Segoe UI", Tahoma, sans-serif;
+  --size-text-xs: 12px;
+  --size-text-sm: 14px;
+  --size-text-md: 16px;
+  --size-text-lg: 20px;
+  --size-text-xl: 24px;
+  --size-text-2xl: 32px;
+  --size-meta: 11px;
+  --size-touch: 48px;
+  --size-touch-min: 24px;
+  --size-appbar: 56px;
+  --size-rail: 80px;
+  --size-rail-expanded: 248px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+  --motion-micro: 120ms;
+  --motion-panel: 220ms;
+  --motion-page: 400ms;
+  --motion-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --breakpoint-compact: 600px;
+  --breakpoint-medium: 840px;
+  --breakpoint-expanded: 1200px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #0A0F18;
+    --color-surface: #121A26;
+    --color-surface-2: #1A2331;
+    --color-panel: #0F151E;
+    --color-text: #E6EBF2;
+    --color-text-muted: #A3B0C2;
+    --color-border: #2A3546;
+    --color-accent: #F2B441;
+    --color-accent-strong: #FFD27A;
+    --color-on-accent: #14100A;
+    --color-ok: #4CC38A;
+    --color-warn: #F0A43A;
+    --color-crit: #FF7A6E;
+    --color-watermark-trial: rgb(142 163 189 / 0.12);
+    --color-watermark-due: rgb(255 122 110 / 0.18);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --color-bg: #0A0F18;
+  --color-surface: #121A26;
+  --color-surface-2: #1A2331;
+  --color-panel: #0F151E;
+  --color-text: #E6EBF2;
+  --color-text-muted: #A3B0C2;
+  --color-border: #2A3546;
+  --color-accent: #F2B441;
+  --color-accent-strong: #FFD27A;
+  --color-on-accent: #14100A;
+  --color-ok: #4CC38A;
+  --color-warn: #F0A43A;
+  --color-crit: #FF7A6E;
+  --color-watermark-trial: rgb(142 163 189 / 0.12);
+  --color-watermark-due: rgb(255 122 110 / 0.18);
+  color-scheme: dark;
+}

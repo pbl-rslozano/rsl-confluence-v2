@@ -1,0 +1,18 @@
+{
+  "name": "@rsl/confluence-recorder",
+  "version": "2.5.1",
+  "private": true,
+  "type": "module",
+  "description": "Headless forward-test recorder and alerts for rsL Confluence Terminal. Reuses the web engine unchanged; Node built-ins only. Analysis only, never places orders.",
+  "author": "rsLozano",
+  "engines": {
+    "node": ">=22.15"
+  },
+  "scripts": {
+    "start": "node --experimental-strip-types --disable-warning=ExperimentalWarning --import ./ts-resolve.mjs recorder.mjs",
+    "capture-depth": "node --experimental-strip-types --import ./ts-resolve.mjs capture-depth.mjs",
+    "once": "node --experimental-strip-types --disable-warning=ExperimentalWarning --import ./ts-resolve.mjs recorder.mjs --once",
+    "check-heartbeat": "node --experimental-strip-types --disable-warning=ExperimentalWarning --import ./ts-resolve.mjs recorder.mjs --check-heartbeat",
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --import ./ts-resolve.mjs --test --test-concurrency=1 \"test/*.test.mjs\""
+  }
+}

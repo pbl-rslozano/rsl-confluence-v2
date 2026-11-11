@@ -1,0 +1,973 @@
+{
+  "at": "2026-11-07T16:35:58.497Z",
+  "base": "http://127.0.0.1:8774/",
+  "results": [
+    {
+      "id": "ID-3.2",
+      "name": "First-run wizard appears on first launch",
+      "pass": true
+    },
+    {
+      "id": "ID-8.1a",
+      "name": "Brand order monogram → rsL → App → by rsLozano → build (LTR)",
+      "pass": true,
+      "evidence": "rsl-mono → rsl-r → rsl-app → rsl-by → rsl-build"
+    },
+    {
+      "id": "ID-8.2",
+      "name": "Build stamp identical in app bar and footer",
+      "pass": true,
+      "evidence": "v2.6.0 2026 · build 20261107"
+    },
+    {
+      "id": "ID-8.3",
+      "name": "Brand meta text ≥ 4.5:1, no opacity dimming (dark)",
+      "pass": true,
+      "evidence": "7.53:1 rgb(142, 163, 189) on rgba(9, 13, 20, 0.94)"
+    },
+    {
+      "id": "ID-8.4",
+      "name": "Brand block recedes: ≤ 260 px wide, name ≤ 21 px, meta ≤ 11 px / weight 300",
+      "pass": true,
+      "evidence": {
+        "brandW": 260,
+        "nameFont": 19,
+        "metaFont": 10.5,
+        "metaWeight": "300"
+      }
+    },
+    {
+      "id": "BLD-9.4-4",
+      "name": "Legacy ≤2.02 preferences imported (timeframe 1h, not the new 4h default)",
+      "pass": true,
+      "evidence": "1 hour"
+    },
+    {
+      "id": "ID-8.5a",
+      "name": "Workspace name in chip and context line",
+      "pass": true,
+      "evidence": "RDPersonal — Workspace: rsLozano — Personal trading desk | Personal"
+    },
+    {
+      "id": "BLD-9.4-6",
+      "name": "Audit trail intact and chained (app.start, migration.import, identity events)",
+      "pass": true,
+      "evidence": "intact (5)"
+    },
+    {
+      "id": "ID-8.7a",
+      "name": "About shows 18 catalogs; 16 machine-checked (awaiting review), en+ar approved",
+      "pass": true
+    },
+    {
+      "id": "BLD-9.4-2",
+      "name": "PWA shows best-effort storage (IndexedDB) — not SQLite in a browser",
+      "pass": true,
+      "evidence": "Storage: browser "
+    },
+    {
+      "id": "ID-8.8a",
+      "name": "3D monogram renders (WebGL) or static fallback",
+      "pass": true,
+      "evidence": "WebGL canvas"
+    },
+    {
+      "id": "ID-2.4",
+      "name": "About ends with personal credit, no corporate lines",
+      "pass": true
+    },
+    {
+      "id": "BLD-3.5a",
+      "name": "Backup file name + checksum + audit head",
+      "pass": true,
+      "evidence": "ConfluenceTerminal_PERS_backup_20261107.rslbak"
+    },
+    {
+      "id": "BLD-9.4-5b",
+      "name": "Tampered backup refused (checksum)",
+      "pass": true
+    },
+    {
+      "id": "ID-8.5b",
+      "name": "120-character workspace name truncates with full name in title",
+      "pass": true,
+      "evidence": "chip 93 px"
+    },
+    {
+      "id": "ID-8.5c",
+      "name": "Arabic workspace name renders (isolated with <bdi>)",
+      "pass": true
+    },
+    {
+      "id": "ID-8.6",
+      "name": "Identity persists across reload; wizard not shown again",
+      "pass": true
+    },
+    {
+      "id": "ID-8.6b",
+      "name": "Identity exports as JSON (schema + customer)",
+      "pass": true,
+      "evidence": "ConfluenceTerminal_PERS_identity_20261107.json"
+    },
+    {
+      "id": "BLD-9.4-5a",
+      "name": "Valid backup restores (identity returns to the backed-up workspace)",
+      "pass": true,
+      "evidence": "Workspace: rsLozano — Personal trading desk"
+    },
+    {
+      "id": "ID-8.9",
+      "name": "3D monogram: no context exhaustion or leftover canvases after 20 open/close cycles",
+      "pass": true,
+      "evidence": "rAF 51/s headless (SwiftShader); warnings 0; canvases left 0"
+    },
+    {
+      "id": "ID-8.11",
+      "name": "Keyboard: Tab reaches header controls and rows; language menu opens with Enter, Esc closes and restores focus",
+      "pass": true,
+      "evidence": "{\"refresh\":true,\"row\":true,\"listOpen\":true,\"listClosed\":true,\"focusBack\":true}; 70 stops: Timeframe › Data source › Asset class › Universe size › Watchlists › Alert inbox › Scoring profile · Default › Saved scans"
+    },
+    {
+      "id": "ID-8.7b",
+      "name": "18 languages in rsL order",
+      "pass": true,
+      "evidence": "18 options"
+    },
+    {
+      "id": "ID-8.1b",
+      "name": "Brand order unchanged in RTL (Arabic)",
+      "pass": true
+    },
+    {
+      "id": "ID-6.3a",
+      "name": "Arabic UI: dir=rtl, translated headers",
+      "pass": true,
+      "evidence": "#الأصلالسعرتغيّر 24 س %الحجم المؤشرات (18 مصوّتًا)ص / م / ها"
+    },
+    {
+      "id": "ID-6.3b",
+      "name": "Latin digits in Arabic UI",
+      "pass": true
+    },
+    {
+      "id": "ID-2.2-rtl",
+      "name": "In RTL the brand block moves to the inline-start (right) side",
+      "pass": true,
+      "evidence": "right"
+    },
+    {
+      "id": "ID-8.7c",
+      "name": "No raw keys in any of the 18 languages",
+      "pass": true,
+      "evidence": "none"
+    },
+    {
+      "id": "ID-8.3b",
+      "name": "Brand meta text ≥ 4.5:1 (light)",
+      "pass": true,
+      "evidence": "5.43:1 rgb(91, 107, 130) on rgba(255, 255, 255, 0.94)"
+    },
+    {
+      "id": "BLD-9.4-10b",
+      "name": "axe: no critical or serious violations (light)",
+      "pass": true,
+      "evidence": "none"
+    },
+    {
+      "id": "ID-8.3c",
+      "name": "Light theme: app bar is light and the wordmark uses the dark-ink gradient (ADR-0011)",
+      "pass": true
+    },
+    {
+      "id": "BLD-9.4-10a",
+      "name": "axe: no critical or serious violations (dark)",
+      "pass": true,
+      "evidence": "none"
+    },
+    {
+      "id": "ID-7",
+      "name": "No console errors at load / language / theme / workspace switch",
+      "pass": true,
+      "evidence": "none"
+    },
+    {
+      "id": "BLD-9.4-3a",
+      "name": "Only same-origin and allow-listed exchange hosts contacted",
+      "pass": true,
+      "evidence": "127.0.0.1:8774, data-api.binance.vision"
+    },
+    {
+      "id": "BLD-9.4-3b",
+      "name": "Airplane mode: UI stays usable, status shows Offline, last scan kept",
+      "pass": true,
+      "evidence": "4 rows"
+    },
+    {
+      "id": "BLD-9.4-11a",
+      "name": "Cold start to first scored rows (laptop, mocked feed) ≤ 2 s budget",
+      "pass": true,
+      "evidence": "3533 ms incl. wizard"
+    },
+    {
+      "id": "M-20",
+      "name": "390px: Expand list fills ≥ 80% of the space above the footer; footer pinned to the bottom with nothing after it; choice remembered",
+      "pass": true,
+      "evidence": {
+        "before": {
+          "list": 388,
+          "footerBottom": 844,
+          "footerH": 78,
+          "vh": 844,
+          "scrollY": 0,
+          "docH": 844
+        },
+        "after": {
+          "list": 696,
+          "footerBottom": 844,
+          "footerH": 78,
+          "vh": 844,
+          "scrollY": 0,
+          "docH": 844
+        },
+        "kept": true,
+        "restored": true
+      }
+    },
+    {
+      "id": "M-21",
+      "name": "360px RTL: Expand list fills ≥ 80% of the space above the footer; footer pinned to the bottom with nothing after it; choice remembered",
+      "pass": true,
+      "evidence": {
+        "before": {
+          "list": 306,
+          "footerBottom": 740,
+          "footerH": 78,
+          "vh": 740,
+          "scrollY": 0,
+          "docH": 740
+        },
+        "after": {
+          "list": 592,
+          "footerBottom": 740,
+          "footerH": 78,
+          "vh": 740,
+          "scrollY": 0,
+          "docH": 740
+        },
+        "kept": true,
+        "restored": true
+      }
+    },
+    {
+      "id": "M-22",
+      "name": "390px: header ≤ 260px with More controls closed; secondary controls reachable after opening it",
+      "pass": true,
+      "evidence": {
+        "closed": {
+          "header": 215,
+          "watchVisible": false
+        },
+        "opened": {
+          "expanded": "true",
+          "panelVisible": true
+        },
+        "watchlists": true
+      }
+    },
+    {
+      "id": "T-1",
+      "name": "Both themes: axe colour contrast passes at 390 and 1366 px",
+      "pass": true,
+      "evidence": {
+        "390-light": [],
+        "390-dark": [],
+        "1366-light": [],
+        "1366-dark": []
+      }
+    },
+    {
+      "id": "T-2",
+      "name": "Light theme has no dark block ≥ 2000 px² and dark theme no white block (header included)",
+      "pass": true,
+      "evidence": {
+        "390-light": [],
+        "390-dark": [],
+        "1366-light": [],
+        "1366-dark": []
+      }
+    },
+    {
+      "id": "T-3",
+      "name": "First frame after switching shows one theme only (shell, table, footer)",
+      "pass": true,
+      "evidence": {
+        "390-light": {
+          "theme": "light",
+          "root": 0.9678094117647059,
+          "table": 0.9678094117647059,
+          "footer": 0.9678094117647059
+        },
+        "390-dark": {
+          "theme": "dark",
+          "root": 0.06871607843137255,
+          "table": 0.06871607843137255,
+          "footer": 0.06871607843137255
+        },
+        "1366-light": {
+          "theme": "light",
+          "root": 0.9678094117647059,
+          "table": 0.9678094117647059,
+          "footer": 0.9678094117647059
+        },
+        "1366-dark": {
+          "theme": "dark",
+          "root": 0.06871607843137255,
+          "table": 0.06871607843137255,
+          "footer": 0.06871607843137255
+        }
+      }
+    },
+    {
+      "id": "T-4",
+      "name": "theme-color meta follows the theme (#F5F7FA light, #0B1B33 dark)",
+      "pass": true,
+      "evidence": {
+        "390-light": "#F5F7FA",
+        "390-dark": "#0B1B33",
+        "1366-light": "#F5F7FA",
+        "1366-dark": "#0B1B33"
+      }
+    },
+    {
+      "id": "T-5",
+      "name": "System follows the OS live and after reload",
+      "pass": true,
+      "evidence": {
+        "a": "light",
+        "b": "dark",
+        "kept": "dark"
+      }
+    },
+    {
+      "id": "T-6",
+      "name": "Light theme: chart grid, separator and crosshair strokes come from theme tokens (no near-black or near-white greys)",
+      "pass": true,
+      "evidence": "none"
+    },
+    {
+      "id": "ID-8.12a",
+      "name": "Language menu: every non-Latin native name renders with its vendored menu font; names ≥ 4.5:1 in both themes; fonts < 120 KB",
+      "pass": true,
+      "evidence": {
+        "fontEv": {
+          "Dark": {
+            "ar": {
+              "text": "العربية",
+              "loaded": 1,
+              "usesFamily": true
+            },
+            "ur": {
+              "text": "اردو",
+              "loaded": 1,
+              "usesFamily": true
+            },
+            "hi": {
+              "text": "हिन्दी",
+              "loaded": 1,
+              "usesFamily": true
+            },
+            "bn": {
+              "text": "বাংলা",
+              "loaded": 1,
+              "usesFamily": true
+            },
+            "zh": {
+              "text": "中文（简体）",
+              "loaded": 1,
+              "usesFamily": true
+            },
+            "ja": {
+              "text": "日本語",
+              "loaded": 1,
+              "usesFamily": true
+            },
+            "ko": {
+              "text": "한국어",
+              "loaded": 1,
+              "usesFamily": true
+            }
+          },
+          "Light": {
+            "ar": {
+              "text": "العربية",
+              "loaded": 1,
+              "usesFamily": true
+            },
+            "ur": {
+              "text": "اردو",
+              "loaded": 1,
+              "usesFamily": true
+            },
+            "hi": {
+              "text": "हिन्दी",
+              "loaded": 1,
+              "usesFamily": true
+            },
+            "bn": {
+              "text": "বাংলা",
+              "loaded": 1,
+              "usesFamily": true
+            },
+            "zh": {
+              "text": "中文（简体）",
+              "loaded": 1,
+              "usesFamily": true
+            },
+            "ja": {
+              "text": "日本語",
+              "loaded": 1,
+              "usesFamily": true
+            },
+            "ko": {
+              "text": "한국어",
+              "loaded": 1,
+              "usesFamily": true
+            }
+          }
+        },
+        "bytes": 11656
+      }
+    },
+    {
+      "id": "ID-8.12b",
+      "name": "360 px RTL: language menu is a bottom sheet fully inside the viewport",
+      "pass": true,
+      "evidence": {
+        "l": 0,
+        "r": 360,
+        "t": 215,
+        "b": 740,
+        "vw": 360,
+        "vh": 740,
+        "sheet": true
+      }
+    },
+    {
+      "id": "U-1",
+      "name": "Newer version in /updates/latest.json → notice with Reload to update (same-origin GET); Later hides it for that build",
+      "pass": true,
+      "evidence": {
+        "text": "Version 9.0.0 (build 20991231) is available.Test release.Reload to updateLater",
+        "reload": true,
+        "sameOrigin": true,
+        "hits": 2,
+        "axeNotice": [],
+        "hidden": true,
+        "stillHidden": true
+      }
+    },
+    {
+      "id": "U-2",
+      "name": "Older/equal or malformed manifest → no notice; About → Updates reports Up to date / Could not check",
+      "pass": true,
+      "evidence": {
+        "cur": {
+          "none": true,
+          "st": "Up to date. · Last checked 7 Nov 2026, 19:33"
+        },
+        "bad": {
+          "none": true,
+          "st": "Could not check for updates. · Last checked 7 Nov 2026, 19:33"
+        }
+      }
+    },
+    {
+      "id": "U-3",
+      "name": "Check for updates automatically = off → no request to latest.json after reload, no notice",
+      "pass": true,
+      "evidence": {
+        "off": true,
+        "noticeGone": true,
+        "before": 1,
+        "after": 1
+      }
+    },
+    {
+      "id": "U-4",
+      "name": "390px: update notice above the footer; footer pinned last; no page scroll",
+      "pass": true,
+      "evidence": {
+        "noticeBottom": 767,
+        "footerTop": 767,
+        "footerBottom": 844,
+        "vh": 844,
+        "scrollY": 0,
+        "docH": 844,
+        "overflowX": false
+      }
+    },
+    {
+      "id": "L-1",
+      "name": "18 languages × 390/1366 px: header, list toolbar, footer, About/Paper/Ledger dialogs — no clipped labels or raw placeholders",
+      "pass": true,
+      "evidence": {}
+    },
+    {
+      "id": "BLD-9.4-9-390-ltr",
+      "name": "390px LTR: no page h-scroll, app name not wrapped, 48px targets",
+      "pass": true,
+      "evidence": {
+        "hScroll": false,
+        "brandWraps": false,
+        "anim": "none",
+        "small": 0
+      }
+    },
+    {
+      "id": "BLD-9.4-10-390-ltr",
+      "name": "axe: no critical/serious violations at 390px LTR",
+      "pass": true,
+      "evidence": "none"
+    },
+    {
+      "id": "ID-8.8b",
+      "name": "Reduced motion disables the wordmark shine",
+      "pass": true,
+      "evidence": "none"
+    },
+    {
+      "id": "BLD-9.4-9-390-rtl",
+      "name": "390px RTL: no page h-scroll, app name not wrapped, 48px targets",
+      "pass": true,
+      "evidence": {
+        "hScroll": false,
+        "brandWraps": false,
+        "anim": "none",
+        "small": 0
+      }
+    },
+    {
+      "id": "BLD-9.4-10-390-rtl",
+      "name": "axe: no critical/serious violations at 390px RTL",
+      "pass": true,
+      "evidence": "none"
+    },
+    {
+      "id": "BLD-9.4-9-820-ltr",
+      "name": "820px LTR: no page h-scroll, app name not wrapped, 48px targets",
+      "pass": true,
+      "evidence": {
+        "hScroll": false,
+        "brandWraps": false,
+        "anim": "none",
+        "small": 0
+      }
+    },
+    {
+      "id": "BLD-9.4-10-820-ltr",
+      "name": "axe: no critical/serious violations at 820px LTR",
+      "pass": true,
+      "evidence": "none"
+    },
+    {
+      "id": "BLD-9.4-9-820-rtl",
+      "name": "820px RTL: no page h-scroll, app name not wrapped, 48px targets",
+      "pass": true,
+      "evidence": {
+        "hScroll": false,
+        "brandWraps": false,
+        "anim": "none",
+        "small": 0
+      }
+    },
+    {
+      "id": "BLD-9.4-10-820-rtl",
+      "name": "axe: no critical/serious violations at 820px RTL",
+      "pass": true,
+      "evidence": "none"
+    },
+    {
+      "id": "BLD-9.4-9-1366-ltr",
+      "name": "1366px LTR: no page h-scroll, app name not wrapped",
+      "pass": true,
+      "evidence": {
+        "hScroll": false,
+        "brandWraps": false,
+        "anim": "none",
+        "small": 24
+      }
+    },
+    {
+      "id": "BLD-9.4-10-1366-ltr",
+      "name": "axe: no critical/serious violations at 1366px LTR",
+      "pass": true,
+      "evidence": "none"
+    },
+    {
+      "id": "BLD-9.4-9-1366-rtl",
+      "name": "1366px RTL: no page h-scroll, app name not wrapped",
+      "pass": true,
+      "evidence": {
+        "hScroll": false,
+        "brandWraps": false,
+        "anim": "none",
+        "small": 24
+      }
+    },
+    {
+      "id": "BLD-9.4-10-1366-rtl",
+      "name": "axe: no critical/serious violations at 1366px RTL",
+      "pass": true,
+      "evidence": "none"
+    },
+    {
+      "id": "M-1",
+      "name": "New installs default to the 4h timeframe",
+      "pass": true,
+      "evidence": "4 hours"
+    },
+    {
+      "id": "M-2",
+      "name": "Crypto class excludes stablecoins, tokenised stocks, gold and FX",
+      "pass": true,
+      "evidence": "4 rows"
+    },
+    {
+      "id": "M-3",
+      "name": "Warm start asks for 1,000 bars on the first scan",
+      "pass": true,
+      "evidence": "data-api.binance.vision/api/v3/klines?limit=1000 data-api.binance.vision/api/v3/klines?limit=1000"
+    },
+    {
+      "id": "M-4",
+      "name": "Scoring runs in a Web Worker",
+      "pass": true,
+      "evidence": "http://127.0.0.1:8774/_next/static/chunks/turbopack-worker-2gqdcwp7k90ea.js#params=%5B%5B%22.%2F_next%2Fstatic%2Fchunks%"
+    },
+    {
+      "id": "M-5",
+      "name": "Stocks class lists the tokenised stock with a class badge and the market-hours note",
+      "pass": true,
+      "evidence": "1TSLTSLABStocks (tokenised)underlying closedTSLABUSDTOpen de"
+    },
+    {
+      "id": "M-6",
+      "name": "All classes: 7 rows (USDC still excluded)",
+      "pass": true
+    },
+    {
+      "id": "S-1",
+      "name": "Scanner exposes saved scans",
+      "pass": true
+    },
+    {
+      "id": "S-2",
+      "name": "Saved scan restores the symbol filter after reload",
+      "pass": true
+    },
+    {
+      "id": "W-1",
+      "name": "Scanner exposes named watchlists",
+      "pass": true
+    },
+    {
+      "id": "W-2",
+      "name": "Named watchlist scopes the scan to its saved instrument",
+      "pass": true
+    },
+    {
+      "id": "A-1",
+      "name": "Workspace exports a venue-qualified closed-bar rule",
+      "pass": true
+    },
+    {
+      "id": "A-2",
+      "name": "Inbox imports are idempotent and report missing exact signals",
+      "pass": true
+    },
+    {
+      "id": "A-3",
+      "name": "Gateway sync deploys the active rule and merges inbox events",
+      "pass": true
+    },
+    {
+      "id": "A-4",
+      "name": "Rank-rise export uses its own rule ID and place threshold",
+      "pass": true
+    },
+    {
+      "id": "M-7",
+      "name": "Detail shows bloc scores, regime, FVG panel and a Structure tab",
+      "pass": true
+    },
+    {
+      "id": "I-1",
+      "name": "Detail chart offers an Indicators control",
+      "pass": true,
+      "evidence": "visible"
+    },
+    {
+      "id": "I-2",
+      "name": "Every layer starts enabled and hides independently",
+      "pass": true
+    },
+    {
+      "id": "I-3",
+      "name": "The three default periods are 20, 50 and 200",
+      "pass": true
+    },
+    {
+      "id": "I-4",
+      "name": "Invalid periods preserve the last valid moving average",
+      "pass": true
+    },
+    {
+      "id": "I-5",
+      "name": "Periods beyond fetched history show insufficient history",
+      "pass": true
+    },
+    {
+      "id": "I-6",
+      "name": "Candles remain with all indicator layers hidden",
+      "pass": true
+    },
+    {
+      "id": "I-7",
+      "name": "Fixture scores and ranking survive chart setting changes",
+      "pass": true
+    },
+    {
+      "id": "I-8",
+      "name": "Period and visibility preferences survive reload",
+      "pass": true
+    },
+    {
+      "id": "I-9",
+      "name": "Reset restores periods and default visibility",
+      "pass": true
+    },
+    {
+      "id": "M-8b",
+      "name": "Browser engine id equals the Node/replay engine id (bundle-independent)",
+      "pass": true,
+      "evidence": "Engine 2c1a18ad8a61e9ab vs 2c1a18ad8a61e9ab"
+    },
+    {
+      "id": "M-8",
+      "name": "Signal ledger records every scored series (one row per bar, deduplicated)",
+      "pass": true,
+      "evidence": "recorded 4; engine id shown"
+    },
+    {
+      "id": "M-9",
+      "name": "Ledger CSV export: header with config id + one line per row",
+      "pass": true,
+      "evidence": "ConfluenceTerminal_PERS_ledger-binance-4h_20261107.csv · 4 rows"
+    },
+    {
+      "id": "M-10",
+      "name": "axe: no critical/serious violations in the ledger dialog",
+      "pass": true,
+      "evidence": "none"
+    },
+    {
+      "id": "M-14",
+      "name": "Ledger: full-window toggle, trials register, storage durability and pre-registration shown",
+      "pass": true,
+      "evidence": "Trials: 1"
+    },
+    {
+      "id": "M-15",
+      "name": "Ledger gate includes deflated Sharpe, label shuffle, momentum and pre-registration checks (or outcomes still pending)",
+      "pass": true,
+      "evidence": "9 gate rows"
+    },
+    {
+      "id": "M-16",
+      "name": "Pre-registration fixes a decision date ≥ 90 days ahead and removes the button",
+      "pass": true,
+      "evidence": "decision 2027-02-05 (89.3 days)"
+    },
+    {
+      "id": "M-17",
+      "name": "Order-book depth is sampled for measured slippage (public endpoint)",
+      "pass": true,
+      "evidence": "data-api.binance.vision/api/v3/depth?limit=100 data-api.binance.vision/api/v3/depth?limit=100"
+    },
+    {
+      "id": "M-18",
+      "name": "Detail shows the logged context fields (never scored)",
+      "pass": true
+    },
+    {
+      "id": "RP-1",
+      "name": "Asset details offer chart replay",
+      "pass": true
+    },
+    {
+      "id": "RP-2",
+      "name": "Replay reveals one candle at a time and passes only visible history to the chart",
+      "pass": true
+    },
+    {
+      "id": "RP-3",
+      "name": "Replay paper order fills only after advancing",
+      "pass": true
+    },
+    {
+      "id": "M-19",
+      "name": "Bitget perpetuals are offered as a data source",
+      "pass": true,
+      "evidence": "Binance Spot | Bybit Spot | Bybit Perpetual | Bitget Spot | Bitget Perpetual | Coins.ph (PH)"
+    },
+    {
+      "id": "P-1",
+      "name": "Paper dialog opens with the permanent 'simulated, no orders are sent' banner",
+      "pass": true,
+      "evidence": "Paper tradingPractise the discipline the measurement gate asks for: strong signa"
+    },
+    {
+      "id": "P-2",
+      "name": "axe: no critical/serious violations in the paper dialog",
+      "pass": true,
+      "evidence": "none"
+    },
+    {
+      "id": "P-3",
+      "name": "Opening paper trading makes no order or private-API request",
+      "pass": true,
+      "evidence": "none"
+    },
+    {
+      "id": "P-4",
+      "name": "Closed paper trade tags and notes persist without changing fills",
+      "pass": true
+    },
+    {
+      "id": "M-11",
+      "name": "No page errors with the worker, ledger and class switching",
+      "pass": true,
+      "evidence": "none"
+    },
+    {
+      "id": "M-12",
+      "name": "HTTP 429 halts the scan and shows a pause banner",
+      "pass": true,
+      "evidence": "Exchange rate limit reached — scanning is paused for 60 s to protect your IP. Partial results are shown. | "
+    },
+    {
+      "id": "M-13",
+      "name": "Failed-feed symbol is not presented as a signal and not recorded",
+      "pass": true,
+      "evidence": "SOL row: 3SOLSOLUSDTOpen details$101.0000+1.00%$1000.00Minsufficient data0/0/00 · recorded 3"
+    },
+    {
+      "id": "ID-8.8c",
+      "name": "Reduced motion: splash name appears complete, no glyph-noise frames",
+      "pass": true,
+      "evidence": "1 distinct frame(s): rsLozano — Personal trading desk"
+    },
+    {
+      "id": "ID-8.8d",
+      "name": "WebGL disabled: About shows the static monogram, no 3D canvas",
+      "pass": true,
+      "evidence": "canvas 0, static 2"
+    },
+    {
+      "id": "OF-1",
+      "name": "Bybit snapshot shows depth and public executions",
+      "pass": true
+    },
+    {
+      "id": "OF-2",
+      "name": "Imported depth heatmap marks a sequence gap",
+      "pass": true
+    },
+    {
+      "id": "OF-4",
+      "name": "Liquidation marker renders independently of depth gaps",
+      "pass": true
+    },
+    {
+      "id": "OF-3",
+      "name": "Bybit derivatives panel displays imported zero funding and open interest",
+      "pass": true
+    },
+    {
+      "id": "SP-0",
+      "name": "Reapplying the default profile retains the current scanner rows",
+      "pass": true
+    },
+    {
+      "id": "SP-H",
+      "name": "Profile change cancels an older-history request without reopening stale detail",
+      "pass": true
+    },
+    {
+      "id": "SP-1",
+      "name": "A custom scoring profile gets a distinct active engine ID",
+      "pass": true
+    },
+    {
+      "id": "SP-2",
+      "name": "Export records the enabled voting IDs",
+      "pass": true
+    },
+    {
+      "id": "SP-3",
+      "name": "Custom scoring profile survives reload",
+      "pass": true
+    },
+    {
+      "id": "SP-4",
+      "name": "Ledger measures the active custom profile separately",
+      "pass": true
+    },
+    {
+      "id": "SP-5",
+      "name": "Reset restores the shipped scoring identity",
+      "pass": true
+    },
+    {
+      "id": "PH-9",
+      "name": "Coins.ph (PH) is a source; its rows show peso prices",
+      "pass": true,
+      "evidence": "1BTCBTCPHPOpen details₱101.0000+1.00%$14.29M11/3/4+76REV↓ LO"
+    },
+    {
+      "id": "PH-10",
+      "name": "Thin peso pairs are counted in the note and not scored",
+      "pass": true,
+      "evidence": "₱ Philippine peso market (Coins.ph) — much thinner than global USDT markets. Volumes are shown in US dollars.· 1 thin pa"
+    },
+    {
+      "id": "PH-11",
+      "name": "The page reaches Coins.ph only through the same-origin /x/coinsph rewrite",
+      "pass": true,
+      "evidence": "6 proxied, 0 direct"
+    },
+    {
+      "id": "PH-13",
+      "name": "The offline cache never stores Coins.ph market data (/x/ is network-only)",
+      "pass": true,
+      "evidence": "0 cached"
+    },
+    {
+      "id": "US-1",
+      "name": "Source health line shows OK after a good scan",
+      "pass": true,
+      "evidence": "Coins.ph (PH) status: OK"
+    },
+    {
+      "id": "PH-12",
+      "name": "Detail sheet shows the PH premium (information only)",
+      "pass": true
+    },
+    {
+      "id": "US-1b",
+      "name": "A missing Coins.ph route reads 'Blocked or unreachable', not 'rate limited'",
+      "pass": true,
+      "evidence": "Coins.ph (PH) status: Blocked or unreachable"
+    }
+  ]
+}

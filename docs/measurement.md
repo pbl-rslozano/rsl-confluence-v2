@@ -1,0 +1,76 @@
+# Measuring the signals — v2.3 2026
+
+The terminal now records every signal it produces and measures what happened next. Use this before trusting, sizing or automating anything.
+
+## What is recorded (signal ledger)
+- One row per **series × closed bar × engine**: source, timeframe, pair, asset class, bar time, close, score, direction, strength, suppressed / low-volatility flags, valid voters, bull/bear counts, efficiency ratio, the four bloc scores, universe rank, 24 h quote volume, reversal direction/confidence, **warm-up bars** and the **engine id**.
+- **Engine id (`configId`)**: 16-hex hash of the engine version, its parameters and its *behaviour* on a fixed test series. Any change to an indicator, band, weight or window changes it, so results from different engines are never pooled. It is identical in the browser bundle and in Node (acceptance M-8b; unit test pins `2c1a18ad8a61e9ab` for engine 2.3.0).
+- **Catch-up**: when the app opens, the scan worker scores the bars that closed since the last recorded bar **of each series** (v2.3: one cursor per source × timeframe × pair; at most 48 bars per series, full 1,000-bar windows only). A pair seen for the **first** time starts forward from now: back-filling bars from before it entered the scan would add selection look-ahead (review C6). A failed catch-up job, or a storage-full write, never advances the cursor, so the hole is retried; holes longer than 48 bars are logged as **recording gaps** (shown in the dialog). Catch-up rows carry the rank at catch-up time (`rank_source = now`), never an invented historical rank. The headless recorder follows the same rules.
+- **Universe log (v2.3)**: the **full unfiltered venue ranking** (top 300 by 24 h quote volume, every class) is stored once per source × bar — only for the scan's newest bar — and every row stores `universe_rank_full`. It counts toward the row cap (≈ 40 rows each) and is pruned with its day. Survivorship and rank look-ahead can therefore be checked later from the ledger itself.
+- **Context fields (v2.3, logged, never scored)**: cross-sectional relative-strength percentile, 100-bar beta to BTC, higher-timeframe trend (EMA-20 slope on 4× bars), taker imbalance (Binance spot), hours to the nearest macro event, perp basis and band-pinned flag, stock split flag, earnings window (manual list, ships empty). They let you test "does it work better when …?" later without re-collecting. Token unlock schedules have no keyless public source and are not logged.
+- Symbols whose fetch failed in a scan are shown as "feed unavailable" and are **not** scored or recorded.
+- The report only pools rows from the **current engine id**, source, timeframe and asset class; rows from other engines are counted but never mixed in.
+- Stored as one small document per bar (all pairs of that bar) with day indexes for pruning: native SQLite on desktop/mobile; in the browser a **separate IndexedDB database** (`rsl-conf-ledger`), so the main database never needs an upgrade. Kept 400 days on durable storage (row cap 1 M on SQLite, 400 k on IndexedDB), 14 days / 5 k rows on localStorage, 2 days in memory-only mode. If storage fills up, the oldest quarter of days is dropped and recording continues. **Not part of `.rslbak` backups** — use Export CSV/JSON.
+
+## How outcomes are measured (no look-ahead)
+- Entry: **open of the next bar** after the signal bar closes. Exit: close of bar *t + h*, for h = 1, 3, 6, 12, 24.
+- Net return = direction × gross − 2 × (fee + slippage) − funding (perpetuals; longs pay, shorts receive).
+- Default costs (base tier, taker, Oct 2026): spot 10 bp fee; Bybit linear 5.5 bp; Bitget perps 6 bp; slippage 5 bp placeholder **plus a per-class extra** (tokenised stocks and RWAs +10 bp, commodities +5, FX +3); perp funding 1 bp per 8 h (0.01 %). Base rates include the same funding, so perps are not biased toward shorts.
+- **Measured slippage (v2.3)**: once a day the app reads the public order book of the top 10 pairs and stores the one-side slippage of a $1,000 market order (half spread + book walk). Where a pair has a measurement it replaces the placeholder and class extra.
+- **Outcome snapshots (v2.3)**: once measured, each outcome (gross, MFE, MAE, hours held) is stored next to its bar, so a delisted pair or a cleared candle cache does not lose its results. Fees, slippage **and funding** are re-priced from today's cost model when a snapshot is used. A pair that left the scan before its horizons closed gets its missing bars fetched once from public history when the dialog opens (≤ 10 pairs per open); the recorder keeps fetching candles for such pairs until their longest horizon has closed.
+- **Stock splits (v2.3)**: no outcome is measured across a probable split (it would read as a −50 % or +100 % trade).
+- No outcome is computed across a hole in the data, or before the horizon has closed.
+- **Primary statistics use full-window rows only (1,000 bars the engine actually saw, v2.3)**; a toggle shows ≥ 300-bar rows (more data, some warm-up bias). Session-filtered stocks never reach 1,000 bars, and neither do 2d/4d/1w/1M or very young series; the first scan of a new series yields 999 closed bars (Binance returns at most 1,000 including the bar in progress), so it becomes full-window from its second scan.
+- **Costs are matched (v2.3, review C1)**: base rates, the momentum benchmark, the shuffle replicas and the 2× check are charged the **same cost the compared signals paid**, so a signal that only fires on cheap pairs cannot show "edge" that is just a cost difference.
+
+## What the report shows (toolbar → Ledger)
+| Figure | Meaning |
+|---|---|
+Overlap control (v2.2): every bar is recorded, so outcomes at horizon *h* overlap by *h − 1* bars. All figures therefore use **non-overlapping outcomes per series** (a signal inside an open holding window is skipped), the PSR uses **one portfolio return per block of h bars**, and the rank IC uses **cross-sections at least h bars apart** (each with ≥ 5 pairs — a replay needs at least 5 symbols for an IC). On pure noise the gate's PSR now passes ~3 % of windows instead of ~50 % (unit-tested).
+
+| Hit rate vs **Base** | Share of signals with net > 0 vs the share of *all scored bars* (incl. NEUTRAL) that would have beaten costs in the same direction |
+| Mean net, **Edge vs base** (bp) | Expectancy after costs, and what the signal adds over holding blindly |
+| Profit factor, t | Gross wins ÷ gross losses; t-statistic of the mean |
+| Rank IC | Spearman correlation of score vs forward return across all pairs at the same bar, averaged over bars, with t-stat |
+| PSR | Probabilistic Sharpe ratio (Bailey & López de Prado) that the true per-trade Sharpe is > 0 |
+| Calibration | Mean forward move per score band — a working score should rise monotonically |
+
+| 95 % intervals (v2.3) | Wilson interval of the hit rate (tooltip) and a seeded **block** bootstrap interval of mean net (whole holding periods are resampled, so pairs that move together are not counted as independent) |
+| vs BTC (v2.3) | Mean net in excess of BTC's return over the same holding window (buy / sell) |
+| vs universe (v2.3) | Mean net in excess of the mean gross return of all scored pairs at the same bar (bars with ≥ 5 pairs) — a score that only leans long in a rising market shows ~0 here |
+| Deflated Sharpe (v2.3) | PSR against the expected maximum Sharpe of *N* trials; *N* = distinct variants looked at (source × timeframe × class × window), from the **trials register** |
+| Benchmarks (v2.3) | 20-bar momentum on the same bars (edge vs the base in each signal's own direction), and a **label permutation within each bar**: every BUY/SELL keeps its bar and cost but is moved to a random pair scored on that same bar, 100–200 times; p = share of permutations at least as good. Keeping the bar preserves time clustering, so a market-wide move cannot make random labels look worse than the real ones (an independent draw rejected a true null ~35 % of the time). With one pair per bar the test cannot reject (p ≈ 1) — scan ≥ 5 pairs. |
+
+**Indicative gate** (shown in the dialog): ≥ 200 measured directional signals, positive edge after costs, still positive at **2× costs**, rank-IC t ≥ 2, PSR ≥ 0.95, and since v2.3 **deflated Sharpe ≥ 0.95**, **shuffle p ≤ 0.05**, **beats 20-bar momentum** and a **pre-registered horizon whose decision date has passed**. Passing it is evidence, not proof; it is not a trading recommendation.
+
+**Research hygiene (v2.3)**
+- **Trials register**: every report variant opened is registered once (source × timeframe × class × window × **each horizon**, since the report shows all horizons); the count over **all engine versions** feeds the deflated Sharpe, so changing the engine does not reset it. Clearing the ledger does **not** reset it. App, replay (`trials.jsonl`) and the MCP server use one record schema (`id`, `at`, `cfg`, `variant`) and one counting rule (distinct variants).
+- **Pre-registration**: fix the hypothesis (engine, source, timeframe, class, window, horizon) before looking; the decision date is at least **90 days** later and cannot be moved or rewritten (audited). The gate's pre-registration check only passes **in that view**, and the gate then reads a **confirmatory report built only from rows recorded after the registration** — rows seen before it can never confirm it.
+- **Responsiveness**: the report is built in a Web Worker (main-thread fallback); permutation replicas are bounded to ~5 M draws per horizon.
+- **Storage durability**: the dialog shows whether browser storage is durable and offers to request it (`navigator.storage.persist()`); native SQLite is always durable.
+- **Weekly export**: the dialog reminds you when the last CSV/JSON export is ≥ 7 days old (or never).
+
+## Backtest by replay
+Same scoring code, same fixed 1,000-bar window as live:
+```
+pnpm --filter @rsl/confluence-web replay -- --symbols BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT,ADAUSDT --tf 4h --from 2024-01-01 --oos 2025-07-01
+pnpm --filter @rsl/confluence-web replay -- --csv-dir ./binance-klines --tf 1d --from 2022-01-01   # data.binance.vision CSVs
+```
+Writes `replay-out/ledger.csv`, `report.json`, `report.md` with in-sample vs out-of-sample results (in-sample rows whose longest horizon would reach past `--oos` are embargoed), windows that never span a data gap and a **20-bar momentum baseline** the engine must beat. v2.3 adds:
+- a **trials register** (`trials.jsonl` beside the output folder): every distinct run is appended once and the count deflates the Sharpe (`--trials N` overrides);
+- **PBO by CSCV** (Bailey, Borwein, López de Prado, Zhu) over the variant grid horizon × {all, strong}, ranking variants by Sharpe on per-bar returns; variants that trade in < 50 % of periods are dropped and only periods where every kept variant traded are used (an empty cell is not a return): ≥ 0.5 means the in-sample choice is likely overfit;
+- Wilson / block-bootstrap intervals, BTC and universe excess, within-bar permutation p, per-class costs, `--min-bars` (default 1,000, on the bars the engine saw), Bybit venue types for classification and the context fields — rows identical to live rows for the same bar.
+
+Survivorship-safe data: `node tools/fetch-binance-archive.mjs --list` lists every symbol ever archived on data.binance.vision and marks the **delisted** ones; `--symbols … --tf 4h --from 2022-01 --to 2026-09 --out ./klines` downloads monthly ZIPs, **verifies each against its SHA-256 `.CHECKSUM`** and unpacks the CSV for `--csv-dir`. Run it on your own computer (this build environment cannot reach the exchanges).
+
+## Still open
+- Replay rows still have no historical top-N rank; the universe log fixes this for forward data only.
+- Measured slippage covers the top 10 pairs, refreshed daily; deeper universes use the placeholder.
+- The headless recorder (apps/confluence/recorder, docs/recorder.md) records without the app open; it is a separate process you start yourself.
+
+## Biases still present — read before believing a number
+- **Survivorship**: replay symbols are today's survivors unless you add the delisted pairs listed by `fetch-binance-archive.mjs --list`.
+- **Universe look-ahead**: replay rows have no historical top-N rank (rank = 0); forward rows have the universe log.
+- **Slippage** is measured only for the top 10 pairs at $1,000; size up and it grows.
+- **Multiple testing**: the trials register counts what you look at in the app and in replay — but not what you try elsewhere.
+- **Short samples**: a few hundred signals on one timeframe is weak evidence; forward-record 3–6 months before acting.
