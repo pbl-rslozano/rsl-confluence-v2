@@ -38,6 +38,8 @@ export async function createAdapters() {
       // null = follow the OS (System preference); a forced theme also forces the webview's prefers-color-scheme.
       async setWindowTheme(theme) { await getCurrentWindow().setTheme(theme ?? null); },
     },
+    /** v2.7 (WP14.3): chart full screen makes the window full screen (needs core:window:allow-set-fullscreen). */
+    fullscreen: { shell: 'tauri', async set(on) { await getCurrentWindow().setFullscreen(Boolean(on)); } },
     sqlFactory: async () => fromTauriSql(await Database.load(DB_URL)),
     tauri: { dialog: { save, open }, fs: { writeFile, readFile } },
     /** https / mailto links open in the system browser / mail app (webview navigation stays locked). */

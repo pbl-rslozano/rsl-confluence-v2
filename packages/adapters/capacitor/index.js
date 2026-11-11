@@ -52,6 +52,8 @@ export async function createAdapters() {
         await StatusBar.setBackgroundColor({ color: resolved === 'dark' ? '#0B1B33' : '#F5F7FA' }).catch(() => {}); // Android only
       },
     },
+    /** v2.7 (WP14.3): chart full screen hides the status bar; the WebView's element fullscreen is not relied on. */
+    fullscreen: { shell: 'capacitor', async set(on) { await (on ? StatusBar.hide() : StatusBar.show()).catch(() => {}); } },
     /** Android back: the app passes a handler that closes the top sheet / navigates; returns true when handled. */
     onBack(handler) {
       return App.addListener('backButton', async ({ canGoBack }) => {
