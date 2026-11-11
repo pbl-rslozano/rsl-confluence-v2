@@ -294,8 +294,10 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
 
   // Network: only same-origin + allow-listed exchange hosts (builder §9.4-3 adapted, ADR-0003)
   const hosts = [...new Set(requests.filter((r) => r.startsWith("REQ ")).map((r) => r.slice(4)))];
-  const allowed = [new URL(BASE).host, "data-api.binance.vision", "api.bybit.com", "api.bitget.com"];
-  record("BLD-9.4-3a", "Only same-origin and allow-listed exchange hosts contacted", hosts.every((h) => allowed.includes(h)), hosts.join(", "));
+  // v2.7 (ADR-0003 amendment v2.7, ADR-0015): the display-currency rate hosts of Automatic, used when the device's
+  // currency is not USD (this runner's time zone decides Auto).
+  const allowed = [new URL(BASE).host, "data-api.binance.vision", "api.bybit.com", "api.bitget.com", "api.frankfurter.dev", "cdn.jsdelivr.net", "latest.currency-api.pages.dev"];
+  record("BLD-9.4-3a", "Only same-origin and allow-listed exchange and rate hosts contacted", hosts.every((h) => allowed.includes(h)), hosts.join(", "));
   // Offline: app keeps running, status shows Offline
   await ctx.setOffline(true);
   await page.waitForFunction(() => /Offline/.test(document.querySelector("footer").textContent), null, { timeout: 5000 }).catch(() => null);
@@ -1210,7 +1212,7 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
   }
 
   /* ===== v2.7: stablecoin quotes (WP12), display currency (WP13), chart zoom / full screen (WP14) ===== */
-  /* acceptance-ids: SQ-8, FX-7, CH-1, CH-4, CH-5, CH-6 */
+  /* acceptance-ids: SQ-8, FX-7, FX-14, FX-15, CH-1, CH-4, CH-5, CH-5b, CH-6 */
   {
     const c = await newContext(browser);
     await mockExchanges(c, null);
@@ -1228,6 +1230,12 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
       if (u.pathname.endsWith("/currencies")) return route.fulfill({ status: 200, headers: cors, body: JSON.stringify([...Object.keys(rates), "USD", ...Array.from({ length: 50 }, (_, i) => "Q" + String.fromCharCode(65 + (i % 26)) + String.fromCharCode(65 + Math.floor(i / 26)))].map((iso_code) => ({ iso_code, name: iso_code, type: "currency" }))) });
       return route.fulfill({ status: 200, headers: cors, body: JSON.stringify([...Object.entries(rates).map(([quote, rate]) => ({ date: "2026-11-11", base: "USD", quote, rate })), { date: "2026-11-10", base: "USD", quote: "USDT", rate: 1.0013 }]) });
     });
+    // ECB SDMX (EUR base) for FX-15.
+    const ecbCur = ["USD", "SAR", "GBP", "JPY", "INR", "CNY", "SGD", "AUD", "CAD", "CHF", "PHP"];
+    await c.route(/^https:\/\/data-api\.ecb\.europa\.eu\//, (route) => route.fulfill({ status: 200, headers: cors, body: JSON.stringify({
+      structure: { dimensions: { series: [{ id: "FREQ", values: [{ id: "D" }] }, { id: "CURRENCY", values: ecbCur.map((id) => ({ id })) }, { id: "CURRENCY_DENOM", values: [{ id: "EUR" }] }, { id: "EXR_TYPE", values: [{ id: "SP00" }] }, { id: "EXR_SUFFIX", values: [{ id: "A" }] }],
+        observation: [{ id: "TIME_PERIOD", values: [{ id: "2026-11-10" }] }] } },
+      dataSets: [{ series: Object.fromEntries(ecbCur.map((cc, i) => [`0:${i}:0:0:0`, { observations: { 0: [cc === "USD" ? 1.12 : cc === "SAR" ? 4.2 : 2] } }])) }] }) }));
     const p = await c.newPage();
     await p.goto(BASE, { waitUntil: "domcontentloaded" });
     await completeFirstRun(p, { operator: "R" });
@@ -1251,6 +1259,30 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
     const firstPrice = (await p.locator("tbody tr").first().locator("td").nth(2).textContent().catch(() => "")) ?? "";
     record("FX-7", "Display currency SAR: prices in SAR, info line names the peg, source and date",
       /SAR/.test(firstPrice) && /1 USD = 3\.75 SAR/.test(info) && /SAMA/.test(info) && /Frankfurter/.test(info) && fxHits.length > 0, `${firstPrice.trim()} · ${info.slice(0, 140)}`);
+
+    // FX-14 — Rate sources: 5 tested sources with website + data links, Update now, custom notice + written request.
+    await p.getByTestId("fx-sources-open").first().click();
+    const dlg = p.getByTestId("fx-sources");
+    await dlg.waitFor({ timeout: 10000 });
+    const srcCount = await dlg.locator('[data-testid^="fx-source-"]').count();
+    const links = await dlg.locator('a[href^="https://"]').evaluateAll((as) => as.map((a) => a.getAttribute("href")));
+    await dlg.getByRole("radio").last().check();
+    const notice = (await dlg.getByTestId("fx-custom-notice").textContent()) ?? "";
+    const request = (await dlg.getByTestId("fx-custom-request").getAttribute("href")) ?? "";
+    const lastUpd = (await dlg.getByTestId("fx-last").textContent().catch(() => "")) ?? "";
+    record("FX-14", "Rate sources lists 5 tested sources with their website and data address, last update, and a custom source marked not tested with a written request to the developer",
+      srcCount === 5 && links.some((h) => h.includes("frankfurter.dev")) && links.some((h) => h.includes("data-api.ecb.europa.eu")) && links.some((h) => h.includes("open.er-api.com")) &&
+      /Not tested/.test(notice) && /written request/.test(notice) && request.startsWith("mailto:") && /add%20an%20exchange-rate%20source/.test(request) && /Last updated/.test(lastUpd),
+      `${srcCount} sources · ${links.length} links · ${lastUpd}`);
+    // FX-15 — choose the ECB: the rate line names it and Update now reads only the ECB.
+    await dlg.getByText("European Central Bank", { exact: true }).click();
+    const fxBefore = fxHits.length;
+    await dlg.getByTestId("fx-update").click();
+    await p.waitForFunction(() => /European Central Bank/.test(document.querySelector('[data-testid="fx-info"]')?.textContent ?? ""), null, { timeout: 15000 }).catch(() => null);
+    const info2 = (await p.getByTestId("fx-info").textContent().catch(() => "")) ?? "";
+    record("FX-15", "Choosing the ECB converts SAR at the ECB's own cross rate and names it", /European Central Bank/.test(info2) && /1 USD = 3\.75 SAR/.test(info2) && fxHits.length === fxBefore, info2.slice(0, 160));
+    await p.keyboard.press("Escape");
+    await p.locator('[data-testid="fx-sources"]').waitFor({ state: "detached", timeout: 10000 }).catch(() => null);
 
     // Detail sheet chart.
     await p.getByRole("button", { name: /^ETH/ }).first().click();
@@ -1290,6 +1322,32 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
       fsMode !== "off" && fsBox && fsBox.width >= vp.width - 2 && fsBox.height >= vp.height - 2 && (await chart.getAttribute("data-fullscreen")) === "off" && await p.locator('[role="dialog"]').count() > 0,
       `${fsMode} ${Math.round(fsBox?.width ?? 0)}×${Math.round(fsBox?.height ?? 0)} of ${vp.width}×${vp.height}`);
     await p.screenshot({ path: path.join(OUT, "v27-sar-detail.png") });
+    await c.close();
+  }
+  /* CH-5b — no Fullscreen API (iPhone Safari, Capacitor, Tauri): the Focus view must fill the viewport from inside the sheet. */
+  {
+    const c = await newContext(browser);
+    await c.addInitScript(() => { Object.defineProperty(Document.prototype, "fullscreenEnabled", { get: () => false }); });
+    await mockExchanges(c, null);
+    const p = await c.newPage();
+    await p.goto(BASE, { waitUntil: "domcontentloaded" });
+    await completeFirstRun(p, { operator: "R" });
+    await waitRows(p);
+    await p.getByRole("button", { name: /^BTC/ }).first().click();
+    const chart = p.getByTestId("price-chart");
+    await chart.waitFor({ timeout: 15000 });
+    await p.locator('[role="dialog"]').first().evaluate((el) => { el.scrollTop = 400; });
+    await chart.getByTestId("chart-fullscreen").click();
+    await p.waitForTimeout(400);
+    const mode = await chart.getAttribute("data-fullscreen");
+    const r = await chart.boundingBox();
+    const vp = p.viewportSize();
+    await p.keyboard.press("Escape");
+    await p.waitForTimeout(300);
+    record("CH-5b", "Focus view (no Fullscreen API) covers the whole viewport even from a scrolled sheet; Esc keeps the sheet",
+      mode === "focus" && r && Math.abs(r.x) < 2 && Math.abs(r.y) < 2 && r.width >= vp.width - 2 && r.height >= vp.height - 2 &&
+      (await chart.getAttribute("data-fullscreen")) === "off" && await p.locator('[role="dialog"]').count() > 0,
+      `${mode} at ${Math.round(r?.x ?? 0)},${Math.round(r?.y ?? 0)} ${Math.round(r?.width ?? 0)}×${Math.round(r?.height ?? 0)}`);
     await c.close();
   }
   /* CH-6 — phone: two-finger pinch on the chart changes the visible bar count. */

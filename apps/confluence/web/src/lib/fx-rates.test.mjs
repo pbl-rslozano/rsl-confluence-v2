@@ -4,6 +4,8 @@
 import {
   parseFrankfurterRates, parseFrankfurterCurrencies, parseFawazRates, pegTable, convert, canConvert, isStale,
   usdtDeviationPct, rateKind, autoCurrency, refreshRates, FRANKFURTER_RATES, FAWAZ_URLS, FX_HOSTS,
+  parseEcbRates, parseErApiRates, parseFloatRates, parseCustomRates, FX_SOURCES, verifyUrl, saveCustomTable, cachedTable,
+  ECB_RATES, ERAPI_RATES, FLOATRATES_RATES,
 } from "./fx-rates.ts";
 import { formatMoney, formatMoneyCompact, minorUnits } from "./money.ts";
 
@@ -69,8 +71,10 @@ ok("FX-8 stale after three days", isStale(fresh, Date.parse("2026-11-11T12:00:00
 ok("FX-8 peg table never 'stale'", !isStale(p, Date.now() + 100 * day));
 
 /* automatic currency */
-ok("auto: ar-SA → SAR, fil-PH → PHP, en-US → USD, ja → JPY, xx → USD",
-  autoCurrency(["ar-SA"]) === "SAR" && autoCurrency(["fil-PH"]) === "PHP" && autoCurrency(["en-US"]) === "USD" && autoCurrency(["ja"]) === "JPY" && autoCurrency(["xx"]) === "USD");
+ok("auto: ar-SA → SAR, fil-PH → PHP, en-US → USD, ja → JPY, xx → USD (no known time zone)",
+  autoCurrency(["ar-SA"], "UTC") === "SAR" && autoCurrency(["fil-PH"], "UTC") === "PHP" && autoCurrency(["en-US"], "UTC") === "USD" && autoCurrency(["ja"], "UTC") === "JPY" && autoCurrency(["xx"], "UTC") === "USD");
+ok("auto: the device time zone wins — English in Riyadh → SAR, Arabic in Riyadh → SAR (not EGP)",
+  autoCurrency(["en-US"], "Asia/Riyadh") === "SAR" && autoCurrency(["ar"], "Asia/Riyadh") === "SAR" && autoCurrency(["en"], "Asia/Manila") === "PHP");
 
 /* FX-5 formatting */
 ok("FX-5 USD keeps the v2.6 look", formatMoney(64250.5, "USD") === "$64,250.50" && formatMoney(1.2345678, "USD") === "$1.2346" && formatMoney(0.5, "USD") === "$0.50000");
@@ -100,5 +104,43 @@ table = await refreshRates({ force: true, fetcher: async () => { throw new TypeE
 ok("FX-3 everything offline, nothing cached → peg table", table.source === "peg");
 ok("hosts: every URL is on FX_HOSTS", [FRANKFURTER_RATES, ...FAWAZ_URLS].every((u) => FX_HOSTS.includes(new URL(u).origin)));
 
+
+/* ===== owner request 11 Nov 2026: four alternative sources + custom (FX-9…FX-13) ===== */
+const curNames = ["ARS", "AUD", "BGN", "GBP", "INR", "JPY", "PHP", "SGD", "USD", "CHF", "CAD", "CNY", "HKD"];
+const ecb = {
+  structure: { dimensions: {
+    series: [{ id: "FREQ", values: [{ id: "D" }] }, { id: "CURRENCY", values: curNames.map((id) => ({ id })) }, { id: "CURRENCY_DENOM", values: [{ id: "EUR" }] }, { id: "EXR_TYPE", values: [{ id: "SP00" }] }, { id: "EXR_SUFFIX", values: [{ id: "A" }] }],
+    observation: [{ id: "TIME_PERIOD", values: [{ id: "2008-12-31" }, { id: "2026-11-10" }] }],
+  } },
+  dataSets: [{ series: Object.fromEntries(curNames.map((c, i) => [`0:${i}:0:0:0`, { observations: c === "ARS" ? { 0: [91.5953] } : { 1: [{ USD: 1.1206, PHP: 70.6, JPY: 177.3, GBP: 0.853, INR: 99.4, BGN: 1.9558, AUD: 1.70, SGD: 1.456, CHF: 0.93, CAD: 1.557, CNY: 7.97, HKD: 8.795 }[c]] } }])) }],
+};
+const e = parseEcbRates(ecb, 5);
+ok("FX-9 ECB: rebased to USD (EUR = 1/1.1206)", e && Math.abs(e.rates.EUR - 1 / 1.1206) < 1e-12 && Math.abs(e.rates.PHP - 70.6 / 1.1206) < 1e-9 && e.source === "ecb");
+ok("FX-9 ECB: a series last seen in 2008 is dropped", e && !("ARS" in e.rates) && e.asOf === "2026-11-10");
+const er = parseErApiRates({ result: "success", base_code: "USD", time_last_update_unix: 1794355352, rates: { USD: 1, AED: 3.6725, SAR: 3.75, PHP: 63.02, EUR: 0.892, JPY: 158.2, GBP: 0.761, INR: 88.7, CNY: 7.11, CAD: 1.39, AUD: 1.52 } }, 6);
+ok("FX-10 ExchangeRate-API parsed with its date", er && er.rates.SAR === 3.75 && er.source === "erapi" && /^2026-11-1/.test(er.asOf), er?.asOf);
+const fr = parseFloatRates(Object.fromEntries(Object.entries(RATES).map(([c, r]) => [c.toLowerCase(), { code: c, alphaCode: c, rate: String(r === 3.75 ? 3.75151668 : r), date: "Tue, 10 Nov 2026 23:59:00 GMT" }])), 7);
+ok("FX-11 FloatRates parsed (its SAR is not the peg — shown as is)", fr && Math.abs(fr.rates.SAR - 3.75151668) < 1e-9 && fr.asOf === "2026-11-10" && fr.source === "floatrates");
+ok("FX-12 five tested sources, each with method, terms, homepage and the exact data URL on a listed host",
+  FX_SOURCES.length === 5 && FX_SOURCES.every((x) => x.method && x.terms && x.homepage.startsWith("https://") && FX_HOSTS.includes(new URL(x.dataUrl).origin)));
+ok("FX-12 ExchangeRate-API carries its required attribution", FX_SOURCES.find((x) => x.id === "erapi")?.attribution?.text === "Rates By Exchange Rate API");
+ok("FX-12 verify link: Frankfurter lists the banks behind one currency", verifyUrl("frankfurter", "SAR").endsWith("quotes=SAR&expand=providers") && verifyUrl("ecb", "SAR") === ECB_RATES);
+const custom = { name: "My bank", url: "https://example.org/rates.json" };
+const c1 = parseCustomRates({ base: "EUR", date: "2026-11-11", rates: { USD: 1.12, SAR: 4.2, PHP: 70.56 } }, custom, 8);
+ok("FX-13 custom {base: EUR, rates} rebased to USD and labelled custom", c1 && c1.source === "custom" && Math.abs(c1.rates.SAR - 3.75) < 1e-9 && Math.abs(c1.rates.EUR - 1 / 1.12) < 1e-12 && c1.custom?.name === "My bank");
+ok("FX-13 custom accepts Frankfurter v2, fawazahmed0 and ExchangeRate-API files", parseCustomRates(frankRows, custom)?.rates.SAR === 3.75 && parseCustomRates(fawaz, custom)?.rates.PHP === 63 && parseCustomRates({ result: "success", base_code: "USD", rates: { SAR: 3.75, AED: 3.6725, PHP: 63, EUR: 0.89, JPY: 158, GBP: 0.76, INR: 88, CNY: 7.1, CAD: 1.39, AUD: 1.5 } }, custom)?.source === "custom");
+ok("FX-13 a file without rates is refused", parseCustomRates({ hello: "world" }, custom) === null && parseCustomRates("x", custom) === null);
+store.clear();
+saveCustomTable(c1);
+ok("FX-13 custom choice never fetches; it uses the imported table", (await refreshRates({ choice: "custom", fetcher: async () => { throw new Error("must not fetch"); } })).source === "custom");
+/* chosen source: no silent switch */
+seen.length = 0;
+let chosen = await refreshRates({ choice: "erapi", force: true, fetcher: async (u) => { seen.push(u); return resp({ result: "success", base_code: "USD", time_last_update_unix: 1794355352, rates: Object.fromEntries([["USD", 1], ...Object.entries(RATES)]) }); }, now: 50_000 });
+ok("FX-10 choosing ExchangeRate-API reads only its address", chosen.source === "erapi" && seen.length === 1 && seen[0] === ERAPI_RATES);
+chosen = await refreshRates({ choice: "erapi", force: true, fetcher: async () => resp({}, 503), now: 60_000 });
+ok("FX-10 when the chosen source fails, its last table is kept (no silent switch)", chosen.source === "erapi" && cachedTable("erapi")?.fetchedAt === 50_000);
+seen.length = 0;
+chosen = await refreshRates({ choice: "floatrates", force: true, fetcher: async (u) => { seen.push(u); return resp({}, 500); }, now: 70_000 });
+ok("FX-11 a chosen source that never answered → pegs, not another provider", chosen.source === "peg" && seen.every((u) => u === FLOATRATES_RATES));
 console.log(`\nFX suite: ${passed}/${passed + failed} passed`);
 if (failed) process.exit(1);

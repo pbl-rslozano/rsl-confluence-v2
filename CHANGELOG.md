@@ -13,6 +13,12 @@ goes full screen. Engine unchanged (2.3.0, `2c1a18ad8a61e9ab`); USDT scans are i
   rates → fawazahmed0 fallback → built-in Gulf pegs offline; the rate line names the rate kind (peg/band/official/reference),
   source and date, and shows USDT's real USD price (prices use 1 USDT = 1 USD). Display only — release check **R21**.
   Three new `connect-src` hosts (ADR-0003 amendment v2.7).
+- **Rate sources (owner request):** **⇄ Rate sources** lets you choose *Automatic*, Frankfurter or one of four
+  alternatives (European Central Bank, ExchangeRate-API open access, fawazahmed0, FloatRates); **Update now** and
+  automatic updates every 6 hours; every source shown with publisher, method, coverage, cadence, terms, website and the
+  exact data address to verify it (Frankfurter: the central banks behind each rate). A **custom source** (not listed) can
+  be imported from its rates file, marked *not tested*, with a pre-filled written request to the developer to add it.
+  Three more `connect-src` hosts (ADR-0003 amendment v2.7).
 - **Chart (WP14):** zoom (buttons, + / −, Ctrl/⌘+wheel, trackpad and two-finger pinch) anchored at the cursor, pan (drag,
   Shift+wheel, Shift+arrows), reset (0, double-click/tap), full screen (Fullscreen API, or a Focus view on iPhone and in the
   apps; desktop window full screen through `core:window:allow-set-fullscreen`; Esc / Android Back leaves full screen
@@ -25,8 +31,12 @@ goes full screen. Engine unchanged (2.3.0, `2c1a18ad8a61e9ab`); USDT scans are i
   assets typed as `BTC-USDT` were dropped on restart; key levels showed `5.000e-1`; duplicate axis labels on tight ranges.
 - **User guide (WP16):** v2.7, full 22-chapter guide in the repository; new sections for quotes, display currency and chart
   zoom / full screen. 21 new labels in all 18 catalogs.
-- **Checks:** unit suites + quotes 57, FX 32, chart view 8; release checks R1–R21; browser acceptance adds SQ-8, FX-7,
-  CH-1, CH-4, CH-5, CH-6.
+- **Second review (12 findings, all fixed):** Focus-view full screen inside the sheet on iPhone/apps/desktop, rates for
+  Coins.ph/EUR scans with a USD display, rate-line wording, chart view on "All saved" and on older-history loads,
+  scroll-vs-tap, `DOTUSD` input, Auto currency from the time zone, depeg readings in USDT scans, axis labels, desktop
+  full-screen restore, paper base asset per venue, transitive R21.
+- **Checks:** unit suites + quotes 62, FX 47, chart view 8; release checks R1–R21; browser acceptance adds SQ-8, FX-7,
+  FX-14, FX-15, CH-1, CH-4, CH-5, CH-5b, CH-6.
 
 # v2.6.0 — 7 November 2026 · build 20261107
 

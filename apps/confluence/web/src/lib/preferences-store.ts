@@ -48,6 +48,12 @@ export interface AppPreferences {
   quoteBySource: Partial<Record<DataSource, string>>;
   /** v2.7 (WP13): "AUTO" (device region) or an ISO 4217 code. Display only. */
   displayCurrency: string;
+  /** v2.7: rate source — "auto", a tested source id, or "custom" (the user's own, not tested). */
+  fxSource: string;
+  /** v2.7: refresh rates automatically every 6 hours. */
+  fxAutoUpdate: boolean;
+  /** v2.7: the user's own source (name and address) when fxSource is "custom". */
+  fxCustom: { name: string; url: string } | null;
 }
 
 export const DEFAULT_APP_PREFERENCES: AppPreferences = {
@@ -65,6 +71,9 @@ export const DEFAULT_APP_PREFERENCES: AppPreferences = {
   assetClass: "crypto",
   quoteBySource: {},
   displayCurrency: "AUTO",
+  fxSource: "auto",
+  fxAutoUpdate: true,
+  fxCustom: null,
 };
 
 const STORAGE_KEY = "ct-preferences-v1";
@@ -91,6 +100,19 @@ function normalizeMonitorAssets(value: unknown): string[] {
     .map((asset) => baseFromInput(asset)) // v2.7: any stablecoin quote
     .filter((asset) => /^[A-Z0-9]{1,15}$/.test(asset)))]
     .slice(0, 100);
+}
+
+const FX_CHOICES = new Set(["auto", "frankfurter", "ecb", "erapi", "fawazahmed0", "floatrates", "custom"]);
+/** v2.7: a user-named rate source — plain text name, and an http(s) address kept for reference only. */
+export function normalizeCustomSource(value: unknown): { name: string; url: string } | null {
+  if (!isRecord(value)) return null;
+  const name = typeof value.name === "string" ? value.name.replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 80) : "";
+  let url = "";
+  try {
+    const u = new URL(String(value.url ?? ""));
+    if (u.protocol === "https:" || u.protocol === "http:") url = u.href.slice(0, 500);
+  } catch { /* not a URL */ }
+  return name || url ? { name: name || url, url } : null;
 }
 
 /** v2.7: per-source quote modes, each validated against what that source can serve. */
@@ -121,6 +143,9 @@ export function normalizePreferences(saved: unknown): AppPreferences | null {
     assetClass: savedOrDefault(saved.assetClass, new Set<AssetClassFilter>(ASSET_CLASS_FILTERS), DEFAULT_APP_PREFERENCES.assetClass),
     quoteBySource: normalizeQuotes(saved.quoteBySource),
     displayCurrency: typeof saved.displayCurrency === "string" && /^(AUTO|[A-Z]{3})$/.test(saved.displayCurrency) ? saved.displayCurrency : "AUTO",
+    fxSource: savedOrDefault(saved.fxSource, FX_CHOICES, "auto"),
+    fxAutoUpdate: typeof saved.fxAutoUpdate === "boolean" ? saved.fxAutoUpdate : true,
+    fxCustom: normalizeCustomSource(saved.fxCustom),
   };
 }
 

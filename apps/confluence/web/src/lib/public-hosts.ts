@@ -35,6 +35,9 @@ export const CSP_HOSTS = [
   { origin: "https://api.frankfurter.dev", purpose: "display-currency rates, central-bank blend (ADR-0015)" },
   { origin: "https://cdn.jsdelivr.net", purpose: "display-currency rates fallback, fawazahmed0 (ADR-0015)" },
   { origin: "https://latest.currency-api.pages.dev", purpose: "display-currency rates fallback mirror (ADR-0015)" },
+  { origin: "https://data-api.ecb.europa.eu", purpose: "display-currency rates, ECB reference rates — user-selectable (ADR-0015)" },
+  { origin: "https://open.er-api.com", purpose: "display-currency rates, ExchangeRate-API open access — user-selectable (ADR-0015)" },
+  { origin: "https://www.floatrates.com", purpose: "display-currency rates, FloatRates — user-selectable (ADR-0015)" },
 ] as const;
 
 export const COINSPH_ORIGIN = "https://api.pro.coins.ph";

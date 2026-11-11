@@ -332,7 +332,12 @@ function pickQuotes<T>(
   if (mode === "USDT") {
     const rows = parts.filter((p) => p.symbol.endsWith("USDT") && !(source.endsWith("perp") && p.quote === "USDC"))
       .map((p) => ({ t: p.t, symbol: p.symbol, base: p.symbol.slice(0, -4), quote: "USDT", qvUsd: qvOf(p.t) }));
-    return { rows, counts, approx: [], depeg: [] };
+    // Review v2.7 #8: USDT scans also watch USDC/USDT, the deepest stablecoin cross (information only).
+    const usdc = parts.find((p) => p.symbol === "USDCUSDT");
+    const v = usdc ? pxOf(usdc.t) : NaN;
+    const level = depegLevel((v - 1) * 100);
+    const depeg = level ? [{ coin: "USDC", reference: "USDT", price: v, deviationPct: Math.round((v - 1) * 100_000) / 1000, level }] : [];
+    return { rows, counts, approx: [], depeg };
   }
   // Quote prices in USDT from the same ticker list (USDCUSDT, FDUSDUSDT, EURIUSDT…).
   const px = new Map(parts.map((p) => [p.symbol, pxOf(p.t)]));
@@ -358,7 +363,8 @@ function pickQuotes<T>(
     if (!wanted.has(p.quote) || !p.base) continue;
     const peg = stableQuote(p.quote)?.peg;
     let rate = usdtPer(p.quote);
-    if (rate === undefined && peg === "USD") { rate = 1; approx.push(p.symbol); }
+    // USDC-margined perps settle in USDC by definition: counted at $1 without a per-row "≈" (review v2.7 #8).
+    if (rate === undefined && peg === "USD") { rate = 1; if (!source.endsWith("perp")) approx.push(p.symbol); }
     rows.push({ t: p.t, symbol: p.symbol, base: p.base, quote: p.quote, qvUsd: rate === undefined ? NaN : qvOf(p.t) * rate });
   }
   const chosen = selectPairs(source, rows, mode).sort(byUsdDesc);

@@ -23,7 +23,15 @@ ledger and paper trading must stay reproducible: converting history at today's r
 5. **Stablecoin quotes:** per source, USDT (default, identical to v2.6), any listed stablecoin, or *Best USD stablecoin* (the
    deepest USD-pegged pair per coin, 25 % hysteresis). One real pair's candles per coin — never blended. Volumes are valued
    at the quote's own price on the same venue. Depeg readings (≥ 0.5 / 1 / 2 %) are information only.
-6. **Paper trading** stays in USDT and refuses pairs not quoted in a USD stablecoin (fixes the v2.6 peso/USDT mix).
+6. **User choice of source (owner request 11 Nov 2026).** *Automatic* (above) or one of five tested sources —
+   Frankfurter, European Central Bank, ExchangeRate-API open access (attribution shown), fawazahmed0, FloatRates —
+   each described in the app with publisher, method, coverage, cadence, terms, website and the exact data address.
+   A chosen source is never silently replaced. **Update now** and a 6-hour automatic update (switchable).
+7. **Custom (untested) source = imported file, never fetched.** The user names the source, opens it in the browser,
+   saves its rates file and imports it; it is labelled *not tested*, and adding it to the list needs a written request
+   to the developer (pre-filled e-mail). Fetching arbitrary addresses would require `connect-src *` (or a proxy), which
+   would remove the app's strongest security property; rejected for the same reason as credential storage in Build 1.8.
+8. **Paper trading** stays in USDT and refuses pairs not quoted in a USD stablecoin (fixes the v2.6 peso/USDT mix).
 
 ## Options considered
 | Option | Verdict |
@@ -34,6 +42,10 @@ ledger and paper trading must stay reproducible: converting history at today's r
 | fawazahmed0 | Keyless, CORS, 340 codes, provenance unpublished → **fallback, labelled** |
 | Stablecoin-implied rates (e.g. USDT/PHP) | Market price, not a reference rate → shown as information (Coins.ph USDT premium), never used to convert |
 | Convert candles before scoring | Distorts history, changes engine inputs → rejected |
+| ECB direct (SDMX JSON, CORS) | Official, ~30 currencies → **user-selectable alternative** |
+| open.er-api.com | Attribution shown in the app → **user-selectable alternative** |
+| FloatRates | No published method, SAR off the peg → **user-selectable alternative, labelled** |
+| Fetch a user-typed URL | Needs `connect-src *` → rejected; custom sources are imported files |
 
 ## Consequences
 - Three new `connect-src` hosts (ADR-0003 amendment v2.7); R8 now reads one host table.

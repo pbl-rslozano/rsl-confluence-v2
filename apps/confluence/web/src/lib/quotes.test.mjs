@@ -49,6 +49,12 @@ ok("classify: EURIUSDC = fx", classifySymbol("binance", "EURIUSDC") === "fx");
 ok("classify: BTCPERP on bybit-perp = crypto", classifySymbol("bybit-perp", "BTCPERP") === "crypto");
 ok("classify: USDT pairs unchanged", classifySymbol("binance", "USDCUSDT") === "excluded" && classifySymbol("binance", "PAXGUSDT") === "commodity");
 
+
+/* review v2.7 fixes */
+ok("v2.7 #6 typed DOTUSD / DOT/USD → DOT (not DO)", baseFromInput("DOTUSD") === "DOT" && baseFromInput("dot/usd") === "DOT" && baseFromInput("BTCUSDT") === "BTC");
+rememberPairs("binance", [["BTCU", { base: "BTC", quote: "U" }]]);
+ok("v2.7 #11 paper base uses the venue: BTCU on Binance = BTC cluster", riskBaseOf("BTCU", "binance") === "BTC" && clusterOf("crypto", "BTCU", "binance") === clusterOf("crypto", "BTCUSDT"));
+forgetPairsForTests();
 /* ---- modes ---- */
 ok("modes: Binance offers USDT…EURI + Best", JSON.stringify(quoteModesFor("binance")) === JSON.stringify(["USDT", "USDC", "FDUSD", "USD1", "U", "EURI", BEST]));
 ok("modes: perps offer USDT/USDC/Best", JSON.stringify(quoteModesFor("bybit-perp")) === JSON.stringify(["USDT", "USDC", BEST]));
@@ -172,6 +178,13 @@ ok("SQ-5 Bitget USDC perp candles use USDC-FUTURES", calls.some((u) => u.include
 ok("SQ-5 Bitget USDC perp volume not converted twice", r.tickers[0].quoteVolume === "69606250");
 ok("SQ-5 bitgetProductOf", bitgetProductOf("BTCPERP") === "USDC-FUTURES" && bitgetProductOf("BTCUSDT") === "USDT-FUTURES");
 
+r = await fetchDirectMarketData("1h", "binance", [], 10, undefined, () => 200, "crypto");
+ok("v2.7 #8 USDT scans still report USDC/USDT only when off by ≥ 0.5 % (0.999 → none)", !(r.depeg ?? []).length);
+binanceTickers.find((t) => t.symbol === "USDCUSDT").lastPrice = "0.9920";
+r = await fetchDirectMarketData("1h", "binance", [], 10, undefined, () => 200, "crypto");
+ok("v2.7 #8 USDC/USDT at 0.992 → watch reading in a USDT scan", r.depeg?.[0]?.coin === "USDC" && r.depeg?.[0]?.reference === "USDT" && r.depeg?.[0]?.level === "watch", JSON.stringify(r.depeg));
+r = await fetchDirectMarketData("1h", "bitget-perp", [], 10, undefined, () => 200, "crypto", "USDC");
+ok("v2.7 #8 USDC perps are not marked ≈ row by row", !(r.approxVolume ?? []).length);
 globalThis.fetch = realFetch;
 console.log(`\nQuote suite: ${passed}/${passed + failed} passed`);
 if (failed) process.exit(1);

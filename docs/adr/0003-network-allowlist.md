@@ -61,3 +61,8 @@ keeps this WebSocket host separate from its HTTPS allowlist.
 - **Stablecoin quotes (WP12):** no new host. Venue metadata comes from the existing hosts: Binance `/api/v3/exchangeInfo`,
   Bitget `/api/v2/spot/public/symbols` and `/api/v2/mix/market/{tickers,candles,history-candles,merge-depth}?productType=USDC-FUTURES`,
   Bybit `instruments-info` (already read).
+- **User-selectable rate sources (owner request 11 Nov 2026):** `https://data-api.ecb.europa.eu` (ECB reference rates, SDMX
+  JSON), `https://open.er-api.com` (ExchangeRate-API open access; the app shows its required attribution) and
+  `https://www.floatrates.com` (FloatRates). Each is contacted only while the user has chosen it under **Rate sources**,
+  GET only, at most every 6 hours or on **Update now**. All three answered browser requests from another origin in the live
+  probe of 11 Nov 2026. A user's own (custom) source is never contacted by the app: its rates file is imported (ADR-0015).

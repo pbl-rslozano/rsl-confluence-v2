@@ -101,6 +101,8 @@ import { PriceChart } from "@/components/price-chart";
 import { BEST, baseOf as pairBase, normalizeQuoteMode, quoteModesFor, stableQuote, type DepegReading } from "@/lib/quotes";
 import { autoCurrency, BANDS, cachedCurrencies, cachedTable, canConvert, convert, impliedUsdtPremiumPct, isStale, loadCurrencies, PEGS, rateKind, refreshRates, usdtDeviationPct, type FiatCurrency, type FxTable } from "@/lib/fx-rates";
 import { formatMoney, formatMoneyCompact } from "@/lib/money";
+import { FxSourcesDialog } from "@/components/fx-sources-dialog";
+import { fxSourceInfo, type FxChoice } from "@/lib/fx-rates";
 import { PrivateApiDialog } from "@/components/private-api-dialog";
 import type { PrivateApiProfile } from "@/lib/private-api";
 import { Button } from "@/components/ui/button";
@@ -530,6 +532,12 @@ export default function Home() {
   const [displayPref, setDisplayPref] = useState<string>(DEFAULT_APP_PREFERENCES.displayCurrency);
   const [fx, setFx] = useState<FxTable | null>(null);
   const [fiatList, setFiatList] = useState<FiatCurrency[]>([]);
+  // v2.7 (owner request): chosen rate source, automatic updates, the user's own source, and the sources dialog.
+  const [fxChoice, setFxChoice] = useState<FxChoice>(DEFAULT_APP_PREFERENCES.fxSource as FxChoice);
+  const [fxAutoUpdate, setFxAutoUpdate] = useState<boolean>(DEFAULT_APP_PREFERENCES.fxAutoUpdate);
+  const [fxCustom, setFxCustom] = useState<{ name: string; url: string } | null>(DEFAULT_APP_PREFERENCES.fxCustom);
+  const [fxDialog, setFxDialog] = useState(false);
+  const [fxUpdating, setFxUpdating] = useState(false);
   const displayCurrency = displayPref === "AUTO" ? autoCurrency() : displayPref;
   const [ledgerOpen, setLedgerOpen] = useState(false);
   const [paperOpen, setPaperOpen] = useState(false);
@@ -621,6 +629,9 @@ export default function Home() {
         setAssetClass(saved.assetClass);
         setQuoteBySource(saved.quoteBySource);
         setDisplayPref(saved.displayCurrency);
+        setFxChoice(saved.fxSource as FxChoice);
+        setFxAutoUpdate(saved.fxAutoUpdate);
+        setFxCustom(saved.fxCustom);
         applyBackground(saved.background);
       } else {
         let legacy: string | null = null;
@@ -649,30 +660,40 @@ export default function Home() {
       assetClass,
       quoteBySource,
       displayCurrency: displayPref,
+      fxSource: fxChoice,
+      fxAutoUpdate,
+      fxCustom,
     };
     saveAppPreferences(preferences);
-  }, [preferencesReady, timeframe, dataSource, universeLimit, background, monitorAssets, sortKey, sortDir, autoRefresh, chartDepth, assetClass, quoteBySource, displayPref]);
+  }, [preferencesReady, timeframe, dataSource, universeLimit, background, monitorAssets, sortKey, sortDir, autoRefresh, chartDepth, assetClass, quoteBySource, displayPref, fxChoice, fxAutoUpdate, fxCustom]);
 
-  // v2.7 (WP13): display-currency rates — cached on the device, refreshed at most every 6 h,
-  // only fetched when a non-USD currency is shown. Display only: the scan never sees them.
+  // v2.7 (WP13): display-currency rates — from the chosen source, cached on the device, refreshed every 6 h
+  // while "Update automatically" is on, or on "Update now". Display only: the scan never sees them.
+  const scanCurrency = scanMeta.currency;
   useEffect(() => {
     if (!preferencesReady) return;
     let active = true;
-    const cached = cachedTable();
+    const cached = cachedTable(fxChoice);
     const cachedList = cachedCurrencies();
+    // Review v2.7 #2: also when the scan's own currency is not USD (Coins.ph PHP, EUR stablecoins).
+    const needed = () => displayCurrency !== "USD" || scanCurrency !== "USD" || !!cached;
     const run = () => {
-      if (displayCurrency === "USD" && !cached) return;
-      void refreshRates().then((table) => { if (active) setFx(table); });
+      if (!needed()) return;
+      void refreshRates({ choice: fxChoice }).then((table) => { if (active) setFx(table); });
       void loadCurrencies().then((list) => { if (active) setFiatList(list); });
     };
     const first = window.setTimeout(() => {
-      if (cached) setFx(cached);
+      setFx(cached);
       if (cachedList.length) setFiatList(cachedList);
       run();
     }, 0);
-    const id = window.setInterval(run, 6 * 3_600_000);
-    return () => { active = false; window.clearTimeout(first); window.clearInterval(id); };
-  }, [preferencesReady, displayCurrency]);
+    const id = fxAutoUpdate ? window.setInterval(run, 6 * 3_600_000) : undefined;
+    return () => { active = false; window.clearTimeout(first); if (id) window.clearInterval(id); };
+  }, [preferencesReady, displayCurrency, scanCurrency, fxChoice, fxAutoUpdate]);
+  const updateRatesNow = useCallback(async () => {
+    setFxUpdating(true);
+    try { setFx(await refreshRates({ choice: fxChoice, force: true })); } finally { setFxUpdating(false); }
+  }, [fxChoice]);
   /**
    * Load the full universe in a single request. The server returns tickers +
    * all klines (throttled & cached upstream), then we run the 21-indicator
@@ -1112,11 +1133,7 @@ export default function Home() {
   const volumeCurrency = canConvert("USD", displayCurrency, fx) ? displayCurrency : "USD";
   const showPrice = useCallback((v: number) => formatMoney(convert(v, nativeCurrency, priceCurrency, fx), priceCurrency), [nativeCurrency, priceCurrency, fx]);
   const showVolume = (usd: number) => formatMoneyCompact(convert(usd, "USD", volumeCurrency, fx), volumeCurrency);
-  const chartAxis = useCallback((v: number) => {
-    const c = convert(v, nativeCurrency, priceCurrency, fx);
-    const a = Math.abs(c);
-    return a >= 1e6 ? (c / 1e6).toFixed(2) + "M" : a >= 1000 ? (c / 1000).toFixed(a >= 1e5 ? 1 : 2) + "k" : a >= 1 ? c.toFixed(2) : a >= 0.01 ? c.toFixed(4) : c.toPrecision(3);
-  }, [nativeCurrency, priceCurrency, fx]);
+  const chartConvert = useCallback((v: number) => convert(v, nativeCurrency, priceCurrency, fx), [nativeCurrency, priceCurrency, fx]);
   const liveQuotes = scanMeta.source === dataSource && scanMeta.quoteCounts ? Object.keys(scanMeta.quoteCounts) : undefined;
   const quoteModes = quoteModesFor(dataSource, liveQuotes);
   const setQuote = (mode: string) => { setDetailAsset(null); setQuoteBySource((cur) => ({ ...cur, [dataSource]: mode })); };
@@ -1167,6 +1184,12 @@ export default function Home() {
           ))}
         </SelectContent>
       </Select>
+  );
+  const renderRatesButton = (cls = "") => (
+      <button type="button" data-testid="fx-sources-open" onClick={() => setFxDialog(true)} title={t("fx.sources")}
+        className={`rsl-touch inline-flex h-8 items-center gap-1 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-xs text-zinc-300 hover:bg-zinc-800 ${cls}`}>
+        ⇄ {t("fx.sources")}
+      </button>
   );
   const renderUniverseSelect = (cls = "") => (
       <Select value={String(universeLimit)} onValueChange={(value) => setUniverseLimit(Number(value))}>
@@ -1283,6 +1306,7 @@ export default function Home() {
             {!isPhone && renderUniverseSelect()}
 
             {!isPhone && renderCurrencySelect()}
+            {!isPhone && renderRatesButton()}
 
             <button
               type="button"
@@ -1301,6 +1325,7 @@ export default function Home() {
               <div className="flex w-full flex-wrap items-center gap-1.5">
                 {renderQuoteSelect()}
                 {renderCurrencySelect()}
+                {renderRatesButton()}
                 {renderAssetClassSelect()}
                 {renderUniverseSelect()}
                 {renderApiButton()}
@@ -1532,13 +1557,19 @@ export default function Home() {
         </div>
       )}
 
-      <FxInfoLine t={t} native={nativeCurrency} display={displayCurrency} shown={priceCurrency} fx={fx}
-        usdtPhp={scanMeta.source === "coinsph" && dataSource === "coinsph" ? scanMeta.usdPhp ?? null : null} />
-      {scanMeta.source === dataSource && (scanMeta.depeg ?? []).map((d) => (
+      {!listExpanded && <FxInfoLine t={t} native={nativeCurrency} display={displayCurrency} shown={priceCurrency} fx={fx}
+        usdtPhp={scanMeta.source === "coinsph" && dataSource === "coinsph" ? scanMeta.usdPhp ?? null : null}
+        onSources={() => setFxDialog(true)} />}
+      <FxSourcesDialog open={fxDialog} onOpenChange={setFxDialog} t={t} choice={fxChoice}
+        onChoice={(c) => { setFxChoice(c); setFx(cachedTable(c)); }}
+        autoUpdate={fxAutoUpdate} onAutoUpdate={setFxAutoUpdate} table={fx} displayCurrency={displayCurrency}
+        updating={fxUpdating} onUpdate={() => void updateRatesNow()} custom={fxCustom} onCustom={setFxCustom}
+        onImported={(table) => setFx(table)} />
+      {!listExpanded && scanMeta.source === dataSource && (scanMeta.depeg ?? []).map((d) => (
         <div key={d.coin} role="status" data-testid="depeg-banner"
           className={`shrink-0 border-b px-4 py-1.5 text-xs ${d.level === "severe" ? "border-rose-500/40 bg-rose-500/10 text-rose-200" : "border-amber-500/40 bg-amber-500/10 text-amber-200"}`}>
           <strong className="me-1">{t(`depeg.${d.level}`)}:</strong>
-          {t("depeg.note", { coin: d.coin, dev: `${d.deviationPct > 0 ? "+" : ""}${d.deviationPct.toFixed(2)} %` })}
+          {t("depeg.note", { coin: d.coin, ref: d.reference, dev: `${d.deviationPct > 0 ? "+" : ""}${d.deviationPct.toFixed(2)} %` })}
         </div>
       ))}
 
@@ -1853,14 +1884,14 @@ export default function Home() {
                 className="rounded border border-zinc-700 px-2 py-1 text-sm">{chartReplay ? "Close chart replay" : "Open chart replay"}</button>}
               {chartReplay ? (
                 <ChartReplay key={detailAsset.pair} candles={detailAsset.klines}
-                  visible={chartDepth === "all" ? detailAsset.klines.length : Number(chartDepth)}
+                  visible={chartDepth === "all" ? Number.MAX_SAFE_INTEGER : Number(chartDepth)}
                   instrument={{ pair: detailAsset.pair, src: detailAsset.src, tf: detailAsset.tf, intervalMs: INTERVAL_MS[detailAsset.tf], assetClass: detailAsset.assetClass }} />
               ) : detailAsset.klines.length > 1 ? (
                 <PriceChart
                   formatPrice={showPrice}
-                  formatAxis={chartAxis}
+                  convertPrice={chartConvert}
                   klines={detailAsset.klines}
-                  visible={chartDepth === "all" ? detailAsset.klines.length : Number(chartDepth)}
+                  visible={chartDepth === "all" ? Number.MAX_SAFE_INTEGER : Number(chartDepth)}
                 />
               ) : (
                 <div className="flex h-32 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950/50 text-sm text-zinc-500">
@@ -2330,37 +2361,42 @@ function PatternPanel({ pattern }: { pattern: PatternSignal }) {
  * classic pivot calculation on the last completed swing.
  */
 /** v2.7 (WP13.3): which rate converts the prices, from whom, as of when — and its honesty labels. */
-function FxInfoLine({ t, native, display, shown, fx, usdtPhp }: {
+function FxInfoLine({ t, native, display, shown, fx, usdtPhp, onSources }: {
   t: (key: string, vars?: Record<string, string | number>) => string;
-  native: string; display: string; shown: string; fx: FxTable | null; usdtPhp: number | null;
+  native: string; display: string; shown: string; fx: FxTable | null; usdtPhp: number | null; onSources: () => void;
 }) {
   const parts: string[] = [];
   if (display !== shown) parts.push(t("fx.unavailable", { code: display, native: shown }));
-  else if (display !== "USD" || native !== "USD") {
-    const ref = display === "USD" ? native : display;
+  // The rate that was applied: shown currency when it is not USD, else the market's own (PHP/EUR → USD).
+  // Review v2.7 #3: "Prices in" always names what the table shows.
+  const ref = shown !== "USD" ? shown : native;
+  if (ref !== "USD") {
     const rate = convert(1, "USD", ref, fx);
-    if (Number.isFinite(rate) && ref !== "USD") {
-      parts.push(t("fx.info", { code: ref, rate: rate >= 100 ? rate.toFixed(2) : rate.toPrecision(5).replace(/0+$/, "").replace(/\.$/, "") }));
+    if (Number.isFinite(rate)) {
+      if (display === shown) parts.push(t("fx.info", { code: shown, rate: rate >= 100 ? rate.toFixed(2) : rate.toPrecision(5).replace(/0+$/, "").replace(/\.$/, ""), ref }));
       const kind = rateKind(ref);
       parts.push(kind === "peg" ? t("fx.kind.peg", { authority: PEGS[ref].authority }) : kind === "band" ? t("fx.kind.band", { band: BANDS[ref] }) : t(`fx.kind.${kind}`));
       if (fx) {
-        parts.push(t(`fx.src.${fx.source}`));
+        parts.push(fx.source === "custom" && fx.custom ? `${t("fx.src.custom")}: ${fx.custom.name}` : t(`fx.src.${fx.source}`));
         if (fx.dates[ref] || fx.asOf) parts.push(t("fx.asOf", { date: fx.dates[ref] ?? fx.asOf }));
       } else if (PEGS[ref]) parts.push(t("fx.src.peg")); // before the first refresh, a peg converts on its own
     }
   }
   if (!parts.length) return null;
   const dev = usdtDeviationPct(fx);
-  if (native === "USD") parts.push(t("fx.usdt", { price: dev === undefined ? "—" : `$${(1 + dev / 100).toFixed(4)}` }));
+  if (native === "USD" && shown !== "USD") parts.push(t("fx.usdt", { price: dev === undefined ? "—" : `$${(1 + dev / 100).toFixed(4)}` }));
   const stale = isStale(fx);
   const phPrem = impliedUsdtPremiumPct(usdtPhp, "PHP", fx);
+  const attribution = fx ? fxSourceInfo(fx.source)?.attribution : undefined;
   return (
     <div data-testid="fx-info" className="shrink-0 border-b border-zinc-800 bg-zinc-900/60 px-4 py-1 text-[11px] text-zinc-400">
       {parts.join(" · ")}
+      {attribution && <> · <a href={attribution.url} target="_blank" rel="noopener noreferrer" className="text-cyan-300/90 hover:underline">{attribution.text}</a></>}
       {stale && <span className="ms-2 rounded border border-amber-500/40 px-1 text-amber-300">{t("fx.stale")}</span>}
       {phPrem !== undefined && (
         <span className="ms-2 text-sky-300/90">{t("ph.usdtPremium", { dev: `${phPrem > 0 ? "+" : ""}${phPrem.toFixed(2)} %` })}</span>
       )}
+      <button type="button" onClick={onSources} className="ms-2 text-cyan-300/90 underline-offset-2 hover:underline">{t("fx.sources")}</button>
     </div>
   );
 }

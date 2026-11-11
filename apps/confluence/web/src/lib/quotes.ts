@@ -126,6 +126,8 @@ export function baseOf(symbol: string, source?: string): string {
 /** Strip a quote from user input ("BTC/USDC", "btc-usdt", "SOL") → base. */
 export function baseFromInput(text: string): string {
   const t = text.trim().toUpperCase().replace(/[-_/\s]+/g, "");
+  // Typed text: the common quotes first, then plain USD, so "DOTUSD" is DOT (not DO + TUSD; review v2.7 #6).
+  for (const q of ["USDT", "USDC", "FDUSD", "USD1", "PHP", "USD"]) if (t.length > q.length && t.endsWith(q)) return t.slice(0, -q.length);
   const { base, quote } = splitPair(t);
   return quote ? base : t;
 }
@@ -179,4 +181,5 @@ export function depegLevel(deviationPct: number): DepegLevel | null {
   for (const [level, min] of DEPEG_TIERS) if (a >= min) return level;
   return null;
 }
+/** `coin` priced in `reference` on one venue; a deviation means one of the two is off its peg. */
 export interface DepegReading { coin: string; reference: string; price: number; deviationPct: number; level: DepegLevel }

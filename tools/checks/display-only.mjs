@@ -35,11 +35,29 @@ export function checkDisplayOnly(root = ROOT) {
   const findings = [];
   const imports = (text) => /from\s+["'][^"']*fx-rates(\.ts)?["']|import\(\s*["'][^"']*fx-rates/.test(text);
   let scanned = 0;
+  // Review v2.7 #12: follow relative imports transitively (an indirect import through a helper counts).
+  const reaches = (start) => {
+    const seen = new Set();
+    const stack = [start];
+    while (stack.length) {
+      const f = stack.pop();
+      if (seen.has(f) || !existsSync(f)) continue;
+      seen.add(f);
+      const text = readFileSync(f, "utf8");
+      if (imports(text)) return relative(root, f).split(sep).join("/");
+      for (const m of text.matchAll(/from\s+["'](\.{1,2}\/[^"']+|@\/[^"']+)["']/g)) {
+        const spec = m[1].startsWith("@/") ? join(root, "apps/confluence/web/src", m[1].slice(2)) : join(dirname(f), m[1]);
+        for (const ext of ["", ".ts", ".tsx", ".mjs", ".js"]) if (existsSync(spec + ext) && !statSync(spec + ext).isDirectory()) { stack.push(spec + ext); break; }
+      }
+    }
+    return null;
+  };
   for (const f of BOUNDARY) {
     const p = join(root, f);
     if (!existsSync(p)) continue;
     scanned++;
-    if (imports(readFileSync(p, "utf8"))) findings.push(`${f} imports fx-rates`);
+    const via = reaches(p);
+    if (via) findings.push(`${f} reaches fx-rates (via ${via})`);
   }
   for (const app of NODE_APPS) {
     const dir = join(root, app);
@@ -55,7 +73,8 @@ export function checkDisplayOnly(root = ROOT) {
   const table = new Set([...((hosts.match(/export const CSP_HOSTS = \[([\s\S]*?)\] as const;/) || [, ""])[1]).matchAll(/origin:\s*"([^"]+)"/g)].map((m) => m[1]));
   if (!existsSync(fx)) findings.push("fx-rates.ts missing");
   else {
-    const urls = [...readFileSync(fx, "utf8").matchAll(/"(https:\/\/[^"]+)"/g)].map((m) => m[1]);
+    // Fetched addresses only: website and attribution links (`homepage:` / `url:`) are shown, never fetched.
+    const urls = [...readFileSync(fx, "utf8").matchAll(/(homepage:\s*|url:\s*)?"(https:\/\/[^"]+)"/g)].filter((m) => !m[1]).map((m) => m[2]);
     for (const u of urls) if (!table.has(new URL(u).origin)) findings.push(`fx-rates.ts reaches ${new URL(u).origin}, not in CSP_HOSTS`);
     if (!urls.length) findings.push("fx-rates.ts names no source URL");
   }

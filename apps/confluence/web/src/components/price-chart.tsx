@@ -43,8 +43,10 @@ interface Props {
   visible?: number;
   /** Price formatter (display currency). Defaults to plain numbers. */
   formatPrice?: (p: number) => string;
-  /** Short axis-label formatter (display currency). */
+  /** Short axis-label formatter. When omitted, labels are made distinct on tight ranges (review v2.7 #9). */
   formatAxis?: (p: number) => string;
+  /** Display-currency conversion applied to axis labels (WP13); the candles stay in the market's currency. */
+  convertPrice?: (p: number) => number;
 }
 
 const LAYERS = {
@@ -110,7 +112,7 @@ function canUseNativeFullscreen(el: HTMLElement | null): boolean {
   return Boolean(document.fullscreenEnabled && typeof el.requestFullscreen === "function");
 }
 
-export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatAxis = fmtAxis }: Props) {
+export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatAxis, convertPrice }: Props) {
   const total = klines.length;
   const [view, setView] = useState<ChartView>(() => initialView(total, visible));
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
@@ -119,6 +121,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
   const [full, setFull] = useState<FullMode>("off");
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const frameRef = useRef<HTMLDivElement>(null);
+  const shellFsRef = useRef(false); // true only while THIS chart asked the shell for full screen
   const svgRef = useRef<SVGSVGElement>(null);
   const plotRef = useRef<HTMLDivElement>(null);
   const { hidden, periods } = settings;
@@ -128,11 +131,21 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
 
   // Depth menu → new starting window; new candles: a view that was following the newest bar keeps
   // following it. Adjusted while rendering (React's "state from props" pattern), not in an effect.
-  const [seen, setSeen] = useState({ visible, total });
-  if (seen.visible !== visible || seen.total !== total) {
+  const firstTime = klines[0]?.time ?? 0;
+  const [seen, setSeen] = useState({ visible, total, firstTime });
+  if (seen.visible !== visible || seen.total !== total || seen.firstTime !== firstTime) {
     if (seen.visible !== visible) { setView(initialView(total, visible)); setHoverIdx(null); }
-    else setView((cur) => clampView(cur.end >= seen.total ? { end: total, count: cur.count } : cur, total));
-    setSeen({ visible, total });
+    else {
+      // Older bars loaded in front (Load 5K older): keep showing the same bars (review v2.7 #4).
+      const prepended = seen.total > 0 && firstTime < seen.firstTime ? Math.max(0, total - seen.total) : 0;
+      setView((cur) => {
+        const showingAll = cur.count >= seen.total;
+        if (prepended) return clampView({ end: cur.end + prepended, count: showingAll ? total : cur.count }, total);
+        const following = cur.end >= seen.total;
+        return clampView(following ? { end: total, count: showingAll ? total : cur.count } : cur, total);
+      });
+    }
+    setSeen({ visible, total, firstTime });
   }
 
   function updateSettings(next: ChartSettings) {
@@ -148,7 +161,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
   const exitFull = useCallback(() => {
     setFull((mode) => {
       if (mode === "native" && document.fullscreenElement) void document.exitFullscreen().catch(() => {});
-      if (mode !== "off") void shellFullscreen()?.set(false).catch(() => {});
+      if (mode !== "off" && shellFsRef.current) { shellFsRef.current = false; void shellFullscreen()?.set(false).catch(() => {}); }
       return "off";
     });
   }, []);
@@ -164,7 +177,8 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
       }
     }
     setFull("focus");
-    void shellFullscreen()?.set(true).catch(() => {});
+    const shell = shellFullscreen();
+    if (shell) { shellFsRef.current = true; void shell.set(true).catch(() => {}); }
   }, []);
   useEffect(() => {
     const onChange = () => { if (!document.fullscreenElement) setFull((m) => (m === "native" ? "off" : m)); };
@@ -189,7 +203,29 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
     if (full === "focus") document.body.style.overflow = "hidden";
     return () => { window.removeEventListener("keydown", onKey, true); document.body.style.overflow = prevOverflow; };
   }, [full, exitFull]);
-  useEffect(() => () => { void shellFullscreen()?.set(false).catch(() => {}); }, []);
+  // Leaving with the sheet: undo only the window full screen this chart turned on (review v2.7 #10).
+  useEffect(() => () => { if (shellFsRef.current) { shellFsRef.current = false; void shellFullscreen()?.set(false).catch(() => {}); } }, []);
+  // Focus view (review v2.7 #1): a fixed overlay is positioned against the nearest ancestor with a transform,
+  // translate, filter or containment — the detail sheet is one. Neutralise them while the view is open.
+  useEffect(() => {
+    if (full !== "focus") return;
+    const saved: { el: HTMLElement; css: string }[] = [];
+    for (let el = frameRef.current?.parentElement ?? null; el && el !== document.documentElement; el = el.parentElement) {
+      const cs = getComputedStyle(el);
+      const contains = cs.transform !== "none" || (cs.translate && cs.translate !== "none") || cs.filter !== "none" ||
+        (cs.backdropFilter && cs.backdropFilter !== "none") || /paint|layout|strict|content/.test(cs.contain) || /transform|filter/.test(cs.willChange) || cs.perspective !== "none";
+      if (!contains) continue;
+      saved.push({ el, css: el.style.cssText });
+      el.style.setProperty("transform", "none", "important");
+      el.style.setProperty("translate", "none", "important");
+      el.style.setProperty("filter", "none", "important");
+      el.style.setProperty("backdrop-filter", "none", "important");
+      el.style.setProperty("contain", "none", "important");
+      el.style.setProperty("will-change", "auto", "important");
+      el.style.setProperty("perspective", "none", "important");
+    }
+    return () => { for (const { el, css } of saved) el.style.cssText = css; };
+  }, [full]);
   // Measured plot size in full screen, so candles use the whole screen.
   useEffect(() => {
     const el = plotRef.current;
@@ -285,7 +321,8 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
     const volY = (val: number) => volTop + VOL_H - (val / maxVol) * (VOL_H - 8);
 
     const tickPrices = [0, 1, 2, 3, 4].map((i) => lo + ((hi - lo) * i) / 4);
-    const tickLabels = formatAxis === fmtAxis ? formatAxisTicks(tickPrices) : tickPrices.map(formatAxis);
+    const shown = convertPrice ? tickPrices.map(convertPrice) : tickPrices;
+    const tickLabels = formatAxis ? shown.map(formatAxis) : formatAxisTicks(shown);
     const ticks = tickPrices.map((price, i) => ({ y: y(price), label: tickLabels[i] }));
     const nTimeTicks = Math.max(3, Math.min(9, Math.round(chartW / 150)));
     const timeTicks: { x: number; label: string }[] = [];
@@ -294,7 +331,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
       timeTicks.push({ x: x(idx), label: fmtTime(bars[idx].time) });
     }
     return { slice: bars, perBar: k, x, y, bodyW, step, bbUpper: bbU, bbLower: bbL, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series };
-  }, [klines, start, v.end, hidden, periods, showBollinger, showMacd, priceH, chartW, formatAxis]);
+  }, [klines, start, v.end, hidden, periods, showBollinger, showMacd, priceH, chartW, formatAxis, convertPrice]);
 
   /* Static layers are memoised: moving the pointer re-renders only the crosshair and readout (review #6). */
   const layers = useMemo(() => {
@@ -442,7 +479,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
   }, [total, zoomBy, fracAt, layers]);
 
   const pointers = useRef(new Map<number, { x: number; y: number }>());
-  const gesture = useRef<{ kind: "none" | "drag" | "pinch"; startX: number; startView: ChartView; startDist: number; frac: number; moved: boolean }>(
+  const gesture = useRef<{ kind: "none" | "drag" | "pinch"; startX: number; startY?: number; startView: ChartView; startDist: number; frac: number; moved: boolean }>(
     { kind: "none", startX: 0, startView: v, startDist: 0, frac: 1, moved: false },
   );
   const lastTap = useRef(0);
@@ -463,7 +500,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
       const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
       gesture.current = { kind: "pinch", startX: 0, startView: viewRef.current, startDist: dist, frac: fracAt((pts[0].x + pts[1].x) / 2), moved: true };
     } else if (pts.length === 1 && (e.pointerType !== "mouse" || e.button === 0)) {
-      gesture.current = { kind: "drag", startX: e.clientX, startView: viewRef.current, startDist: 0, frac: 1, moved: false };
+      gesture.current = { kind: "drag", startX: e.clientX, startY: e.clientY, startView: viewRef.current, startDist: 0, frac: 1, moved: false };
     }
   }
   function onPointerMove(e: React.PointerEvent<SVGSVGElement>) {
@@ -489,7 +526,8 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
   function onPointerUp(e: React.PointerEvent<SVGSVGElement>) {
     const g = gesture.current;
     pointers.current.delete(e.pointerId);
-    if (g.kind === "drag" && !g.moved) {
+    // A vertical scroll that began on the chart is not a tap (review v2.7 #5).
+    if (g.kind === "drag" && !g.moved && Math.abs(e.clientY - (g.startY ?? e.clientY)) < 10) {
       hoverAt(e.clientX); // tap / click inspects a candle
       const now = Date.now();
       if (e.pointerType !== "mouse" && now - lastTap.current < 320) resetView();
@@ -627,7 +665,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        onPointerCancel={(e) => { pointers.current.delete(e.pointerId); if (pointers.current.size === 0) gesture.current = { ...gesture.current, kind: "none" }; }}
         onDoubleClick={resetView}
       >
         {layers}

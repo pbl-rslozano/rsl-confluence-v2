@@ -62,7 +62,7 @@ The first time you open the Terminal, a short three-step setup appears. **Skip**
 
 ![Step 2: the workspace name, short name and code, with a live preview.](images/first-start-workspace.webp)
 
-The first scan starts on its own. New installs scan **Binance Spot**, quoted in **USDT**, on **4-hour** bars, the **top 100** crypto assets by volume, refresh automatically, and show prices in your device region's currency (**Display currency → Auto**).
+The first scan starts on its own. New installs scan **Binance Spot**, quoted in **USDT**, on **4-hour** bars, the **top 100** crypto assets by volume, refresh automatically, and show prices in your device's currency (**Display currency → Auto**, rates from **Automatic**).
 
 ## 4. The main screen
 ![The main screen (light theme). Illustrative market data.](images/terminal-light.webp)
@@ -76,6 +76,7 @@ The first scan starts on its own. New installs scan **Binance Spot**, quoted in 
 | **Asset class** | Crypto, RWA, Stocks (tokenised), Currencies (FX), Commodities, or All classes. |
 | **Top N** | How many of the most-traded assets to scan: 25, 50, 100 or 200 (Coins.ph: at most 40). |
 | **Display currency** | v2.7. The currency prices and volumes are **shown** in: **Auto** (your device's region), USD, or any of about 160 currencies. Display only — scores never change. See section 7. |
+| **⇄ Rate sources** | v2.7. Where the exchange rates come from (five tested sources or your own), **Update now**, automatic updates, and links to check each source. See section 7. |
 | **Watchlists** | Save a list of assets and scan only that list. See section 9. |
 | **Alert inbox** | Rules for score and rank alerts, used with the external recorder. See section 10. |
 | **Scoring profile** | Turn individual indicator votes on or off. See section 9. |
@@ -255,13 +256,29 @@ The same coin often trades against several stablecoins — BTCUSDT, BTCUSDC, BTC
 
 <!-- wp:WP13 -->
 ### Display currency (any fiat)
-**Display currency** shows prices and volumes in the currency you read — SAR, PHP, EUR, AED, JPY, INR and about 160 more. **Auto** picks your device region's currency (Saudi Arabia → SAR, Philippines → PHP; anything unknown → USD). It never looks at your internet address.
+**Display currency** shows prices and volumes in the currency you read — SAR, PHP, EUR, AED, JPY, INR and about 160 more. **Auto** picks your device's currency from its time zone, then its language and region settings (Riyadh → SAR, Manila → PHP; anything unknown → USD). It never looks at your internet address.
 - **Display only.** Scores, signals, the ledger, alerts and paper trading stay in each market's own currency. Only what you see is converted.
 - **Where the rates come from.** First **Frankfurter**, which publishes central-bank reference rates and says which banks each rate comes from (for the peso, for example, Bangko Sentral ng Pilipinas among others). If it cannot be reached, a community rate service (fawazahmed0, labelled *community rates (method not published)*). With no connection and no saved rates, the built-in official pegs of the Gulf currencies are used (SAR 3.75 SAMA, AED 3.6725 CBUAE, QAR 3.64 QCB, OMR 0.3845 CBO, BHD 0.376 CBB, JOD 0.709 CBJ); any other currency then shows USD and says so.
 - **Honest labels.** The rate line says what kind of rate it is: **official peg** (with the central bank), **managed band** (HKD 7.75–7.85), **official rate** for currencies that also have a parallel market (ARS, NGN, EGP, LBP, VES …), otherwise **reference rate**, plus the source and date.
 - **Stablecoins.** Prices from USDT pairs are converted at **1 USDT = 1 USD**, and the rate line shows what USDT is really worth today (for example $0.9987). On Coins.ph it also shows how far USDT's peso price is from the official peso rate.
-- Rates are refreshed at most every 6 hours and kept on the device for offline use; older than 3 days is marked.
+- Rates are refreshed every 6 hours while **Update automatically** is on (the default), and whenever you press **Update now**. They are kept on the device for offline use; older than 3 days is marked.
 - A peso volume shown in PHP is the dollar volume converted back at the reference rate, so it can differ slightly from the figure Coins.ph shows.
+
+### Rate sources (choose, update, verify)
+Open **⇄ Rate sources** in the header (or **Rate sources** at the end of the grey rate line). It shows every source with who publishes it, how the rate is made, how many currencies it covers, how often it changes and its terms, plus two links: the source's **Website** and **Open the data** — the exact address the app reads, so you can compare the numbers yourself. For Frankfurter, **Verify this rate** opens the list of central banks behind your currency's rate.
+
+| Source | What it is | Currencies | Notes |
+|---|---|---|---|
+| **Automatic** (default) | Frankfurter; if it cannot be reached, fawazahmed0, then the built-in Gulf pegs | about 160 | never stops working |
+| **Frankfurter** | central-bank reference rates, blended per currency, with the banks named | about 160 | pegs exact (SAR 3.75) |
+| **European Central Bank** | the ECB's official euro reference rates, converted to a dollar base | about 30 | no SAR or AED; working days only |
+| **ExchangeRate-API (open access)** | mid-market rates from a commercial provider | about 165 | the app shows its required credit "Rates By Exchange Rate API" |
+| **fawazahmed0 currency-api** | community project, method not published | about 340 codes | |
+| **FloatRates** | daily rates, method not published | about 145 | its SAR is not exactly the peg |
+
+- **Update now** fetches the chosen source straight away; **Last updated** shows when and **as of** shows the date the rates refer to. **Update automatically (every 6 hours)** can be switched off.
+- When you choose one source, the app uses only that source. If it cannot be reached, the rate line says so and the last rates it gave are kept (or the Gulf pegs) — it never switches to another provider behind your back.
+- **Custom source (not listed).** Type the source's name and address, open it in your browser, save its rates file (JSON) and press **Import its rates file**. The app reads the common formats (a list of rates against USD or another base). A custom source is marked **Not tested**: its rates are used exactly as you import them. For your security the app never connects to an address that is not on its list, so a custom source is updated by importing a new file. To have a source tested and added to the list, use **Send a written request to the developer** (it opens an e-mail with the name and address filled in).
 
 ### Timeframes and refresh
 All sources offer the same 13 timeframes: 1 minute, 5 minutes, 15 minutes, 1 hour, 4 hours, 6 hours, 8 hours, 12 hours, daily, 2 days, 4 days, weekly and monthly. Where an exchange has no native bar (for example 2 and 4 days), the app builds it from shorter bars.
@@ -289,7 +306,7 @@ A pair on another stablecoin is classed like its USDT twin (PAXGUSDC is a commod
 ## 8. Philippine market (Coins.ph)
 ![The Coins.ph peso market with the local-market note.](images/coinsph-scan.webp)
 
-- Choose **Coins.ph (PH)** under **Data source**. Prices are in pesos (₱) unless you chose another display currency; volume is valued in US dollars with Coins.ph's own USDT/PHP price. A blue note above the list reminds you that this is the local peso market.
+- Choose **Coins.ph (PH)** under **Data source**. Prices follow your **display currency** like every other source — choose **PHP** to see pesos (₱). Volume is valued in US dollars with Coins.ph's own USDT/PHP price. A blue note above the list reminds you that this is the local peso market.
 - **Peso books are thin.** Most Coins.ph volume is people swapping pesos and stablecoins. Pairs with less than about $250,000 of trading a day are left out of the scan, because a few orders can move their candles. The note counts them; point at the count to see which coins they are.
 - **USDT/PHP and USDC/PHP** are the peso against the dollar, so they appear under **Asset class → Currencies**, not crypto.
 - **PH premium** (detail sheet): how far the peso price sits above or below the global price for the same coin. It is information only and does not change the score.
@@ -463,7 +480,7 @@ A failed source never borrows another source's candles. Missing rows are listed,
 
 ![The dark theme.](images/terminal-dark.webp)
 
-- **Phone layout**: the header becomes compact. **More controls** (the sliders button) holds quote, display currency, asset class, Top N, watchlists, alert inbox, scoring profile, saved scans, filter, the Watch field with **Apply**, API, contact, About and theme. On Android the Back button closes the open dialog (or leaves chart full screen first).
+- **Phone layout**: the header becomes compact. **More controls** (the sliders button) holds quote, display currency, rate sources, asset class, Top N, watchlists, alert inbox, scoring profile, saved scans, filter, the Watch field with **Apply**, API, contact, About and theme. On Android the Back button closes the open dialog (or leaves chart full screen first).
 
 ![Phone layout.](images/phone.webp) ![The More controls panel on a phone.](images/phone-more-controls.webp)
 
@@ -475,7 +492,7 @@ A failed source never borrows another source's candles. Missing rows are listed,
 - **Restore.** **Restore backup** checks the file (format, checksum, app and version) before it replaces anything, then reloads.
 - **Audit trail.** A tamper-evident log of important actions: app start, settings changes, identity changes, backups, ledger exports and imports, and every paper-trading decision. About shows *intact (n entries)*, or *BROKEN at #k* if an entry was altered.
 - **Identity.** **Edit identity** changes the workspace, logo and your name; **Export identity (JSON)** saves it.
-- **Privacy.** The app only reads public data: market prices (Binance, Bybit, Bitget, Coins.ph — on the web, Coins.ph is reached through the app's own address), the public update file, and — only when you show a currency other than USD, at most every 6 hours — exchange rates from `api.frankfurter.dev` (or, if it is down, `cdn.jsdelivr.net` / `latest.currency-api.pages.dev`). Nothing about you is sent. No tracking.
+- **Privacy.** The app only reads public data: market prices (Binance, Bybit, Bitget, Coins.ph — on the web, Coins.ph is reached through the app's own address), the public update file, and — only when a price needs converting, every 6 hours or on **Update now** — exchange rates from the source you chose: `api.frankfurter.dev` (Automatic falls back to `cdn.jsdelivr.net` / `latest.currency-api.pages.dev`), or `data-api.ecb.europa.eu`, `open.er-api.com` or `www.floatrates.com` when you pick them. A custom source is never contacted; you import its file. Nothing about you is sent. No tracking.
 - Market data belongs to each exchange and is shown for personal use. Exchange rates are reference rates for information, not rates you can trade at.
 
 ## 17. Updates
@@ -513,7 +530,9 @@ The desktop app also has menus: **File** (Export backup…, Restore backup…), 
 | The **Quote** menu is greyed out | Coins.ph has only peso pairs. On other sources it lists what the exchange offers after the first scan. |
 | Few rows in a USDC or FDUSD scan | Those books list fewer coins than USDT; try **Best USD stablecoin**. |
 | Prices stay in USD after choosing a currency | The rate service could not be reached and no rate is saved for that currency: the rate line says *No rate for … yet*. Check the connection; the Gulf pegs always work. |
-| Rate line says **rates are more than 3 days old** | The device has been offline or the rate services were down; the next refresh fixes it. |
+| Rate line says **rates are more than 3 days old** | The device has been offline or the rate services were down; press **Update now** in **⇄ Rate sources**. |
+| **Could not reach …** in Rate sources | The source you chose is down or blocked on your network; the last rates it gave are kept. Choose **Automatic** or another source. |
+| A custom rates file is refused | It holds no rates the app can read; save the source's JSON (not its web page) and import that. |
 | **Load 5K older** says the row is from an earlier scan | You changed source or timeframe; wait for the new scan, then reopen the asset. |
 | A paper proposal says the account is in USDT | Peso and euro pairs cannot be booked in the USDT paper account; scan a dollar-stablecoin quote. |
 | Ledger says **Not proven yet** | Normal for weeks or months. Keep scanning and export the ledger weekly. |

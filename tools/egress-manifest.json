@@ -25,7 +25,10 @@
         "https://effervescent-bubblegum-1e5c03.netlify.app",
         "https://api.frankfurter.dev",
         "https://cdn.jsdelivr.net",
-        "https://latest.currency-api.pages.dev"
+        "https://latest.currency-api.pages.dev",
+        "https://data-api.ecb.europa.eu",
+        "https://open.er-api.com",
+        "https://www.floatrates.com"
       ],
       "nativeHosts": [
         "api.pro.coins.ph"
