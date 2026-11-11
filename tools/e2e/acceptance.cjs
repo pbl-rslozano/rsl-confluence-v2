@@ -1215,7 +1215,7 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
     const c = await newContext(browser);
     await mockExchanges(c, null);
     const cors = { "access-control-allow-origin": "*", "content-type": "application/json" };
-    const pairs = [["BTCUSDT", 9e9], ["ETHUSDT", 5e9], ["SOLUSDT", 3e9], ["BTCUSDC", 2e9], ["ETHUSDC", 6e9], ["USDCUSDT", 1e9]];
+    const pairs = [["BTCUSDT", 9e9], ["ETHUSDT", 5e9], ["SOLUSDT", 3e9], ["XRPUSDT", 2.5e9], ["DOGEUSDT", 2.2e9], ["BTCUSDC", 2e9], ["ETHUSDC", 6e9], ["USDCUSDT", 1e9]];
     await c.route(/^https:\/\/data-api\.binance\.vision\/api\/v3\/ticker\/24hr/, (route) => route.fulfill({ status: 200, headers: cors,
       body: JSON.stringify(pairs.map(([symbol, qv]) => ({ symbol, openPrice: "100", lastPrice: symbol === "USDCUSDT" ? "0.9995" : "101", quoteVolume: String(qv) }))) }));
     await c.route(/^https:\/\/data-api\.binance\.vision\/api\/v3\/exchangeInfo/, (route) => route.fulfill({ status: 200, headers: cors,
@@ -1246,7 +1246,7 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
     // FX-7 — display currency SAR converts table, info line and detail sheet.
     await p.getByRole("combobox", { name: "Display currency" }).click();
     await p.getByRole("option", { name: /^SAR/ }).first().click();
-    await p.getByTestId("fx-info").waitFor({ timeout: 15000 }).catch(() => null);
+    await p.waitForFunction(() => /Frankfurter/.test(document.querySelector('[data-testid="fx-info"]')?.textContent ?? ""), null, { timeout: 20000 }).catch(() => null);
     const info = (await p.getByTestId("fx-info").textContent().catch(() => "")) ?? "";
     const firstPrice = (await p.locator("tbody tr").first().locator("td").nth(2).textContent().catch(() => "")) ?? "";
     record("FX-7", "Display currency SAR: prices in SAR, info line names the peg, source and date",

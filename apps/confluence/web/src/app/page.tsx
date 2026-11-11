@@ -2346,7 +2346,7 @@ function FxInfoLine({ t, native, display, shown, fx, usdtPhp }: {
       if (fx) {
         parts.push(t(`fx.src.${fx.source}`));
         if (fx.dates[ref] || fx.asOf) parts.push(t("fx.asOf", { date: fx.dates[ref] ?? fx.asOf }));
-      }
+      } else if (PEGS[ref]) parts.push(t("fx.src.peg")); // before the first refresh, a peg converts on its own
     }
   }
   if (!parts.length) return null;

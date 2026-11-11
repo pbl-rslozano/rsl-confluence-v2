@@ -175,7 +175,9 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
   // must not reach the detail sheet, whose Radix layer closes on Esc. Window capture runs
   // before Radix's document listener.
   useEffect(() => {
-    if (full !== "focus") return;
+    // Native full screen: browsers normally consume Esc themselves; if one is delivered anyway it
+    // must leave full screen, not close the sheet underneath.
+    if (full === "off") return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.stopImmediatePropagation();
@@ -184,7 +186,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
     };
     window.addEventListener("keydown", onKey, true);
     const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    if (full === "focus") document.body.style.overflow = "hidden";
     return () => { window.removeEventListener("keydown", onKey, true); document.body.style.overflow = prevOverflow; };
   }, [full, exitFull]);
   useEffect(() => () => { void shellFullscreen()?.set(false).catch(() => {}); }, []);
