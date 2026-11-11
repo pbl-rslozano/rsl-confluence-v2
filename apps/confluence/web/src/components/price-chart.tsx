@@ -7,6 +7,7 @@ import {
   type ChartView, clampHover, clampView, initialView, panView, pinchZoomFactor, wheelZoomFactor, zoomView,
 } from "@/lib/chart-view";
 import { shellFullscreen } from "@/lib/shell-fullscreen";
+import { formatAxisTicks } from "@/lib/money";
 
 /**
  * PriceChart — custom SVG candlestick chart with indicator overlays.
@@ -120,22 +121,19 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
   const frameRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const plotRef = useRef<HTMLDivElement>(null);
-  const prevTotal = useRef(total);
   const { hidden, periods } = settings;
   const showBollinger = !hidden.includes("bollinger");
   const showMacd = !hidden.includes("macd");
   const showVolume = !hidden.includes("volume");
 
-  // Depth menu → new starting window.
-  useEffect(() => { setView(initialView(klines.length, visible)); setHoverIdx(null); }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
-  // New candles: a view that was following the newest bar keeps following it.
-  useEffect(() => {
-    setView((v) => {
-      const following = v.end >= prevTotal.current;
-      prevTotal.current = total;
-      return clampView(following ? { end: total, count: v.count } : v, total);
-    });
-  }, [total]);
+  // Depth menu → new starting window; new candles: a view that was following the newest bar keeps
+  // following it. Adjusted while rendering (React's "state from props" pattern), not in an effect.
+  const [seen, setSeen] = useState({ visible, total });
+  if (seen.visible !== visible || seen.total !== total) {
+    if (seen.visible !== visible) { setView(initialView(total, visible)); setHoverIdx(null); }
+    else setView((cur) => clampView(cur.end >= seen.total ? { end: total, count: cur.count } : cur, total));
+    setSeen({ visible, total });
+  }
 
   function updateSettings(next: ChartSettings) {
     setSettings(next);
@@ -252,41 +250,162 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
     hi += pad;
     const y = (price: number) => PAD_T + (1 - (price - lo) / (hi - lo)) * priceH;
 
-    const step = chartW / slice.length;
+    // Review #6: never draw more than one candle per 1.5 px. Buckets of k bars become one OHLC
+    // candle (volume summed); overlays and MACD are sampled at each bucket's last bar.
+    const k = Math.max(1, Math.ceil(slice.length / Math.max(40, Math.floor(chartW / 1.5))));
+    const fullHist = macdHistogram(klines).slice(start, v.end);
+    const bucketEnds: number[] = [];
+    for (let e = slice.length - 1; e >= 0; e -= k) bucketEnds.unshift(e);
+    const bars = k === 1 ? slice : bucketEnds.map((e) => {
+      const b = slice.slice(Math.max(0, e - k + 1), e + 1);
+      let hi2 = -Infinity, lo2 = Infinity, vol2 = 0;
+      for (const c of b) { if (c.high > hi2) hi2 = c.high; if (c.low < lo2) lo2 = c.low; vol2 += c.volume; }
+      return { time: b[0].time, open: b[0].open, high: hi2, low: lo2, close: b[b.length - 1].close, volume: vol2 };
+    });
+    const sample = (arr: number[]) => (k === 1 ? arr : bucketEnds.map((e) => arr[e]));
+    const bbU = sample(bbUpper), bbL = sample(bbLower);
+    for (const s2 of series) s2.values = sample(s2.values);
+    const histogram = k === 1 ? fullHist : bucketEnds.map((e) => fullHist[e]);
+
+    const step = chartW / bars.length;
     const x = (i: number) => PAD_L + i * step + step / 2;
     const bodyW = Math.max(1, step * 0.62);
 
-    const histogram = macdHistogram(klines).slice(start, v.end);
     const histTop = PAD_T + priceH;
     const histZero = histTop + HIST_H / 2;
     const [, maxAbs] = extent(histogram.map((p) => Math.abs(p.histogram)));
     const maxHist = Math.max(maxAbs, 1e-9);
     const histY = (val: number) => histZero - (val / maxHist) * (HIST_H * 0.42);
 
-    const [, maxV] = extent(slice.map((c) => c.volume));
+    const [, maxV] = extent(bars.map((c) => c.volume));
     const maxVol = Math.max(maxV, 1);
     const volTop = histTop + (showMacd ? HIST_H : 0);
     const volY = (val: number) => volTop + VOL_H - (val / maxVol) * (VOL_H - 8);
 
-    const ticks: { y: number; label: string }[] = [];
-    for (let i = 0; i <= 4; i++) {
-      const price = lo + ((hi - lo) * i) / 4;
-      ticks.push({ y: y(price), label: formatAxis(price) });
-    }
+    const tickPrices = [0, 1, 2, 3, 4].map((i) => lo + ((hi - lo) * i) / 4);
+    const tickLabels = formatAxis === fmtAxis ? formatAxisTicks(tickPrices) : tickPrices.map(formatAxis);
+    const ticks = tickPrices.map((price, i) => ({ y: y(price), label: tickLabels[i] }));
     const nTimeTicks = Math.max(3, Math.min(9, Math.round(chartW / 150)));
     const timeTicks: { x: number; label: string }[] = [];
     for (let i = 0; i < nTimeTicks; i++) {
-      const idx = Math.floor((i / (nTimeTicks - 1)) * (slice.length - 1));
-      timeTicks.push({ x: x(idx), label: fmtTime(slice[idx].time) });
+      const idx = Math.floor((i / (nTimeTicks - 1)) * (bars.length - 1));
+      timeTicks.push({ x: x(idx), label: fmtTime(bars[idx].time) });
     }
-    return { slice, x, y, bodyW, step, bbUpper, bbLower, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series };
+    return { slice: bars, perBar: k, x, y, bodyW, step, bbUpper: bbU, bbLower: bbL, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series };
   }, [klines, start, v.end, hidden, periods, showBollinger, showMacd, priceH, chartW, formatAxis]);
+
+  /* Static layers are memoised: moving the pointer re-renders only the crosshair and readout (review #6). */
+  const layers = useMemo(() => {
+    if (!model) return null;
+    const { slice, x, y, bodyW, bbUpper, bbLower, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series } = model;
+    const viewH = volTop + (showVolume ? VOL_H : 0) + PAD_B;
+    let bandPath = "";
+    let firstUp = true;
+    for (let i = 0; i < slice.length; i++) {
+      if (isNaN(bbUpper[i])) continue;
+      bandPath += `${firstUp ? "M" : "L"}${x(i).toFixed(1)},${y(bbUpper[i]).toFixed(1)} `;
+      firstUp = false;
+    }
+    for (let i = slice.length - 1; i >= 0; i--) {
+      if (isNaN(bbLower[i])) continue;
+      bandPath += `L${x(i).toFixed(1)},${y(bbLower[i]).toFixed(1)} `;
+    }
+    bandPath = firstUp ? "" : bandPath + "Z";
+    return (
+      <>
+          {ticks.map((t, i) => (
+            <g key={`g${i}`}>
+              <line x1={PAD_L} y1={t.y} x2={PAD_L + chartW} y2={t.y} stroke="var(--color-zinc-800)" strokeWidth={1} />
+              <text x={viewW - PAD_R + 6} y={t.y + 3} fill="var(--color-zinc-500)" fontSize={10} fontFamily="ui-monospace, monospace">
+                {t.label}
+              </text>
+            </g>
+          ))}
+
+          {showBollinger && bandPath && (
+            <g data-indicator="bollinger">
+              <path d={bandPath} fill="#10b981" opacity={0.07} />
+              <polyline
+                points={slice.map((_, i) => isNaN(bbUpper[i]) ? "" : `${x(i).toFixed(1)},${y(bbUpper[i]).toFixed(1)}`).filter(Boolean).join(" ")}
+                fill="none" stroke="#10b981" strokeWidth={1} opacity={0.35} strokeDasharray="3 3"
+              />
+              <polyline
+                points={slice.map((_, i) => isNaN(bbLower[i]) ? "" : `${x(i).toFixed(1)},${y(bbLower[i]).toFixed(1)}`).filter(Boolean).join(" ")}
+                fill="none" stroke="#10b981" strokeWidth={1} opacity={0.35} strokeDasharray="3 3"
+              />
+            </g>
+          )}
+
+          {series.map((s) => (
+            <polyline
+              key={s.id}
+              data-indicator={s.id}
+              points={slice.map((_, i) => isNaN(s.values[i]) ? "" : `${x(i).toFixed(1)},${y(s.values[i]).toFixed(1)}`).filter(Boolean).join(" ")}
+              fill="none"
+              stroke={s.color}
+              strokeWidth={1.5}
+              strokeDasharray={s.dashed ? "5 3" : undefined}
+              opacity={0.9}
+            />
+          ))}
+
+          {showMacd && <g data-indicator="macd">
+            <line x1={PAD_L} y1={histTop} x2={PAD_L + chartW} y2={histTop} stroke="var(--color-zinc-700)" strokeWidth={1} />
+            <line x1={PAD_L} y1={histZero} x2={PAD_L + chartW} y2={histZero} stroke="var(--color-zinc-800)" strokeWidth={1} strokeDasharray="3 3" />
+            <text x={PAD_L + 4} y={histTop + 12} fill="var(--color-zinc-500)" fontSize={10} fontFamily="ui-monospace, monospace">
+              MACD histogram
+            </text>
+            {histogram.map((p, i) => {
+              if (isNaN(p.histogram)) return null;
+              const top = Math.min(histZero, histY(p.histogram));
+              const h = Math.abs(histY(p.histogram) - histZero);
+              return (
+                <rect key={`h${i}`} x={x(i) - bodyW / 2} y={top} width={bodyW} height={Math.max(0.5, h)}
+                  fill={p.histogram >= 0 ? "#34d399" : "#fb7185"} opacity={0.55} />
+              );
+            })}
+          </g>}
+          {showVolume && <g data-indicator="volume">
+            {slice.map((c, i) => {
+              const h = (volTop + VOL_H) - volY(c.volume);
+              return (
+                <rect key={`v${i}`} x={x(i) - bodyW / 2} y={volY(c.volume)} width={bodyW} height={Math.max(0.5, h)}
+                  fill={c.close >= c.open ? "#34d399" : "#fb7185"} opacity={0.35} />
+              );
+            })}
+            <line x1={PAD_L} y1={volTop} x2={PAD_L + chartW} y2={volTop} stroke="var(--color-zinc-700)" strokeWidth={1} />
+            <text x={PAD_L + 4} y={volTop + 12} fill="var(--color-zinc-500)" fontSize={10} fontFamily="ui-monospace, monospace">
+              Volume
+            </text>
+          </g>}
+          <g data-testid="price-candles">
+            {slice.map((c, i) => {
+              const color = c.close >= c.open ? "#34d399" : "#fb7185";
+              const wickX = x(i);
+              const bodyTop = y(Math.max(c.open, c.close));
+              const bodyBot = y(Math.min(c.open, c.close));
+              return (
+                <g key={`c${i}`}>
+                  <line x1={wickX} y1={y(c.high)} x2={wickX} y2={y(c.low)} stroke={color} strokeWidth={1} />
+                  <rect x={wickX - bodyW / 2} y={bodyTop} width={bodyW} height={Math.max(1, bodyBot - bodyTop)}
+                    fill={color} opacity={0.85} />
+                </g>
+              );
+            })}
+          </g>
+          {timeTicks.map((t, i) => (
+            <text key={`t${i}`} x={t.x} y={viewH - 6} fill="var(--color-zinc-500)" fontSize={10} fontFamily="ui-monospace, monospace" textAnchor="middle">
+              {t.label}
+            </text>
+          ))}
+      </>
+    );
+  }, [model, showBollinger, showMacd, showVolume, viewW, chartW]);
 
   /* ---------------- input ---------------- */
   const viewRef = useRef(v);
-  viewRef.current = v;
   const fullRef = useRef(full);
-  fullRef.current = full;
+  useEffect(() => { viewRef.current = v; fullRef.current = full; });
   /** Pointer X → fraction across the plot area (0 left … 1 right). */
   const fracAt = useCallback((clientX: number): number => {
     const svg = svgRef.current;
@@ -318,7 +437,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
     };
     svg.addEventListener("wheel", onWheel, { passive: false });
     return () => svg.removeEventListener("wheel", onWheel);
-  }, [total, zoomBy, fracAt, model !== null]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [total, zoomBy, fracAt, layers]);
 
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef<{ kind: "none" | "drag" | "pinch"; startX: number; startView: ChartView; startDist: number; frac: number; moved: boolean }>(
@@ -389,22 +508,10 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
     );
   }
 
-  const { slice, x, y, bodyW, bbUpper, bbLower, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series } = model;
+  const { slice, x, y, histogram, volTop, series, perBar } = model;
   const plotBottom = volTop + (showVolume ? VOL_H : 0);
   const viewH = plotBottom + PAD_B;
 
-  let bandPath = "";
-  let firstUp = true;
-  for (let i = 0; i < slice.length; i++) {
-    if (isNaN(bbUpper[i])) continue;
-    bandPath += `${firstUp ? "M" : "L"}${x(i).toFixed(1)},${y(bbUpper[i]).toFixed(1)} `;
-    firstUp = false;
-  }
-  for (let i = slice.length - 1; i >= 0; i--) {
-    if (isNaN(bbLower[i])) continue;
-    bandPath += `L${x(i).toFixed(1)},${y(bbLower[i]).toFixed(1)} `;
-  }
-  bandPath = firstUp ? "" : bandPath + "Z";
 
   const activeIdx = clampHover(hoverIdx, slice.length) ?? slice.length - 1;
   const hover = slice[activeIdx];
@@ -521,91 +628,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
         onPointerCancel={onPointerUp}
         onDoubleClick={resetView}
       >
-        {ticks.map((t, i) => (
-          <g key={`g${i}`}>
-            <line x1={PAD_L} y1={t.y} x2={PAD_L + chartW} y2={t.y} stroke="var(--color-zinc-800)" strokeWidth={1} />
-            <text x={viewW - PAD_R + 6} y={t.y + 3} fill="var(--color-zinc-500)" fontSize={10} fontFamily="ui-monospace, monospace">
-              {t.label}
-            </text>
-          </g>
-        ))}
-
-        {showBollinger && bandPath && (
-          <g data-indicator="bollinger">
-            <path d={bandPath} fill="#10b981" opacity={0.07} />
-            <polyline
-              points={slice.map((_, i) => isNaN(bbUpper[i]) ? "" : `${x(i).toFixed(1)},${y(bbUpper[i]).toFixed(1)}`).filter(Boolean).join(" ")}
-              fill="none" stroke="#10b981" strokeWidth={1} opacity={0.35} strokeDasharray="3 3"
-            />
-            <polyline
-              points={slice.map((_, i) => isNaN(bbLower[i]) ? "" : `${x(i).toFixed(1)},${y(bbLower[i]).toFixed(1)}`).filter(Boolean).join(" ")}
-              fill="none" stroke="#10b981" strokeWidth={1} opacity={0.35} strokeDasharray="3 3"
-            />
-          </g>
-        )}
-
-        {series.map((s) => (
-          <polyline
-            key={s.id}
-            data-indicator={s.id}
-            points={slice.map((_, i) => isNaN(s.values[i]) ? "" : `${x(i).toFixed(1)},${y(s.values[i]).toFixed(1)}`).filter(Boolean).join(" ")}
-            fill="none"
-            stroke={s.color}
-            strokeWidth={1.5}
-            strokeDasharray={s.dashed ? "5 3" : undefined}
-            opacity={0.9}
-          />
-        ))}
-
-        {showMacd && <g data-indicator="macd">
-          <line x1={PAD_L} y1={histTop} x2={PAD_L + chartW} y2={histTop} stroke="var(--color-zinc-700)" strokeWidth={1} />
-          <line x1={PAD_L} y1={histZero} x2={PAD_L + chartW} y2={histZero} stroke="var(--color-zinc-800)" strokeWidth={1} strokeDasharray="3 3" />
-          <text x={PAD_L + 4} y={histTop + 12} fill="var(--color-zinc-500)" fontSize={10} fontFamily="ui-monospace, monospace">
-            MACD histogram
-          </text>
-          {histogram.map((p, i) => {
-            if (isNaN(p.histogram)) return null;
-            const top = Math.min(histZero, histY(p.histogram));
-            const h = Math.abs(histY(p.histogram) - histZero);
-            return (
-              <rect key={`h${i}`} x={x(i) - bodyW / 2} y={top} width={bodyW} height={Math.max(0.5, h)}
-                fill={p.histogram >= 0 ? "#34d399" : "#fb7185"} opacity={activeIdx === i && hoverIdx !== null ? 0.9 : 0.55} />
-            );
-          })}
-        </g>}
-        {showVolume && <g data-indicator="volume">
-          {slice.map((c, i) => {
-            const h = (volTop + VOL_H) - volY(c.volume);
-            return (
-              <rect key={`v${i}`} x={x(i) - bodyW / 2} y={volY(c.volume)} width={bodyW} height={Math.max(0.5, h)}
-                fill={c.close >= c.open ? "#34d399" : "#fb7185"} opacity={0.35} />
-            );
-          })}
-          <line x1={PAD_L} y1={volTop} x2={PAD_L + chartW} y2={volTop} stroke="var(--color-zinc-700)" strokeWidth={1} />
-          <text x={PAD_L + 4} y={volTop + 12} fill="var(--color-zinc-500)" fontSize={10} fontFamily="ui-monospace, monospace">
-            Volume
-          </text>
-        </g>}
-        <g data-testid="price-candles">
-          {slice.map((c, i) => {
-            const color = c.close >= c.open ? "#34d399" : "#fb7185";
-            const wickX = x(i);
-            const bodyTop = y(Math.max(c.open, c.close));
-            const bodyBot = y(Math.min(c.open, c.close));
-            return (
-              <g key={`c${i}`}>
-                <line x1={wickX} y1={y(c.high)} x2={wickX} y2={y(c.low)} stroke={color} strokeWidth={1} />
-                <rect x={wickX - bodyW / 2} y={bodyTop} width={bodyW} height={Math.max(1, bodyBot - bodyTop)}
-                  fill={color} opacity={activeIdx === i && hoverIdx !== null ? 1 : 0.85} />
-              </g>
-            );
-          })}
-        </g>
-        {timeTicks.map((t, i) => (
-          <text key={`t${i}`} x={t.x} y={viewH - 6} fill="var(--color-zinc-500)" fontSize={10} fontFamily="ui-monospace, monospace" textAnchor="middle">
-            {t.label}
-          </text>
-        ))}
+        {layers}
         {hover && (
           <g>
             <line x1={x(activeIdx)} y1={PAD_T} x2={x(activeIdx)} y2={plotBottom} stroke="var(--color-zinc-600)" strokeWidth={1} strokeDasharray="3 3" />
@@ -634,7 +657,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
         </div>
         {hover && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-zinc-300" aria-live="polite" data-testid="chart-readout">
-            <span className="text-zinc-500">{fmtTime(hover.time)}</span>
+            <span className="text-zinc-500">{fmtTime(hover.time)}{perBar > 1 ? ` · ${perBar} bars per candle` : ""}</span>
             <span className="text-zinc-500">O</span><span>{formatPrice(hover.open)}</span>
             <span className="text-zinc-500">H</span><span className="text-emerald-400">{formatPrice(hover.high)}</span>
             <span className="text-zinc-500">L</span><span className="text-rose-400">{formatPrice(hover.low)}</span>
