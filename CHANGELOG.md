@@ -1,3 +1,33 @@
+# v2.7.0 — 11 November 2026 · build 20261111
+
+Stablecoin quotes on every exchange, any display currency at official reference rates, and a chart that zooms, pans and
+goes full screen. Engine unchanged (2.3.0, `2c1a18ad8a61e9ab`); USDT scans are identical to v2.6.
+
+- **Stablecoin quote pairing (WP12, ADR-0015):** a **Quote** menu per source — USDT (default), USDC, FDUSD, USD1, USDE,
+  RLUSD, XUSD, U, EURI as the exchange lists them, or **Best USD stablecoin** (deepest dollar-stablecoin pair per coin,
+  25 % hysteresis). Bybit and Bitget USDC-margined perpetuals (`BTCPERP`). Volumes valued at the stablecoin's own price on
+  the same venue; one real pair's candles per coin, never blended. Depeg banner at 0.5 / 1 / 2 % (information only).
+  One `splitPair` replaces the USDT-suffix regexes (BTCFDUSD was read as "BTCFD"); non-USDT pairs are classed as their
+  USDT twin.
+- **Display currency (WP13, ADR-0015):** Auto (device region), USD or about 160 currencies. Frankfurter v2 central-bank
+  rates → fawazahmed0 fallback → built-in Gulf pegs offline; the rate line names the rate kind (peg/band/official/reference),
+  source and date, and shows USDT's real USD price (prices use 1 USDT = 1 USD). Display only — release check **R21**.
+  Three new `connect-src` hosts (ADR-0003 amendment v2.7).
+- **Chart (WP14):** zoom (buttons, + / −, Ctrl/⌘+wheel, trackpad and two-finger pinch) anchored at the cursor, pan (drag,
+  Shift+wheel, Shift+arrows), reset (0, double-click/tap), full screen (Fullscreen API, or a Focus view on iPhone and in the
+  apps; desktop window full screen through `core:window:allow-set-fullscreen`; Esc / Android Back leaves full screen
+  without closing the sheet). Candles thinned to one per 1.5 px and static layers memoised (10,000-bar views stay fast).
+- **Fixes from the v2.6 review (WP15, `docs/reviews/2026-11-11-v2.6-code-review.md`):** chart crash when the depth shrank
+  under an inspected candle; Bollinger bands missing on the first 19 visible bars; "Load 5K older" could store one source's
+  bars under another source's key; paper trading booked Coins.ph peso amounts as USDT (now refused) and allowed BTCUSDT and
+  BTCPHP as separate positions; beta / excess-over-BTC empty on Coins.ph; R8 hard-coded its allowlist (now one host table
+  shared by both CSPs, R8 and ADR-0003); R6 wildcard detection; empty translations passed the catalog check; monitor
+  assets typed as `BTC-USDT` were dropped on restart; key levels showed `5.000e-1`; duplicate axis labels on tight ranges.
+- **User guide (WP16):** v2.7, full 22-chapter guide in the repository; new sections for quotes, display currency and chart
+  zoom / full screen. 21 new labels in all 18 catalogs.
+- **Checks:** unit suites + quotes 57, FX 32, chart view 8; release checks R1–R21; browser acceptance adds SQ-8, FX-7,
+  CH-1, CH-4, CH-5, CH-6.
+
 # v2.6.0 — 7 November 2026 · build 20261107
 
 Adds the Philippine peso market from Coins.ph (public data only, no account), protected builds,

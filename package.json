@@ -1,6 +1,6 @@
 {
   "name": "rsl-confluence",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "private": true,
   "description": "rsL Confluence Terminal v2.1 2026 — one web core, Tauri 2 desktop shell, Capacitor 8 mobile shell, PWA.",
   "author": "rsLozano",

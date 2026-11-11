@@ -52,7 +52,7 @@ const LAYERS = {
   "ema-slow": "Slow EMA",
   "sma-long": "SMA",
   bollinger: "Bollinger Bands",
-  vwap: "VWAP (visible range)",
+  vwap: "VWAP",
   macd: "MACD histogram",
   volume: "Volume",
 } as const;
