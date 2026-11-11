@@ -13,6 +13,7 @@
  * ("paper.rule.*"), so the owner sees the full picture before approving.
  * ----------------------------------------------------------------------------
  */
+import { splitPair, stableQuote } from "./quotes";
 import type { AssetClass } from "./ledger-metrics";
 
 export type Side = "long" | "short";
@@ -166,15 +167,22 @@ export function normaliseSettings(s: Partial<RiskSettings> | null | undefined): 
 /** Crypto majors cluster; every other crypto pair is an "alt". */
 export const CRYPTO_MAJORS = new Set(["BTC", "ETH"]);
 
-/** Base asset of a USDT pair (BTCUSDT → BTC). */
-export function baseOf(pair: string): string {
-  return pair.replace(/(USDT|USDC|USD|PERP)$/i, "").toUpperCase();
+/** Base asset of a pair (BTCUSDT → BTC; v2.7: BTCFDUSD → BTC, ETHPERP → ETH, BTCU on Binance → BTC). */
+export function baseOf(pair: string, src?: string): string {
+  const { base, quote } = splitPair(pair, src || (/PERP$/i.test(pair) ? "bybit-perp" : undefined));
+  return (quote ? base : pair).toUpperCase();
+}
+
+/** v2.7: is the pair quoted in a USD-pegged stablecoin (the paper account's currency family)? */
+export function usdQuoted(pair: string, src = ""): boolean {
+  const q = splitPair(pair, src || (/PERP$/i.test(pair) ? "bybit-perp" : undefined)).quote;
+  return stableQuote(q)?.peg === "USD";
 }
 
 /** Correlation cluster: asset class, with crypto split into majors and alts. */
-export function clusterOf(assetClass: AssetClass, pair: string): string {
+export function clusterOf(assetClass: AssetClass, pair: string, src?: string): string {
   if (assetClass !== "crypto") return assetClass;
-  return CRYPTO_MAJORS.has(baseOf(pair)) ? "crypto-major" : "crypto-alt";
+  return CRYPTO_MAJORS.has(baseOf(pair, src)) ? "crypto-major" : "crypto-alt";
 }
 
 /** Perpetual sources can be shorted without borrowing. */
@@ -221,7 +229,8 @@ export type RuleKey =
   | "paper.rule.suppressed"
   | "paper.rule.sideMismatch"
   | "paper.rule.underlyingClosed"
-  | "paper.rule.notional";
+  | "paper.rule.notional"
+  | "paper.rule.currency";
 
 export interface RiskVerdict {
   approved: boolean;
@@ -261,7 +270,7 @@ export function deadManTripped(lastHeartbeat: number, intervalMs: number, now: n
  */
 export function evaluateProposal(p: ProposalInput, acct: AccountState, s: RiskSettings, now: number): RiskVerdict {
   const reasons: RuleKey[] = [];
-  const cluster = clusterOf(p.assetClass, p.pair);
+  const cluster = clusterOf(p.assetClass, p.pair, p.src);
   const lotStep = p.lotStep && p.lotStep > 0 ? p.lotStep : defaultLotStep(p.entryRef);
   const dir = p.side === "long" ? 1 : -1;
 
@@ -283,8 +292,12 @@ export function evaluateProposal(p: ProposalInput, acct: AccountState, s: RiskSe
 
   // Portfolio rules.
   if (acct.positions.length >= s.maxPositions) reasons.push("paper.rule.maxPositions");
-  if (acct.positions.filter((x) => clusterOf(x.assetClass, x.pair) === cluster).length >= s.maxPerClusterPositions) reasons.push("paper.rule.cluster");
-  if (acct.positions.some((x) => x.pair.toUpperCase() === p.pair.toUpperCase())) reasons.push("paper.rule.duplicate");
+  if (acct.positions.filter((x) => clusterOf(x.assetClass, x.pair, x.src) === cluster).length >= s.maxPerClusterPositions) reasons.push("paper.rule.cluster");
+  // v2.7 (review #3): one position per BASE asset (BTCUSDT and BTCUSDC/BTCPHP are the same exposure).
+  if (acct.positions.some((x) => x.pair.toUpperCase() === p.pair.toUpperCase() || baseOf(x.pair, x.src) === baseOf(p.pair, p.src))) reasons.push("paper.rule.duplicate");
+  // The paper account is kept in USDT: only pairs quoted in a USD stablecoin can be sized and booked in it
+  // (v2.6 booked Coins.ph peso amounts as USDT).
+  if (!usdQuoted(p.pair, p.src)) reasons.push("paper.rule.currency");
   if (p.side === "short" && !isPerpSource(p.src) && !s.allowShortsOnSpot) reasons.push("paper.rule.spotShort");
 
   // Signal rules.

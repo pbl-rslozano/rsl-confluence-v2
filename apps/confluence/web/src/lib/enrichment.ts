@@ -19,6 +19,7 @@
  * are not logged (see docs/measurement.md).
  * ----------------------------------------------------------------------------
  */
+import { baseOf } from "./quotes";
 import type { Kline } from "./indicators";
 import type { LedgerRow } from "./ledger-metrics";
 import { MACRO_EVENTS } from "./macro-calendar";
@@ -130,7 +131,7 @@ export interface EnrichContext {
 export function enrich(row: Pick<LedgerRow, "pair" | "ac" | "tc">, k: Kline[], ctx: EnrichContext): Partial<LedgerRow> {
   const out: Partial<LedgerRow> = {
     rs: ctx.rs ?? null,
-    beta: row.pair === "BTCUSDT" ? 1 : betaTo(k, ctx.btc),
+    beta: baseOf(row.pair) === "BTC" ? 1 : betaTo(k, ctx.btc), // v2.7: any BTC quote
     htf: htfTrend(k, ctx.intervalMs),
     td: takerDelta(k),
     mev: macroEventHours(row.tc),

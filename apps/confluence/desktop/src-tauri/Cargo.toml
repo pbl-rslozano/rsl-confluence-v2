@@ -1,6 +1,6 @@
 [package]
 name = "rsl-confluence-desktop"
-version = "2.6.0"
+version = "2.7.0"
 description = "rsL Confluence Terminal — desktop shell"
 authors = ["rsLozano"]
 edition = "2021"

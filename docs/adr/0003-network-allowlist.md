@@ -47,3 +47,22 @@ keeps this WebSocket host separate from its HTTPS allowlist.
   release check **R16**. R8 still polices `connect-src`.
 - **Node processes:** the local PWA launcher (`launcher` in the egress manifest) proxies the same read paths; the
   recorder adds `api.pro.coins.ph` only if the owner enables Coins.ph recording (not in v2.6) (R11).
+
+## Amendment — v2.7 (11 Nov 2026, ADR-0015)
+- **App:** three display-currency hosts join `connect-src` (web meta CSP and desktop CSP): `https://api.frankfurter.dev`
+  (Frankfurter v2 central-bank reference rates — primary), `https://cdn.jsdelivr.net` and
+  `https://latest.currency-api.pages.dev` (fawazahmed0 currency-api — fallback, then its mirror). GET only, no credentials, at
+  most once every 6 hours and only while a non-USD display currency is chosen; the JSON is parsed and validated, never executed
+  (`script-src` unchanged). Rates are display only (release check R21). All three send `Access-Control-Allow-Origin: *`
+  (live probe, `docs/research/evidence/fx-quotes-probe-2026-11-11.md`), so no rewrite or native path is needed.
+- **One table (review #7):** `connect-src` is now built from `CSP_HOSTS` in `apps/confluence/web/src/lib/public-hosts.ts`.
+  R8 reads that table, fails when the desktop CSP lists a host the table does not (or misses one it does), and fails when a
+  table host is not named in this ADR. The v2.6 plan claimed R8 already did this; it did not until v2.7.
+- **Stablecoin quotes (WP12):** no new host. Venue metadata comes from the existing hosts: Binance `/api/v3/exchangeInfo`,
+  Bitget `/api/v2/spot/public/symbols` and `/api/v2/mix/market/{tickers,candles,history-candles,merge-depth}?productType=USDC-FUTURES`,
+  Bybit `instruments-info` (already read).
+- **User-selectable rate sources (owner request 11 Nov 2026):** `https://data-api.ecb.europa.eu` (ECB reference rates, SDMX
+  JSON), `https://open.er-api.com` (ExchangeRate-API open access; the app shows its required attribution) and
+  `https://www.floatrates.com` (FloatRates). Each is contacted only while the user has chosen it under **Rate sources**,
+  GET only, at most every 6 hours or on **Update now**. All three answered browser requests from another origin in the live
+  probe of 11 Nov 2026. A user's own (custom) source is never contacted by the app: its rates file is imported (ADR-0015).

@@ -7,18 +7,14 @@
  * apart, which is how the prior build ended up with a production policy nobody
  * had reviewed.
  */
+import { CSP_HOSTS } from "./public-hosts";
 
-/** The app itself, the loopback credential gateway, and the market-data hosts. */
-export const CONNECT_SRC = [
-  "'self'",
-  "http://127.0.0.1:8787",
-  "http://localhost:8787",
-  "https://data-api.binance.vision",
-  "https://api.bybit.com",
-  "https://api.bitget.com",
-  // v2.5.1 (ADR-0012): update notice — GET /updates/latest.json only, from the native shells.
-  "https://effervescent-bubblegum-1e5c03.netlify.app",
-].join(" ");
+/**
+ * The app itself plus every host in the public-host table (src/lib/public-hosts.ts, v2.7):
+ * the loopback credential gateway, the market-data hosts, the update file and the
+ * display-currency rate hosts. One table, so the web CSP, the desktop CSP and R8 agree.
+ */
+export const CONNECT_SRC = ["'self'", ...CSP_HOSTS.map((h) => h.origin)].join(" ");
 
 /**
  * `'unsafe-eval'` is required by the Next.js dev-server HMR pipeline only and is

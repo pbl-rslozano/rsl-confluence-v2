@@ -108,7 +108,10 @@ export function checkEgress({ root = ROOT, manifestPath = join(root, "tools", "e
   const cspDrift = [];
   const cspFile = join(root, "apps", "confluence", "web", "src", "lib", "csp.ts");
   if (procs.web?.csp && existsSync(cspFile)) {
-    const block = (readFileSync(cspFile, "utf8").match(/export const CONNECT_SRC = \[([\s\S]*?)\]/) || [, ""])[1];
+    // v2.7: CONNECT_SRC is built from the public-host table (src/lib/public-hosts.ts CSP_HOSTS).
+    const hostsFile = join(root, "apps", "confluence", "web", "src", "lib", "public-hosts.ts");
+    const table = (readFileSync(hostsFile, "utf8").match(/export const CSP_HOSTS = \[([\s\S]*?)\] as const;/) || [, ""])[1];
+    const block = ["'self'", ...[...table.matchAll(/origin:\s*"([^"]+)"/g)].map((m) => m[1])].map((h) => `"${h}"`).join(", ");
     const fromCsp = new Set([...block.matchAll(/"([^"]+)"/g)].map((m) => m[1]));
     const listed = new Set(procs.web.csp);
     for (const h of fromCsp) if (!listed.has(h)) cspDrift.push(`csp.ts has ${h}, manifest web.csp does not`);

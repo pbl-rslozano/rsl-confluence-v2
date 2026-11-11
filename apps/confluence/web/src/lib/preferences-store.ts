@@ -1,5 +1,6 @@
 "use client";
 
+import { baseFromInput, normalizeQuoteMode } from "./quotes";
 import type { DataSource } from "./market-client";
 import { ASSET_CLASS_FILTERS, type AssetClassFilter } from "./asset-classes";
 
@@ -43,6 +44,16 @@ export interface AppPreferences {
   chartDepth: StoredChartDepth;
   /** v2.1.1: which asset class the scanner lists (crypto by default). */
   assetClass: AssetClassFilter;
+  /** v2.7 (WP12): stablecoin quote per data source (missing = USDT; Coins.ph = PHP). */
+  quoteBySource: Partial<Record<DataSource, string>>;
+  /** v2.7 (WP13): "AUTO" (device region) or an ISO 4217 code. Display only. */
+  displayCurrency: string;
+  /** v2.7: rate source — "auto", a tested source id, or "custom" (the user's own, not tested). */
+  fxSource: string;
+  /** v2.7: refresh rates automatically every 6 hours. */
+  fxAutoUpdate: boolean;
+  /** v2.7: the user's own source (name and address) when fxSource is "custom". */
+  fxCustom: { name: string; url: string } | null;
 }
 
 export const DEFAULT_APP_PREFERENCES: AppPreferences = {
@@ -58,6 +69,11 @@ export const DEFAULT_APP_PREFERENCES: AppPreferences = {
   autoRefresh: true,
   chartDepth: "250",
   assetClass: "crypto",
+  quoteBySource: {},
+  displayCurrency: "AUTO",
+  fxSource: "auto",
+  fxAutoUpdate: true,
+  fxCustom: null,
 };
 
 const STORAGE_KEY = "ct-preferences-v1";
@@ -81,9 +97,34 @@ function normalizeMonitorAssets(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return [...new Set(value
     .filter((asset): asset is string => typeof asset === "string")
-    .map((asset) => asset.trim().toUpperCase().replace(/USDT$/, ""))
+    .map((asset) => baseFromInput(asset)) // v2.7: any stablecoin quote
     .filter((asset) => /^[A-Z0-9]{1,15}$/.test(asset)))]
     .slice(0, 100);
+}
+
+const FX_CHOICES = new Set(["auto", "frankfurter", "ecb", "erapi", "fawazahmed0", "floatrates", "custom"]);
+/** v2.7: a user-named rate source — plain text name, and an http(s) address kept for reference only. */
+export function normalizeCustomSource(value: unknown): { name: string; url: string } | null {
+  if (!isRecord(value)) return null;
+  const name = typeof value.name === "string" ? value.name.replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 80) : "";
+  let url = "";
+  try {
+    const u = new URL(String(value.url ?? ""));
+    if (u.protocol === "https:" || u.protocol === "http:") url = u.href.slice(0, 500);
+  } catch { /* not a URL */ }
+  return name || url ? { name: name || url, url } : null;
+}
+
+/** v2.7: per-source quote modes, each validated against what that source can serve. */
+function normalizeQuotes(value: unknown): Partial<Record<DataSource, string>> {
+  if (!isRecord(value)) return {};
+  const out: Partial<Record<DataSource, string>> = {};
+  for (const [src, mode] of Object.entries(value)) {
+    if (!DATA_SOURCES.has(src as DataSource) || typeof mode !== "string") continue;
+    const m = normalizeQuoteMode(src, mode);
+    if (m === mode.toUpperCase()) out[src as DataSource] = m;
+  }
+  return out;
 }
 
 /** Validate any stored object into AppPreferences (unknown values fall back to defaults). */
@@ -100,6 +141,11 @@ export function normalizePreferences(saved: unknown): AppPreferences | null {
     autoRefresh: typeof saved.autoRefresh === "boolean" ? saved.autoRefresh : DEFAULT_APP_PREFERENCES.autoRefresh,
     chartDepth: savedOrDefault(saved.chartDepth, CHART_DEPTHS, DEFAULT_APP_PREFERENCES.chartDepth),
     assetClass: savedOrDefault(saved.assetClass, new Set<AssetClassFilter>(ASSET_CLASS_FILTERS), DEFAULT_APP_PREFERENCES.assetClass),
+    quoteBySource: normalizeQuotes(saved.quoteBySource),
+    displayCurrency: typeof saved.displayCurrency === "string" && /^(AUTO|[A-Z]{3})$/.test(saved.displayCurrency) ? saved.displayCurrency : "AUTO",
+    fxSource: savedOrDefault(saved.fxSource, FX_CHOICES, "auto"),
+    fxAutoUpdate: typeof saved.fxAutoUpdate === "boolean" ? saved.fxAutoUpdate : true,
+    fxCustom: normalizeCustomSource(saved.fxCustom),
   };
 }
 

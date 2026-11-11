@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-capability",
-  "description": "Least privilege for the main window: SQLite records, save/open dialogs (paths the user picks are added to the fs scope by the dialog plugin), file read/write in app data only, and the developer-contact mailto link, and GET of Coins.ph public market-data paths (ADR-0013; must match src/lib/public-hosts.ts, release check R16).",
+  "description": "Least privilege for the main window: SQLite records, save/open dialogs (paths the user picks are added to the fs scope by the dialog plugin), file read/write in app data only, and the developer-contact mailto link, and (v2.7) window full screen for the chart, and GET of Coins.ph public market-data paths (ADR-0013; must match src/lib/public-hosts.ts, release check R16).",
   "windows": [
     "main"
   ],
@@ -10,6 +10,7 @@
     "core:event:allow-listen",
     "core:event:allow-unlisten",
     "core:window:allow-set-theme",
+    "core:window:allow-set-fullscreen",
     "sql:allow-load",
     "sql:allow-execute",
     "sql:allow-select",

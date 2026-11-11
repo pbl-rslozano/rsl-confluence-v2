@@ -9,6 +9,7 @@
  * Pure: no I/O, no clock reads except the caller-supplied recordedAt.
  * ----------------------------------------------------------------------------
  */
+import { baseOf } from "./quotes";
 import type { Kline } from "./indicators";
 import type { AssetClass, LedgerRow } from "./ledger-metrics";
 import type { SeriesScore, RowContext } from "./scan-pipeline";
@@ -47,7 +48,8 @@ export interface ScanShared {
 export function scanShared(series: ScanSeries[], universe?: UniverseEntry[]): ScanShared {
   return {
     rs: percentiles(new Map(series.map((p) => [p.symbol, ret20(p.kl) ?? NaN]))),
-    btc: series.find((p) => p.symbol === "BTCUSDT")?.kl,
+    // v2.7 (review #8): the BTC pair of THIS scan (BTCUSDT, BTCUSDC, BTCPHP on Coins.ph …).
+    btc: (series.find((p) => p.symbol === "BTCUSDT") ?? series.find((p) => baseOf(p.symbol) === "BTC"))?.kl,
     universeRank: new Map((universe ?? []).map((u, i) => [u.p, i + 1])),
   };
 }

@@ -1,6 +1,6 @@
 {
   "name": "@rsl/confluence-mobile",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "private": true,
   "description": "rsL Confluence Terminal — Capacitor 8 mobile shell (iOS / iPadOS, Android).",
   "scripts": {

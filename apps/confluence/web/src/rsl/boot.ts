@@ -25,6 +25,7 @@ import { CATALOGS } from "./i18n/catalogs";
 import { readLegacyPreferences } from "@/lib/preferences-store";
 import { setCoinsphNativeGet } from "@/lib/coinsph";
 import { isAllowedNativeUrl } from "@/lib/public-hosts";
+import { registerShellFullscreen } from "@/lib/shell-fullscreen";
 
 export interface Adapters {
   shell?: string;
@@ -38,6 +39,8 @@ export interface Adapters {
   theme?: import("@/lib/theme").PlatformThemeHooks;
   /** v2.6 (ADR-0013): native GET for allow-listed public market data (Capacitor, Tauri). */
   makeNativeGet?: (isAllowed: (url: string) => boolean) => import("@/lib/coinsph").NativeGet;
+  /** v2.7 (WP14.3): native help for the chart's full screen (window on desktop, status bar on phones). */
+  fullscreen?: import("@/lib/shell-fullscreen").ShellFullscreen;
 }
 
 export interface BootResult {
@@ -167,6 +170,7 @@ export async function loadAdapters(): Promise<Adapters> {
   // v2.6: Coins.ph sends no CORS header; native shells reach its read paths through
   // their own HTTP stack, fenced by the public-host allowlist (R16).
   setCoinsphNativeGet(adapters.makeNativeGet ? adapters.makeNativeGet(isAllowedNativeUrl) : null);
+  registerShellFullscreen(adapters.fullscreen);
   return adapters;
 }
 

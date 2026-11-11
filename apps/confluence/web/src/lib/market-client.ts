@@ -78,6 +78,16 @@ import { normalizePublicTrades, type PublicTrade } from "./order-flow";
  * 18. PER-VENUE COOLDOWN. A rate limit pauses only the venue that sent it
  *     (Binance, Bybit, Bitget, Coins.ph), not every source.
  *
+ * v2.7:
+ *
+ * 19. STABLECOIN QUOTES (quotes.ts, plan WP12). A scan reads one quote (USDT by
+ *     default — requests and results identical to v2.6), any listed stablecoin,
+ *     or BEST (the deepest USD-pegged pair per coin). Volume is converted to USD at
+ *     the quote's own price on the same venue (USDCUSDT, FDUSDUSDT, EURIUSDT…).
+ *     Bybit/Bitget USDC perpetuals (`BTCPERP`) are served by quote "USDC".
+ * 20. DEPEG READINGS. The selected quote (and USDT on Coins.ph) is checked
+ *     against its peg every scan; information only, never scored.
+ *
  * 10. VOLUME IS DETECTED, NOT ASSUMED. `volumeBySymbol` reports whether each
  *     series carries real traded volume (tokenised assets and thin pairs
  *     often do not), so volume indicators are excluded instead of voting on
@@ -91,6 +101,10 @@ import {
   fetchCoinsphKlineRows, fetchCoinsphUniverse, phPremiumPct, resetCoinsphForTests,
 } from "./coinsph";
 export type { AssetClassFilter } from "./asset-classes";
+import {
+  BEST, DEFAULT_QUOTE, type DepegReading, type QuoteMode, baseFromInput, baseOf, depegLevel, normalizeQuoteMode,
+  priceCurrencyOfQuote, rememberPairs, selectPairs, splitPair, stableQuote,
+} from "./quotes";
 
 const BINANCE_BASE = "https://data-api.binance.vision";
 const BYBIT_BASE = "https://api.bybit.com";
@@ -154,9 +168,9 @@ export const DATA_SOURCES = [
   },
 ] as const;
 
-/** v2.6: price currency per source (volumes are always reported in USD). */
-export function priceCurrencyOf(source: string): "USD" | "PHP" {
-  return source === "coinsph" ? "PHP" : "USD";
+/** v2.6: price currency per source (volumes are always reported in USD). v2.7: EUR for EUR-stablecoin quotes. */
+export function priceCurrencyOf(source: string, quote: QuoteMode = DEFAULT_QUOTE): "USD" | "EUR" | "PHP" {
+  return priceCurrencyOfQuote(source, normalizeQuoteMode(source, quote));
 }
 
 /** v2.3: 24 h quote-volume floor (USD) for non-crypto instruments. */
@@ -231,8 +245,18 @@ export interface AllResponse {
   basisBySymbol?: Record<string, number>;
   /** v2.3: symbols dropped by the non-crypto turnover floor. */
   belowFloor?: number;
-  /** v2.6: currency of `lastPrice` and of the candles ("USD" ≈ USDT, or "PHP"). */
-  priceCurrency?: "USD" | "PHP";
+  /** v2.6: currency of `lastPrice` and of the candles ("USD" ≈ USDT, "EUR" for EUR stablecoins, or "PHP"). */
+  priceCurrency?: "USD" | "EUR" | "PHP";
+  /** v2.7: quote mode this scan used (USDT, USDC, …, BEST or PHP). */
+  quote?: QuoteMode;
+  /** v2.7: quote of each scanned pair (Best mode mixes them). */
+  quoteBySymbol?: Record<string, string>;
+  /** v2.7: pairs per stablecoin quote on this venue (for the Quote menu). */
+  quoteCounts?: Record<string, number>;
+  /** v2.7: pairs whose USD volume assumed the quote at exactly its peg (no venue price). */
+  approxVolume?: string[];
+  /** v2.7: stablecoins found off their peg on this venue (information only). */
+  depeg?: DepegReading[];
   /** v2.6 Coins.ph: PH premium vs the global Binance USDT price, %, per symbol (information only). */
   premiumBySymbol?: Record<string, number>;
   /** v2.6 Coins.ph: PHP per USDT used to value volumes, or null. */
@@ -250,6 +274,8 @@ interface MarketFetchOptions {
   klineLimit?: (symbol: string) => number;
   /** Restrict the universe to one asset class (default: crypto only). */
   assetClass?: AssetClassFilter;
+  /** v2.7: stablecoin quote mode (default USDT). */
+  quote?: QuoteMode;
 }
 
 interface RawBinanceTicker {
@@ -280,7 +306,74 @@ interface RawBitgetTicker {
   indexPrice?: string;
 }
 
-interface TickerSet { tickers: ServerTicker[]; universe: UniverseEntry[]; basis: Record<string, number>; belowFloor: number }
+interface TickerSet {
+  tickers: ServerTicker[]; universe: UniverseEntry[]; basis: Record<string, number>; belowFloor: number;
+  /** v2.7 */ quoteBySymbol?: Record<string, string>; quoteCounts?: Record<string, number>; approx?: string[]; depeg?: DepegReading[];
+}
+
+/* ---------------------------------------------------------------------------
+ * v2.7 quote layer (WP12). `pickQuotes` turns one venue's raw ticker rows into
+ * the rows of the selected quote mode with USD volume. In USDT mode it is the
+ * v2.6 filter (`endsWith("USDT")`, volume as reported) so results are identical.
+ * ------------------------------------------------------------------------- */
+interface Picked<T> { t: T; symbol: string; base: string; quote: string; qvUsd: number }
+interface PickResult<T> { rows: Picked<T>[]; counts: Record<string, number>; approx: string[]; depeg: DepegReading[] }
+function pickQuotes<T>(
+  source: DataSource,
+  list: readonly T[],
+  symOf: (t: T) => string,
+  qvOf: (t: T) => number,
+  pxOf: (t: T) => number,
+  mode: QuoteMode,
+): PickResult<T> {
+  const counts: Record<string, number> = {};
+  const parts = list.map((t) => ({ t, symbol: symOf(t), ...splitPair(symOf(t), source) }));
+  for (const p of parts) if (stableQuote(p.quote)) counts[p.quote] = (counts[p.quote] ?? 0) + 1;
+  if (mode === "USDT") {
+    const rows = parts.filter((p) => p.symbol.endsWith("USDT") && !(source.endsWith("perp") && p.quote === "USDC"))
+      .map((p) => ({ t: p.t, symbol: p.symbol, base: p.symbol.slice(0, -4), quote: "USDT", qvUsd: qvOf(p.t) }));
+    // Review v2.7 #8: USDT scans also watch USDC/USDT, the deepest stablecoin cross (information only).
+    const usdc = parts.find((p) => p.symbol === "USDCUSDT");
+    const v = usdc ? pxOf(usdc.t) : NaN;
+    const level = depegLevel((v - 1) * 100);
+    const depeg = level ? [{ coin: "USDC", reference: "USDT", price: v, deviationPct: Math.round((v - 1) * 100_000) / 1000, level }] : [];
+    return { rows, counts, approx: [], depeg };
+  }
+  // Quote prices in USDT from the same ticker list (USDCUSDT, FDUSDUSDT, EURIUSDT…).
+  const px = new Map(parts.map((p) => [p.symbol, pxOf(p.t)]));
+  const approx: string[] = [];
+  const depeg: DepegReading[] = [];
+  const usdtPer = (q: string): number | undefined => {
+    if (q === "USDT") return 1;
+    const v = px.get(`${q}USDT`);
+    return v !== undefined && v > 0 ? v : undefined;
+  };
+  const wanted = new Set(mode === BEST
+    ? Object.keys(counts).filter((q) => stableQuote(q)?.peg === "USD")
+    : [mode]);
+  for (const q of wanted) {
+    const v = usdtPer(q);
+    if (q === "USDT" || v === undefined || stableQuote(q)?.peg !== "USD") continue;
+    const dev = (v - 1) * 100;
+    const level = depegLevel(dev);
+    if (level) depeg.push({ coin: q, reference: "USDT", price: v, deviationPct: Math.round(dev * 1000) / 1000, level });
+  }
+  const rows: Picked<T>[] = [];
+  for (const p of parts) {
+    if (!wanted.has(p.quote) || !p.base) continue;
+    const peg = stableQuote(p.quote)?.peg;
+    let rate = usdtPer(p.quote);
+    // USDC-margined perps settle in USDC by definition: counted at $1 without a per-row "≈" (review v2.7 #8).
+    if (rate === undefined && peg === "USD") { rate = 1; if (!source.endsWith("perp")) approx.push(p.symbol); }
+    rows.push({ t: p.t, symbol: p.symbol, base: p.base, quote: p.quote, qvUsd: rate === undefined ? NaN : qvOf(p.t) * rate });
+  }
+  const chosen = selectPairs(source, rows, mode).sort(byUsdDesc);
+  return { rows: chosen, counts, approx: approx.filter((s) => chosen.some((r) => r.symbol === s)), depeg };
+}
+/** Highest USD volume first; unknown (NaN) volumes last. Stable, like v2.6's sort. */
+const byUsdDesc = (a: { qvUsd: number }, b: { qvUsd: number }) =>
+  (Number.isFinite(b.qvUsd) ? b.qvUsd : -1) - (Number.isFinite(a.qvUsd) ? a.qvUsd : -1);
+const quoteMapOf = <T,>(rows: Picked<T>[]) => Object.fromEntries(rows.map((r) => [r.symbol, r.quote]));
 
 /** Full ranking (all classes) for the universe log; leveraged/pegged pairs are left out. */
 function universeOf(source: DataSource, rows: { symbol: string; qv: number }[], types?: Map<string, string> | null): UniverseEntry[] {
@@ -428,20 +521,24 @@ export async function loadInstrumentTypes(source: DataSource, signal?: AbortSign
   const category = source === "bybit-perp" ? "linear" : "spot";
   try {
     const types = new Map<string, string>();
+    const pairs: [string, { base: string; quote: string }][] = [];
     let cursor = "";
     for (let page = 0; page < 10; page++) {
       const url = `${BYBIT_BASE}/v5/market/instruments-info?category=${category}&limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
       const json = (await fetchJson(url, "Bybit instruments", signal)) as {
-        result?: { list?: { symbol: string; symbolType?: string; status?: string }[]; nextPageCursor?: string };
+        result?: { list?: { symbol: string; symbolType?: string; status?: string; baseCoin?: string; quoteCoin?: string; settleCoin?: string }[]; nextPageCursor?: string };
       };
       for (const it of json.result?.list ?? []) {
         if (it.status && it.status !== "Trading") continue;
         types.set(it.symbol, String(it.symbolType ?? "").toLowerCase());
+        // v2.7: base/quote from the venue (USDC perps are named BTCPERP; settle coin = quote).
+        if (it.baseCoin) pairs.push([it.symbol, { base: it.baseCoin, quote: category === "linear" ? (it.settleCoin || it.quoteCoin || "") : (it.quoteCoin ?? "") }]);
       }
       cursor = json.result?.nextPageCursor ?? "";
       if (!cursor) break;
     }
     instrumentTypes.set(source, { at: Date.now(), types });
+    if (pairs.length) rememberPairs(source, pairs);
     return types;
   } catch (error) {
     if (error instanceof RateLimitError || (error instanceof DOMException && error.name === "AbortError")) throw error;
@@ -481,14 +578,14 @@ function normalizeAssets(assets?: string[]): Set<string> | null {
   const clean = (assets ?? [])
     .map((a) => a.trim().toUpperCase())
     .filter(Boolean)
-    .map((a) => a.replace(/[-_/\s]?(USDT|USD|PHP)$/i, ""));
+    .map((a) => baseFromInput(a)); // v2.7: any quote ("BTC/USDC", "ETHFDUSD") → base
   return clean.length ? new Set(clean) : null;
 }
 
-function filterTickers(tickers: ServerTicker[], assets?: string[], limit = 200): ServerTicker[] {
+function filterTickers(tickers: ServerTicker[], assets?: string[], limit = 200, source?: string): ServerTicker[] {
   const wanted = normalizeAssets(assets);
   const filtered = wanted
-    ? tickers.filter((t) => wanted.has(t.symbol.replace(/(USDT|USD|PHP)$/i, "")))
+    ? tickers.filter((t) => wanted.has(baseOf(t.symbol, source)))
     : tickers;
   return filtered.slice(0, limit).map((t, i) => ({ ...t, rank: i + 1 }));
 }
@@ -603,8 +700,10 @@ async function fetchViaProxy(
   limit: number,
   signal?: AbortSignal,
   assetClass: AssetClassFilter = "crypto",
+  quote: QuoteMode = DEFAULT_QUOTE,
 ): Promise<AllResponse> {
   const qs = new URLSearchParams({ interval, source, limit: String(limit), assetClass });
+  if (quote !== DEFAULT_QUOTE) qs.set("quote", quote);
   if (assets.length) qs.set("assets", assets.join(","));
   const res = await fetch(`/api/market/all?${qs.toString()}`, { cache: "no-store", signal });
   if (!res.ok) throw new Error(`Proxy failed: ${res.status}`);
@@ -648,16 +747,47 @@ function withHistograms(
   };
 }
 
-async function fetchBinanceTickers(assets?: string[], limit = 200, signal?: AbortSignal, assetClass: AssetClassFilter = "crypto"): Promise<TickerSet> {
+/** v2.7: Binance base/quote for every trading symbol (exchangeInfo, weight 20), read only for non-USDT modes, 6 h cache. */
+let binanceMetaAt = 0;
+async function loadBinancePairs(signal?: AbortSignal): Promise<void> {
+  if (Date.now() - binanceMetaAt < INSTRUMENT_TTL_MS) return;
+  try {
+    const j = (await fetchJson(`${BINANCE_BASE}/api/v3/exchangeInfo?showPermissionSets=false`, "Binance exchangeInfo", signal)) as {
+      symbols?: { symbol: string; baseAsset: string; quoteAsset: string; status: string }[];
+    };
+    rememberPairs("binance", (j.symbols ?? []).filter((x) => x.status === "TRADING").map((x) => [x.symbol, { base: x.baseAsset, quote: x.quoteAsset }]));
+    binanceMetaAt = Date.now();
+  } catch (error) {
+    if (error instanceof RateLimitError || (error instanceof DOMException && error.name === "AbortError")) throw error;
+    // suffix parsing only; the scan continues
+  }
+}
+/** v2.7: Bitget spot base/quote (public symbols list), non-USDT modes only, 6 h cache. */
+let bitgetMetaAt = 0;
+async function loadBitgetPairs(signal?: AbortSignal): Promise<void> {
+  if (Date.now() - bitgetMetaAt < INSTRUMENT_TTL_MS) return;
+  try {
+    const j = (await fetchJson(`${BITGET_BASE}/api/v2/spot/public/symbols`, "Bitget symbols", signal)) as {
+      data?: { symbol: string; baseCoin: string; quoteCoin: string; status: string }[];
+    };
+    rememberPairs("bitget", (j.data ?? []).filter((x) => x.status === "online").map((x) => [x.symbol, { base: x.baseCoin, quote: x.quoteCoin }]));
+    bitgetMetaAt = Date.now();
+  } catch (error) {
+    if (error instanceof RateLimitError || (error instanceof DOMException && error.name === "AbortError")) throw error;
+  }
+}
+
+async function fetchBinanceTickers(assets?: string[], limit = 200, signal?: AbortSignal, assetClass: AssetClassFilter = "crypto", quote: QuoteMode = DEFAULT_QUOTE): Promise<TickerSet> {
+  if (quote !== "USDT") await loadBinancePairs(signal);
   const all = (await fetchJson(`${BINANCE_BASE}/api/v3/ticker/24hr?type=MINI`, "Binance ticker upstream", signal)) as RawBinanceTicker[];
-  const ranked = all
-    .filter((t) => SAFE_SYMBOL.test(t.symbol) && t.symbol.endsWith("USDT"))
-    .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume));
-  const universe = universeOf("binance", ranked.map((t) => ({ symbol: t.symbol, qv: parseFloat(t.quoteVolume) || 0 })));
-  const inCls = ranked.filter((t) => inClass("binance", t.symbol, assetClass));
-  const floored = inCls.filter((t) => passesTurnoverFloor("binance", t.symbol, parseFloat(t.quoteVolume) || 0));
+  const picked = pickQuotes("binance", all.filter((t) => SAFE_SYMBOL.test(t.symbol)), (t) => t.symbol,
+    (t) => parseFloat(t.quoteVolume) || 0, (t) => parseFloat(t.lastPrice), quote);
+  const ranked = picked.rows.sort(byUsdDesc);
+  const universe = universeOf("binance", ranked.map((r) => ({ symbol: r.symbol, qv: Number.isFinite(r.qvUsd) ? r.qvUsd : 0 })));
+  const inCls = ranked.filter((r) => inClass("binance", r.symbol, assetClass));
+  const floored = inCls.filter((r) => passesTurnoverFloor("binance", r.symbol, Number.isFinite(r.qvUsd) ? r.qvUsd : 0));
   const tickers = floored
-    .map((t, i) => {
+    .map(({ t, qvUsd }, i) => {
       const open = parseFloat(t.openPrice);
       const lastPx = parseFloat(t.lastPrice);
       const pct = open > 0 ? ((lastPx - open) / open) * 100 : 0;
@@ -666,10 +796,13 @@ async function fetchBinanceTickers(assets?: string[], limit = 200, signal?: Abor
         symbol: t.symbol,
         lastPrice: t.lastPrice,
         priceChangePercent: pct.toFixed(4),
-        quoteVolume: t.quoteVolume,
+        quoteVolume: quote === "USDT" ? t.quoteVolume : String(qvUsd),
       };
     });
-  return { tickers: filterTickers(tickers, assets, limit), universe, basis: {}, belowFloor: inCls.length - floored.length };
+  return {
+    tickers: filterTickers(tickers, assets, limit, "binance"), universe, basis: {}, belowFloor: inCls.length - floored.length,
+    quoteBySymbol: quoteMapOf(floored), quoteCounts: picked.counts, approx: picked.approx, depeg: picked.depeg,
+  };
 }
 
 async function fetchBinanceKlines(symbol: string, interval: string, signal?: AbortSignal, bars = 200): Promise<Kline[]> {
@@ -725,28 +858,33 @@ async function fetchBybitTickers(
   limit = 200,
   signal?: AbortSignal,
   assetClass: AssetClassFilter = "crypto",
+  quote: QuoteMode = DEFAULT_QUOTE,
 ): Promise<TickerSet> {
   const json = (await fetchJson(`${BYBIT_BASE}/v5/market/tickers?category=${category}`, "Bybit ticker upstream", signal)) as { result?: { list?: RawBybitTicker[] } };
   const src: DataSource = category === "linear" ? "bybit-perp" : "bybit-spot";
   const types = await loadInstrumentTypes(src, signal);
   const qvOf = (t: RawBybitTicker) => parseFloat(t.turnover24h ?? t.volume24h ?? "0") || 0;
-  const ranked = (json.result?.list ?? [])
-    .filter((t) => SAFE_SYMBOL.test(t.symbol) && t.symbol.endsWith("USDT") && (!types || types.has(t.symbol)))
-    .sort((a, b) => qvOf(b) - qvOf(a));
-  const universe = universeOf(src, ranked.map((t) => ({ symbol: t.symbol, qv: qvOf(t) })), types);
+  const picked = pickQuotes(src, (json.result?.list ?? []).filter((t) => SAFE_SYMBOL.test(t.symbol) && (!types || types.has(t.symbol))),
+    (t) => t.symbol, qvOf, (t) => parseFloat(t.lastPrice), quote);
+  const ranked = picked.rows.sort(byUsdDesc);
+  const usd = (r: { qvUsd: number }) => (Number.isFinite(r.qvUsd) ? r.qvUsd : 0);
+  const universe = universeOf(src, ranked.map((r) => ({ symbol: r.symbol, qv: usd(r) })), types);
   const basis: Record<string, number> = {};
-  if (category === "linear") for (const t of ranked) { const b = basisPct(t.markPrice, t.indexPrice); if (b !== undefined) basis[t.symbol] = b; }
-  const inCls = ranked.filter((t) => inClass(src, t.symbol, assetClass, types?.get(t.symbol)));
-  const floored = inCls.filter((t) => passesTurnoverFloor(src, t.symbol, qvOf(t), types?.get(t.symbol)));
+  if (category === "linear") for (const { t } of ranked) { const b = basisPct(t.markPrice, t.indexPrice); if (b !== undefined) basis[t.symbol] = b; }
+  const inCls = ranked.filter((r) => inClass(src, r.symbol, assetClass, types?.get(r.symbol)));
+  const floored = inCls.filter((r) => passesTurnoverFloor(src, r.symbol, usd(r), types?.get(r.symbol)));
   const tickers = floored
-    .map((t, i) => ({
+    .map(({ t, qvUsd }, i) => ({
       rank: i + 1,
       symbol: t.symbol,
       lastPrice: t.lastPrice,
       priceChangePercent: (parseFloat(t.price24hPcnt ?? "0") * 100).toFixed(4),
-      quoteVolume: t.turnover24h ?? t.volume24h ?? "0",
+      quoteVolume: quote === "USDT" ? (t.turnover24h ?? t.volume24h ?? "0") : String(qvUsd),
     }));
-  return { tickers: filterTickers(tickers, assets, limit), universe, basis, belowFloor: inCls.length - floored.length };
+  return {
+    tickers: filterTickers(tickers, assets, limit, src), universe, basis, belowFloor: inCls.length - floored.length,
+    quoteBySymbol: quoteMapOf(floored), quoteCounts: picked.counts, approx: picked.approx, depeg: picked.depeg,
+  };
 }
 
 async function fetchBybitKlines(
@@ -804,31 +942,54 @@ function bitgetGranularity(interval: string): { granularity: string; aggregate?:
 }
 
 const BITGET_PERP_PRODUCT = "USDT-FUTURES";
+/** v2.7: Bitget USDC-margined perpetuals (symbols `BTCPERP`, probe 11 Nov 2026). */
+const BITGET_USDC_PRODUCT = "USDC-FUTURES";
+/** Product type of a Bitget perpetual symbol (USDC perps are named …PERP). */
+export function bitgetProductOf(symbol: string): string {
+  return /PERP$/.test(symbol) ? BITGET_USDC_PRODUCT : BITGET_PERP_PRODUCT;
+}
 
-async function fetchBitgetTickers(assets?: string[], limit = 200, signal?: AbortSignal, assetClass: AssetClassFilter = "crypto", perp = false): Promise<TickerSet> {
+async function fetchBitgetTickers(assets?: string[], limit = 200, signal?: AbortSignal, assetClass: AssetClassFilter = "crypto", perp = false, quote: QuoteMode = DEFAULT_QUOTE): Promise<TickerSet> {
   const src: DataSource = perp ? "bitget-perp" : "bitget";
-  const url = perp
-    ? `${BITGET_BASE}/api/v2/mix/market/tickers?productType=${BITGET_PERP_PRODUCT}`
-    : `${BITGET_BASE}/api/v2/spot/market/tickers`;
-  const json = (await fetchJson(url, "Bitget ticker upstream", signal)) as { data?: RawBitgetTicker[] };
+  let list: RawBitgetTicker[];
+  if (perp) {
+    const products = quote === "USDT" ? [BITGET_PERP_PRODUCT] : quote === "USDC" ? [BITGET_USDC_PRODUCT] : [BITGET_PERP_PRODUCT, BITGET_USDC_PRODUCT];
+    list = [];
+    for (const product of products) {
+      const json = (await fetchJson(`${BITGET_BASE}/api/v2/mix/market/tickers?productType=${product}`, "Bitget ticker upstream", signal)) as { data?: RawBitgetTicker[] };
+      list.push(...(json.data ?? []));
+    }
+  } else {
+    if (quote !== "USDT") await loadBitgetPairs(signal);
+    const json = (await fetchJson(`${BITGET_BASE}/api/v2/spot/market/tickers`, "Bitget ticker upstream", signal)) as { data?: RawBitgetTicker[] };
+    list = json.data ?? [];
+  }
+  // Spot quoteVolume is in the quote coin; usdtVolume (when present) is already USD-valued.
   const qvOf = (t: RawBitgetTicker) => parseFloat(t.usdtVolume ?? t.quoteVolume ?? "0") || 0;
-  const ranked = (json.data ?? [])
-    .filter((t) => SAFE_SYMBOL.test(t.symbol) && t.symbol.endsWith("USDT"))
-    .sort((a, b) => qvOf(b) - qvOf(a));
-  const universe = universeOf(src, ranked.map((t) => ({ symbol: t.symbol, qv: qvOf(t) })));
+  const usdValued = (t: RawBitgetTicker) => t.usdtVolume !== undefined;
+  const picked = pickQuotes(src, list.filter((t) => SAFE_SYMBOL.test(t.symbol)), (t) => t.symbol,
+    (t) => qvOf(t), (t) => parseFloat(t.lastPr), quote);
+  // A row whose venue volume is already in USDT must not be converted again.
+  for (const r of picked.rows) if (quote !== "USDT" && usdValued(r.t)) r.qvUsd = qvOf(r.t);
+  const ranked = picked.rows.sort(byUsdDesc);
+  const usd = (r: { qvUsd: number }) => (Number.isFinite(r.qvUsd) ? r.qvUsd : 0);
+  const universe = universeOf(src, ranked.map((r) => ({ symbol: r.symbol, qv: usd(r) })));
   const basis: Record<string, number> = {};
-  if (perp) for (const t of ranked) { const b = basisPct(t.markPrice, t.indexPrice); if (b !== undefined) basis[t.symbol] = b; }
-  const inCls = ranked.filter((t) => inClass(src, t.symbol, assetClass));
-  const floored = inCls.filter((t) => passesTurnoverFloor(src, t.symbol, qvOf(t)));
+  if (perp) for (const { t } of ranked) { const b = basisPct(t.markPrice, t.indexPrice); if (b !== undefined) basis[t.symbol] = b; }
+  const inCls = ranked.filter((r) => inClass(src, r.symbol, assetClass));
+  const floored = inCls.filter((r) => passesTurnoverFloor(src, r.symbol, usd(r)));
   const tickers = floored
-    .map((t, i) => ({
+    .map(({ t, qvUsd }, i) => ({
       rank: i + 1,
       symbol: t.symbol,
       lastPrice: t.lastPr,
       priceChangePercent: (parseFloat(t.change24h ?? "0") * 100).toFixed(4),
-      quoteVolume: t.usdtVolume ?? t.quoteVolume ?? "0",
+      quoteVolume: quote === "USDT" ? (t.usdtVolume ?? t.quoteVolume ?? "0") : String(qvUsd),
     }));
-  return { tickers: filterTickers(tickers, assets, limit), universe, basis, belowFloor: inCls.length - floored.length };
+  return {
+    tickers: filterTickers(tickers, assets, limit, src), universe, basis, belowFloor: inCls.length - floored.length,
+    quoteBySymbol: quoteMapOf(floored), quoteCounts: picked.counts, approx: picked.approx, depeg: picked.depeg,
+  };
 }
 
 /** Bitget mix (perpetual) granularities use upper-case hour/day units. */
@@ -849,7 +1010,7 @@ async function fetchBitgetKlines(symbol: string, interval: string, signal?: Abor
   const requestLimit = mapped.aggregate ? 1000 : clampLimit(bars);
   const json = (await fetchJson(
     perp
-      ? `${BITGET_BASE}/api/v2/mix/market/candles?symbol=${encodeURIComponent(symbol)}&productType=${BITGET_PERP_PRODUCT}&granularity=${mapped.granularity}&endTime=${end}&limit=${requestLimit}`
+      ? `${BITGET_BASE}/api/v2/mix/market/candles?symbol=${encodeURIComponent(symbol)}&productType=${bitgetProductOf(symbol)}&granularity=${mapped.granularity}&endTime=${end}&limit=${requestLimit}`
       : `${BITGET_BASE}/api/v2/spot/market/candles?symbol=${encodeURIComponent(symbol)}&granularity=${mapped.granularity}&endTime=${end}&limit=${requestLimit}`,
     `Bitget klines ${symbol}`,
     signal,
@@ -955,8 +1116,10 @@ export async function fetchDirectMarketData(
   signal?: AbortSignal,
   klineLimit?: (symbol: string) => number,
   assetClass: AssetClassFilter = "crypto",
+  quoteMode: QuoteMode = DEFAULT_QUOTE,
 ): Promise<AllResponse> {
   const startedAt = Date.now();
+  const quote = normalizeQuoteMode(source, quoteMode);
   if (!VALID_INTERVALS.has(interval)) throw new Error(`Invalid interval: ${interval}`);
   assertNotCoolingDown(source);
 
@@ -968,10 +1131,10 @@ export async function fetchDirectMarketData(
   let set: TickerSet;
   let coinsph: CoinsphTickerSet | null = null;
   if (source === "coinsph") set = coinsph = await fetchCoinsphTickers(assets, limit, signal, assetClass);
-  else if (source === "binance") set = await fetchBinanceTickers(assets, limit, signal, assetClass);
-  else if (source === "bybit-spot") set = await fetchBybitTickers("spot", assets, limit, signal, assetClass);
-  else if (source === "bybit-perp") set = await fetchBybitTickers("linear", assets, limit, signal, assetClass);
-  else set = await fetchBitgetTickers(assets, limit, signal, assetClass, source === "bitget-perp");
+  else if (source === "binance") set = await fetchBinanceTickers(assets, limit, signal, assetClass, quote);
+  else if (source === "bybit-spot") set = await fetchBybitTickers("spot", assets, limit, signal, assetClass, quote);
+  else if (source === "bybit-perp") set = await fetchBybitTickers("linear", assets, limit, signal, assetClass, quote);
+  else set = await fetchBitgetTickers(assets, limit, signal, assetClass, source === "bitget-perp", quote);
   const tickers = set.tickers;
 
   let haltedUntil: number | undefined;
@@ -1016,7 +1179,12 @@ export async function fetchDirectMarketData(
   response.universe = set.universe;
   response.basisBySymbol = set.basis;
   response.belowFloor = set.belowFloor;
-  response.priceCurrency = priceCurrencyOf(source);
+  response.priceCurrency = priceCurrencyOf(source, quote);
+  response.quote = quote;
+  response.quoteBySymbol = set.quoteBySymbol ?? Object.fromEntries(tickers.map((t) => [t.symbol, source === "coinsph" ? "PHP" : "USDT"]));
+  if (set.quoteCounts) response.quoteCounts = set.quoteCounts;
+  if (set.approx?.length) response.approxVolume = set.approx;
+  if (set.depeg?.length) response.depeg = set.depeg;
   if (coinsph) {
     response.usdPhp = coinsph.usdPhp;
     response.thinSymbols = coinsph.thin;
@@ -1036,11 +1204,11 @@ export async function fetchMarketData(
 
   // Static exports and native shells have no server proxy by design.
   if (usesDirectFetch()) {
-    return fetchDirectMarketData(interval, source, assets, limit, options.signal, options.klineLimit, options.assetClass ?? "crypto");
+    return fetchDirectMarketData(interval, source, assets, limit, options.signal, options.klineLimit, options.assetClass ?? "crypto", options.quote ?? DEFAULT_QUOTE);
   }
 
   try {
-    return await fetchViaProxy(interval, source, assets, limit, options.signal, options.assetClass ?? "crypto");
+    return await fetchViaProxy(interval, source, assets, limit, options.signal, options.assetClass ?? "crypto", options.quote ?? DEFAULT_QUOTE);
   } catch (err) {
     // Never retry a deliberately superseded scan.
     if (err instanceof DOMException && err.name === "AbortError") throw err;
@@ -1119,7 +1287,7 @@ async function historyPage(
     const category = source === "bybit-perp" ? "linear" : "spot";
     url = `${BYBIT_BASE}/v5/market/kline?category=${category}&symbol=${encodeURIComponent(symbol)}&interval=${upstream}&end=${endTime}&limit=1000`;
   } else if (source === "bitget-perp") {
-    url = `${BITGET_BASE}/api/v2/mix/market/history-candles?symbol=${encodeURIComponent(symbol)}&productType=${BITGET_PERP_PRODUCT}&granularity=${upstream}&endTime=${endTime}&limit=200`;
+    url = `${BITGET_BASE}/api/v2/mix/market/history-candles?symbol=${encodeURIComponent(symbol)}&productType=${bitgetProductOf(symbol)}&granularity=${upstream}&endTime=${endTime}&limit=200`;
   } else {
     url = `${BITGET_BASE}/api/v2/spot/market/history-candles?symbol=${encodeURIComponent(symbol)}&granularity=${upstream}&endTime=${endTime}&limit=200`;
   }
@@ -1266,7 +1434,7 @@ export async function fetchOrderBook(source: DataSource, symbol: string, signal?
     return { bids: toLevels(j.result?.b), asks: toLevels(j.result?.a) };
   }
   const url = source === "bitget-perp"
-    ? `${BITGET_BASE}/api/v2/mix/market/merge-depth?symbol=${s}&productType=${BITGET_PERP_PRODUCT}&limit=50`
+    ? `${BITGET_BASE}/api/v2/mix/market/merge-depth?symbol=${s}&productType=${bitgetProductOf(symbol)}&limit=50`
     : `${BITGET_BASE}/api/v2/spot/market/orderbook?symbol=${s}&type=step0&limit=50`;
   const j = (await fetchJson(url, `Bitget depth ${symbol}`, signal)) as { data?: { bids?: unknown; asks?: unknown } };
   return { bids: toLevels(j.data?.bids), asks: toLevels(j.data?.asks) };

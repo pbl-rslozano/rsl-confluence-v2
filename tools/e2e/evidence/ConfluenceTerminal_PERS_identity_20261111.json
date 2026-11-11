@@ -1,0 +1,21 @@
+{
+  "format": "rsl-identity",
+  "formatVersion": 1,
+  "identity": {
+    "customer": {
+      "legalName": "مكتب التداول الشخصي",
+      "shortName": "Personal",
+      "code": "PERS",
+      "logo": null,
+      "site": ""
+    },
+    "operator": {
+      "id": "op-7d440302",
+      "displayName": "Ronald",
+      "role": "Trader",
+      "preferredLang": "en"
+    },
+    "recent": [],
+    "updatedAt": "2026-11-11T07:04:15.698Z"
+  }
+}

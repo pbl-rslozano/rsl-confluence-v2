@@ -18,6 +18,7 @@
  * See docs/asset-classes.md for sources and dates.
  * ----------------------------------------------------------------------------
  */
+import { splitPair, stableQuote, USD_STABLE_ASSETS } from "./quotes";
 import type { AssetClass } from "./ledger-metrics";
 
 export type AssetClassFilter = AssetClass | "all";
@@ -136,6 +137,16 @@ export function classifySymbol(source: string, symbol: string, venueType?: strin
     if (!m) return "excluded";
     if (PHP_USD_STABLES.has(m[1])) return "fx";
     return classifySymbol("binance", `${m[1]}USDT`, venueType);
+  }
+  // v2.7 (WP12.4): a pair on another stablecoin (BTCUSDC, ETHFDUSD, SOLEURI, BTCPERP USDC perps)
+  // is classified as its USDT twin; a USD stablecoin against a USD-pegged quote is flat → excluded.
+  if (!s.endsWith("USDT")) {
+    const { base, quote } = splitPair(s, source);
+    const q = stableQuote(quote);
+    if (q && base) {
+      if (q.peg === "USD" && USD_STABLE_ASSETS.has(base)) return "excluded";
+      return classifySymbol(source, `${base}USDT`, venueType);
+    }
   }
   if (LEVERAGED.test(s) || USD_PEGS.has(s)) return "excluded";
   const venue = fromVenueType(venueType);

@@ -24,6 +24,7 @@
  *   R17 protected build (v2.6, ADR-0014): no source maps, only listed own chunks obfuscated, vendor chunks unchanged, build manifest complete (needs a built out/)
  *   R18 protected equivalence (v2.6, ADR-0014): evidence that acceptance + engine golden passed on this protected build (needs a built out/)
  *   R19 docs parity (v2.6): the architecture plan and the user guide cover every user-visible change; version stamps match
+ *   R21 display only (v2.7, ADR-0015): fx-rates.ts is imported by display code only, and fetches only table hosts
  *   R20 keyless public sources (v2.6): no keys/signatures in public sources, Coins.ph paths only from the read allowlist, no private profile
  */
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
@@ -103,9 +104,13 @@ const t = {
   noUnsafeEval: !/unsafe-eval/.test(cspText),
   scriptSelfOnly: sec.csp["script-src"] === "'self'",
   objectNone: sec.csp["object-src"] === "'none'",
-  noCspWildcard: !/(^|\s)\*(\s|$)|https:\s|http:\s/.test(cspText),
+  // v2.7 (review #11): every directive token, not a regex over the joined text.
+  noCspWildcard: Object.entries(sec.csp).every(([dir, v]) => String(v).split(/\s+/).filter(Boolean).every((tok) =>
+    !tok.includes("*") && tok !== "https:" && tok !== "http:" && (tok !== "data:" || dir === "img-src" || dir === "font-src"))),
   noCapWildcard: !/"path":\s*"(\*\*|\/\*\*|\$HOME\/\*\*|\$DOCUMENT\/\*\*|\$DOWNLOAD\/\*\*|\$DESKTOP\/\*\*)"|"url":\s*"\*"/.test(caps),
   noHttpsOpener: !/"url":\s*"https:\/\/\*"/.test(caps),
+  // v2.7 (WP14.3): window permissions limited to theme + full screen.
+  windowPermsMinimal: [...caps.matchAll(/"core:window:allow-([a-z-]+)"/g)].every((m) => ["set-theme", "set-fullscreen"].includes(m[1])),
   devtoolsOff: !/"devtools"\s*:\s*true/.test(readFileSync(join(ROOT, "apps/confluence/desktop/src-tauri/Cargo.toml"), "utf8") + JSON.stringify(tconf)),
 };
 check("R6", "Tauri: isolation, frozen prototypes, strict CSP, least-privilege capabilities", Object.values(t).every(Boolean), Object.entries(t).filter(([, v]) => !v).map(([k]) => k).join(", ") || Object.keys(t).length + " checks");
@@ -115,15 +120,24 @@ const cap = readFileSync(join(ROOT, "apps/confluence/mobile/capacitor.config.ts"
 const c = { noDebug: !/webContentsDebuggingEnabled:\s*true/.test(cap), noMixed: !/allowMixedContent:\s*true/.test(cap), noCleartext: !/cleartext:\s*true/.test(cap) };
 check("R7", "Capacitor: no web debugging, no mixed content, no cleartext", Object.values(c).every(Boolean), Object.entries(c).filter(([, v]) => !v).map(([k]) => k).join(", "));
 
-/* R8 — network allowlist (ADR-0003) */
-const ALLOW = new Set(["'self'", "ipc:", "http://ipc.localhost", "https://data-api.binance.vision", "https://api.bybit.com", "https://api.bitget.com", "http://127.0.0.1:8787", "http://localhost:8787", "https://effervescent-bubblegum-1e5c03.netlify.app"]); // last entry: update channel, ADR-0012
-const extra = sec.csp["connect-src"].split(/\s+/).filter((h) => !ALLOW.has(h));
-// The web meta CSP is built from CONNECT_SRC in src/lib/csp.ts (layout.tsx only renders it).
+/* R8 — network allowlist (ADR-0003). v2.7 (review #7): the allowlist is the public-host table
+ * (src/lib/public-hosts.ts CSP_HOSTS); csp.ts builds connect-src from it; the desktop CSP must list
+ * exactly the same hosts; every host must be named in ADR-0003. */
+const hostsSource = readFileSync(join(ROOT, "apps/confluence/web/src/lib/public-hosts.ts"), "utf8");
+const tableBlock = (hostsSource.match(/export const CSP_HOSTS = \[([\s\S]*?)\] as const;/) || [, ""])[1];
+const TABLE = [...tableBlock.matchAll(/origin:\s*"([^"]+)"/g)].map((m) => m[1]);
+const ALLOW = new Set(["'self'", "ipc:", "http://ipc.localhost", ...TABLE]);
+const desktopHosts = sec.csp["connect-src"].split(/\s+/).filter(Boolean);
+const extra = desktopHosts.filter((h) => !ALLOW.has(h));
+const desktopMissing = TABLE.filter((h) => !desktopHosts.includes(h)).map((h) => `desktop CSP lacks ${h}`);
 const cspSource = readFileSync(join(ROOT, "apps/confluence/web/src/lib/csp.ts"), "utf8");
-const connectBlock = (cspSource.match(/export const CONNECT_SRC = \[([\s\S]*?)\]/) || [, ""])[1];
-const metaHosts = [...connectBlock.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-const metaConnect = metaHosts.length ? metaHosts.filter((h) => !ALLOW.has(h)) : ["<CONNECT_SRC not found in csp.ts>"];
-check("R8", "connect-src limited to the ADR-0003 allowlist (desktop CSP + web meta CSP)", extra.length === 0 && metaConnect.length === 0, [...extra, ...metaConnect].join(" ") || `${ALLOW.size} entries`);
+const cspLiterals = [...cspSource.matchAll(/"(https?:\/\/[^"\s]+)"/g)].map((m) => m[1]).filter((h) => !ALLOW.has(h));
+const metaConnect = !TABLE.length ? ["<CSP_HOSTS not found in public-hosts.ts>"]
+  : !/CONNECT_SRC = \["'self'", \.\.\.CSP_HOSTS\.map/.test(cspSource) ? ["csp.ts does not build CONNECT_SRC from CSP_HOSTS"] : cspLiterals;
+const adr3 = readFileSync(join(ROOT, "docs/adr/0003-network-allowlist.md"), "utf8");
+const metaHosts = ["'self'", ...TABLE];
+const notInAdr = TABLE.filter((h) => !adr3.includes(h.replace(/^https?:\/\//, ""))).map((h) => `${h} not in ADR-0003`);
+check("R8", "connect-src = the public-host table (desktop CSP + web meta CSP), every host in ADR-0003", extra.length + metaConnect.length + desktopMissing.length + notInAdr.length === 0, [...extra, ...metaConnect, ...desktopMissing, ...notInAdr].join("; ") || `${TABLE.length} hosts`);
 
 /* R9 — SBOM */
 const ver = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version.replace(/\.0$/, "");
@@ -263,6 +277,13 @@ if (process.argv.includes("--with-tests")) {
   const { checkKeylessSources } = await import("./checks/keyless-sources.mjs");
   const r = checkKeylessSources(ROOT);
   check("R20", "Public sources keyless; Coins.ph paths only from the read allowlist; no private profile", r.ok, r.ok ? "coinsph, public-hosts, adapters" : r.findings.join("; "));
+}
+
+/* R21 — display currency is display only (v2.7, plan WP13.2) */
+{
+  const { checkDisplayOnly } = await import("./checks/display-only.mjs");
+  const r = checkDisplayOnly(ROOT);
+  check("R21", "Display-currency rates never reach engine, ledger, paper, recorder or MCP; FX hosts in the table", r.ok, r.ok ? r.summary : r.findings.join("; "));
 }
 
 const failed = results.filter((r) => !r.ok).length;
