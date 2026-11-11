@@ -53,7 +53,7 @@ jobs:
             echo "::error title=No signing key::Add the ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD repository secrets."
             exit 1
           fi
-          echo "$ANDROID_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          printf '%s' "$ANDROID_KEYSTORE_B64" | tr -d '\r\n\t ' | sed -E 's/-----(BEGIN|END)[^-]*-----//g' | base64 -d > "$RUNNER_TEMP/release.keystore"
       - name: Build APK
         working-directory: apps/confluence/mobile/android
         env:

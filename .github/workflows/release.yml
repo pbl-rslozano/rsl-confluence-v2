@@ -9,7 +9,7 @@ name: release
 on:
   push:
     branches: ["main"]
-    tags: ["v*", "!v*-windows", "!v*-macos", "!v*-android", "!v*-iphone"]
+    tags: ["v*", "!v*-windows", "!v*-macos", "!v*-android", "!v*-iphone", "!v*-web", "!v*-linux"]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -251,7 +251,7 @@ jobs:
           ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
         run: |
           if [ -n "$ANDROID_KEYSTORE_B64" ]; then
-            echo "$ANDROID_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            printf '%s' "$ANDROID_KEYSTORE_B64" | tr -d '\r\n\t ' | sed -E 's/-----(BEGIN|END)[^-]*-----//g' | base64 -d > "$RUNNER_TEMP/release.keystore"
           else
             echo "::error::ANDROID_KEYSTORE_B64 is required for Android release packages."
             exit 1

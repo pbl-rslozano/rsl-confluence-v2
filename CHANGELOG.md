@@ -35,6 +35,8 @@ goes full screen. Engine unchanged (2.3.0, `2c1a18ad8a61e9ab`); USDT scans are i
   Coins.ph/EUR scans with a USD display, rate-line wording, chart view on "All saved" and on older-history loads,
   scroll-vs-tap, `DOTUSD` input, Auto currency from the time zone, depeg readings in USDT scans, axis labels, desktop
   full-screen restore, paper base asset per venue, transitive R21.
+- **Release workflow (WP17):** the Android keystore secret is accepted with Windows line endings or `certutil`
+  headers; publishing the web or Linux release no longer starts another release run.
 - **Checks:** unit suites + quotes 62, FX 47, chart view 8; release checks R1–R21; browser acceptance adds SQ-8, FX-7,
   FX-14, FX-15, CH-1, CH-4, CH-5, CH-5b, CH-6.
 
