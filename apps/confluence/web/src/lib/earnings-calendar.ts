@@ -13,15 +13,16 @@
  * i.e. up to 36 h from noon). Logged only, never scored.
  * ----------------------------------------------------------------------------
  */
+import { baseOf } from "./quotes";
 export const EARNINGS: Record<string, string[]> = {};
 
 /** Underlying ticker of a tokenised-stock symbol. */
 export function underlyingTicker(symbol: string): string {
-  return symbol.toUpperCase().replace(/USDT$/, "").replace(/(ON|X|B)$/, "");
+  return baseOf(symbol).replace(/(ON|X|B)$/, ""); // v2.7: any stablecoin quote
 }
 
 export function earningsNear(symbol: string, at: number, hours = 24, table: Record<string, string[]> = EARNINGS): boolean {
-  const list = table[underlyingTicker(symbol)] ?? table[symbol.toUpperCase().replace(/USDT$/, "")];
+  const list = table[underlyingTicker(symbol)] ?? table[baseOf(symbol)];
   if (!list?.length) return false;
   return list.some((d) => {
     const t = Date.parse(`${d}T12:00:00Z`);

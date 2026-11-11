@@ -12,7 +12,7 @@
     "build:capacitor": "node scripts/build-html.mjs --target=capacitor",
     "start": "next start",
     "gen:icons": "node scripts/gen-icons.mjs",
-    "test": "npm run test:engine && npm run test:coinsph && npm run test:measure && npm run test:measure23 && npm run test:paper && npm run test:fvg && npm run test:i18n && npm run test:theme && npm run test:update && node --test src/lib/derivatives-context.test.mjs src/lib/order-flow.test.mjs",
+    "test": "npm run test:engine && npm run test:coinsph && npm run test:quotes && npm run test:chart && npm run test:measure && npm run test:measure23 && npm run test:paper && npm run test:fvg && npm run test:i18n && npm run test:theme && npm run test:update && node --test src/lib/derivatives-context.test.mjs src/lib/order-flow.test.mjs",
     "test:engine": "node scripts/run-engine-tests.mjs",
     "test:fvg": "node --experimental-strip-types --no-warnings src/lib/fvg.test.mjs",
     "test:i18n": "node --test scripts/catalog-status.test.mjs && node scripts/validate-catalogs.mjs",
@@ -25,7 +25,9 @@
     "test:measure": "node scripts/run-engine-tests.mjs measure.test.mjs",
     "test:measure23": "node scripts/run-engine-tests.mjs measure23.test.mjs",
     "test:paper": "node scripts/run-engine-tests.mjs paper.test.mjs",
-    "test:coinsph": "node scripts/run-engine-tests.mjs coinsph.test.mjs"
+    "test:coinsph": "node scripts/run-engine-tests.mjs coinsph.test.mjs",
+    "test:quotes": "node scripts/run-engine-tests.mjs quotes.test.mjs",
+    "test:chart": "node --experimental-strip-types --no-warnings --test src/lib/chart-view.test.mjs"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "1.2.16",

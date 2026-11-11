@@ -13,6 +13,7 @@
  * ("paper.rule.*"), so the owner sees the full picture before approving.
  * ----------------------------------------------------------------------------
  */
+import { splitPair } from "./quotes";
 import type { AssetClass } from "./ledger-metrics";
 
 export type Side = "long" | "short";
@@ -166,9 +167,10 @@ export function normaliseSettings(s: Partial<RiskSettings> | null | undefined): 
 /** Crypto majors cluster; every other crypto pair is an "alt". */
 export const CRYPTO_MAJORS = new Set(["BTC", "ETH"]);
 
-/** Base asset of a USDT pair (BTCUSDT → BTC). */
+/** Base asset of a pair (BTCUSDT → BTC; v2.7: BTCFDUSD → BTC, ETHPERP → ETH — v2.6 gave "BTCFD"). */
 export function baseOf(pair: string): string {
-  return pair.replace(/(USDT|USDC|USD|PERP)$/i, "").toUpperCase();
+  const { base, quote } = splitPair(pair, /PERP$/i.test(pair) ? "bybit-perp" : undefined);
+  return (quote ? base : pair).toUpperCase();
 }
 
 /** Correlation cluster: asset class, with crypto split into majors and alts. */

@@ -26,6 +26,7 @@ import {
   type AllResponse,
   type DataSource,
 } from "@/lib/market-client";
+import { baseFromInput, normalizeQuoteMode } from "@/lib/quotes";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -60,7 +61,7 @@ export async function GET(request: Request) {
   const assets = [...new Set(
     (searchParams.get("assets") ?? "")
       .split(",")
-      .map((a) => a.trim().toUpperCase().replace(/[-_/\s]?(USDT|USD)$/i, ""))
+      .map((a) => baseFromInput(a)) // v2.7: any quote suffix
       .filter((a) => ASSET_RE.test(a)),
   )].sort(); // stable cache key regardless of input order
   if (assets.length > MAX_EXPLICIT_ASSETS) {
@@ -75,14 +76,16 @@ export async function GET(request: Request) {
   const classParam = searchParams.get("assetClass") ?? "crypto";
   const assetClass = (ASSET_CLASS_FILTERS as string[]).includes(classParam) ? (classParam as AssetClassFilter) : "crypto";
 
-  const key = `${source}|${interval}|${limit}|${assetClass}|${assets.join(",")}`;
+  // v2.7: stablecoin quote mode, validated by normalizeQuoteMode (unknown → USDT).
+  const quote = normalizeQuoteMode(source, searchParams.get("quote") ?? undefined);
+  const key = `${source}|${interval}|${limit}|${assetClass}|${quote}|${assets.join(",")}`;
 
   try {
     const data = await marketCache.getOrSet(
       key,
       // The server answers from a shared cache, so it always fetches the full
       // engine window (1,000 bars): no warm-up bias for any client.
-      () => fetchDirectMarketData(interval, source, assets, limit, undefined, () => 1000, assetClass),
+      () => fetchDirectMarketData(interval, source, assets, limit, undefined, () => 1000, assetClass, quote),
       cacheTtlForInterval(interval),
     );
     return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } });

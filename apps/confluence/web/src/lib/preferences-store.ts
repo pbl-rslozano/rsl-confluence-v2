@@ -1,5 +1,6 @@
 "use client";
 
+import { baseFromInput } from "./quotes";
 import type { DataSource } from "./market-client";
 import { ASSET_CLASS_FILTERS, type AssetClassFilter } from "./asset-classes";
 
@@ -81,7 +82,7 @@ function normalizeMonitorAssets(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return [...new Set(value
     .filter((asset): asset is string => typeof asset === "string")
-    .map((asset) => asset.trim().toUpperCase().replace(/USDT$/, ""))
+    .map((asset) => baseFromInput(asset)) // v2.7: any stablecoin quote
     .filter((asset) => /^[A-Z0-9]{1,15}$/.test(asset)))]
     .slice(0, 100);
 }
