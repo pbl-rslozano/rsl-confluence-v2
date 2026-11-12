@@ -31,7 +31,7 @@ Mapped to **OWASP ASVS 5.0** (chapter level) and **OWASP MASVS v2.1** (control i
 - **G1** Desktop compile, isolation-hook behaviour and capability enforcement are **NOT VERIFIED** on a real Tauri build (CI only).
 - **G2** `style-src 'unsafe-inline'` remains (Radix UI positions popovers with inline styles). Script injection is still blocked.
 - **G3** GitHub Actions are pinned by tag, not commit SHA (pin before the first shared release).
-- **G4** Code signing certificates (Windows, Apple Developer ID, Android keystore) do not exist yet; CI produces unsigned artifacts until the secrets are added.
+- **G4** Code signing certificates for Windows and Apple Developer ID do not exist yet; CI produces unsigned (Windows) or ad-hoc/unsigned (Apple) artifacts until the secrets are added. Android: release key made 12 Nov 2026 (v2.7.0, WP18, `tools/new-android-key.ps1`), held only as GitHub secrets and offline by the owner.
 - **G5** No device testing on iOS/Android hardware yet.
 
 ## Vendored menu fonts (v2.5)

@@ -68,4 +68,5 @@ signed, unnotarized macOS DMG and an unsigned iPhone device IPA. The IPA
 must be signed for the target device before installation. Partial Apple
 signing configuration still fails explicitly. Complete credentials select
 the signed distribution paths. A [release-apple] main commit rebuilds only
-the Apple jobs after the full verification gate.
+the Apple jobs after the full verification gate. Likewise a [release-android] main
+commit builds only Android, its release and the Netlify update channel (v2.7, WP18).

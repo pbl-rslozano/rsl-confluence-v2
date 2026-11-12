@@ -3,6 +3,7 @@
 Stablecoin quotes on every exchange, any display currency at official reference rates, and a chart that zooms, pans and
 goes full screen. Engine unchanged (2.3.0, `2c1a18ad8a61e9ab`); USDT scans are identical to v2.6.
 
+- **Android: uninstall v2.6 first (new signing key, WP18).** Export a backup (About) and the ledger, uninstall v2.6, install v2.7.0, restore. The paper account is not in backups. Later updates install normally.
 - **Stablecoin quote pairing (WP12, ADR-0015):** a **Quote** menu per source — USDT (default), USDC, FDUSD, USD1, USDE,
   RLUSD, XUSD, U, EURI as the exchange lists them, or **Best USD stablecoin** (deepest dollar-stablecoin pair per coin,
   25 % hysteresis). Bybit and Bitget USDC-margined perpetuals (`BTCPERP`). Volumes valued at the stablecoin's own price on
@@ -37,6 +38,10 @@ goes full screen. Engine unchanged (2.3.0, `2c1a18ad8a61e9ab`); USDT scans are i
   full-screen restore, paper base asset per venue, transitive R21.
 - **Release workflow (WP17):** the Android keystore secret is accepted with Windows line endings or `certutil`
   headers; publishing the web or Linux release no longer starts another release run.
+- **Android signing key rotated (WP18), 12 Nov 2026:** new release key made on the owner's PC with
+  `tools/new-android-key.ps1` (RSA 4096, PKCS12, alias `rsl-conf`), stored only as GitHub secrets and offline; reason:
+  the v2.6 key's secret was not usable and the original file was not found. A `[release-android]` commit on `main`
+  builds only Android and the update channel after the full gate (like `[release-apple]`).
 - **Checks:** unit suites + quotes 62, FX 47, chart view 8; release checks R1–R21; browser acceptance adds SQ-8, FX-7,
   FX-14, FX-15, CH-1, CH-4, CH-5, CH-5b, CH-6.
 
