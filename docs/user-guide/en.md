@@ -37,9 +37,20 @@ The rsL Confluence Terminal is a multi-indicator market scanner. For every asset
 | **Windows 10/11** | Run the `.msi` (or `-setup.exe`) installer from the latest Windows release. |
 | **Mac (macOS 15+)** | Open the `.dmg` and drag the app to Applications. The Mac build is not notarized by Apple: on first launch, right-click the app and choose **Open**. |
 | **Linux (64-bit)** | From the Linux release: `.deb` for Debian/Ubuntu (`sudo apt install ./<file>.deb`), `.rpm` for Fedora/openSUSE (`sudo dnf install ./<file>.rpm`), or the `.AppImage` for any distribution (`chmod +x` it, then run it). The packages are not signed; compare the file with its `.sha256`. |
-| **Android 10+** | Install the release `.apk`. Allow "install unknown apps" for your file manager once. |
+| **Android 10+** | Install the release `.apk`. Allow "install unknown apps" for your file manager once. **Coming from v2.6:** see *Android: moving from v2.6* below. |
 | **iPhone / iPad** | Install the release `.ipa` with Sideloadly. Or open the web version and choose *Share → Add to Home Screen*. |
 | **Web / PWA** | Open the published web app (effervescent-bubblegum-1e5c03.netlify.app) and choose *Install app* (Chrome/Edge) or *Add to Home Screen* (phones). To run it on one computer only, install Node.js LTS once (nodejs.org), unzip the `-pwa.zip` from the web release, start **`Start-Confluence-Terminal.cmd`** (macOS/Linux: `start-confluence-terminal.sh`) and keep its window open. It serves the app on `http://127.0.0.1:8770/`. Opening `index.html` directly does **not** work. |
+
+<!-- wp:WP18 -->
+**Android: moving from v2.6 (once).** v2.7.0 for Android is signed with a new key, so Android refuses to install it over
+v2.6 ("App not installed" or "conflicts with an existing package"). Do this once:
+1. In v2.6, **About → Export backup**, and in the Ledger **Export JSON** for each source, timeframe and asset class you use. Write down any open paper
+   positions you want to keep: the paper account is not part of backups.
+2. Uninstall v2.6 (long-press the icon → **Uninstall**).
+3. Install the v2.7.0 `.apk` from the Android release.
+4. **About → Restore backup**, then **Import ledger** for each ledger file.
+
+Updates after v2.7.0 install over it normally and keep your data.
 
 **Check a download.** Every release file has a matching `.sha256` file. Compare them before installing:
 - Windows (PowerShell): `Get-FileHash <file> -Algorithm SHA256`
@@ -497,7 +508,7 @@ A failed source never borrows another source's candles. Missing rows are listed,
 - Market data belongs to each exchange and is shown for personal use. Exchange rates are reference rates for information, not rates you can trade at.
 
 ## 17. Updates
-When a newer version is published, a line appears above the footer with the new version; on Android it also shows the download size and SHA-256 fingerprint. On the web, choose **Reload to update**. On Android, choose **Download update**: the system browser downloads the signed APK, and installing it keeps your data. On iPhone, install the new build with Sideloadly. On desktop, install the new installer. **Later** hides the notice until the next version. Under **About → Updates** you can switch automatic checks off, check now, and see the last result. The check runs when the app opens, when it comes back online, and every 6 hours. It only reads one public file (`/updates/latest.json`); nothing is sent.
+When a newer version is published, a line appears above the footer with the new version; on Android it also shows the download size and SHA-256 fingerprint. On the web, choose **Reload to update**. On Android, choose **Download update**: the system browser downloads the signed APK, and installing it keeps your data (from v2.6 to v2.7.0 only, uninstall first: see *Android: moving from v2.6* in §1). On iPhone, install the new build with Sideloadly. On desktop, install the new installer. **Later** hides the notice until the next version. Under **About → Updates** you can switch automatic checks off, check now, and see the last result. The check runs when the app opens, when it comes back online, and every 6 hours. It only reads one public file (`/updates/latest.json`); nothing is sent.
 
 ## 18. Offline use
 Without a connection the last scan stays on screen and the footer shows **Offline**. Refresh when you are back online. Market data is never served from the offline copy. The display currency keeps working with the last saved rates (marked stale after 3 days), or with the built-in Gulf pegs.
