@@ -50,6 +50,7 @@ The rsL Confluence Terminal is a multi-indicator market scanner. For every asset
 - Every release is built by the project's GitHub Actions only, one release per platform: Windows, macOS, Linux, Android, iPhone and web (the web release also carries the app's software bill of materials, `.cdx.json`). **About** shows the version, build number and source commit, and says that market data belongs to each exchange; compare the commit with the release page if you want to be sure you have an official build.
 - From v2.6 the app's own code is shipped in a protected (minified and obfuscated) form without source maps, on every platform. This discourages copying and casual tampering. It does not hide your data or add secrets — the app holds no passwords or keys at all.
 - Android only installs an update signed with the same key as the app you have, so a look-alike APK cannot replace it or read its data.
+- Publishing one platform's release on GitHub never starts a new build; each release comes from the one build run of that version.
 
 ## 3. First start
 The first time you open the Terminal, a short three-step setup appears. **Skip** ends the setup and keeps the defaults. You can change the workspace and your name later in **About → Edit identity**, and the language at any time from the **Language** menu.
