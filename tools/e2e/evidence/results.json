@@ -1,6 +1,6 @@
 {
-  "at": "2026-11-14T19:08:09.277Z",
-  "base": "http://127.0.0.1:8812",
+  "at": "2026-11-14T19:23:45.660Z",
+  "base": "http://127.0.0.1:8813",
   "results": [
     {
       "id": "ID-3.2",
@@ -119,7 +119,7 @@
       "id": "ID-8.9",
       "name": "3D monogram: no context exhaustion or leftover canvases after 20 open/close cycles",
       "pass": true,
-      "evidence": "rAF 44/s headless (SwiftShader); warnings 0; canvases left 0"
+      "evidence": "rAF 50/s headless (SwiftShader); warnings 0; canvases left 0"
     },
     {
       "id": "ID-8.11",
@@ -194,7 +194,7 @@
       "id": "BLD-9.4-3a",
       "name": "Only same-origin and allow-listed exchange and rate hosts contacted",
       "pass": true,
-      "evidence": "127.0.0.1:8812, api.frankfurter.dev, data-api.binance.vision, cdn.jsdelivr.net, latest.currency-api.pages.dev"
+      "evidence": "127.0.0.1:8813, api.frankfurter.dev, data-api.binance.vision, cdn.jsdelivr.net, latest.currency-api.pages.dev"
     },
     {
       "id": "BLD-9.4-3b",
@@ -206,7 +206,7 @@
       "id": "BLD-9.4-11a",
       "name": "Cold start to first scored rows (laptop, mocked feed) ≤ 2 s budget",
       "pass": true,
-      "evidence": "3855 ms incl. wizard"
+      "evidence": "3795 ms incl. wizard"
     },
     {
       "id": "M-20",
@@ -222,7 +222,7 @@
           "docH": 844
         },
         "after": {
-          "list": 704,
+          "list": 696,
           "footerBottom": 844,
           "footerH": 78,
           "vh": 844,
@@ -473,11 +473,11 @@
       "evidence": {
         "cur": {
           "none": true,
-          "st": "Up to date. · Last checked 14 Nov 2026, 22:04"
+          "st": "Up to date. · Last checked 14 Nov 2026, 22:20"
         },
         "bad": {
           "none": true,
-          "st": "Could not check for updates. · Last checked 14 Nov 2026, 22:04"
+          "st": "Could not check for updates. · Last checked 14 Nov 2026, 22:20"
         }
       }
     },
@@ -642,7 +642,7 @@
       "id": "M-4",
       "name": "Scoring runs in a Web Worker",
       "pass": true,
-      "evidence": "http://127.0.0.1:8812/_next/static/chunks/turbopack-worker-2gqdcwp7k90ea.js#params=%5B%5B%22.%2F_next%2Fstatic%2Fchunks%"
+      "evidence": "http://127.0.0.1:8813/_next/static/chunks/turbopack-worker-2gqdcwp7k90ea.js#params=%5B%5B%22.%2F_next%2Fstatic%2Fchunks%"
     },
     {
       "id": "M-5",
@@ -932,7 +932,7 @@
       "id": "PH-9",
       "name": "Coins.ph (PH) is a source; its rows show peso prices",
       "pass": true,
-      "evidence": "1BTCBTCPHPOpen details₱101.0000+1.00%SAR 53.57M11/3/4+76REV↓"
+      "evidence": "1BTCBTCPHPOpen details₱101.0000+1.00%$14.29M11/3/4+76REV↓ LO"
     },
     {
       "id": "PH-10",
@@ -985,7 +985,7 @@
       "id": "FX-14",
       "name": "Rate sources lists 5 tested sources with their website and data address, last update, and a custom source marked not tested with a written request to the developer",
       "pass": true,
-      "evidence": "5 sources · 11 links · Last updated 14 Nov 2026, 22:07 · as of 2026-11-11"
+      "evidence": "5 sources · 11 links · Last updated 14 Nov 2026, 22:23 · as of 2026-11-11"
     },
     {
       "id": "FX-15",

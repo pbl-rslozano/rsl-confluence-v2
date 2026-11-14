@@ -4,31 +4,31 @@
   "appId": "CONF",
   "appVersion": "2.7.0 2026",
   "schemaVersion": 1,
-  "exportedAt": "2026-11-14T19:03:39.707Z",
+  "exportedAt": "2026-11-14T19:19:07.816Z",
   "auditHead": {
     "seq": 5,
-    "hash": "d8e2d77a7261583aa5f79f8e58f63bf401411736ce0e88670cb1d5d61a01f875"
+    "hash": "3731f52bff577a2fb3145d6a226e0984453f9128d3309341222da37476dbfa48"
   },
   "data": {
     "meta": [
       {
         "id": "clock",
         "doc": {
-          "highWater": 1794683015167
+          "highWater": 1794683943397
         }
       },
       {
         "id": "first-run",
         "doc": {
           "pending": false,
-          "completedAt": "2026-11-14T19:03:36.775Z"
+          "completedAt": "2026-11-14T19:19:05.077Z"
         }
       },
       {
         "id": "legacy-import",
         "doc": {
           "from": "localStorage:ct-preferences-v1",
-          "at": "2026-11-14T19:03:35.163Z",
+          "at": "2026-11-14T19:19:03.391Z",
           "records": 1,
           "logged": true
         }
@@ -41,7 +41,7 @@
             {
               "version": 1,
               "name": "seed personal identity + import legacy (≤2.02) localStorage preferences",
-              "at": "2026-11-14T19:03:35.163Z"
+              "at": "2026-11-14T19:19:03.392Z"
             }
           ]
         }
@@ -50,7 +50,7 @@
         "id": "update-check",
         "doc": {
           "enabled": true,
-          "lastCheckedAt": "2026-11-14T19:03:37.162Z",
+          "lastCheckedAt": "2026-11-14T19:19:05.430Z",
           "dismissedBuild": null
         }
       }
@@ -67,13 +67,13 @@
             "site": ""
           },
           "operator": {
-            "id": "op-798ea1fa",
+            "id": "op-bdec1563",
             "displayName": "Ronald",
             "role": "Trader",
             "preferredLang": "en"
           },
           "recent": [],
-          "updatedAt": "2026-11-14T19:03:36.761Z"
+          "updatedAt": "2026-11-14T19:19:05.055Z"
         }
       }
     ],
@@ -104,7 +104,7 @@
         "id": "0000000001",
         "doc": {
           "seq": 1,
-          "at": "2026-11-14T19:03:35.164Z",
+          "at": "2026-11-14T19:19:03.394Z",
           "actorId": "system",
           "event": "migration.import",
           "record": "preferences",
@@ -112,30 +112,30 @@
           "before": null,
           "after": null,
           "prev": "0000000000000000000000000000000000000000000000000000000000000000",
-          "hash": "6f6b1779ec6e4384e170182aaae957b42cbb375c011b806cc0d9269fc7010881"
+          "hash": "46077cde4fe7f9db19e772e11b34f2469d513f1602075cbca56bd7efa818b0fe"
         }
       },
       {
         "id": "0000000002",
         "doc": {
           "seq": 2,
-          "at": "2026-11-14T19:03:35.167Z",
+          "at": "2026-11-14T19:19:03.399Z",
           "actorId": "local",
           "event": "app.start",
           "record": null,
           "reason": "browser/linux · storage indexeddb · schema 0→1 · personal edition",
           "before": null,
           "after": null,
-          "prev": "6f6b1779ec6e4384e170182aaae957b42cbb375c011b806cc0d9269fc7010881",
-          "hash": "41337fc3b8aea2e38afaf33e30c287c54ba8957e2f252e7f50bafc9edaee8bd9"
+          "prev": "46077cde4fe7f9db19e772e11b34f2469d513f1602075cbca56bd7efa818b0fe",
+          "hash": "f9238b359d486a61a412a108b54a2e3d70b9dc1da2a3d8cc7bc13153db6d1657"
         }
       },
       {
         "id": "0000000003",
         "doc": {
           "seq": 3,
-          "at": "2026-11-14T19:03:36.774Z",
-          "actorId": "op-798ea1fa",
+          "at": "2026-11-14T19:19:05.075Z",
+          "actorId": "op-bdec1563",
           "event": "identity.update",
           "record": "identity",
           "reason": "Identity edited",
@@ -147,38 +147,38 @@
             "customer": "PERS",
             "name": "rsLozano — Personal trading desk"
           },
-          "prev": "41337fc3b8aea2e38afaf33e30c287c54ba8957e2f252e7f50bafc9edaee8bd9",
-          "hash": "5a71794577b739e5819172d86a7d8232cda0efac0b26c268ee9b6ec2e174e049"
+          "prev": "f9238b359d486a61a412a108b54a2e3d70b9dc1da2a3d8cc7bc13153db6d1657",
+          "hash": "f2a25eb7a58fc4b0ecfdf96d77aca6b57b662b35ba887770d942ea820b3dfb8b"
         }
       },
       {
         "id": "0000000004",
         "doc": {
           "seq": 4,
-          "at": "2026-11-14T19:03:36.776Z",
-          "actorId": "op-798ea1fa",
+          "at": "2026-11-14T19:19:05.077Z",
+          "actorId": "op-bdec1563",
           "event": "identity.first-run",
           "record": "identity",
           "reason": "First-run setup completed",
           "before": null,
           "after": null,
-          "prev": "5a71794577b739e5819172d86a7d8232cda0efac0b26c268ee9b6ec2e174e049",
-          "hash": "1d37f1ad86547a023c6570854558c682ccf03297cb82eb6df52ab976f8a39463"
+          "prev": "f2a25eb7a58fc4b0ecfdf96d77aca6b57b662b35ba887770d942ea820b3dfb8b",
+          "hash": "251e841b244b28eaa8564e1a87fc669840c905b1ba32d4f56e9c4a15286ebc63"
         }
       },
       {
         "id": "0000000005",
         "doc": {
           "seq": 5,
-          "at": "2026-11-14T19:03:38.659Z",
-          "actorId": "op-798ea1fa",
+          "at": "2026-11-14T19:19:06.809Z",
+          "actorId": "op-bdec1563",
           "event": "paper.propose",
           "record": "paper",
           "reason": "2c1a18ad8a61e9ab|binance|1h|BTCUSDT|1794679200000|long · passes",
           "before": null,
           "after": null,
-          "prev": "1d37f1ad86547a023c6570854558c682ccf03297cb82eb6df52ab976f8a39463",
-          "hash": "d8e2d77a7261583aa5f79f8e58f63bf401411736ce0e88670cb1d5d61a01f875"
+          "prev": "251e841b244b28eaa8564e1a87fc669840c905b1ba32d4f56e9c4a15286ebc63",
+          "hash": "3731f52bff577a2fb3145d6a226e0984453f9128d3309341222da37476dbfa48"
         }
       }
     ],
@@ -187,11 +187,11 @@
         "id": "head",
         "doc": {
           "seq": 5,
-          "hash": "d8e2d77a7261583aa5f79f8e58f63bf401411736ce0e88670cb1d5d61a01f875",
-          "highWater": 1794683018659
+          "hash": "3731f52bff577a2fb3145d6a226e0984453f9128d3309341222da37476dbfa48",
+          "highWater": 1794683946809
         }
       }
     ]
   },
-  "sha256": "3264112df11d2c604247c0d188c1ae278fbc29ef8cf0f1c4ad5cb178c9eba427"
+  "sha256": "8460364f990c7814e71d2d95f56c5c6b552e092705d05ced9fe8d1fb0eec3d71"
 }
