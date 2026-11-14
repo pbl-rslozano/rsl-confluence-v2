@@ -1,10 +1,10 @@
-# rsL Core Kit · v1.0 2026
+# rsL Core Kit · v1.1 2026
 
 These are the parts every rsL application shares, built once and reused: design tokens, an adaptive shell, the rsL identity, 18-language i18n, Customer Name Recall, one storage API, a hash-chained audit trail, the offline license core, a platform adapter, and export helpers.
 
 The kit is plain ES modules and CSS with **no runtime dependencies**. The same files run in the Tauri 2 desktop shell (Windows, macOS), the Capacitor mobile shell (iOS, Android), a PWA and Node ≥ 22.
 
-> Confidential — internal use within Switzgroup only.
+> Personal edition by rsLozano. It carries no organisation names, departments, people or sites (KIT-002).
 
 ---
 
@@ -44,7 +44,7 @@ node tokens/build-tokens.mjs
 |---|---|---|
 | Look | `tokens/rsl.tokens.json`, `rsl.dark.tokens.json` → `rsl-tokens.css` | DTCG 2025.10 tokens; light, dark and explicit-theme CSS; WCAG AA pairs tested |
 | Look | `ui/rsl-shell.css` | Bottom nav under 600 px, icon rail to 1199 px, expanded rail above; 48 px touch targets; safe areas; RTL; A4 print |
-| Look | `core/rsl-brand.js` | Monogram (unique gradient ids), brand block, build stamp, Powered-by line, credit and confidentiality lines |
+| Look | `core/rsl-brand.js` | Monogram (unique gradient ids), brand block, build stamp, Powered-by line, personal credit line |
 | Look | `core/rsl-signature-art.js` | Convergent Lattice signature, seeded by the app code (splash, About, empty states) |
 | Language | `core/rsl-i18n.js` | 18 languages in rsL order, ICU MF1 subset (plural, select, number, date), English fallback, Latin digits for ar/ur/bn |
 | Data | `core/rsl-identity.js` | Customer Name Recall store, validation, grapheme-safe initials, safe logo check |
@@ -123,5 +123,6 @@ Kit releases use `vMAJOR.MINOR YEAR` (for example `v1.0 2026`). A change to a pu
 
 ---
 
-**Version v1.0 2026** · *Confidential — internal use within Switzgroup only.*
-Created by rsLozano from Quality Control & Assurance Department; Department Head: AKSingh
+**Version v1.1 2026**
+
+Created by rsLozano

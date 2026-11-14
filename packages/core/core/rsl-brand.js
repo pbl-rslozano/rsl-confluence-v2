@@ -1,5 +1,5 @@
 /**
- * rsl-brand.js — rsL Core Kit · v1.0 2026
+ * rsl-brand.js — rsL Core Kit · v1.1 2026 (personal edition: no organisation details, KIT-002)
  * The rsL identity layer as data + string builders (no framework). Follows
  * "rsL Application Identity System" masterclass v1.0 2026, phase 2.
  * Brand strings are never translated.
@@ -9,18 +9,14 @@ export const BRAND = Object.freeze({
   owner: 'rsLozano',
   byline: 'by rsLozano',
   contactEmail: 'rslozano@gmail.com',
-  credit: 'Created by rsLozano from Quality Control & Assurance Department; Department Head: AKSingh',
-  confidential: 'Confidential — internal use within Switzgroup only.',
-  factories: Object.freeze(['SM3', 'SM4', 'SM5', 'SM6', 'SM7', 'SM9', 'SM10', 'SM11']),
+  credit: 'Created by rsLozano',
   colors: Object.freeze({ blue: '#0755F5', violet: '#7524F4', cyan: '#00D9F5', bar: '#0B1B33', metaOnBar: '#8EA3BD', metaOnLight: '#5B6B82' }),
-  defaultCustomer: Object.freeze({ legalName: 'iBake – Switz Group', shortName: 'iBake', code: 'IBK', colors: ['#FF6B0C', '#FF9E00'],
-    logoViewBox: '54.88 39.62 156.5 77.5' }),
+  defaultCustomer: Object.freeze({ legalName: 'rsLozano — Personal workspace', shortName: 'Personal', code: 'PERS', colors: ['#0755F5', '#7524F4'] }),
 });
 
 /** Known rsL app codes (license prefixes, file names, signature-art seeds). */
 export const RSL_APPS = Object.freeze({
-  PKOS: 'rsL PackOS', NMRC: 'rsL Reformulation Console', GNF: 'rsL GNF-ARCS', MB: 'rsL MassBalance',
-  STKL: 'rsL StackLab', IBS: 'rsL Industrial Bakery Specification',
+  CONF: 'rsL Confluence Terminal',
 });
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -60,7 +56,6 @@ export function footerLines(app, { page, pages, printedAt = new Date(), licenseL
   const lines = [
     [`Printed ${printedAt.toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}`, licenseLine, page ? `Page ${page} of ${pages}` : '', poweredBy(app), auditRef]
       .filter(Boolean).join(' | '),
-    BRAND.confidential,
   ];
   if (!page || page === pages) lines.push(BRAND.credit);
   return lines;

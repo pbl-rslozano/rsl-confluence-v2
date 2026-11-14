@@ -79,7 +79,7 @@ test('license test vectors (masterclass phase 10.1)', async () => {
   const other = await makeKit('PKOS');
   const now = Date.UTC(2026, 10, 1, 12);
   const ctx = { appCode: 'TEST', appName: 'rsL Test', trustedKeys: k.trustedKeys, knownApps: { PKOS: 'rsL PackOS' }, revoked: [], site: 'file', now, editions: ['Site', 'Department', 'Enterprise'] };
-  const base = { v: 1, kid: k.kid, app: 'TEST', lic: lic('TEST', 1), to: 'Saudi Masterbaker Ltd.', ed: 'Site', sites: ['file'], iat: '2026-10-29', nbf: '2026-10-29', exp: '2027-10-28', note: '' };
+  const base = { v: 1, kid: k.kid, app: 'TEST', lic: lic('TEST', 1), to: 'Example Trading Co.', ed: 'Site', sites: ['file'], iat: '2026-10-29', nbf: '2026-10-29', exp: '2027-10-28', note: '' };
   const good = await k.sign(base);
 
   let r = await verifyLicenseKey(good, ctx); assert.equal(r.ok, true, r.reason);                     // 1
@@ -122,7 +122,7 @@ test('license state machine: free-use and reminder boundaries (phase 2.1 / 10.1 
   const expired = computeLicense({ verification: { ok: false, code: 'E-16', reason: 'x' }, hasKey: true, now: end - DAY_MS, freeUseUntil: free });
   assert.deepEqual([expired.status, expired.sub], ['trial', 'expired']);
   assert.equal(siteIdFromLocation({ protocol: 'file:' }), 'file');
-  assert.equal(siteIdFromLocation({ protocol: 'https:', hostname: 'IBAKE-PACKOS.rslozano.chatgpt.site' }), 'ibake-packos.rslozano.chatgpt.site');
+  assert.equal(siteIdFromLocation({ protocol: 'https:', hostname: 'DEMO-APP.example.site' }), 'demo-app.example.site');
   assert.equal(siteIdFromLocation({ protocol: 'tauri:', hostname: 'localhost' }), 'app');
 });
 
@@ -197,7 +197,7 @@ test('i18n: 18 languages in rsL order, plural/select, fallback, Latin digits in 
     en: { 'empty.sku': 'No SKUs yet for {customer}. Create the first one.', 'count': '{n, plural, =0 {No items} one {# item} other {# items}}', 'lic': 'License {state, select, due {due} other {ok}}', 'only.en': 'English only' },
     ar: { 'count': '{n, plural, zero {لا عناصر} one {عنصر واحد} two {عنصران} few {# عناصر} many {# عنصرًا} other {# عنصر}}' },
   } });
-  assert.equal(i18n.t('empty.sku', { customer: 'iBake' }), 'No SKUs yet for iBake. Create the first one.');
+  assert.equal(i18n.t('empty.sku', { customer: 'Northwind' }), 'No SKUs yet for Northwind. Create the first one.');
   assert.equal(i18n.t('count', { n: 0 }), 'No items');
   assert.equal(i18n.t('count', { n: 1 }), '1 item');
   assert.equal(i18n.t('count', { n: 1234 }), '1,234 items');
@@ -219,7 +219,7 @@ test('CSV formula-injection hardening', () => {
   const csv = toCSV([{ sku: '=HYPERLINK("x")', qty: 3 }], { notice: 'FREE USAGE DUE — LICENSE REQUIRED' });
   assert.ok(csv.startsWith('﻿FREE USAGE DUE'));
   assert.ok(csv.includes(`"'=HYPERLINK(""x"")"`));
-  assert.equal(exportFileName({ app: 'PackOS', customerCode: 'IBK', docId: 'SPEC/0042', date: new Date(2026, 9, 29), ext: 'PDF' }), 'PackOS_IBK_SPEC-0042_20261029.pdf');
+  assert.equal(exportFileName({ app: 'PackOS', customerCode: 'NWD', docId: 'SPEC/0042', date: new Date(2026, 9, 29), ext: 'PDF' }), 'PackOS_NWD_SPEC-0042_20261029.pdf');
 });
 test('GS1 mod-10 check digits', () => {
   assert.equal(gs1CheckDigit('400638133393'), 1);
@@ -232,20 +232,20 @@ test('GS1 mod-10 check digits', () => {
 
 /* ───────── identity & brand ───────── */
 test('identity: validation, initials, safe logos, recent list', async () => {
-  const v = validateIdentity({ customer: { legalName: '  iBake – Switz Group‮ ', code: 'i', site: 'SM10' } });
-  assert.equal(v.value.customer.legalName, 'iBake – Switz Group', 'bidi override stripped, trimmed');
+  const v = validateIdentity({ customer: { legalName: '  Northwind – Example Group‮ ', code: 'i', site: 'S1' } });
+  assert.equal(v.value.customer.legalName, 'Northwind – Example Group', 'bidi override stripped, trimmed');
   assert.equal(v.ok, false, 'code too short');
-  const ok = validateIdentity({ customer: { legalName: 'Saudi Masterbaker Ltd.', shortName: 'SMB', code: 'smb' } });
-  assert.equal(ok.ok, true); assert.equal(ok.value.customer.code, 'SMB');
-  assert.equal(initials('Saudi Masterbaker Ltd.'), 'SL');
+  const ok = validateIdentity({ customer: { legalName: 'Example Trading Co.', shortName: 'ETC', code: 'etc' } });
+  assert.equal(ok.ok, true); assert.equal(ok.value.customer.code, 'ETC');
+  assert.equal(initials('Example Trading Co.'), 'EC');
   assert.equal(initials('مخبز السعودية'), 'ما');
   assert.ok(isSafeLogo('data:image/png;base64,iVBORw0KGgo='));
   assert.ok(!isSafeLogo('data:image/svg+xml,' + encodeURIComponent('<svg onload="alert(1)"/>')));
   assert.ok(!isSafeLogo('https://example.com/logo.png'));
-  assert.match(avatarColor('IBK'), /^hsl\(\d+ 62% 36%\)$/);
+  assert.match(avatarColor('NWD'), /^hsl\(\d+ 62% 36%\)$/);
   const store = await createIdentityStore(createMemoryAdapter());
-  await store.set({ ...store.get(), customer: { legalName: 'Saudi Masterbaker Ltd.', shortName: 'SMB', code: 'SMB', site: 'SM3' } });
-  assert.equal(store.get().recent[0].code, 'IBK');
+  await store.set({ ...store.get(), customer: { legalName: 'Example Trading Co.', shortName: 'ETC', code: 'ETC', site: 'S2' } });
+  assert.equal(store.get().recent[0].code, 'PERS', 'the previous (default personal) workspace moves to recent');
 });
 test('brand: build stamp after brand, credit on the last page only', () => {
   const app = { name: 'PackOS', version: '1.0', year: 2026, build: '20261029' };
@@ -254,6 +254,8 @@ test('brand: build stamp after brand, credit on the last page only', () => {
   const html = brandBlockHTML(app);
   const order = ['rsl-mono', 'rsl-r', 'rsl-app', 'rsl-by', 'rsl-build'].map((c) => html.indexOf(c));
   assert.deepEqual([...order].sort((a, b) => a - b), order, 'monogram → rsL → app → byline → build');
+  assert.equal(BRAND.credit, 'Created by rsLozano', 'personal credit only (KIT-002)');
+  assert.ok(!('confidential' in BRAND) && !('factories' in BRAND), 'no organisation lines or site list (KIT-002)');
   assert.ok(!footerLines(app, { page: 1, pages: 2 }).includes(BRAND.credit));
   assert.ok(footerLines(app, { page: 2, pages: 2 }).includes(BRAND.credit));
   const a = monogramSVG(), b = monogramSVG();

@@ -4,9 +4,10 @@
 
 ## Decision
 - **Brand:** rsL monogram → `rsL Confluence Terminal` → `by rsLozano` → `v2.1 2026 · build 20261031`, fixed order, LTR-isolated, never translated.
-- **Customer layer (CNR):** default workspace `rsLozano — Personal trading desk` / `Personal` / `PERS`, editable in the first-run wizard and About → Edit identity. No iBake/Switz logo, no factory selector.
-- **Credit (page end only):** "Created by rsLozano". No "Confidential — internal use within Switzgroup" line and no department credit, because this is a personal tool.
-- **Licensing:** none. No chip, no watermark, no key verification; About shows "Personal build — no license required". The kit's license module is present (kit unchanged) but not wired.
+- **Customer layer (CNR):** default workspace `rsLozano — Personal trading desk` / `Personal` / `PERS`, editable in the first-run wizard and About → Edit identity. No organisation logo, no site selector.
+- **Credit (page end only):** "Created by rsLozano". No confidentiality line, no department or organisation credit, because this is a personal tool.
+- **No organisation details anywhere (amended 14 Nov 2026, owner decision, KIT-002):** the app, the rsL Core Kit (v1.1 2026), the docs and the built output carry no employer or company names, departments, people or sites. Release check R22 (`tools/checks/no-org-ids.mjs`) enforces it on the source tree and the built web output, using salted hashes so the check itself names nobody.
+- **Licensing:** none. No chip, no watermark, no key verification; About shows "Personal build — no license required". The kit's license module is present but not wired.
 
 ## Consequences
-If the app is ever shared outside personal use, revisit: licensing (License masterclass), the confidentiality line and an Apple Business custom-app channel for iOS.
+If the app is ever shared outside personal use, revisit: licensing (License masterclass) and an Apple Business custom-app channel for iOS.
