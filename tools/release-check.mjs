@@ -24,6 +24,9 @@
  *   R17 protected build (v2.6, ADR-0014): no source maps, only listed own chunks obfuscated, vendor chunks unchanged, build manifest complete (needs a built out/)
  *   R18 protected equivalence (v2.6, ADR-0014): evidence that acceptance + engine golden passed on this protected build (needs a built out/)
  *   R19 docs parity (v2.6): the architecture plan and the user guide cover every user-visible change; version stamps match
+ *   R23 personal site (v2.8, ADR-0004 amended 14 Nov 2026): every hosted page and file says noindex (_headers
+ *       X-Robots-Tag on /*, robots meta in the layout and, when built, in out/index.html); robots.txt lets only
+ *       Googlebot/Bingbot fetch (so they can read the noindex) and disallows every other crawler
  *   R22 no organisation details (v2.8, KIT-002): no employer/company names, departments, people or sites in the
  *       source tree or the built web output (tools/checks/no-org-ids.mjs; salted word hashes)
  *   R21 display only (v2.7, ADR-0015): fx-rates.ts is imported by display code only, and fetches only table hosts
@@ -293,6 +296,26 @@ if (process.argv.includes("--with-tests")) {
   const { checkNoOrgIds } = await import("./checks/no-org-ids.mjs");
   const r = checkNoOrgIds(ROOT);
   check("R22", "No organisation details (employer, department, people, sites) in source or built output", r.ok, r.ok ? r.summary : r.findings.join("; "));
+}
+
+/* R23 — personal site: kept out of search results (v2.8, ADR-0004 amended 14 Nov 2026) */
+{
+  const web = join(ROOT, "apps/confluence/web");
+  const read = (p) => (existsSync(join(web, p)) ? readFileSync(join(web, p), "utf8") : "");
+  const headerBlocks = read("public/_headers").split(/\n(?=\S)/);
+  const allBlock = headerBlocks.find((b) => b.startsWith("/*\n") || b.startsWith("/*\r\n")) ?? "";
+  const robots = read("public/robots.txt");
+  const groups = robots.split(/\n\s*\n/).map((g) => g.replace(/^#.*$/gm, "").trim()).filter(Boolean);
+  const group = (ua) => groups.find((g) => new RegExp(`^User-agent:\\s*${ua.replace("*", "\\*")}\\s*$`, "mi").test(g)) ?? "";
+  const built = read("out/index.html");
+  const problems = [
+    !/X-Robots-Tag:\s*noindex/i.test(allBlock) && "_headers: /* has no X-Robots-Tag noindex",
+    !/robots:\s*\{\s*index:\s*false/.test(read("src/app/layout.tsx")) && "layout.tsx: metadata.robots is not index: false",
+    !/^Disallow:\s*\/\s*$/m.test(group("*")) && "robots.txt: other crawlers are not disallowed",
+    ["Googlebot", "Bingbot"].some((ua) => /Disallow:\s*\/\s*$/m.test(group(ua))) && "robots.txt blocks Googlebot/Bingbot (they could not read the noindex)",
+    built && !/<meta name="robots" content="noindex/.test(built) && "out/index.html has no robots noindex meta",
+  ].filter(Boolean);
+  check("R23", "Personal site: noindex on every page and file; robots.txt lets search engines read it, blocks other crawlers", problems.length === 0, problems.join("; ") || (built ? "headers, meta, robots.txt, built page" : "headers, meta, robots.txt"));
 }
 
 const failed = results.filter((r) => !r.ok).length;

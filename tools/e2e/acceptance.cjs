@@ -1150,7 +1150,9 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
   /* ===== v2.6: Coins.ph peso market (WP7) and the source health line (WP10) ===== */
   /* acceptance-ids: PH-9, PH-10, PH-11, PH-12, PH-13, US-1, US-1b */
   {
-    const c = await newContext(browser);
+    // A Philippine time zone makes the Automatic display currency PHP, so peso rows show ₱ whether or not the
+    // live reference rates load (in CI they can, and a UTC runner would then convert the rows to US$ — PH-9 flake).
+    const c = await newContext(browser, { timezoneId: "Asia/Manila" });
     await mockExchanges(c, null);
     // Global reference prices for the PH premium (registered after mockExchanges, so it takes precedence).
     await c.route(/^https:\/\/data-api\.binance\.vision\/api\/v3\/ticker\/price/, (route) =>
