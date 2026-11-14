@@ -32,6 +32,8 @@ export const metadata: Metadata = {
     "binance",
   ],
   authors: [{ name: "Confluence Terminal" }],
+  // Personal edition (ADR-0004, 14 Nov 2026): kept out of search results. Netlify also sends X-Robots-Tag (public/_headers).
+  robots: { index: false, follow: false, nocache: true, googleBot: { index: false, follow: false } },
   manifest: "./manifest.webmanifest",
   applicationName: "Confluence Terminal",
   appleWebApp: {
