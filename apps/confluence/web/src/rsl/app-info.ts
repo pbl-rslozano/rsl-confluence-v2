@@ -14,7 +14,7 @@ export const APP = {
   edition: "personal",
   credit: "Created by rsLozano",
   contactSubject: "Confluence Terminal",
-  coreKit: "rsL Core Kit v1.0 2026",
+  coreKit: "rsL Core Kit v1.1 2026",
 } as const;
 
 /** Storage collections (StoragePort document model, table rsl_docs). */

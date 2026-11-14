@@ -24,6 +24,8 @@
  *   R17 protected build (v2.6, ADR-0014): no source maps, only listed own chunks obfuscated, vendor chunks unchanged, build manifest complete (needs a built out/)
  *   R18 protected equivalence (v2.6, ADR-0014): evidence that acceptance + engine golden passed on this protected build (needs a built out/)
  *   R19 docs parity (v2.6): the architecture plan and the user guide cover every user-visible change; version stamps match
+ *   R22 no organisation details (v2.8, KIT-002): no employer/company names, departments, people or sites in the
+ *       source tree or the built web output (tools/checks/no-org-ids.mjs; salted word hashes)
  *   R21 display only (v2.7, ADR-0015): fx-rates.ts is imported by display code only, and fetches only table hosts
  *   R20 keyless public sources (v2.6): no keys/signatures in public sources, Coins.ph paths only from the read allowlist, no private profile
  */
@@ -86,7 +88,7 @@ for (const line of readFileSync(join(kitDir, "KIT-MANIFEST.sha256"), "utf8").tri
   const p = join(kitDir, file);
   if (!existsSync(p) || createHash("sha256").update(readFileSync(p)).digest("hex") !== hash) bad.push(file);
 }
-check("R4", "rsL Core Kit matches its manifest (unchanged)", bad.length === 0, bad.join(", ") || "18 files");
+check("R4", "rsL Core Kit matches its manifest (changes only via a KIT-xxx owner decision)", bad.length === 0, bad.join(", ") || "18 files");
 
 /* R5 — native imports only in adapters */
 const nativeImport = /from\s+["'](@tauri-apps\/|@capacitor\/|@capacitor-community\/)/;
@@ -284,6 +286,13 @@ if (process.argv.includes("--with-tests")) {
   const { checkDisplayOnly } = await import("./checks/display-only.mjs");
   const r = checkDisplayOnly(ROOT);
   check("R21", "Display-currency rates never reach engine, ledger, paper, recorder or MCP; FX hosts in the table", r.ok, r.ok ? r.summary : r.findings.join("; "));
+}
+
+/* R22 — no organisation details (v2.8, KIT-002, owner decision 14 Nov 2026) */
+{
+  const { checkNoOrgIds } = await import("./checks/no-org-ids.mjs");
+  const r = checkNoOrgIds(ROOT);
+  check("R22", "No organisation details (employer, department, people, sites) in source or built output", r.ok, r.ok ? r.summary : r.findings.join("; "));
 }
 
 const failed = results.filter((r) => !r.ok).length;

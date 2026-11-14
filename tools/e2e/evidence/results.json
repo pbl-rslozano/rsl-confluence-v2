@@ -1,6 +1,6 @@
 {
-  "at": "2026-11-11T07:08:21.882Z",
-  "base": "http://127.0.0.1:8770/",
+  "at": "2026-11-14T18:51:49.087Z",
+  "base": "http://127.0.0.1:8811",
   "results": [
     {
       "id": "ID-3.2",
@@ -69,18 +69,18 @@
       "id": "ID-8.8a",
       "name": "3D monogram renders (WebGL) or static fallback",
       "pass": true,
-      "evidence": "WebGL canvas"
+      "evidence": "static SVG fallback"
     },
     {
       "id": "ID-2.4",
-      "name": "About ends with personal credit, no corporate lines",
+      "name": "About ends with personal credit, no organisation details (R22 word list)",
       "pass": true
     },
     {
       "id": "BLD-3.5a",
       "name": "Backup file name + checksum + audit head",
       "pass": true,
-      "evidence": "ConfluenceTerminal_PERS_backup_20261111.rslbak"
+      "evidence": "ConfluenceTerminal_PERS_backup_20261114.rslbak"
     },
     {
       "id": "BLD-9.4-5b",
@@ -107,7 +107,7 @@
       "id": "ID-8.6b",
       "name": "Identity exports as JSON (schema + customer)",
       "pass": true,
-      "evidence": "ConfluenceTerminal_PERS_identity_20261111.json"
+      "evidence": "ConfluenceTerminal_PERS_identity_20261114.json"
     },
     {
       "id": "BLD-9.4-5a",
@@ -119,7 +119,7 @@
       "id": "ID-8.9",
       "name": "3D monogram: no context exhaustion or leftover canvases after 20 open/close cycles",
       "pass": true,
-      "evidence": "rAF 40/s headless (SwiftShader); warnings 0; canvases left 0"
+      "evidence": "rAF 39/s headless (SwiftShader); warnings 0; canvases left 0"
     },
     {
       "id": "ID-8.11",
@@ -194,7 +194,7 @@
       "id": "BLD-9.4-3a",
       "name": "Only same-origin and allow-listed exchange and rate hosts contacted",
       "pass": true,
-      "evidence": "127.0.0.1:8770, api.frankfurter.dev, data-api.binance.vision, cdn.jsdelivr.net, latest.currency-api.pages.dev"
+      "evidence": "127.0.0.1:8811, api.frankfurter.dev, data-api.binance.vision, cdn.jsdelivr.net, latest.currency-api.pages.dev"
     },
     {
       "id": "BLD-9.4-3b",
@@ -206,7 +206,7 @@
       "id": "BLD-9.4-11a",
       "name": "Cold start to first scored rows (laptop, mocked feed) ≤ 2 s budget",
       "pass": true,
-      "evidence": "3341 ms incl. wizard"
+      "evidence": "3898 ms incl. wizard"
     },
     {
       "id": "M-20",
@@ -222,7 +222,7 @@
           "docH": 844
         },
         "after": {
-          "list": 704,
+          "list": 696,
           "footerBottom": 844,
           "footerH": 78,
           "vh": 844,
@@ -473,11 +473,11 @@
       "evidence": {
         "cur": {
           "none": true,
-          "st": "Up to date. · Last checked 11 Nov 2026, 10:05"
+          "st": "Up to date. · Last checked 14 Nov 2026, 21:48"
         },
         "bad": {
           "none": true,
-          "st": "Could not check for updates. · Last checked 11 Nov 2026, 10:05"
+          "st": "Could not check for updates. · Last checked 14 Nov 2026, 21:48"
         }
       }
     },
@@ -642,7 +642,7 @@
       "id": "M-4",
       "name": "Scoring runs in a Web Worker",
       "pass": true,
-      "evidence": "http://127.0.0.1:8770/_next/static/chunks/turbopack-worker-2gqdcwp7k90ea.js#params=%5B%5B%22.%2F_next%2Fstatic%2Fchunks%"
+      "evidence": "http://127.0.0.1:8811/_next/static/chunks/turbopack-worker-2gqdcwp7k90ea.js#params=%5B%5B%22.%2F_next%2Fstatic%2Fchunks%"
     },
     {
       "id": "M-5",
@@ -762,7 +762,7 @@
       "id": "M-9",
       "name": "Ledger CSV export: header with config id + one line per row",
       "pass": true,
-      "evidence": "ConfluenceTerminal_PERS_ledger-binance-4h_20261111.csv · 4 rows"
+      "evidence": "ConfluenceTerminal_PERS_ledger-binance-4h_20261114.csv · 4 rows"
     },
     {
       "id": "M-10",
@@ -774,7 +774,7 @@
       "id": "M-14",
       "name": "Ledger: full-window toggle, trials register, storage durability and pre-registration shown",
       "pass": true,
-      "evidence": "Trials: 5"
+      "evidence": "Trials: 1"
     },
     {
       "id": "M-15",
@@ -786,7 +786,7 @@
       "id": "M-16",
       "name": "Pre-registration fixes a decision date ≥ 90 days ahead and removes the button",
       "pass": true,
-      "evidence": "decision 2027-02-09 (89.7 days)"
+      "evidence": "decision 2027-02-12 (89.2 days)"
     },
     {
       "id": "M-17",
@@ -985,13 +985,13 @@
       "id": "FX-14",
       "name": "Rate sources lists 5 tested sources with their website and data address, last update, and a custom source marked not tested with a written request to the developer",
       "pass": true,
-      "evidence": "5 sources · 11 links · Last updated 11 Nov 2026, 10:08 · as of 2026-11-11"
+      "evidence": "5 sources · 11 links · Last updated 14 Nov 2026, 21:51 · as of 2026-11-11"
     },
     {
       "id": "FX-15",
       "name": "Choosing the ECB converts SAR at the ECB's own cross rate and names it",
       "pass": true,
-      "evidence": "Prices in SAR · 1 USD = 3.75 SAR · official peg (SAMA) · European Central Bank reference rates · as of 2026-11-10 · stablecoins at 1 USDT = 1 USD (USDT now —)Ra"
+      "evidence": "Prices in SAR · 1 USD = 3.75 SAR · official peg (SAMA) · European Central Bank reference rates · as of 2026-11-10 · stablecoins at 1 USDT = 1 USD (USDT now —)ra"
     },
     {
       "id": "CH-1",

@@ -150,7 +150,8 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
   const hasFallback = await page.locator('[role="dialog"] svg.rsl-mono').count();
   record("ID-8.8a", "3D monogram renders (WebGL) or static fallback", has3d > 0 || hasFallback > 0, has3d ? "WebGL canvas" : "static SVG fallback");
   await page.screenshot({ path: path.join(OUT, "04-about-1366.png") });
-  record("ID-2.4", "About ends with personal credit, no corporate lines", /Created by rsLozano/.test(about) && !/Switzgroup|AKSingh|Quality Control/.test(about));
+  const { findGuarded } = await import(path.join(__dirname, "..", "checks", "no-org-ids.mjs"));
+  record("ID-2.4", "About ends with personal credit, no organisation details (R22 word list)", /Created by rsLozano/.test(about) && findGuarded(about).length === 0 && !/Confidential|Department Head/i.test(about));
 
   // Backup export → restore round trip + tamper refusal (builder §9.4-5)
   const [dl] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Export backup" }).click()]);

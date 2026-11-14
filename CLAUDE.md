@@ -21,7 +21,9 @@ older zip over newer work on `main` and silently removed features (see
 
 ## Fixed rules
 - Brand strings (rsL, Confluence Terminal, by rsLozano, build stamp) are never translated; credit only at page end.
-- `packages/core` (rsL Core Kit) is unchanged — record issues as `docs/kit-issues/KIT-xxx.md`.
+- `packages/core` (rsL Core Kit) changes only by an owner decision recorded as `docs/kit-issues/KIT-xxx.md`, with
+  `KIT-MANIFEST.sha256` regenerated (R4). Otherwise record issues there and work around them in the app.
+- No organisation details anywhere — no employer or company names, departments, people or sites (KIT-002, R22).
 - Only `packages/adapters` imports `@tauri-apps/*` or `@capacitor/*`.
 - Exact pinned versions; lockfiles committed; lifecycle scripts off.
 - No private keys or signing secrets in the repo or in artefacts; never print them.

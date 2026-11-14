@@ -1,0 +1,197 @@
+{
+  "format": "rsl-backup",
+  "formatVersion": 1,
+  "appId": "CONF",
+  "appVersion": "2.7.0 2026",
+  "schemaVersion": 1,
+  "exportedAt": "2026-11-14T18:47:17.242Z",
+  "auditHead": {
+    "seq": 5,
+    "hash": "bb93fc7c250376d7203d48dd269011dcbc4485c01dbcc6368252306b582706ad"
+  },
+  "data": {
+    "meta": [
+      {
+        "id": "clock",
+        "doc": {
+          "highWater": 1794682032845
+        }
+      },
+      {
+        "id": "first-run",
+        "doc": {
+          "pending": false,
+          "completedAt": "2026-11-14T18:47:14.503Z"
+        }
+      },
+      {
+        "id": "legacy-import",
+        "doc": {
+          "from": "localStorage:ct-preferences-v1",
+          "at": "2026-11-14T18:47:12.838Z",
+          "records": 1,
+          "logged": true
+        }
+      },
+      {
+        "id": "schema",
+        "doc": {
+          "version": 1,
+          "history": [
+            {
+              "version": 1,
+              "name": "seed personal identity + import legacy (≤2.02) localStorage preferences",
+              "at": "2026-11-14T18:47:12.841Z"
+            }
+          ]
+        }
+      },
+      {
+        "id": "update-check",
+        "doc": {
+          "enabled": true,
+          "lastCheckedAt": "2026-11-14T18:47:14.872Z",
+          "dismissedBuild": null
+        }
+      }
+    ],
+    "identity": [
+      {
+        "id": "current",
+        "doc": {
+          "customer": {
+            "legalName": "rsLozano — Personal trading desk",
+            "shortName": "Personal",
+            "code": "PERS",
+            "logo": null,
+            "site": ""
+          },
+          "operator": {
+            "id": "op-ac6a3bf6",
+            "displayName": "Ronald",
+            "role": "Trader",
+            "preferredLang": "en"
+          },
+          "recent": [],
+          "updatedAt": "2026-11-14T18:47:14.483Z"
+        }
+      }
+    ],
+    "preferences": [
+      {
+        "id": "current",
+        "doc": {
+          "timeframe": "1h",
+          "dataSource": "binance",
+          "universeLimit": 25,
+          "background": "dark",
+          "monitorAssets": [],
+          "sortKey": "rank",
+          "sortDir": "asc",
+          "autoRefresh": false,
+          "chartDepth": "250",
+          "assetClass": "crypto",
+          "quoteBySource": {},
+          "displayCurrency": "AUTO",
+          "fxSource": "auto",
+          "fxAutoUpdate": true,
+          "fxCustom": null
+        }
+      }
+    ],
+    "audit": [
+      {
+        "id": "0000000001",
+        "doc": {
+          "seq": 1,
+          "at": "2026-11-14T18:47:12.842Z",
+          "actorId": "system",
+          "event": "migration.import",
+          "record": "preferences",
+          "reason": "Imported 1 legacy preference record(s) from localStorage (≤ 2.02).",
+          "before": null,
+          "after": null,
+          "prev": "0000000000000000000000000000000000000000000000000000000000000000",
+          "hash": "58573893c6eeb28bb6a6e9555ef6e4949d9cc33055405aa2ab2f1ae1ab323bcc"
+        }
+      },
+      {
+        "id": "0000000002",
+        "doc": {
+          "seq": 2,
+          "at": "2026-11-14T18:47:12.847Z",
+          "actorId": "local",
+          "event": "app.start",
+          "record": null,
+          "reason": "browser/linux · storage indexeddb · schema 0→1 · personal edition",
+          "before": null,
+          "after": null,
+          "prev": "58573893c6eeb28bb6a6e9555ef6e4949d9cc33055405aa2ab2f1ae1ab323bcc",
+          "hash": "8b796d7aeed0d3480c6b419b8a4fb827c085516776bdc21df384fb179b6aa8bd"
+        }
+      },
+      {
+        "id": "0000000003",
+        "doc": {
+          "seq": 3,
+          "at": "2026-11-14T18:47:14.502Z",
+          "actorId": "op-ac6a3bf6",
+          "event": "identity.update",
+          "record": "identity",
+          "reason": "Identity edited",
+          "before": {
+            "customer": "PERS",
+            "name": "rsLozano — Personal trading desk"
+          },
+          "after": {
+            "customer": "PERS",
+            "name": "rsLozano — Personal trading desk"
+          },
+          "prev": "8b796d7aeed0d3480c6b419b8a4fb827c085516776bdc21df384fb179b6aa8bd",
+          "hash": "78ea180c4d2dc21b0eb54d8f66eb17abf9a01c12acd3feb971d38fbaf8e8d0a4"
+        }
+      },
+      {
+        "id": "0000000004",
+        "doc": {
+          "seq": 4,
+          "at": "2026-11-14T18:47:14.504Z",
+          "actorId": "op-ac6a3bf6",
+          "event": "identity.first-run",
+          "record": "identity",
+          "reason": "First-run setup completed",
+          "before": null,
+          "after": null,
+          "prev": "78ea180c4d2dc21b0eb54d8f66eb17abf9a01c12acd3feb971d38fbaf8e8d0a4",
+          "hash": "f4083fd6c9f11469a3a7f4afcf476ba66d08de191c695aadd4872d9da568465b"
+        }
+      },
+      {
+        "id": "0000000005",
+        "doc": {
+          "seq": 5,
+          "at": "2026-11-14T18:47:16.323Z",
+          "actorId": "op-ac6a3bf6",
+          "event": "paper.propose",
+          "record": "paper",
+          "reason": "2c1a18ad8a61e9ab|binance|1h|BTCUSDT|1794675600000|long · passes",
+          "before": null,
+          "after": null,
+          "prev": "f4083fd6c9f11469a3a7f4afcf476ba66d08de191c695aadd4872d9da568465b",
+          "hash": "bb93fc7c250376d7203d48dd269011dcbc4485c01dbcc6368252306b582706ad"
+        }
+      }
+    ],
+    "audit_meta": [
+      {
+        "id": "head",
+        "doc": {
+          "seq": 5,
+          "hash": "bb93fc7c250376d7203d48dd269011dcbc4485c01dbcc6368252306b582706ad",
+          "highWater": 1794682036323
+        }
+      }
+    ]
+  },
+  "sha256": "af347857fdb488c8693d95092a6ddd9469fe3a87666b21adb7f56319622f3e95"
+}

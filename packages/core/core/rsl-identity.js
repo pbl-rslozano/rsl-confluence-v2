@@ -1,5 +1,5 @@
 /**
- * rsl-identity.js — rsL Core Kit · v1.0 2026
+ * rsl-identity.js — rsL Core Kit · v1.1 2026
  * Customer Name Recall: one identity record (customer, site, operator, recent customers),
  * validated, persisted through a StoragePort, observable. Identity masterclass phase 3.
  */
@@ -12,8 +12,8 @@ const clean = (s, max) => String(s ?? '').normalize('NFC').replace(CTRL, '').tri
 export function defaultIdentity() {
   const c = BRAND.defaultCustomer;
   return {
-    customer: { legalName: c.legalName, shortName: c.shortName, code: c.code, logo: null, site: 'SM5' },
-    operator: { id: null, displayName: '', role: 'QC/QA', preferredLang: 'en' },
+    customer: { legalName: c.legalName, shortName: c.shortName, code: c.code, logo: null, site: '' },
+    operator: { id: null, displayName: '', role: '', preferredLang: 'en' },
     recent: [],
     updatedAt: new Date().toISOString(),
   };
@@ -39,7 +39,7 @@ export function validateIdentity(input) {
   const operator = {
     id: op.id ? clean(op.id, 64) : null,
     displayName: clean(op.displayName, 60),
-    role: clean(op.role ?? 'QC/QA', 40),
+    role: clean(op.role ?? '', 40),
     preferredLang: clean(op.preferredLang ?? 'en', 5) || 'en',
   };
   const recent = Array.isArray(input?.recent) ? input.recent.slice(0, 5).map((r) => ({ legalName: clean(r.legalName, 120), shortName: clean(r.shortName, 24), code: clean(r.code, 6).toUpperCase() })) : [];

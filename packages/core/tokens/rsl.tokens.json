@@ -86,22 +86,22 @@
       "$value": {
         "colorSpace": "srgb",
         "components": [
-          1.0,
-          0.4196,
-          0.0471
+          0.0275,
+          0.3333,
+          0.9608
         ],
-        "hex": "#FF6B0C"
+        "hex": "#0755F5"
       }
     },
     "secondary": {
       "$value": {
         "colorSpace": "srgb",
         "components": [
-          1.0,
-          0.6196,
-          0.0
+          0.4588,
+          0.1412,
+          0.9569
         ],
-        "hex": "#FF9E00"
+        "hex": "#7524F4"
       }
     }
   },
