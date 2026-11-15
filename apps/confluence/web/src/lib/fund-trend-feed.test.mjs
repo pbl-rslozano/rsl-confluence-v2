@@ -1,7 +1,7 @@
 // Fund trend daily-bar feed (v2.8 WP21, Task 2). Run: node scripts/run-engine-tests.mjs fund-trend-feed.test.mjs
 // No test touches the network: the fetcher and the store are stubs, the clock is injected.
 import { loadDailyBars, loadFundTrends, resetFundTrendFeedForTests, DAY_MS } from "./fund-trend-feed.ts";
-import { RateLimitError, rateLimitCooldown, resetRateLimitForTests } from "./market-client.ts";
+import { RateLimitError, rateLimitCooldown, resetRateLimitForTests, noteVenueRateLimit } from "./market-client.ts";
 
 let passed = 0, failed = 0;
 const ok = (name, cond, extra = "") => {
@@ -126,6 +126,47 @@ async function main() {
     await new Promise((r) => setTimeout(r, 50));
     ok("abort rejects with AbortError", err && err.name === "AbortError");
     ok("nothing is requested or emitted after the abort", t.requests.length === n && n < 8 && values.length <= n);
+  }
+
+  // I-1: an already-active venue cooldown makes no request (the 429 halt path)
+  {
+    resetFundTrendFeedForTests(); resetRateLimitForTests();
+    const t = stubs(); stubs.now = D0 + 1000;
+    noteVenueRateLimit("binance", new RateLimitError("429", 60_000));
+    const m = await loadFundTrends(SRC, ["C1", "C2", "C3"].map((symbol) => ({ symbol, ac: "crypto" })), D0 + 1000, { deps: t.deps });
+    ok("active cooldown makes no request", t.requests.length === 0, JSON.stringify(t.requests));
+    ok("active cooldown: every row is { na: loading }", ["C1", "C2", "C3"].every((s) => m.get(s)?.na === "loading"), JSON.stringify([...m]));
+    resetRateLimitForTests();
+  }
+
+  // M3: joining an in-flight job that was aborted under another signal starts one fresh fetch
+  {
+    resetFundTrendFeedForTests();
+    const t = stubs(); stubs.now = D0 + 1000;
+    const a = new AbortController();
+    let gate; const held = new Promise((r) => { gate = r; });
+    const slow = { ...t.deps, fetchSeries: async (...args) => { if (t.requests.length === 0) { t.requests.push({ symbol: "J", plan: null, bars: 1000 }); await held; } return t.deps.fetchSeries(...args); } };
+    const first = loadDailyBars(SRC, "JUSDT", D0 + 1000, a.signal, slow).catch((e) => e);
+    await new Promise((r) => setTimeout(r, 2));
+    const second = loadDailyBars(SRC, "JUSDT", D0 + 1000, undefined, slow); // joins the first job
+    a.abort(); gate();
+    const r1 = await first; const r2 = await second;
+    ok("the aborted starter gets AbortError", r1 && r1.name === "AbortError");
+    ok("a joiner whose own signal is live gets bars from a fresh fetch", Array.isArray(r2) && r2.length === 999, String(r2));
+  }
+
+  // M7: the UTC-day marker is saved only when the series save succeeded
+  {
+    resetFundTrendFeedForTests();
+    const t = stubs(); stubs.now = D0 + 1000;
+    let marked = 0;
+    const deps = { ...t.deps, save: async () => { throw new Error("quota"); }, saveDay: async () => { marked++; } };
+    await loadDailyBars(SRC, "SUSDT", D0 + 1000, undefined, deps);
+    ok("no marker when the series save failed", marked === 0);
+    const deps2 = { ...t.deps, saveDay: async () => { marked++; } };
+    resetFundTrendFeedForTests();
+    await loadDailyBars(SRC, "SUSDT", D0 + 1000, undefined, deps2);
+    ok("marker saved after a successful series save", marked === 1);
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

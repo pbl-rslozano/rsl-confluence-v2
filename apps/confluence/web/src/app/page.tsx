@@ -639,6 +639,7 @@ export default function Home() {
   const historyAbortRef = useRef<AbortController | null>(null);
   /** v2.8 (WP21): Fund trend per `source|symbol`, filled by the daily-bar feed that runs behind a finished scan (no display yet). */
   const [, setFundTrends] = useState<Map<string, FundTrendState>>(new Map());
+  const fundPendingRef = useRef<Map<string, FundTrendState>>(new Map());
   const fundAbortRef = useRef<AbortController | null>(null);
   const alertedReversalRef = useRef<Map<string, number>>(new Map());
 
@@ -1171,16 +1172,25 @@ export default function Home() {
         });
       }
       // v2.8 (WP21): the daily-bar feed starts only now, behind the finished scan, for live rows (never display-only cached ones).
-      if (usesDirectFetch() && !ac.signal.aborted) {
+      if (usesDirectFetch() && !ac.signal.aborted && !data.rateLimitedUntil) {
         const feedRows = liveOnly(out).map((r) => ({ symbol: r.pair, ac: r.assetClass }));
         if (feedRows.length) {
           const feed = new AbortController();
           fundAbortRef.current = feed;
           ac.signal.addEventListener("abort", () => feed.abort(), { once: true });
+          // One state update per batch (<= every 250 ms), not one per pair.
+          const flushFund = () => {
+            if (feed.signal.aborted || !fundPendingRef.current.size) return;
+            const batch = fundPendingRef.current;
+            fundPendingRef.current = new Map();
+            setFundTrends((cur) => new Map([...cur, ...batch]));
+          };
+          fundPendingRef.current = new Map();
+          const fundBatcher = createBatcher(flushFund);
           void loadFundTrends(source, feedRows, Date.now(), {
             signal: feed.signal,
-            onValue: (symbol, state) => setFundTrends((cur) => new Map(cur).set(`${source}|${symbol}`, state)),
-          }).catch(() => undefined); // aborted by a newer scan or a source switch
+            onValue: (symbol, state) => { fundPendingRef.current.set(`${source}|${symbol}`, state); fundBatcher.schedule(); },
+          }).then(() => fundBatcher.flushNow(), () => fundBatcher.cancel()); // a rejection = aborted by a newer scan or a source switch
         }
       }
     } catch (e) {

@@ -14,7 +14,7 @@
 import type { Kline } from "./indicators";
 import type { AssetClass } from "./ledger-metrics";
 import {
-  barCloseTime, contiguousTail, dropUnclosed, fetchSeries, noteVenueRateLimit, RateLimitError, venueOf, type DataSource,
+  assertNotCoolingDown, barCloseTime, contiguousTail, dropUnclosed, fetchSeries, noteVenueRateLimit, RateLimitError, venueOf, type DataSource,
 } from "./market-client";
 import { loadFetchedDay, loadHistoricalSeries, mergeDelta, saveFetchedDay, saveHistoricalSeries } from "./history-store";
 import { FT_MIN_BARS, fundTrend, isFundTrendClass, type FundTrendState } from "./fund-trend";
@@ -87,6 +87,7 @@ export async function loadDailyBars(
   now: number,
   signal?: AbortSignal,
   deps: DailyDeps = realDeps,
+  retried = false,
 ): Promise<Kline[]> {
   if (signal?.aborted) throw abortError();
   const key = keyOf(source, symbol);
@@ -94,7 +95,14 @@ export async function loadDailyBars(
   const mem = memory.get(key);
   if (mem && mem.day === day) return dropUnclosed(mem.bars, DAY_MS, now);
   const running = inflight.get(key);
-  if (running) return running;
+  if (running) {
+    try { return await running; } catch (e) {
+      // The job was started under another caller's signal and that one aborted: if this caller is still
+      // live, start one fresh fetch (the aborted job has removed itself from `inflight`).
+      if (!(e instanceof Error && e.name === "AbortError") || signal?.aborted || retried) throw e;
+      return loadDailyBars(source, symbol, now, signal, deps, true);
+    }
+  }
 
   const job = (async () => {
     let stored: Kline[] = [];
@@ -107,6 +115,9 @@ export async function loadDailyBars(
       return bars;
     }
     if (signal?.aborted) throw abortError();
+    // fetchJson asserts the cooldown only for some venues: never send a daily request to a cooling venue
+    // (it takes the 429 halt path in loadFundTrends).
+    assertNotCoolingDown(source);
     const plan = dailyPlan(stored, now);
     let revised = false;
     const merge = (fresh: Kline[], overlap: number) => {
@@ -123,8 +134,11 @@ export async function loadDailyBars(
       throw e;
     }
     const bars = dropUnclosed(fetched, DAY_MS, now);
-    try { await deps.save(source, symbol, bars, revised); } catch { /* blocked store */ }
-    try { await deps.saveDay(source, symbol, day); } catch { /* in-memory marker still applies */ }
+    // The stored marker only after the stored series: a marker without its series would skip tomorrow's delta.
+    try {
+      await deps.save(source, symbol, bars, revised);
+      await deps.saveDay(source, symbol, day);
+    } catch { /* blocked store: the in-memory cache and marker still apply */ }
     memory.set(key, { day, bars });
     return bars;
   })();
