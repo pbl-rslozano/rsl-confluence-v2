@@ -372,6 +372,32 @@ function dsCompare(base, now, prefix = "") {
       closedAtRest && !!got && got.status === 200 && got.len > 10000 && /third-party notices/.test(shown) && /react@/.test(shown) && /Bollinger Bands®/.test(tm) && tmInside === 1,
       { closedAtRest, href, ...got, shown: shown.length });
   }
+  // v2.8 (owner request, 15 Nov 2026) — About → rsL Coffee Kit tip card: collapsed at rest (never opens by itself);
+  // opened, the three kit card PNGs load at their natural 600 px, only Bitcoin has a Copy button, {appName} is replaced,
+  // and the section sits above the page-end credit.
+  {
+    const sec = page.getByTestId("about-coffee");
+    const closedAtRest = (await sec.getAttribute("open")) === null;
+    await sec.locator("summary").click();
+    await page.waitForFunction(() => { const imgs = [...document.querySelectorAll('[data-testid="about-coffee"] img')]; return imgs.length === 3 && imgs.every((i) => i.complete && i.naturalWidth > 0); }, null, { timeout: 10000 }).catch(() => null);
+    const got = await page.evaluate(() => {
+      const s = document.querySelector('[data-testid="about-coffee"]');
+      const footer = [...document.querySelectorAll('[role="dialog"] footer')].pop();
+      return {
+        open: s.open,
+        widths: [...s.querySelectorAll("img")].map((i) => i.naturalWidth),
+        copy: [...s.querySelectorAll("[data-coffee-copy]")].map((b) => b.getAttribute("data-coffee-copy")),
+        appName: s.textContent.includes("rsL Confluence Terminal"),
+        placeholder: s.textContent.includes("{appName}"),
+        beforeCredit: !!footer && !!(s.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING),
+      };
+    });
+    await page.screenshot({ path: path.join(OUT, "04b-about-coffee-1366.png") });
+    await sec.locator("summary").click(); // close again so the checks below see About as before
+    record("CK-1", "About → coffee tip card (collapsed at rest): opened, three kit card images load at 600 px, exactly one Copy button (Bitcoin), \"rsL Confluence Terminal\" shown and no {appName}",
+      closedAtRest && got.open && got.widths.length === 3 && got.widths.every((w) => w === 600) && got.copy.length === 1 && got.copy[0] === "btc" && got.appName && !got.placeholder && got.beforeCredit,
+      { closedAtRest, ...got });
+  }
 
   // Backup export → restore round trip + tamper refusal (builder §9.4-5)
   const [dl] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Export backup" }).click()]);
