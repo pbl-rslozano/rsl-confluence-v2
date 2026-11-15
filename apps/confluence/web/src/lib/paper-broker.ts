@@ -98,6 +98,8 @@ export interface PaperPosition {
   closeRequestedAt: number | null;
   /** v2.8: why the close was requested (absent = manual). */
   closeReason?: ExitReason;
+  /** v2.8: measured one-side slippage (bp) frozen at approval from the sizing reading; absent = default costs (older positions). */
+  slipBps?: number;
 }
 
 export interface JournalEntry {
@@ -338,7 +340,8 @@ export function proposalExpiry(p: ProposalInput): number {
 export function withCosts(input: ProposalInput, measuredSlipBps?: number): ProposalInput {
   if (typeof input.roundTripCost === "number") return input;
   const c = ledgerCostsFor(input.src, input.assetClass, measuredSlipBps);
-  return { ...input, roundTripCost: (2 * (c.feeBps + c.slipBps)) / 1e4 };
+  const frozen = measuredSlipBps !== undefined && Number.isFinite(measuredSlipBps) && measuredSlipBps >= 0 ? { measuredSlipBps } : {};
+  return { ...input, ...frozen, roundTripCost: (2 * (c.feeBps + c.slipBps)) / 1e4 };
 }
 
 export function createProposal(book: PaperBook, rawInput: ProposalInput, now: number, nonce: string, measuredSlipBps?: number): Proposal | null {
@@ -414,6 +417,7 @@ export function approveProposal(book: PaperBook, proposal: Proposal, presentedNo
     markTime: input.barTime,
     lastBarTime: input.barTime,
     closeRequestedAt: null,
+    ...(typeof input.measuredSlipBps === "number" ? { slipBps: input.measuredSlipBps } : {}),
   };
   return {
     ok: true,
@@ -514,7 +518,7 @@ export function processBars(
   for (const orig of book.positions) {
     const k = orig.src === src && orig.tf === tf ? barsByPair[orig.pair] : undefined;
     if (!k || !k.length) { positions.push(orig); continue; }
-    const costs = costsOverride ?? costsFor(src, orig.assetClass, slipByPair?.[orig.pair]);
+    const costs = costsOverride ?? costsFor(src, orig.assetClass, orig.slipBps ?? slipByPair?.[orig.pair]);
     const fee = costs.feeBps / 1e4;
     const slip = costs.slipBps / 1e4;
     let p: PaperPosition = { ...orig };

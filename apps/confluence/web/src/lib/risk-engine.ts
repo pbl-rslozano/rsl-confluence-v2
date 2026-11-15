@@ -48,6 +48,8 @@ export interface ProposalInput {
   lotStep?: number;
   /** v2.8: round-trip cost as a fraction of entry, 2 × (taker fee + slippage); sized inside the risk budget. */
   roundTripCost?: number;
+  /** v2.8: the measured one-side slippage (bp) that went into roundTripCost; frozen on the position at approval. */
+  measuredSlipBps?: number;
   /** v2.8: the quote stablecoin's deviation from USDT in % (null for USDT itself or no reading). */
   depegPct?: number | null;
 }

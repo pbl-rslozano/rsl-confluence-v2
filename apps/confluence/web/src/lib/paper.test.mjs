@@ -597,6 +597,20 @@ console.log("v2.8 WP19 — cost-inclusive sizing, open-loss locks, no loosening,
   const fillOv = processBars(approveProposal(liveBook(), p23, "m1", NOW + 1000).book, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 101, 99, 100)] }, T0 + 3 * I, zero, { SOLUSDT: 20 }).book.positions[0];
   ok("costsOverride still wins over measured slippage", near(fillOv.entry, 100));
 
+
+  // Fix round 1: the measured slippage is frozen on the position at approval (sizing and fills agree).
+  const fz = createProposal(liveBook(), input(), NOW, "z1", m23);
+  const fzBook = approveProposal(liveBook(), fz, "z1", NOW + 1000).book;
+  ok("position stores the measured slippage used for sizing", fzBook.positions[0].slipBps === 20);
+  const lateFill = processBars(fzBook, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 101, 99, 100)] }, T0 + 3 * I, undefined, {}).book.positions[0];
+  ok("approve on a 23 h reading, fill when it would be 25 h old: still 20 bp", near(lateFill.entry, 100 * 1.002), String(lateFill.entry));
+  const newer = processBars(fzBook, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 101, 99, 100)] }, T0 + 3 * I, undefined, { SOLUSDT: 3 }).book.positions[0];
+  ok("a newer reading after approval does not change the position's fills", near(newer.entry, 100 * 1.002), String(newer.entry));
+  const legacyBook = approveProposal(liveBook(), createProposal(liveBook(), input(), NOW, "z2"), "z2", NOW + 1000).book;
+  ok("no measured reading: position has no slipBps and uses slipByPair/defaults as before", legacyBook.positions[0].slipBps === undefined && near(processBars(legacyBook, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 101, 99, 100)] }, T0 + 3 * I, undefined, { SOLUSDT: 8 }).book.positions[0].entry, 100.08));
+  const ovz = processBars(fzBook, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 101, 99, 100)] }, T0 + 3 * I, zero).book.positions[0];
+  ok("costsOverride wins over the frozen slippage", near(ovz.entry, 100));
+
   // Depeg gate wiring (WP19): quote's deviation from USDT, null for USDT or no reading.
   const dr = [{ coin: "USDC", reference: "USDT", price: 0.985, deviationPct: -1.5, level: "warning" }, { coin: "FDUSD", reference: "USDT", price: 1.006, deviationPct: 0.6, level: "watch" }];
   ok("depegFor: USDC quote returns -1.5, USDT and unread quotes null", depegFor(dr, "USDC") === -1.5 && depegFor(dr, "USDT") === null && depegFor(dr, "BTC") === null && depegFor(undefined, "USDC") === null && depegFor(dr, undefined) === null);
