@@ -5,8 +5,9 @@ older zip over newer work on `main` and silently removed features (see
 `docs/reviews/2026-11-07-v2.4-session-diagnosis.md`).
 
 ## Source of truth
-1. Start every change from the **current `main` of github.com/akong15/rsl-confluence** (clone or `git pull`).
-   (Owner, 11 Nov 2026: the project moved there from rslozano/rsl-confluence, rebuilt from the v2.6.0 release source.)
+1. Start every change from the **current `main` of github.com/pbl-rslozano/rsl-confluence-v2** (clone or `git pull`).
+   (Owner, 15 Nov 2026: moved here from akong15/rsl-confluence with full history; on 11 Nov 2026 it had moved to
+   akong15 from rslozano/rsl-confluence, rebuilt from the v2.6.0 release source.)
    Never start from a zip, a build bundle or a folder copy.
 2. Change code through Git: branch → commits → pull request → merge (three-way). **Never upload a snapshot over
    `main`** (no "local file differs → overwrite" uploads through an API or connector).

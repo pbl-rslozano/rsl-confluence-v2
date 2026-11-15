@@ -16,7 +16,7 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$Repo = "akong15/rsl-confluence",
+  [string]$Repo = "pbl-rslozano/rsl-confluence-v2",
   [string]$OutDir = (Join-Path ([Environment]::GetFolderPath("MyDocuments")) "rsL-signing"),
   [string]$Alias = "rsl-conf"
 )
