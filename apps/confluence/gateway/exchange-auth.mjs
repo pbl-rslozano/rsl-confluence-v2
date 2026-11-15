@@ -161,13 +161,25 @@ export async function verifyCredentials(credentials, fetcher = fetchPrivate) {
     const payload = await fetcher(buildBitgetProfileRequest({ ...base, passphrase: credentials.passphrase }));
     if (payload.code !== "00000") throw new Error(`Exchange rejected the credential test: ${safeMessage(payload, "authentication failed")}`);
     const permissions = Array.isArray(payload.data?.authorities) ? payload.data.authorities : [];
-    const hasWrite = permissions.some((value) => typeof value === "string" && value.endsWith("w"));
-    // An empty or missing authority list is unknown, never read-only.
-    if (permissions.length === 0) return { readOnly: null, permissions };
-    return { readOnly: !hasWrite, permissions };
+    return { readOnly: bitgetReadOnly(permissions), permissions };
   }
 
   throw new Error("Unsupported private API provider.");
+}
+
+/**
+ * Bitget authority codes this gateway accepts as read-only (final review I-2). Fail closed: a key is read-only only
+ * when EVERY entry is one of these strings. The codes are not confirmed against Bitget's documentation from here, so
+ * an unlisted code — even a genuinely read-only one — is refused; never widen this list without checking the docs.
+ */
+export const BITGET_READ_ONLY_AUTHORITIES = Object.freeze(["readonly", "spot_r", "contract_r", "margin_r", "wallet_r"]);
+const BITGET_WRITE = /(^|_)w$|^(trade|withdraw|transfer)$/i;
+
+/** true = every entry known read-only · false = a write authority is present · null = empty, missing or unrecognised. */
+export function bitgetReadOnly(authorities) {
+  if (!Array.isArray(authorities) || authorities.length === 0) return null;
+  if (authorities.some((value) => typeof value === "string" && BITGET_WRITE.test(value))) return false;
+  return authorities.every((value) => typeof value === "string" && BITGET_READ_ONLY_AUTHORITIES.includes(value)) ? true : null;
 }
 
 export function createProfile(credentials, verification) {

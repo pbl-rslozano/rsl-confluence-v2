@@ -12,6 +12,9 @@ import {
   profileAllowed,
   verifyCredentials,
 } from "./exchange-auth.mjs";
+import * as auth from "./exchange-auth.mjs";
+
+const BITGET_READ_ONLY_AUTHORITIES = auth.BITGET_READ_ONLY_AUTHORITIES ?? [];
 
 test("HMAC helpers are deterministic", () => {
   assert.equal(hmacHex("secret", "payload"), "b82fcb791acec57859b989b430a826488ce2e479fdf92326bd0a2e8375a42ba4");
@@ -107,6 +110,32 @@ test("binance mainnet null refused", async () => {
   const v = await verifyCredentials(c, async () => { if (n++ === 0) return {}; throw new Error("down"); });
   assert.equal(v.readOnly, null);
   assert.equal(profileAllowed(c, v).ok, false);
+});
+
+// Final review I-2: fail closed — read-only only when EVERY entry is a known read-only authority.
+test("bitget unknown authority refused", async () => {
+  const c = bitget();
+  for (const authorities of [["somethingNew"], ["spot_r", "somethingNew"], ["spot_r", 7], ["spot_r", null], ["spot_r", { code: "spot_w" }], ["SPOT_TRADE"]]) {
+    const v = await verifyCredentials(c, fakeFetch(bitgetPayload({ authorities })));
+    assert.notEqual(v.readOnly, true, JSON.stringify(authorities));
+    assert.equal(profileAllowed(c, v).ok, false, JSON.stringify(authorities));
+  }
+});
+
+test("bitget every known read-only authority accepted", async () => {
+  const c = bitget();
+  const v = await verifyCredentials(c, fakeFetch(bitgetPayload({ authorities: [...BITGET_READ_ONLY_AUTHORITIES] })));
+  assert.equal(v.readOnly, true);
+  assert.equal(profileAllowed(c, v).ok, true);
+});
+
+test("bitget write authority refused even beside known read-only ones", async () => {
+  const c = bitget();
+  for (const w of ["spot_w", "contract_w", "wallet_w", "trade", "withdraw", "transfer"]) {
+    const v = await verifyCredentials(c, fakeFetch(bitgetPayload({ authorities: ["spot_r", w] })));
+    assert.equal(v.readOnly, false, w);
+    assert.equal(profileAllowed(c, v).ok, false, w);
+  }
 });
 
 test("write permission refused", async () => {
