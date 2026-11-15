@@ -12,6 +12,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const BASE = process.argv[2] || "http://127.0.0.1:8770/";
+// v2.8 (WP27): `--capture-ds1 <file>` only records the DS-1 layout snapshot of BASE (used once on the v2.7.0 build).
+const CAPTURE_DS1 = process.argv.includes("--capture-ds1") ? process.argv[process.argv.indexOf("--capture-ds1") + 1] : null;
 const OUT = path.join(__dirname, "evidence");
 fs.mkdirSync(OUT, { recursive: true });
 const AXE = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
@@ -29,8 +31,8 @@ function stepOf(u) {
   const map = { "1m": 60e3, "5m": 3e5, "15m": H15, "1h": 36e5, "4h": 144e5, "1d": 864e5, "60": 36e5, "240": 144e5, "15": H15, D: 864e5, "15min": H15, "1day": 864e5, "1Dutc": 864e5, "4H": 144e5, "1H": 36e5 };
   return map[v] ?? H15;
 }
-function klines(sym, n = 200, step = H15) {
-  const start = Math.floor(Date.now() / step) * step - n * step;
+function klines(sym, n = 200, step = H15, now = Date.now()) {
+  const start = Math.floor(now / step) * step - n * step;
   let px = 100, s = [...sym].reduce((a, c) => a + c.charCodeAt(0), 7);
   const r = () => { s = (s * 16807) % 2147483647; return s / 2147483647 - 0.5; };
   const drift = sym.startsWith("BTC") ? 0.004 : sym.startsWith("ETH") ? -0.004 : 0;
@@ -40,11 +42,12 @@ function klines(sym, n = 200, step = H15) {
 }
 async function mockExchanges(ctx, seen, opts = {}) {
   let klineCalls = 0;
-  await ctx.route(/^https:\/\/(data-api\.binance\.vision|api\.bybit\.com|api\.bitget\.com)\//, (route) => {
+  await ctx.route(/^https:\/\/(data-api\.binance\.vision|api\.bybit\.com|api\.bitget\.com)\//, async (route) => {
     const u = new URL(route.request().url());
     seen && seen.push(u.host + u.pathname + (u.searchParams.get("limit") ? `?limit=${u.searchParams.get("limit")}` : ""));
     const headers = { "access-control-allow-origin": "*", "content-type": "application/json" };
     if (u.pathname.endsWith("/ticker/24hr")) {
+      if (opts.tickers) return route.fulfill({ status: 200, headers, body: JSON.stringify(opts.tickers) });
       // v2.2: tokenised stock, gold and an FX stablecoin pair alongside crypto; USDC is excluded.
       const t = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "USDCUSDT", "PAXGUSDT", "TSLABUSDT", "EURUSDT"].map((sym, i) => ({ symbol: sym, openPrice: "100", lastPrice: "101", quoteVolume: String(1e9 - i) }));
       return route.fulfill({ status: 200, headers, body: JSON.stringify(t) });
@@ -54,6 +57,8 @@ async function mockExchanges(ctx, seen, opts = {}) {
       return route.fulfill({ status: 200, headers, body: JSON.stringify({ bids: [["100.9", "50"], ["100.8", "100"]], asks: [["101.1", "50"], ["101.2", "100"]] }) });
     }
     klineCalls++;
+    // v2.8 (WP27): a throttled network (PG-1) answers candle requests late.
+    if (opts.klineDelayMs) await new Promise((ok) => setTimeout(ok, opts.klineDelayMs));
     if (opts.failSymbol && u.searchParams.get("symbol") === opts.failSymbol) {
       return route.fulfill({ status: 500, headers, body: JSON.stringify({ code: -1, msg: "upstream error" }) });
     }
@@ -61,7 +66,7 @@ async function mockExchanges(ctx, seen, opts = {}) {
       return route.fulfill({ status: 429, headers: { ...headers, "retry-after": "45" }, body: JSON.stringify({ code: -1003, msg: "Too many requests" }) });
     }
     const limit = Math.min(1000, Number(u.searchParams.get("limit") || 200));
-    return route.fulfill({ status: 200, headers, body: JSON.stringify(klines(u.searchParams.get("symbol") || "X", limit, stepOf(u))) });
+    return route.fulfill({ status: 200, headers, body: JSON.stringify(klines(u.searchParams.get("symbol") || "X", limit, stepOf(u), opts.now)) });
   });
 }
 
@@ -90,8 +95,65 @@ async function completeFirstRun(page, { name = "rsLozano — Personal trading de
 }
 async function waitRows(page) { await page.waitForFunction(() => document.querySelectorAll("tbody tr").length >= 4, null, { timeout: 20000 }); }
 
+/* ---------- v2.8 (WP27) DS-1: main-screen layout at rest (spec §3 design-unchanged rule) ---------- */
+// Fixed clock (page.clock + the mocked candles), FX hosts mocked, default settings (theme System), 1366 × 768, English.
+const DS_NOW = Date.UTC(2026, 10, 11, 9, 7, 0);
+const DS_TOLERANCE_PX = 2;
+async function ds1Snapshot(browser) {
+  const c = await newContext(browser);
+  await mockExchanges(c, null, { now: DS_NOW });
+  await c.route(/^https:\/\/(api\.frankfurter\.dev|cdn\.jsdelivr\.net|latest\.currency-api\.pages\.dev|open\.er-api\.com|data-api\.ecb\.europa\.eu)\//, (route) => route.fulfill({ status: 503, body: "" }));
+  await c.route("**/updates/latest.json", (route) => route.fulfill({ status: 404, body: "" }));
+  const p = await c.newPage();
+  await p.clock.setFixedTime(DS_NOW);
+  await p.goto(BASE, { waitUntil: "domcontentloaded" });
+  await completeFirstRun(p, { operator: "R" });
+  await waitRows(p);
+  // At rest: the scan has finished (no progress bar, no spinner) and nothing is still settling.
+  await p.waitForFunction(() => !document.querySelector("header div.h-full.bg-gradient-to-r") && !document.querySelector("header .animate-spin"), null, { timeout: 30000 });
+  await p.waitForTimeout(1000);
+  const snap = await p.evaluate(() => {
+    const box = (el) => { const b = el.getBoundingClientRect(); return [Math.round(b.x), Math.round(b.y), Math.round(b.width), Math.round(b.height)]; };
+    const boxes = {};
+    const add = (name, el) => { if (el) boxes[name] = box(el); };
+    add("header", document.querySelector("header"));
+    document.querySelectorAll("header button, header [role=combobox], header input").forEach((el, i) => add(`header.control.${i}`, el));
+    add("main", document.querySelector("main"));
+    add("list.toolbar", document.querySelector("main > div > div"));
+    add("table", document.querySelector("table.market-table"));
+    document.querySelectorAll("thead th").forEach((el, i) => add(`th.${i}`, el));
+    document.querySelectorAll("tbody tr").forEach((tr, i) => { add(`row.${i}`, tr); tr.querySelectorAll("td").forEach((td, j) => add(`row.${i}.td.${j}`, td)); });
+    add("footer", document.querySelector("footer"));
+    const bg = (sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).backgroundColor : null; };
+    const fg = (sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).color : null; };
+    const colours = { body: bg("body"), header: bg("header"), thead: bg("thead"), footer: bg("footer"), th: fg("thead th"), rowText: fg("tbody tr td:nth-child(3)") };
+    return { boxes, colours };
+  });
+  await c.close();
+  return snap;
+}
+function ds1Compare(base, now) {
+  const diffs = [];
+  for (const [k, b] of Object.entries(base.boxes)) {
+    const n = now.boxes[k];
+    if (!n) { diffs.push(`${k}: missing`); continue; }
+    if (b.some((v, i) => Math.abs(v - n[i]) > DS_TOLERANCE_PX)) diffs.push(`${k}: ${b.join(",")} → ${n.join(",")}`);
+  }
+  for (const k of Object.keys(now.boxes)) if (!(k in base.boxes)) diffs.push(`${k}: new`);
+  for (const [k, v] of Object.entries(base.colours)) if (now.colours[k] !== v) diffs.push(`colour ${k}: ${v} → ${now.colours[k]}`);
+  return diffs;
+}
+
 (async () => {
   const browser = await chromium.launch();
+  if (CAPTURE_DS1) {
+    const snap = await ds1Snapshot(browser);
+    fs.mkdirSync(path.dirname(path.resolve(CAPTURE_DS1)), { recursive: true });
+    fs.writeFileSync(CAPTURE_DS1, JSON.stringify({ "@note": `DS-1 baseline (main screen at rest, 1366x768, en, default theme; clock ${new Date(DS_NOW).toISOString()}), captured from ${BASE}`, ...snap }, null, 2) + "\n");
+    console.log(`DS-1 baseline: ${Object.keys(snap.boxes).length} boxes → ${CAPTURE_DS1}`);
+    await browser.close();
+    return;
+  }
   const requests = [];
 
   /* ===== A. First run, legacy migration, brand, CNR ===== */
@@ -1455,6 +1517,53 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
       defaultExpanded === 0 && okCredit(normal) && okCredit(expanded) && okCredit(detail) && okCredit(replay), { defaultExpanded, normal, expanded, detail, replay });
     await p.keyboard.press("Escape");
     await c.close();
+  }
+
+  /* ===== v2.8 WP27: smooth loading — progressive rows; layout at rest unchanged ===== */
+  /* acceptance-ids: PG-1, PG-2, DS-1 */
+  {
+    // 30 crypto pairs, each candle request answered after 600 ms (throttled network): five batches of six.
+    const tickers = Array.from({ length: 30 }, (_, i) => ({ symbol: `PG${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + Math.floor(i / 26))}USDT`, openPrice: "100", lastPrice: "101", quoteVolume: String(1e9 - i * 1e6) }));
+    const c = await newContext(browser);
+    const mock = { tickers, klineDelayMs: 600 };
+    await mockExchanges(c, null, mock);
+    const p = await c.newPage();
+    await p.goto(BASE, { waitUntil: "domcontentloaded" });
+    await completeFirstRun(p, { operator: "R" });
+    const early = await p.waitForFunction(() => {
+      const bar = document.querySelector('[data-testid="scan-progress"]');
+      const rowsShown = document.querySelectorAll("tbody tr:has(td button)").length;
+      return bar && rowsShown > 0 && Number(bar.dataset.done) < Number(bar.dataset.total)
+        ? { rows: rowsShown, done: Number(bar.dataset.done), total: Number(bar.dataset.total), width: bar.style.width } : null;
+    }, null, { timeout: 30000, polling: 50 }).then((h) => h.jsonValue(), () => null);
+    await p.waitForFunction(() => document.querySelectorAll("tbody tr:has(td button)").length === 30 && !document.querySelector('[data-testid="scan-progress"]'), null, { timeout: 30000 }).catch(() => null);
+    const final = await p.evaluate(() => ({ rows: document.querySelectorAll("tbody tr").length, badges: document.querySelectorAll('[data-testid="row-freshness"]').length }));
+    record("PG-1", "Throttled network: rows appear while the scan runs (before the progress bar reaches 100 %); at rest every row is live (no badge)",
+      !!early && early.rows >= 1 && early.done < early.total && final.rows === 30 && final.badges === 0, { early, final });
+    // PG-2: reopen — rows come at once from on-device history marked "updating", before any candle arrives; a pair
+    // whose fetch fails this time says "not updated" with its bar time once the scan is at rest.
+    await p.waitForTimeout(1500); // history writes settle
+    mock.failSymbol = "PGCAUSDT";
+    await p.reload({ waitUntil: "domcontentloaded" });
+    const instant = await p.waitForFunction(() => {
+      const bar = document.querySelector('[data-testid="scan-progress"]');
+      const updating = document.querySelectorAll('[data-testid="row-freshness"][data-state="updating"]').length;
+      return bar && updating > 0 && Number(bar.dataset.done) === 0 ? { updating, text: document.querySelector('[data-testid="row-freshness"]').textContent } : null;
+    }, null, { timeout: 30000, polling: 50 }).then((h) => h.jsonValue(), () => null);
+    await p.waitForFunction(() => !document.querySelector('[data-testid="scan-progress"]') && !document.querySelector('[data-testid="row-freshness"][data-state="updating"]'), null, { timeout: 40000 }).catch(() => null);
+    const rest = await p.evaluate(() => [...document.querySelectorAll('[data-testid="row-freshness"]')].map((b) => ({ state: b.dataset.state, text: b.textContent, row: b.closest("tr")?.querySelector("button > span:nth-child(2)")?.textContent })));
+    record("PG-2", "Reopen: rows appear at once from on-device history marked \"updating · bar time\" before any candle arrives; at rest only the pair whose fetch failed says \"not updated · bar time\"",
+      !!instant && instant.updating >= 10 && /^updating · \d/.test(instant.text) && rest.length === 1 && rest[0].state === "stale" && /^not updated · \d/.test(rest[0].text) && rest[0].row === "PGCAUSDT",
+      { instant, rest });
+    await c.close();
+  }
+  {
+    const baseFile = path.join(__dirname, "baselines", "ds-1.json");
+    const base = fs.existsSync(baseFile) ? JSON.parse(fs.readFileSync(baseFile, "utf8")) : null;
+    const now = await ds1Snapshot(browser);
+    const diffs = base ? ds1Compare(base, now) : ["no baseline"];
+    record("DS-1", `Main screen at rest: header, controls, list toolbar, columns, rows and footer within ±${DS_TOLERANCE_PX} px of v2.7.0; default colours unchanged (text masked, clock frozen, FX mocked)`,
+      diffs.length === 0, diffs.length ? diffs.slice(0, 12).join(" | ") : `${Object.keys(now.boxes).length} boxes`);
   }
 
   await browser.close();
