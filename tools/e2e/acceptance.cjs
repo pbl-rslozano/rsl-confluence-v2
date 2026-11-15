@@ -1960,6 +1960,152 @@ function dsCompare(base, now, prefix = "") {
     await c.close();
   }
 
+  /* ===== v2.8 WP21 (Fund trend): disagreement marks on the list and chart, the pulse modes, the Fund rank column ===== */
+  /* acceptance-ids: FT-4, FT-5 */
+  {
+    const DAY = 864e5;
+    // Daily feed: BTC falls 1 %/day (Fund trend -100) while its mocked chart bars rise (strong bullish score) and ETH does the
+    // opposite, so both rows disagree (BTC +1, ETH -1). Other coins keep the default mocked daily bars.
+    const dailyFeed = async (route) => {
+      const u = new URL(route.request().url());
+      const sym = u.searchParams.get("symbol");
+      const up = sym === "ETHUSDT";
+      if (u.searchParams.get("interval") !== "1d" || (sym !== "BTCUSDT" && !up)) return route.fallback();
+      const n = 1000, start = Math.floor(Date.now() / DAY) * DAY - n * DAY, k = up ? 0.01 : -0.01, rows = [];
+      for (let i = 0; i <= n; i++) { const o = 100 * Math.exp(k * i), cl = 100 * Math.exp(k * (i + 1)); rows.push([start + i * DAY, String(o), String(Math.max(o, cl) * 1.001), String(Math.min(o, cl) * 0.999), String(cl), "1000", start + (i + 1) * DAY - 1]); }
+      return route.fulfill({ status: 200, headers: { "access-control-allow-origin": "*", "content-type": "application/json" }, body: JSON.stringify(rows) });
+    };
+    // Chart bars for BTC: 1,600 mocked bars that honour endTime, so a full 1,000-bar window exists for the newest 300.
+    const longBtc = async (route) => {
+      const u = new URL(route.request().url());
+      if (u.searchParams.get("symbol") !== "BTCUSDT" || u.searchParams.get("interval") === "1d" || !u.searchParams.has("endTime")) return route.fallback();
+      const all = klines("BTCUSDT", 1600, stepOf(u));
+      const end = Number(u.searchParams.get("endTime")) || Infinity, limit = Math.min(1000, Number(u.searchParams.get("limit") || 500));
+      return route.fulfill({ status: 200, headers: { "access-control-allow-origin": "*", "content-type": "application/json" }, body: JSON.stringify(all.filter((r) => r[0] <= end).slice(-limit)) });
+    };
+    const optIn = (ctx, ids) => ctx.addInitScript((v) => { try { if (!localStorage.getItem("ft-seeded")) { localStorage.setItem("ct-chart-optin-v1", v); localStorage.setItem("ft-seeded", "1"); } } catch {} }, JSON.stringify(ids));
+    const openPage = async (c) => {
+      await mockExchanges(c);
+      await c.route(/^https:\/\/data-api\.binance\.vision\/api\/v3\/klines/, dailyFeed);
+      await c.route(/^https:\/\/data-api\.binance\.vision\/api\/v3\/klines/, longBtc);
+      const p = await c.newPage();
+      await p.goto(BASE, { waitUntil: "domcontentloaded" });
+      await completeFirstRun(p);
+      await waitRows(p);
+      return p;
+    };
+    const mark = (p, sym) => p.locator("tbody tr", { hasText: new RegExp(`${sym}USDT`) }).locator('[data-testid="fund-disagree"]');
+    const anim = (loc) => loc.evaluate((e) => { const s = getComputedStyle(e); return { name: s.animationName, iter: s.animationIterationCount }; });
+    const rowOutline = (p, sym) => p.locator("tbody tr", { hasText: new RegExp(`${sym}USDT`) }).first().evaluate((e) => { const s = getComputedStyle(e); return { style: s.outlineStyle, width: s.outlineWidth, cls: e.className.includes("ft-row-disagree") }; });
+    const setRibbon = async (p, on, coin = "BTC") => {
+      await p.getByRole("button", { name: new RegExp(`^${coin}`) }).first().click();
+      await p.locator('[data-testid="price-chart"]').waitFor();
+      await p.getByRole("button", { name: "Indicators", exact: true }).click();
+      const box = p.getByRole("checkbox", { name: "Fund trend ribbon", exact: true });
+      if (on) await box.check(); else await box.uncheck();
+    };
+
+    // --- ribbon off: no marker; on: marker + outline + 3 pulses, then static, never replayed ---
+    const c = await newContext(browser);
+    const p = await openPage(c);
+    await p.waitForTimeout(2500); // the daily feed runs behind the scan
+    const offCount = await p.locator('[data-testid="fund-disagree"]').count();
+    const offOutline = await p.locator("tbody tr.ft-row-disagree").count();
+    await setRibbon(p, true);
+    await mark(p, "BTC").waitFor({ timeout: 30000 }).catch(() => null);
+    const btc = mark(p, "BTC");
+    const first = { count: await btc.count(), anim: await anim(btc).catch(() => null), label: await btc.getAttribute("aria-label").catch(() => null), out: await rowOutline(p, "BTC") };
+    const ethFirst = { count: await mark(p, "ETH").count(), dir: await mark(p, "ETH").getAttribute("data-dir").catch(() => null) };
+    // Chart hatching on the bars where the (scored) bar and the Fund trend disagree.
+    const hatch = p.locator('[data-fund="disagree"] [data-disagree]');
+    await hatch.first().waitFor({ timeout: 40000 }).catch(() => null);
+    const hatchN = await hatch.count();
+    const hatchInfo = hatchN ? await p.locator('[data-fund="disagree"]').first().evaluate((g) => ({ fill: g.querySelector("rect")?.getAttribute("fill"), diamond: !!g.querySelector("path"), title: g.querySelector("title")?.textContent })) : null;
+    await p.waitForTimeout(3600);
+    const done = await anim(btc).catch(() => null);
+    // Ribbon off and on again does not replay the pulse.
+    const box = p.getByRole("checkbox", { name: "Fund trend ribbon", exact: true });
+    await box.uncheck(); await box.check();
+    await btc.waitFor({ timeout: 10000 }).catch(() => null);
+    const replay = await anim(btc).catch(() => null);
+    await p.keyboard.press("Escape");
+    await p.keyboard.press("Escape");
+    await c.close();
+
+    // --- reduced motion: the marker and outline stay, nothing animates ---
+    const cr = await newContext(browser, { reducedMotion: "reduce" });
+    await optIn(cr, ["fund-ribbon"]);
+    const pr = await openPage(cr);
+    await mark(pr, "BTC").waitFor({ timeout: 30000 }).catch(() => null);
+    await pr.waitForTimeout(500);
+    const reduced = { count: await mark(pr, "BTC").count(), anim: await anim(mark(pr, "BTC")).catch(() => null), out: await rowOutline(pr, "BTC") };
+    await cr.close();
+
+    // --- keep pulsing: infinite until the coin is opened or Stop pulsing is pressed ---
+    const ck = await newContext(browser);
+    const pk = await openPage(ck);
+    await pk.waitForTimeout(2500); // the daily feed runs behind the scan
+    await pk.getByRole("button", { name: /^Scoring profile/ }).click();
+    await pk.locator('[data-testid="fund-pulse"]').selectOption("keep");
+    await pk.getByRole("button", { name: /^Scoring profile/ }).click();
+    // The ribbon is switched on from SOL's sheet (not a disagreeing row), so BTC's and ETH's markers start as keep pulses.
+    await setRibbon(pk, true, "SOL");
+    await pk.keyboard.press("Escape");
+    await pk.keyboard.press("Escape");
+    await mark(pk, "BTC").waitFor({ timeout: 30000 }).catch(() => null);
+    await mark(pk, "ETH").waitFor({ timeout: 30000 }).catch(() => null);
+    await pk.waitForTimeout(3600);
+    const stopBtn = pk.locator('[data-testid="stop-pulse"]');
+    const keepBefore = { btc: await anim(mark(pk, "BTC")).catch(() => null), eth: await anim(mark(pk, "ETH")).catch(() => null), stop: await stopBtn.count(), stopText: await stopBtn.textContent().catch(() => null) };
+    await pk.getByRole("button", { name: /^BTC/ }).first().click();
+    await pk.locator('[data-testid="price-chart"]').waitFor();
+    await pk.keyboard.press("Escape");
+    await pk.waitForTimeout(300);
+    const afterOpen = { btc: await anim(mark(pk, "BTC")).catch(() => null), eth: await anim(mark(pk, "ETH")).catch(() => null), stop: await stopBtn.count() };
+    await stopBtn.click({ timeout: 3000 }).catch(() => null);
+    await pk.waitForTimeout(200);
+    const afterStop = { eth: await anim(mark(pk, "ETH")).catch(() => null), stop: await stopBtn.count(), marks: await pk.locator('[data-testid="fund-disagree"]').count() };
+    await ck.close();
+
+    record("FT-4", "Disagreement: no list marker with the ribbon off; on, the marker (labelled) and a row outline appear and pulse 3 times, then stay without replay; chart bars get hatching and a diamond; reduced motion shows no animation; Keep pulsing runs until the coin is opened or Stop pulsing is pressed",
+      offCount === 0 && offOutline === 0
+        && first.count === 1 && first.anim?.name === "ft-pulse" && first.anim?.iter === "3" && first.label === "Confluence and Fund trend disagree" && first.out.style === "solid" && first.out.cls
+        && ethFirst.count === 1 && ethFirst.dir === "-1"
+        && hatchN > 0 && hatchInfo?.fill === "url(#ft-hatch)" && hatchInfo?.diamond && hatchInfo?.title === "Confluence and Fund trend disagree"
+        && done?.name === "none" && replay?.name === "none"
+        && reduced.count === 1 && reduced.anim?.name === "none" && reduced.out.style === "solid"
+        && keepBefore.btc?.name === "ft-pulse" && keepBefore.btc?.iter === "infinite" && keepBefore.eth?.iter === "infinite" && keepBefore.stop === 1 && keepBefore.stopText === "Stop pulsing"
+        && afterOpen.btc?.name === "none" && afterOpen.eth?.iter === "infinite" && afterOpen.stop === 1
+        && afterStop.eth?.name === "none" && afterStop.stop === 0 && afterStop.marks === 2,
+      { offCount, offOutline, first, ethFirst, hatchN, hatchInfo, done, replay, reduced, keepBefore, afterOpen, afterStop });
+
+    // --- Fund rank column: absent by default, present when enabled ---
+    const c5 = await newContext(browser);
+    const p5 = await openPage(c5);
+    await p5.waitForTimeout(2500);
+    const colOff = { th: await p5.locator('[data-testid="col-fund-rank"]').count(), td: await p5.locator('[data-testid="cell-fund-rank"]').count() };
+    await p5.getByRole("button", { name: /^Scoring profile/ }).click();
+    const cb = p5.locator('[data-testid="fund-rank-column"]');
+    const defaults = { checked: await cb.isChecked(), pulse: await p5.locator('[data-testid="fund-pulse"]').inputValue() };
+    await cb.check();
+    await p5.getByRole("button", { name: /^Scoring profile/ }).click();
+    await p5.locator('[data-testid="col-fund-rank"]').waitFor();
+    await p5.waitForFunction(() => [...document.querySelectorAll('[data-testid="cell-fund-rank"]')].some((e) => /^\d+$/.test(e.textContent || "")), null, { timeout: 30000 }).catch(() => null);
+    const cells = await p5.locator("tbody tr").evaluateAll((trs) => trs.map((tr) => ({ name: tr.querySelector("button")?.textContent || "", cell: tr.querySelector('[data-testid="cell-fund-rank"]')?.textContent ?? null })));
+    const head = await p5.locator('[data-testid="col-fund-rank"]').textContent();
+    const nums = cells.map((x) => x.cell).filter((x) => /^\d+$/.test(x || "")).map(Number);
+    const btcCell = cells.find((x) => /^BTC/.test(x.name))?.cell, ethCell = cells.find((x) => /^ETH/.test(x.name))?.cell;
+    await p5.getByRole("combobox", { name: "Asset class" }).click();
+    await p5.getByRole("option", { name: "Stocks (tokenised)" }).click();
+    await p5.waitForFunction(() => /TSLAB/.test(document.querySelector("tbody")?.textContent || ""), null, { timeout: 15000 });
+    const stockCells = await p5.locator('[data-testid="cell-fund-rank"]').allTextContents();
+    await c5.close();
+    record("FT-5", "Fund rank column: absent by default (and the pulse default is 3 pulses); when enabled, crypto rows show their rank (strongest Fund trend = 1) and other rows show a dash",
+      colOff.th === 0 && colOff.td === 0 && !defaults.checked && defaults.pulse === "three" && head === "Fund rank"
+        && nums.length >= 3 && ethCell === "1" && btcCell === String(Math.max(...nums)) && stockCells.length > 0 && stockCells.every((x) => x === "—"),
+      { colOff, defaults, head, nums: nums.length, ethCell, btcCell, stockCells });
+  }
+
   /* ===== v2.8 WP27: smooth loading — progressive rows; layout at rest unchanged ===== */
   /* acceptance-ids: PG-1, PG-2 */
   {

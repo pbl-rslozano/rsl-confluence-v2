@@ -107,7 +107,15 @@
     "ft.unavailable",
     "ft.panelScore",
     "ft.panelTrend",
-    "ft.panelSize"
+    "ft.panelSize",
+    "ft.disagree",
+    "ft.stopPulse",
+    "settings.fundPulse",
+    "settings.fundPulse.three",
+    "settings.fundPulse.off",
+    "settings.fundPulse.keep",
+    "settings.fundRankColumn",
+    "col.fundRank"
   ],
   "app.subtitle": "ماسح توافق مؤشرات العملات المشفّرة",
   "ctx.page": "الماسح",
@@ -671,5 +679,13 @@
   "ft.unavailable": "اتجاه الصندوق: البيانات غير متاحة، حاول لاحقًا",
   "ft.panelScore": "درجة التوافق",
   "ft.panelTrend": "اتجاه الصندوق",
-  "ft.panelSize": "حجم الصندوق (0–200 %)"
+  "ft.panelSize": "حجم الصندوق (0–200 %)",
+  "ft.disagree": "التقاء المؤشرات واتجاه الصندوق غير متفقين",
+  "ft.stopPulse": "إيقاف النبض",
+  "settings.fundPulse": "نبض عدم الاتفاق",
+  "settings.fundPulse.three": "3 نبضات",
+  "settings.fundPulse.off": "إيقاف",
+  "settings.fundPulse.keep": "نبض مستمر",
+  "settings.fundRankColumn": "عمود ترتيب الصندوق",
+  "col.fundRank": "ترتيب الصندوق"
 }

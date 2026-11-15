@@ -563,5 +563,13 @@
   "ft.unavailable": "Fund trend: data unavailable, try again later",
   "ft.panelScore": "Confluence score",
   "ft.panelTrend": "Fund trend",
-  "ft.panelSize": "Fund size (0–200 %)"
+  "ft.panelSize": "Fund size (0–200 %)",
+  "ft.disagree": "Confluence and Fund trend disagree",
+  "ft.stopPulse": "Stop pulsing",
+  "settings.fundPulse": "Disagreement pulse",
+  "settings.fundPulse.three": "3 pulses",
+  "settings.fundPulse.off": "Off",
+  "settings.fundPulse.keep": "Keep pulsing",
+  "settings.fundRankColumn": "Fund rank column",
+  "col.fundRank": "Fund rank"
 }

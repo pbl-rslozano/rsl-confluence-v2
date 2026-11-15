@@ -69,7 +69,9 @@ import { coverageUntil, coverageWarnings, eventsNear } from "@/lib/macro-calenda
 import { cachedDailyBars, loadDailyBars, loadFundTrends } from "@/lib/fund-trend-feed";
 import { useChartOptIn } from "@/lib/chart-optin";
 import { createSerialQueue, writeLiveRows } from "@/lib/fund-feed-gate";
-import { fundRank, fundTrendSeriesFull, isFundTrendClass, type FundTrendState } from "@/lib/fund-trend";
+import { disagreement, fundRanks, fundTrendSeriesFull, isFundTrendClass, type FundTrendState } from "@/lib/fund-trend";
+import { pulseLedger } from "@/lib/pulse-ledger";
+import { FundDisagreeMark, StopPulseButton } from "@/components/fund-disagree-mark";
 import { panelBarsNeeded, panelCacheFor, panelCacheKey, PANEL_MAX_BARS, resolvePanelScores, type PanelScoreMap } from "@/lib/panel-scores";
 import { deltaPlan, loadHistoricalSeries, MAX_STORED_BARS, mergeDelta, mergeKlines, saveHistoricalSeries } from "@/lib/history-store";
 import {
@@ -579,6 +581,8 @@ export default function Home() {
   const [fxCustom, setFxCustom] = useState<{ name: string; url: string } | null>(DEFAULT_APP_PREFERENCES.fxCustom);
   // v2.8 (WP19): crypto liquidity floor (US$ of 24 h quote volume, the scan's qvUsd; 0 = off). Never display FX (R21).
   const [liquidityFloorUsd, setLiquidityFloorUsd] = useState<number>(DEFAULT_APP_PREFERENCES.liquidityFloorUsd);
+  const [fundPulse, setFundPulse] = useState<AppPreferences["fundPulse"]>(DEFAULT_APP_PREFERENCES.fundPulse);
+  const [fundRankColumn, setFundRankColumn] = useState<boolean>(DEFAULT_APP_PREFERENCES.fundRankColumn);
   const [fxDialog, setFxDialog] = useState(false);
   const [fxUpdating, setFxUpdating] = useState(false);
   const displayCurrency = displayPref === "AUTO" ? autoCurrency() : displayPref;
@@ -683,8 +687,10 @@ export default function Home() {
    * With fewer than 1,299 contiguous bars held, the missing older bars are fetched ONCE per series (one history page).
    */
   const detailPanelOn = chartOptIn.has("fund-panel");
+  // Per-bar scores also feed the disagreement hatching, which shows with the ribbon OR the panel.
+  const detailScoresOn = detailPanelOn || chartOptIn.has("fund-ribbon");
   // The Confluence line is the list's score for every asset class; only Fund trend / size / rank are crypto-only.
-  const panelSeriesKey = detailAsset && detailPanelOn ? `${detailAsset.src}|${detailAsset.tf}|${detailAsset.pair}` : null;
+  const panelSeriesKey = detailAsset && detailScoresOn ? `${detailAsset.src}|${detailAsset.tf}|${detailAsset.pair}` : null;
   const panelLastBar = detailAsset?.klines.at(-1)?.time ?? 0;
   const panelOlderRef = useRef<Map<string, Kline[]>>(new Map());
   const [panelOlderVer, setPanelOlderVer] = useState(0);
@@ -757,15 +763,15 @@ export default function Home() {
   /** Fund rank across the scan's crypto rows of this source (the feed's values; ties share a rank). */
   const detailFundRank = useMemo(() => {
     if (!detailAsset || !detailPanelOn || !isFundTrendClass(detailAsset.assetClass)) return undefined;
-    const values = new Map<string, number>();
-    for (const r of rows) {
-      if (r.src !== detailAsset.src || !isFundTrendClass(r.assetClass)) continue;
-      const st = fundTrends.get(`${r.src}|${r.pair}`);
-      if (st && !("na" in st)) values.set(r.pair, st.value);
-    }
-    const rank = fundRank(values).get(detailAsset.pair);
-    return rank === undefined ? undefined : t("ft.rank", { rank, n: values.size });
+    const { ranks, n } = fundRanks(rows, fundTrends, detailAsset.src);
+    const rank = ranks.get(detailAsset.pair);
+    return rank === undefined ? undefined : t("ft.rank", { rank, n });
   }, [detailAsset, detailPanelOn, rows, fundTrends, t]);
+  /** v2.8 (WP21): Fund rank per pair for the optional list column (same computation as the panel header). */
+  const listFundRanks = useMemo(() => (fundRankColumn ? fundRanks(rows, fundTrends, dataSource).ranks : null), [fundRankColumn, rows, fundTrends, dataSource]);
+  const listRibbonOn = chartOptIn.has("fund-ribbon");
+  // "Keep pulsing" ends for a coin once its detail sheet is opened.
+  useEffect(() => { if (detailAsset) pulseLedger.stopPair(`${detailAsset.src}|${detailAsset.pair}`); }, [detailAsset]);
   /** v2.8 (WP21): one daily-bar run at a time (post-scan feed and catch-up share it), so concurrency stays 2 in total. */
   const fundQueueRef = useRef(createSerialQueue());
   const alertedReversalRef = useRef<Map<string, number>>(new Map());
@@ -808,6 +814,8 @@ export default function Home() {
         setFxAutoUpdate(saved.fxAutoUpdate);
         setFxCustom(saved.fxCustom);
         setLiquidityFloorUsd(saved.liquidityFloorUsd);
+        setFundPulse(saved.fundPulse);
+        setFundRankColumn(saved.fundRankColumn);
         applyBackground(saved.background);
       } else {
         let legacy: string | null = null;
@@ -840,9 +848,11 @@ export default function Home() {
       fxAutoUpdate,
       fxCustom,
       liquidityFloorUsd,
+      fundPulse,
+      fundRankColumn,
     };
     saveAppPreferences(preferences);
-  }, [preferencesReady, timeframe, dataSource, universeLimit, background, monitorAssets, sortKey, sortDir, autoRefresh, chartDepth, assetClass, quoteBySource, displayPref, fxChoice, fxAutoUpdate, fxCustom, liquidityFloorUsd]);
+  }, [preferencesReady, timeframe, dataSource, universeLimit, background, monitorAssets, sortKey, sortDir, autoRefresh, chartDepth, assetClass, quoteBySource, displayPref, fxChoice, fxAutoUpdate, fxCustom, liquidityFloorUsd, fundPulse, fundRankColumn]);
 
   // v2.7 (WP13): display-currency rates — from the chosen source, cached on the device, refreshed every 6 h
   // while "Update automatically" is on, or on "Update now". Display only: the scan never sees them.
@@ -1736,7 +1746,8 @@ export default function Home() {
               }} />
             <ScannerInbox port={rsl.port} list={watchlistScope} timeframe={timeframe} ledger={ledgerStore} />
             <ScoringProfileEditor profile={scoringProfile} configId={activeConfigId} onApply={applyScoringProfile} disabled={!profileReady}
-              liquidityFloorUsd={liquidityFloorUsd} onLiquidityFloor={setLiquidityFloorUsd} t={t} />
+              liquidityFloorUsd={liquidityFloorUsd} onLiquidityFloor={setLiquidityFloorUsd}
+              fundPulse={fundPulse} onFundPulse={setFundPulse} fundRankColumn={fundRankColumn} onFundRankColumn={setFundRankColumn} t={t} />
             <SavedScans port={rsl.port}
               current={{ timeframe, dataSource, universeLimit, assetClass, sortKey, sortDir, search, monitorAssets }}
               onApply={(preset) => {
@@ -2047,6 +2058,7 @@ export default function Home() {
                 {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               </Button>
             )}
+            {listRibbonOn && <StopPulseButton label={t("ft.stopPulse")} />}
             <Button
               variant="outline"
               size="sm"
@@ -2087,12 +2099,13 @@ export default function Home() {
                   </th>
                   <th className="px-3 py-1.5 font-medium text-center" title={t("pattern.title")}>{t("col.pattern")}</th>
                   <th className="px-3 py-1.5 pe-4 text-end font-medium">{t("col.signal")}</th>
+                  {fundRankColumn && <th className="px-3 py-1.5 pe-4 text-end font-medium" data-testid="col-fund-rank">{t("col.fundRank")}</th>}
                 </tr>
               </thead>
               <tbody>
                 {visible.length === 0 && !loading && (
                   <tr>
-                    <td colSpan={11} className="py-16 text-center text-zinc-500">
+                    <td colSpan={fundRankColumn ? 12 : 11} className="py-16 text-center text-zinc-500">
                       {rows.length > 0 ? (
                         t("empty.filtered")
                       ) : (
@@ -2104,11 +2117,16 @@ export default function Home() {
                     </td>
                   </tr>
                 )}
-                {visible.map((r) => (
+                {visible.map((r) => {
+                  // v2.8 (WP21): disagreement mark only with the opt-in ribbon on; the score is the one the list shows.
+                  const ftState = listRibbonOn ? fundTrends.get(`${r.src}|${r.pair}`) : undefined;
+                  const dis = ftState && !("na" in ftState) ? disagreement(r.confluence.score, ftState.value) : 0;
+                  return (
                   <tr
                     key={r.pair}
                     onClick={() => setDetailAsset(r)}
-                    className="border-t border-zinc-800/70 hover:bg-zinc-800/40 cursor-pointer transition-colors focus-within:bg-zinc-800/40"
+                    data-ft-disagree={dis !== 0 ? String(dis) : undefined}
+                    className={`border-t border-zinc-800/70 hover:bg-zinc-800/40 cursor-pointer transition-colors focus-within:bg-zinc-800/40${dis !== 0 ? " ft-row-disagree" : ""}`}
                   >
                     <td className="px-3 py-1.5 text-center text-zinc-500 text-xs">{r.rank}</td>
                     <td className="px-3 py-1.5">
@@ -2163,6 +2181,8 @@ export default function Home() {
                     </td>
                     <td className="px-3 py-1.5 text-center">
                       <ScorePill score={r.confluence.score} />
+                      {dis !== 0 && <FundDisagreeMark key={`${r.src}|${r.pair}|${r.klines.at(-1)?.time ?? 0}|${dis}`} pairKey={`${r.src}|${r.pair}`}
+                        bar={r.klines.at(-1)?.time ?? 0} dir={dis} mode={fundPulse} label={t("ft.disagree")} />}
                     </td>
                     <td className="px-3 py-1.5 text-center">
                       <ReversalBadge r={r.reversal} />
@@ -2173,8 +2193,14 @@ export default function Home() {
                     <td className="px-3 py-1.5 text-right pr-4">
                       <MasterBadge c={r.confluence} />
                     </td>
+                    {fundRankColumn && (
+                      <td className="px-3 py-1.5 pe-4 text-end font-mono text-xs tabular-nums text-zinc-300" data-testid="cell-fund-rank">
+                        {listFundRanks?.get(r.pair) ?? "—"}
+                      </td>
+                    )}
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -126,6 +126,24 @@ export function fundRank(values: Map<string, number>): Map<string, number> {
   return out;
 }
 
+/**
+ * Fund rank over the crypto rows of one source (values from the Fund trend feed). `ranks` maps pair -> rank, `n` = ranked rows.
+ * Shared by the panel header and the optional list column.
+ */
+export function fundRanks(
+  rows: readonly { src: string; pair: string; assetClass: AssetClass }[],
+  states: ReadonlyMap<string, FundTrendState | { value: number }>,
+  src: string,
+): { ranks: Map<string, number>; n: number } {
+  const values = new Map<string, number>();
+  for (const r of rows) {
+    if (r.src !== src || !isFundTrendClass(r.assetClass)) continue;
+    const st = states.get(`${r.src}|${r.pair}`);
+    if (st && !("na" in st)) values.set(r.pair, st.value);
+  }
+  return { ranks: fundRank(values), n: values.size };
+}
+
 export function disagreement(score: number, ft: number | null): -1 | 0 | 1 {
   if (ft == null || !Number.isFinite(ft)) return 0;
   if (score >= FT_DISAGREE_SCORE && ft <= -FT_DISAGREE_FT) return 1;

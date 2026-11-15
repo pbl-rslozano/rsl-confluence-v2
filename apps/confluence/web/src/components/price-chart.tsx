@@ -10,7 +10,7 @@ import { shellFullscreen } from "@/lib/shell-fullscreen";
 import { formatAxisTicks } from "@/lib/money";
 import { useRsl } from "@/rsl/RslContext";
 import { clearChartOptIn, useChartOptIn } from "@/lib/chart-optin";
-import { ribbonStyle } from "@/lib/fund-trend";
+import { disagreement, ribbonStyle } from "@/lib/fund-trend";
 
 /**
  * PriceChart — custom SVG candlestick chart with indicator overlays.
@@ -272,7 +272,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
 
   const v = clampView(view, total);
   const start = v.end - v.count;
-  useEffect(() => { if (showPanel) onPanelRange?.(start, v.end); }, [showPanel, start, v.end, onPanelRange]);
+  useEffect(() => { if (showPanel || showRibbon) onPanelRange?.(start, v.end); }, [showPanel, showRibbon, start, v.end, onPanelRange]);
 
   const model = useMemo(() => {
     const slice = klines.slice(start, v.end);
@@ -343,6 +343,15 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
       score: bucketEnds.map((e) => panelScores?.get(klines[start + e].time) ?? null),
     } : null;
 
+    // v2.8 (WP21): disagreement per drawn bar (score at that bar vs Fund trend), with the ribbon or the panel on.
+    // A bar with no score or no Fund trend never counts. The marks show on the bars where the two disagree.
+    const marks = (showRibbon || showPanel) && fundTrend && fundTrend.length === klines.length && panelScores
+      ? bucketEnds.map((e) => {
+        const sc = panelScores.get(klines[start + e].time);
+        return sc == null ? 0 : disagreement(sc, fundTrend[start + e] ?? null);
+      })
+      : null;
+
     const step = chartW / bars.length;
     const x = (i: number) => PAD_L + i * step + step / 2;
     const bodyW = Math.max(1, step * 0.62);
@@ -368,13 +377,13 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
       const idx = Math.floor((i / (nTimeTicks - 1)) * (bars.length - 1));
       timeTicks.push({ x: x(idx), label: fmtTime(bars[idx].time) });
     }
-    return { slice: bars, perBar: k, x, y, bodyW, step, bbUpper: bbU, bbLower: bbL, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series, ribbon, panel };
+    return { slice: bars, perBar: k, x, y, bodyW, step, bbUpper: bbU, bbLower: bbL, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series, ribbon, panel, marks };
   }, [klines, start, v.end, hidden, periods, showBollinger, showMacd, priceH, chartW, formatAxis, convertPrice, showRibbon, fundTrend, showPanel, fundSize, panelScores]);
 
   /* Static layers are memoised: moving the pointer re-renders only the crosshair and readout (review #6). */
   const layers = useMemo(() => {
     if (!model) return null;
-    const { slice, x, y, bodyW, step, bbUpper, bbLower, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series, ribbon, panel } = model;
+    const { slice, x, y, bodyW, step, bbUpper, bbLower, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series, ribbon, panel, marks } = model;
     const panelTop = volTop + (showVolume ? VOL_H : 0);
     const viewH = panelTop + (panel ? PANEL_H : 0) + PAD_B;
     let bandPath = "";
@@ -481,6 +490,21 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
                   fill={RIBBON_COLOURS[st.colour]} opacity={st.alpha} />
               );
             })}
+          </g>}
+          {marks && marks.some((m) => m !== 0) && <g data-fund="disagree">
+            <defs>
+              <pattern id="ft-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <line x1="0" y1="0" x2="0" y2="6" stroke="#fbbf24" strokeWidth="1.5" />
+              </pattern>
+            </defs>
+            {marks.map((m, i) => m === 0 ? null : (
+              <g key={`d${i}`} data-disagree={m}>
+                <rect x={x(i) - step / 2} y={PAD_T} width={step} height={priceH} fill="url(#ft-hatch)" opacity={0.3} pointerEvents="none" />
+                <path d={`M${x(i)},${PAD_T + 1} l4,4.5 l-4,4.5 l-4,-4.5 z`} fill="#fbbf24" role="img" aria-label={t("ft.disagree")}>
+                  <title>{t("ft.disagree")}</title>
+                </path>
+              </g>
+            ))}
           </g>}
           {panel && (() => {
             const inTop = panelTop + 18, inBot = panelTop + PANEL_H - 6, span = inBot - inTop;
