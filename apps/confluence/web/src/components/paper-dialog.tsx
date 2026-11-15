@@ -108,7 +108,15 @@ interface Props {
 }
 
 type NumericKey = keyof typeof RISK_SETTING_LIMITS;
+/**
+ * v2.8 (spec §3 item 6): the new limits sit in a collapsed "More limits" section after the existing settings grid,
+ * so the v2.7 grid and its two checkboxes keep their layout (DS-2).
+ */
+const MORE_LIMIT_KEYS = ["maxDrawdownLockPct", "maxCryptoPositions", "timeStopBars"] as const satisfies readonly NumericKey[];
+const MORE_FLAG_KEYS = ["eventBlackout", "allowIntradayProposals"] as const;
 const NUMERIC_KEYS = Object.keys(RISK_SETTING_LIMITS) as NumericKey[];
+const GRID_KEYS = NUMERIC_KEYS.filter((k) => !(MORE_LIMIT_KEYS as readonly string[]).includes(k));
+const BASE_FLAG_KEYS = BOOLEAN_SETTINGS.filter((k) => !(MORE_FLAG_KEYS as readonly string[]).includes(k));
 type BoolKey = (typeof BOOLEAN_SETTINGS)[number];
 const flagsOf = (s: RiskSettings) => Object.fromEntries(BOOLEAN_SETTINGS.map((k) => [k, s[k]])) as Record<BoolKey, boolean>;
 
@@ -161,6 +169,7 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
   const [ddError, setDdError] = useState(false);
   /** Source of truth for async handlers; updated only in callbacks, never during render. */
   const bookRef = useRef<PaperBook | null>(null);
+  const moreLimitsRef = useRef<HTMLDetailsElement>(null);
   const proposalsRef = useRef<Proposal[]>([]);
   const intervalMs = INTERVAL_MS[timeframe] ?? INTERVAL_MS["4h"];
   const costs = costsFor(source);
@@ -406,10 +415,15 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
         else { b = r.book; equityChanged = true; }
       }
     }
-    setSettingErrors(invalid);
+    // An invalid field inside the collapsed "More limits" opens it, so the marked field is visible.
+    const showErrors = (list: string[]) => {
+      setSettingErrors(list);
+      if (moreLimitsRef.current && list.some((k) => (MORE_LIMIT_KEYS as readonly string[]).includes(k))) moreLimitsRef.current.open = true;
+    };
+    showErrors(invalid);
     if (invalid.length) return;
     const res = updateSettings(b, next);
-    if (!res.ok) { setSettingErrors(res.invalid); return; }
+    if (!res.ok) { showErrors(res.invalid); return; }
     commit(res.book);
     const changed = (Object.keys(next) as (keyof RiskSettings)[]).filter((k) => next[k] !== cur.account.settings[k]);
     log("paper.settings", "paper", `changed: ${[...changed, ...(equityChanged ? ["startingEquity"] : [])].join(", ") || "none"}`);
@@ -454,6 +468,25 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
       {label}: {on ? t("paper.stateOn") : t("paper.stateOff")}
     </Badge>
   );
+  const numericField = (k: NumericKey) => (
+    <label key={k} className="flex flex-col gap-1 text-xs text-zinc-300" htmlFor={`paper-${k}`}>
+      {t(`paper.set.${k}`)}
+      <input
+        id={`paper-${k}`}
+        inputMode="decimal"
+        value={draft[k] ?? ""}
+        onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
+        aria-invalid={settingErrors.includes(k)}
+        aria-describedby={settingErrors.includes(k) ? `paper-${k}-err` : undefined}
+        className="h-8 rounded-md border border-zinc-700 bg-zinc-900 px-2 font-mono text-zinc-100 aria-[invalid=true]:border-rose-500"
+      />
+      {settingErrors.includes(k) && (
+        <span id={`paper-${k}-err`} className="text-[11px] text-rose-300">
+          {t("paper.range", { s: String(RISK_SETTING_LIMITS[k][0]), k: String(RISK_SETTING_LIMITS[k][1]) })}
+        </span>
+      )}
+    </label>
+  );
   const blocked = !!view && (view.locks.kill || view.locks.deadMan || view.locks.daily || view.locks.weekly || view.locks.drawdown);
 
   return (
@@ -497,7 +530,8 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                 {lockBadge(view.locks.weekly, t("paper.lockWeekly"))}
                 {lockBadge(view.locks.kill, t("paper.lockKill"))}
                 {lockBadge(view.locks.deadMan, t("paper.lockDeadMan"))}
-                {lockBadge(view.locks.drawdown, t("paper.lockDrawdown"))}
+                {/* v2.8 (spec §3 item 6): the drawdown badge only while that lock is active. */}
+                {view.locks.drawdown && <span data-testid="paper-lock-drawdown" className="contents">{lockBadge(true, t("paper.lockDrawdown"))}</span>}
               </div>
               {view.locks.deadMan && (
                 <p role="alert" className="mt-2 flex items-center gap-1.5 text-xs text-amber-300"><AlertTriangle className="h-3.5 w-3.5" />{t("paper.deadMan", { bars: s.deadManBars })}</p>
@@ -546,7 +580,10 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                       <div><dt className="font-sans text-zinc-400">{t("paper.target")}</dt><dd>{fmtPx(v.target)}</dd></div>
                       <div><dt className="font-sans text-zinc-400">{t("paper.risk")}</dt><dd>{fmtMoney(v.riskAmount)}</dd></div>
                     </dl>
+                    {/* v2.8 (spec §3 item 6): the optional note is a collapsed "Add a note", so Approve stays one click. */}
                     {v.approved && !expired && (
+                      <details data-testid="paper-add-note" className="mt-2">
+                      <summary className="cursor-pointer text-zinc-300">{t("paper.addNote")}</summary>
                       <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                         <label className="flex flex-col gap-1 text-zinc-300 sm:col-span-2" htmlFor={`paper-reason-${p.id}`}>
                           {t("paper.preReason")}
@@ -572,12 +609,13 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                           </select>
                         </label>
                       </div>
+                      </details>
                     )}
                     <div className={`mt-2 ${v.approved && !expired ? "text-emerald-300" : "text-amber-300"}`}>
                       {expired ? t("paper.err.expired") : v.approved ? t("paper.verdictPass") : t("paper.verdictBlocked")}
                       {v.capped && <span className="ms-2 text-zinc-400">{t("paper.capped")}</span>}
                     </div>
-                    {(v.warnings ?? []).map((w) => <p key={w} className="mt-1 text-amber-300">{t(w)}</p>)}
+                    {(v.warnings ?? []).map((w) => <p key={w} data-testid="paper-warning" className="mt-1 text-amber-300">{t(w)}</p>)}
                     {!v.approved && (
                       <ul className="mt-1 list-disc space-y-0.5 ps-5 text-zinc-300">
                         {v.reasons.map((r) => <li key={r}>{t(r)}</li>)}
@@ -664,7 +702,7 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                 <div><dt className="text-zinc-400">{t("paper.netPnl")}</dt><dd className={`font-mono tabular-nums ${pnlClass(view.stats.netPnl)}`}>{fmtSigned(view.stats.netPnl)}</dd></div>
                 <div><dt className="text-zinc-400">{t("paper.maxDd")}</dt><dd className="font-mono tabular-nums">{fmtMoney(view.stats.maxDrawdown)} · {fmtPct(view.stats.maxDrawdownPct)}</dd></div>
               </dl>
-              <details className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3 text-xs">
+              <details data-testid="paper-more-stats" className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3 text-xs">
                 <summary className="cursor-pointer font-semibold text-zinc-200">{t("paper.moreStats")}</summary>
                 <dl className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                   <div><dt className="text-zinc-400">{t("paper.profitFactor")}</dt><dd className="font-mono tabular-nums">{view.stats.profitFactor === Infinity ? "∞" : fmtNum(view.stats.profitFactor)}</dd></div>
@@ -767,43 +805,39 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                       />
                     </label>
                   )}
-                  {NUMERIC_KEYS.map((k) => (
-                    <label key={k} className="flex flex-col gap-1 text-xs text-zinc-300" htmlFor={`paper-${k}`}>
-                      {t(`paper.set.${k}`)}
-                      <input
-                        id={`paper-${k}`}
-                        inputMode="decimal"
-                        value={draft[k] ?? ""}
-                        onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
-                        aria-invalid={settingErrors.includes(k)}
-                        aria-describedby={settingErrors.includes(k) ? `paper-${k}-err` : undefined}
-                        className="h-8 rounded-md border border-zinc-700 bg-zinc-900 px-2 font-mono text-zinc-100 aria-[invalid=true]:border-rose-500"
-                      />
-                      {settingErrors.includes(k) && (
-                        <span id={`paper-${k}-err`} className="text-[11px] text-rose-300">
-                          {t("paper.range", { s: String(RISK_SETTING_LIMITS[k][0]), k: String(RISK_SETTING_LIMITS[k][1]) })}
-                        </span>
-                      )}
-                    </label>
-                  ))}
+                  {GRID_KEYS.map(numericField)}
                 </div>
                 <div className="flex flex-wrap gap-4 text-xs text-zinc-300">
-                  <label className="flex items-center gap-2" htmlFor="paper-timeStopOn">
-                    <input
-                      id="paper-timeStopOn"
-                      type="checkbox"
-                      checked={Number(draft.timeStopBars) > 0}
-                      onChange={(e) => setDraft((d) => ({ ...d, timeStopBars: String(timeStopToggleBars(e.target.checked)) }))}
-                    />
-                    {t("paper.set.timeStopOn")}
-                  </label>
-                  {BOOLEAN_SETTINGS.map((k) => (
+                  {BASE_FLAG_KEYS.map((k) => (
                     <label key={k} className="flex items-center gap-2" htmlFor={`paper-${k}`}>
                       <input id={`paper-${k}`} type="checkbox" checked={draftFlags[k]} onChange={(e) => setDraftFlags((f) => ({ ...f, [k]: e.target.checked }))} />
                       {t(`paper.set.${k}`)}
                     </label>
                   ))}
                 </div>
+                <details ref={moreLimitsRef} data-testid="paper-more-limits" className="text-xs text-zinc-300">
+                  <summary className="cursor-pointer font-semibold text-zinc-200">{t("paper.moreLimits")}</summary>
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    {MORE_LIMIT_KEYS.map(numericField)}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-4">
+                    <label className="flex items-center gap-2" htmlFor="paper-timeStopOn">
+                      <input
+                        id="paper-timeStopOn"
+                        type="checkbox"
+                        checked={Number(draft.timeStopBars) > 0}
+                        onChange={(e) => setDraft((d) => ({ ...d, timeStopBars: String(timeStopToggleBars(e.target.checked)) }))}
+                      />
+                      {t("paper.set.timeStopOn")}
+                    </label>
+                    {MORE_FLAG_KEYS.map((k) => (
+                      <label key={k} className="flex items-center gap-2" htmlFor={`paper-${k}`}>
+                        <input id={`paper-${k}`} type="checkbox" checked={draftFlags[k]} onChange={(e) => setDraftFlags((f) => ({ ...f, [k]: e.target.checked }))} />
+                        {t(`paper.set.${k}`)}
+                      </label>
+                    ))}
+                  </div>
+                </details>
                 {settingErrors.length > 0 && <p role="alert" className="text-xs text-rose-300">{t("paper.invalid", { list: settingErrors.map((k) => t(`paper.set.${k}`)).join(", ") })}</p>}
                 <div className="flex flex-wrap justify-end gap-2">
                   <Button type="button" size="sm" variant="outline" className="h-8 border-zinc-700 text-zinc-300" onClick={() => { syncDraft(book); setSettingErrors([]); }}>
@@ -843,7 +877,7 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
             {book.account.drawdownLocked && (() => {
               const waiting = waitingSeries(book).join(", ");
               return (
-              <section aria-labelledby="paper-dd" className="rounded-lg border border-rose-500/50 bg-rose-500/5 p-3">
+              <section aria-labelledby="paper-dd" data-testid="paper-drawdown" className="rounded-lg border border-rose-500/50 bg-rose-500/5 p-3">
                 <h3 id="paper-dd" className="mb-1 flex items-center gap-2 text-sm font-semibold text-zinc-200"><OctagonX className="h-4 w-4 text-rose-400" />{t("paper.lockDrawdown")}</h3>
                 <p className="mb-2 text-xs text-zinc-400">{t("paper.drawdownHelp", { pct: book.account.settings.maxDrawdownLockPct })}</p>
                 {waiting && (

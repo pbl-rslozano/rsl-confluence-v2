@@ -537,5 +537,7 @@
   "row.updating": "updating · {time}",
   "row.notUpdated": "not updated · {time}",
   "row.updatingHint": "Shown from the history on this device while its fresh data loads. Display only: not recorded, not proposed to the paper simulator, no alerts.",
-  "row.notUpdatedHint": "This scan could not refresh this row; it shows the history on this device. Display only: not recorded, not proposed to the paper simulator, no alerts."
+  "row.notUpdatedHint": "This scan could not refresh this row; it shows the history on this device. Display only: not recorded, not proposed to the paper simulator, no alerts.",
+  "paper.moreLimits": "More limits",
+  "paper.addNote": "Add a note"
 }

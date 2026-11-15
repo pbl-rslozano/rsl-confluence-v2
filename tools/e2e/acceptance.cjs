@@ -12,8 +12,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const BASE = process.argv[2] || "http://127.0.0.1:8770/";
-// v2.8 (WP27): `--capture-ds1 <file>` only records the DS-1 layout snapshot of BASE (used once on the v2.7.0 build).
-const CAPTURE_DS1 = process.argv.includes("--capture-ds1") ? process.argv[process.argv.indexOf("--capture-ds1") + 1] : null;
+// v2.8 (WP27): `--capture-ds1 <file>` / `--capture-ds2 <file>` only record the DS-1 / DS-2 layout snapshot of BASE
+// (used on the v2.7.0-web release build); `--ds-only` runs just DS-1 and DS-2.
+const argAfter = (flag) => (process.argv.includes(flag) ? process.argv[process.argv.indexOf(flag) + 1] : null);
+const CAPTURE_DS1 = argAfter("--capture-ds1");
+const CAPTURE_DS2 = argAfter("--capture-ds2");
+const DS_ONLY = process.argv.includes("--ds-only");
 const OUT = path.join(__dirname, "evidence");
 fs.mkdirSync(OUT, { recursive: true });
 const AXE = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
@@ -95,13 +99,73 @@ async function completeFirstRun(page, { name = "rsLozano — Personal trading de
 }
 async function waitRows(page) { await page.waitForFunction(() => document.querySelectorAll("tbody tr").length >= 4, null, { timeout: 20000 }); }
 
-/* ---------- v2.8 (WP27) DS-1: main-screen layout at rest (spec §3 design-unchanged rule) ---------- */
-// Fixed clock (page.clock + the mocked candles), FX hosts mocked, default settings (theme System), 1366 × 768, English.
+/* ---------- v2.8 (WP27) DS-1 / DS-2: layout at rest vs v2.7.0 (spec §3 design-unchanged rule, "Guard") ---------- */
+// Fixed clock (page.clock + the mocked candles), FX hosts mocked, default settings, 1366 × 768, English. Theme is
+// "System", which headless Chromium resolves to light — acceptable for the guard (both builds are measured the same way).
+// The mocked exchange tickers carry 24 h quote volumes of ~1e9 USD, far above the 1M liquidity floor, so it removes no row.
 const DS_NOW = Date.UTC(2026, 10, 11, 9, 7, 0);
 const DS_TOLERANCE_PX = 2;
-async function ds1Snapshot(browser) {
+// Text masking (spec: "with text and live numbers masked"): right before measuring, every non-blank text node becomes
+// the same placeholder and input values/placeholders too, so a box's size comes from its padding, font and structure,
+// never from the wording or a live number. The context is closed (or the dialog closed) afterwards.
+async function dsInstall(page) {
+  await page.evaluate(() => {
+    const mask = (root) => {
+      const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let n = w.nextNode(); n; n = w.nextNode()) {
+        const parent = n.parentElement;
+        if (!parent || parent.tagName === "SCRIPT" || parent.tagName === "STYLE") continue;
+        if (n.nodeValue.trim()) n.nodeValue = "Xxxx";
+      }
+      root.querySelectorAll("input, textarea").forEach((el) => {
+        if (el.placeholder) el.placeholder = "Xxxx";
+        if (el.type !== "checkbox" && el.type !== "radio" && el.value) el.value = "Xxxx";
+      });
+    };
+    // Structural snapshot of `root`: every element keyed by its path (tag + index among the shown children), with its
+    // box [x, y, w, h] and its colours. `exclude` = the §3 allowed additions, hidden first so they neither count nor
+    // move what follows. `topUntil`: stop after that element's subtree (the "top of the sheet"); its ancestors get an
+    // open height (null), since their height depends on the sections below. SVGs: the svg and its direct children
+    // (the chart's layers) with their element counts.
+    const measure = (root, { exclude = [], topUntil = null } = {}) => {
+      for (const sel of exclude) root.querySelectorAll(sel).forEach((el) => el.style.setProperty("display", "none", "important"));
+      mask(root);
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+      const stop = topUntil ? root.querySelector(topUntil) : null;
+      const boxes = {}, colours = {}, counts = {};
+      let done = false;
+      const rec = (el, key) => {
+        const b = el.getBoundingClientRect();
+        const open = stop && el !== stop && el.contains(stop);
+        boxes[key] = [Math.round(b.x), Math.round(b.y), Math.round(b.width), open ? null : Math.round(b.height)];
+        const cs = getComputedStyle(el);
+        colours[key] = el instanceof SVGElement ? `${cs.fill}|${cs.stroke}` : `${cs.backgroundColor}|${cs.color}|${cs.borderTopColor}`;
+      };
+      const walk = (el, key) => {
+        rec(el, key);
+        if (el.tagName.toLowerCase() === "svg") {
+          [...el.children].forEach((ch, i) => { const k = `${key}/${i}:${ch.tagName.toLowerCase()}`; rec(ch, k); counts[k] = ch.querySelectorAll("*").length; });
+          if (el === stop) done = true;
+          return;
+        }
+        let i = 0;
+        for (const ch of el.children) {
+          if (getComputedStyle(ch).display === "none") continue;
+          walk(ch, `${key}/${i++}:${ch.tagName.toLowerCase()}`);
+          if (done) return;
+        }
+        if (el === stop) done = true;
+      };
+      walk(root, root.tagName.toLowerCase());
+      return { boxes, colours, counts };
+    };
+    window.__ds = { mask, measure };
+  });
+}
+async function dsContext(browser) {
   const c = await newContext(browser);
-  await mockExchanges(c, null, { now: DS_NOW });
+  const seen = [];
+  await mockExchanges(c, seen, { now: DS_NOW });
   await c.route(/^https:\/\/(api\.frankfurter\.dev|cdn\.jsdelivr\.net|latest\.currency-api\.pages\.dev|open\.er-api\.com|data-api\.ecb\.europa\.eu)\//, (route) => route.fulfill({ status: 503, body: "" }));
   await c.route("**/updates/latest.json", (route) => route.fulfill({ status: 404, body: "" }));
   const p = await c.newPage();
@@ -109,10 +173,25 @@ async function ds1Snapshot(browser) {
   await p.goto(BASE, { waitUntil: "domcontentloaded" });
   await completeFirstRun(p, { operator: "R" });
   await waitRows(p);
-  // At rest: the scan has finished (no progress bar, no spinner) and nothing is still settling.
+  // At rest: the scan has finished (no progress bar, no spinner), background requests (depth sample, other timeframes of
+  // the priority rows) have stopped for 1.5 s, and the pointer hovers nothing.
   await p.waitForFunction(() => !document.querySelector("header div.h-full.bg-gradient-to-r") && !document.querySelector("header .animate-spin"), null, { timeout: 30000 });
-  await p.waitForTimeout(1000);
+  await dsQuiet(p, seen);
+  await p.mouse.move(1, 1);
+  return { c, p, seen };
+}
+async function dsQuiet(p, seen) {
+  for (let n = seen.length, quiet = 0, t = 0; quiet < 1500 && t < 30000; t += 250) {
+    await p.waitForTimeout(250);
+    if (seen.length === n) quiet += 250; else { n = seen.length; quiet = 0; }
+  }
+}
+async function ds1Snapshot(browser) {
+  const { c, p } = await dsContext(browser);
+  await dsInstall(p);
   const snap = await p.evaluate(() => {
+    window.__ds.mask(document.body);
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     const box = (el) => { const b = el.getBoundingClientRect(); return [Math.round(b.x), Math.round(b.y), Math.round(b.width), Math.round(b.height)]; };
     const boxes = {};
     const add = (name, el) => { if (el) boxes[name] = box(el); };
@@ -132,28 +211,90 @@ async function ds1Snapshot(browser) {
   await c.close();
   return snap;
 }
-function ds1Compare(base, now) {
+// DS-2 excluded regions = exactly the spec §3 allowed additions that exist in this build (hidden before measuring):
+//   paper  §3.6  "More limits" (collapsed, after the existing settings grid)      [data-testid=paper-more-limits]
+//          §3.6  "More statistics" (collapsed)                                    [data-testid=paper-more-stats]
+//          §3.6  "Add a note" (collapsed, per proposal)                           [data-testid=paper-add-note]
+//          §3.6  drawdown badge and RESET — only while that lock is active        [data-testid=paper-lock-drawdown], [data-testid=paper-drawdown]
+//          §3.7  the risk > 1 % warning (text inside the proposal box)            [data-testid=paper-warning]
+//   detail §3.1  Scenarios (WP22) and §3.8 "View on [exchange]" (WP26): not built yet — add their selectors with those WPs.
+//   ledger §3.4  collapsed Scenario check at the end (WP22): not built yet — add its selector with WP22.
+// §3.5 block reasons and §3.7 text inside existing boxes need no exclusion (text is masked). Never add a selector for
+// anything that is not on the §3 list.
+const DS2_ALLOWED = {
+  detail: [],
+  paper: ['[data-testid="paper-more-limits"]', '[data-testid="paper-more-stats"]', '[data-testid="paper-add-note"]', '[data-testid="paper-lock-drawdown"]', '[data-testid="paper-drawdown"]', '[data-testid="paper-warning"]'],
+  ledger: [],
+};
+async function ds2Snapshot(browser) {
+  const { c, p, seen } = await dsContext(browser);
+  const dialog = p.locator('[role="dialog"]').first();
+  const measure = async (opts) => { await dsInstall(p); await p.mouse.move(1, 1); return p.evaluate((o) => window.__ds.measure(document.querySelector('[role="dialog"]'), o), opts); };
+  const close = async () => { await p.keyboard.press("Escape"); await p.waitForFunction(() => !document.querySelector('[role="dialog"]'), null, { timeout: 10000 }); };
+  const settle = async () => {
+    await dsQuiet(p, seen);
+    for (let last = "", same = 0, t = 0; same < 1000 && t < 20000; t += 250) {
+      await p.waitForTimeout(250);
+      const html = await dialog.evaluate((d) => d.innerHTML.length + ":" + d.textContent);
+      if (html === last) same += 250; else { last = html; same = 0; }
+    }
+  };
+  const snap = {};
+  // Detail sheet: the top of the sheet through the price chart (its default layers).
+  await p.getByRole("button", { name: /^BTC/ }).first().click();
+  await p.getByTestId("price-chart").waitFor({ timeout: 15000 });
+  await settle();
+  snap.detail = await measure({ exclude: DS2_ALLOWED.detail, topUntil: '[data-testid="price-chart"]' });
+  await close();
+  // Paper dialog layout.
+  await p.getByRole("button", { name: /Paper — Paper trading/ }).click();
+  await p.waitForSelector("text=simulated, no orders are sent", { timeout: 10000 });
+  await settle();
+  snap.paper = await measure({ exclude: DS2_ALLOWED.paper });
+  await close();
+  // Ledger dialog: its existing sections.
+  await p.getByRole("button", { name: /Signal ledger \(forward test\)/ }).click();
+  await dialog.waitFor({ timeout: 10000 });
+  await settle();
+  snap.ledger = await measure({ exclude: DS2_ALLOWED.ledger });
+  await close();
+  await c.close();
+  return snap;
+}
+function dsCompare(base, now, prefix = "") {
   const diffs = [];
+  const near = (b, n) => b.every((v, i) => v === null || n[i] === null ? v === n[i] : Math.abs(v - n[i]) <= DS_TOLERANCE_PX);
   for (const [k, b] of Object.entries(base.boxes)) {
     const n = now.boxes[k];
-    if (!n) { diffs.push(`${k}: missing`); continue; }
-    if (b.some((v, i) => Math.abs(v - n[i]) > DS_TOLERANCE_PX)) diffs.push(`${k}: ${b.join(",")} → ${n.join(",")}`);
+    if (!n) { diffs.push(`${prefix}${k}: missing`); continue; }
+    if (!near(b, n)) diffs.push(`${prefix}${k}: ${b.join(",")} → ${n.join(",")}`);
   }
-  for (const k of Object.keys(now.boxes)) if (!(k in base.boxes)) diffs.push(`${k}: new`);
-  for (const [k, v] of Object.entries(base.colours)) if (now.colours[k] !== v) diffs.push(`colour ${k}: ${v} → ${now.colours[k]}`);
+  for (const k of Object.keys(now.boxes)) if (!(k in base.boxes)) diffs.push(`${prefix}${k}: new`);
+  for (const [k, v] of Object.entries(base.colours)) if (k in now.colours && now.colours[k] !== v) diffs.push(`${prefix}colour ${k}: ${v} → ${now.colours[k]}`);
+  for (const [k, v] of Object.entries(base.counts || {})) if (k in (now.counts || {}) && now.counts[k] !== v) diffs.push(`${prefix}count ${k}: ${v} → ${now.counts[k]}`);
   return diffs;
 }
 
 (async () => {
   const browser = await chromium.launch();
-  if (CAPTURE_DS1) {
-    const snap = await ds1Snapshot(browser);
-    fs.mkdirSync(path.dirname(path.resolve(CAPTURE_DS1)), { recursive: true });
-    fs.writeFileSync(CAPTURE_DS1, JSON.stringify({ "@note": `DS-1 baseline (main screen at rest, 1366x768, en, default theme; clock ${new Date(DS_NOW).toISOString()}), captured from ${BASE}`, ...snap }, null, 2) + "\n");
-    console.log(`DS-1 baseline: ${Object.keys(snap.boxes).length} boxes → ${CAPTURE_DS1}`);
+  if (CAPTURE_DS1 || CAPTURE_DS2) {
+    const note = `main screen at rest, 1366x768, en, default settings (theme System = light in headless Chromium), text masked; clock ${new Date(DS_NOW).toISOString()}, exchange and FX hosts mocked; captured from ${BASE}`;
+    if (CAPTURE_DS1) {
+      const snap = await ds1Snapshot(browser);
+      fs.mkdirSync(path.dirname(path.resolve(CAPTURE_DS1)), { recursive: true });
+      fs.writeFileSync(CAPTURE_DS1, JSON.stringify({ "@note": `DS-1 baseline: ${note}`, ...snap }, null, 2) + "\n");
+      console.log(`DS-1 baseline: ${Object.keys(snap.boxes).length} boxes → ${CAPTURE_DS1}`);
+    }
+    if (CAPTURE_DS2) {
+      const snap = await ds2Snapshot(browser);
+      fs.mkdirSync(path.dirname(path.resolve(CAPTURE_DS2)), { recursive: true });
+      fs.writeFileSync(CAPTURE_DS2, JSON.stringify({ "@note": `DS-2 baseline (detail sheet top + chart layers, paper dialog, ledger dialog; ${note.replace("main screen at rest", "each at rest")})`, ...snap }, null, 1) + "\n");
+      console.log(`DS-2 baseline: ${Object.entries(snap).map(([k, v]) => `${k} ${Object.keys(v.boxes).length}`).join(", ")} boxes → ${CAPTURE_DS2}`);
+    }
     await browser.close();
     return;
   }
+  if (!DS_ONLY) {
   const requests = [];
 
   /* ===== A. First run, legacy migration, brand, CNR ===== */
@@ -1520,7 +1661,7 @@ function ds1Compare(base, now) {
   }
 
   /* ===== v2.8 WP27: smooth loading — progressive rows; layout at rest unchanged ===== */
-  /* acceptance-ids: PG-1, PG-2, DS-1 */
+  /* acceptance-ids: PG-1, PG-2 */
   {
     // 30 crypto pairs, each candle request answered after 600 ms (throttled network): five batches of six.
     const tickers = Array.from({ length: 30 }, (_, i) => ({ symbol: `PG${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + Math.floor(i / 26))}USDT`, openPrice: "100", lastPrice: "101", quoteVolume: String(1e9 - i * 1e6) }));
@@ -1557,13 +1698,23 @@ function ds1Compare(base, now) {
       { instant, rest });
     await c.close();
   }
+  } // end of the full run (skipped with --ds-only)
+  /* acceptance-ids: DS-1, DS-2 — layout at rest vs the v2.7.0-web baselines in tools/e2e/baselines/ */
   {
     const baseFile = path.join(__dirname, "baselines", "ds-1.json");
     const base = fs.existsSync(baseFile) ? JSON.parse(fs.readFileSync(baseFile, "utf8")) : null;
     const now = await ds1Snapshot(browser);
-    const diffs = base ? ds1Compare(base, now) : ["no baseline"];
+    const diffs = base ? dsCompare(base, now) : ["no baseline"];
     record("DS-1", `Main screen at rest: header, controls, list toolbar, columns, rows and footer within ±${DS_TOLERANCE_PX} px of v2.7.0; default colours unchanged (text masked, clock frozen, FX mocked)`,
       diffs.length === 0, diffs.length ? diffs.slice(0, 12).join(" | ") : `${Object.keys(now.boxes).length} boxes`);
+  }
+  {
+    const baseFile = path.join(__dirname, "baselines", "ds-2.json");
+    const base = fs.existsSync(baseFile) ? JSON.parse(fs.readFileSync(baseFile, "utf8")) : null;
+    const now = await ds2Snapshot(browser);
+    const diffs = base ? ["detail", "paper", "ledger"].flatMap((k) => (base[k] ? dsCompare(base[k], now[k], `${k} `) : [`${k}: no baseline`])) : ["no baseline"];
+    record("DS-2", `Detail sheet (top + chart layers), paper dialog and ledger dialog at rest within ±${DS_TOLERANCE_PX} px of v2.7.0; default colours unchanged; only the §3 allowed additions excluded (text masked, clock frozen, FX mocked)`,
+      diffs.length === 0, diffs.length ? `${diffs.length} differences: ${diffs.slice(0, 12).join(" | ")}` : ["detail", "paper", "ledger"].map((k) => `${k} ${Object.keys(now[k].boxes).length}`).join(", ") + " boxes");
   }
 
   await browser.close();
