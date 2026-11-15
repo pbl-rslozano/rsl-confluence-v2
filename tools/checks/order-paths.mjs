@@ -23,10 +23,13 @@ const PARTS = [
   String.raw`place-?order`,
   // Bitget v1 / v2
   String.raw`\/api\/v2\/(spot|mix)\/(trade|order)\/|\/api\/(spot|mix)\/v1\/(trade|order)`,
-  // v2.8 (WP26) OKX: trading, account and funding (asset) endpoints are all private
-  String.raw`\/api\/v5\/(trade|account|asset)\/`,
-  // v2.8 (WP26) Coinbase Exchange: orders, fills and accounts — on the host, or as a bare path literal
-  String.raw`api\.exchange\.coinbase\.com\/(orders|fills|accounts)\b|["'\x60}]\/(orders|fills|accounts)(?=[\/?"'\x60]|$)`,
+  // v2.8 (WP26) OKX: trading, account and funding (asset) endpoints are all private; fix round 1 adds the other
+  // order-placing families (trading bots, spread trading, block trading / RFQ, copy trading)
+  String.raw`\/api\/v5\/(trade|account|asset|tradingBot|sprd|rfq|copytrading)\/`,
+  // v2.8 (WP26) Coinbase Exchange: orders, fills, accounts and (fix round 1) funding paths — on the host, or as a
+  // bare path literal. "/profiles" only on the host: the local gateway has its own /profiles route.
+  String.raw`api\.exchange\.coinbase\.com\/(orders|fills|accounts|withdrawals|deposits|transfers|conversions|profiles|coinbase-accounts)\b`,
+  String.raw`["'\x60}]\/(orders|fills|accounts|withdrawals|deposits|transfers|conversions|coinbase-accounts)(?=[\/?"'\x60]|$)`,
   // v2.8 (WP26) Coinbase Advanced Trade: everything under brokerage except public market data and time
   String.raw`\/api\/v3\/brokerage\/(?!market\/|time\b)`,
   // v2.8 (WP26) Upbit: orders, accounts, withdrawals, deposits

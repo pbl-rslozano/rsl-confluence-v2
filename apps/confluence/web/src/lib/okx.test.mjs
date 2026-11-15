@@ -5,9 +5,10 @@
 // capture (generated candle pages, instrument lists, a book) follow the row layout the probe recorded and are marked.
 import {
   okxBar, parseOkxCandles, fetchOkxKlines, fetchOkxTickers, OKX_MAX_LIMIT, OKX_PAUSE_MS, OKX_CONCURRENCY, resetOkxForTests,
+  OKX_CANDLES_PER_S, OKX_HISTORY_PER_S, createRateGate, setOkxClockForTests,
 } from "./okx.ts";
 import {
-  DATA_SOURCES, INTERVAL_MS, RateLimitError, deltaSupported, fetchDirectMarketData, fetchHistory, fetchOrderBook,
+  DATA_SOURCES, INTERVAL_MS, RateLimitError, deltaSupported, fetchDirectMarketData, fetchHistory, fetchOrderBook, fetchSeries,
   rateLimitCooldown, resetRateLimitForTests,
 } from "./market-client.ts";
 import { DEFAULT_COSTS } from "./ledger-metrics.ts";
@@ -145,15 +146,18 @@ globalThis.fetch = async (url) => {
 }
 {
   const H4 = INTERVAL_MS["4h"];
-  resetRateLimitForTests(); calls = [];
-  route = candleServer(H4);
-  const k = await fetchOkxKlines("okx", "BTCUSDT", "8h", undefined, 200);
   const H8 = INTERVAL_MS["8h"];
+  // Pinned (review minor 5): the newest row is the SECOND 4H of the previous 8h bucket, flagged open, so the
+  // "first half closed, second half open" bucket is exercised at any time of day.
+  const bucket = Math.floor(Date.now() / H8) * H8 - H8;
+  resetRateLimitForTests(); calls = [];
+  route = candleServer(H4, { openTime: bucket + H4 });
+  const k = await fetchOkxKlines("okx", "BTCUSDT", "8h", undefined, 200);
   const aligned = k.every((b) => b.time % H8 === 0);
   // Recompute one bucket from the 4H rows the stub served.
   const rows = new Map();
   for (const c of calls) {
-    const res = await candleServer(H4)(c).json();
+    const res = await candleServer(H4, { openTime: bucket + H4 })(c).json();
     for (const r of res.data) rows.set(Number(r[0]), r);
   }
   const b = k.at(-1);
@@ -164,7 +168,7 @@ globalThis.fetch = async (url) => {
   ok("8h aggregates two 4H bars: epoch-aligned 8h buckets, 200 of them", k.length === 200 && aligned, `${k.length} ${aligned}`);
   ok("8h aggregates two 4H bars: open/high/close/volume of the pair", !!sumOk, JSON.stringify(b));
   ok("8h aggregates two 4H bars: marked aggregated (okxBar aggregate 2, no delta)", okxBar("8h").aggregate === 2 && !deltaSupported("okx", "8h"));
-  ok("8h: a bucket whose second 4H bar is still open is not built", b.time + H8 <= Date.now());
+  ok("8h: a bucket whose second 4H bar is still open is not built", b.time === bucket - H8 && !k.some((x) => x.time === bucket), `${b.time} vs ${bucket}`);
 }
 {
   // Review Focus 3: a 429 on page 3 of 4.
@@ -194,6 +198,109 @@ globalThis.fetch = async (url) => {
   let err3 = null;
   try { await fetchOkxKlines("okx", "BTCUSDT", "1h"); } catch (e) { err3 = e; }
   ok("any other OKX error code is an error, not an empty series", err3 instanceof Error && !(err3 instanceof RateLimitError) && /51000/.test(err3.message), String(err3));
+}
+
+
+/* ---- shared OKX pacing (fix round 1): OKX docs v5, read 15 Nov 2026 ---- */
+console.log("pacing");
+/** Discrete-event clock: sleeps resolve in virtual-time order whenever the program is otherwise idle. */
+function virtualClock(start = Date.now()) {
+  let t = start;
+  const timers = [];
+  return {
+    now: () => t,
+    sleep(ms, signal) {
+      return new Promise((resolve) => {
+        if (signal?.aborted) return resolve();
+        const tm = { at: t + Math.max(0, ms), resolve };
+        timers.push(tm);
+        signal?.addEventListener("abort", () => { const i = timers.indexOf(tm); if (i >= 0) timers.splice(i, 1); resolve(); }, { once: true });
+      });
+    },
+    async run(promise) {
+      let done = false;
+      const settled = promise.then((v) => { done = true; return v; }, (e) => { done = true; throw e; });
+      for (let guard = 0; !done && guard < 1_000_000; guard++) {
+        await new Promise((r) => setImmediate(r));
+        if (done || !timers.length) continue;
+        timers.sort((a, b) => a.at - b.at);
+        const next = timers.shift();
+        t = Math.max(t, next.at);
+        next.resolve();
+      }
+      return settled;
+    },
+  };
+}
+/** Most requests in any window [x, x + 1000) over the recorded times. */
+const maxPerSecond = (times) => {
+  const s = [...times].sort((a, b) => a - b);
+  let best = 0;
+  for (let i = 0, j = 0; i < s.length; i++) { while (s[i] - s[j] >= 1000) j++; best = Math.max(best, i - j + 1); }
+  return best;
+};
+ok("published limits at 80 %: candles 16/s (40 per 2 s), history-candles 8/s (20 per 2 s)", OKX_CANDLES_PER_S === 16 && OKX_HISTORY_PER_S === 8);
+{
+  // The gate itself: no window of 1 s ever holds more than `limit` grants, even with every caller waiting at once.
+  const clock = virtualClock();
+  const gate = createRateGate(8, 1000, clock);
+  const grants = [];
+  await clock.run(Promise.all(Array.from({ length: 40 }, () => gate.take().then(() => grants.push(clock.now())))));
+  ok("rate gate: 40 waiters, at most 8 grants in any 1-s window", grants.length === 40 && maxPerSecond(grants) === 8, String(maxPerSecond(grants)));
+  ok("rate gate: grants follow the window (5 s of virtual time for 40 at 8/s)", grants.at(-1) - grants[0] >= 4000 && grants.at(-1) - grants[0] < 5000, String(grants.at(-1) - grants[0]));
+  const ac = new AbortController();
+  const g2 = createRateGate(1, 1000, clock);
+  await g2.take();
+  const waiting = g2.take(ac.signal);
+  ac.abort();
+  let rejected = null;
+  await clock.run(waiting.catch((e) => { rejected = e; }));
+  ok("rate gate: an aborted waiter leaves with an AbortError and takes no grant", rejected?.name === "AbortError", String(rejected));
+}
+{
+  // N concurrent series (spot and perp together) paging through history with a zero-latency venue.
+  const clock = virtualClock();
+  resetRateLimitForTests(); resetOkxForTests(); setOkxClockForTests(clock); forgetPairsForTests(); calls = [];
+  const times = { candles: [], history: [] };
+  const H1 = INTERVAL_MS["1h"];
+  const full = candleServer(H1);
+  route = (u) => {
+    (u.pathname.endsWith("/history-candles") ? times.history : times.candles).push(clock.now());
+    return full(u);
+  };
+  const N = 24;
+  const jobs = Array.from({ length: N }, (_, i) => fetchOkxKlines(i % 2 ? "okx-perp" : "okx", `C${i}USDT`, "1h", undefined, 1000));
+  const out = await clock.run(Promise.all(jobs));
+  ok("pacing: every series still completes (1,000 bars each)", out.every((k) => k.length === 1000), out.map((k) => k.length).join());
+  ok("pacing: 24 series x (1 candles + 3 history) requests", times.candles.length === N && times.history.length === 3 * N, `${times.candles.length}/${times.history.length}`);
+  ok(`pacing: never more than ${OKX_HISTORY_PER_S} history-candles requests in any 1-s window (spot + perp)`, maxPerSecond(times.history) <= OKX_HISTORY_PER_S, String(maxPerSecond(times.history)));
+  ok(`pacing: never more than ${OKX_CANDLES_PER_S} candles requests in any 1-s window`, maxPerSecond(times.candles) <= OKX_CANDLES_PER_S, String(maxPerSecond(times.candles)));
+  ok("pacing: the limit is reached, not undershot (the gate is the only brake)", maxPerSecond(times.history) === OKX_HISTORY_PER_S && maxPerSecond(times.candles) === OKX_CANDLES_PER_S);
+}
+{
+  // Spot and perp share one bucket: 8 spot history pages fill the second, so a perp page waits for the next one.
+  const clock = virtualClock();
+  resetRateLimitForTests(); resetOkxForTests(); setOkxClockForTests(clock); calls = [];
+  const hist = [];
+  route = (u) => { if (u.pathname.endsWith("/history-candles")) hist.push({ t: clock.now(), id: u.searchParams.get("instId") }); return candleServer(INTERVAL_MS["1h"])(u); };
+  const t0 = clock.now();
+  await clock.run(Promise.all(Array.from({ length: 8 }, (_, i) => fetchHistory("okx", `S${i}USDT`, "1h", 200))));
+  const spotDone = clock.now();
+  await clock.run(fetchHistory("okx-perp", "BTCUSDT", "1h", 200));
+  const perp = hist.find((h) => h.id === "BTC-USDT-SWAP");
+  ok("pacing: spot and perp share the history bucket (the 9th page in the same second waits)", hist.length === 9 && spotDone - t0 < 1000 && perp.t - t0 >= 1000, JSON.stringify(hist.map((h) => h.t - t0)));
+  // History (fetchHistory) and the scan (fetchOkxKlines, also used by delta and the page prefetch) share it too.
+  const before = hist.length;
+  const t1 = clock.now();
+  await clock.run(Promise.all(Array.from({ length: 8 }, (_, i) => fetchHistory("okx", `H${i}USDT`, "1h", 200))));
+  await clock.run(fetchOkxKlines("okx", "SCANUSDT", "1h", undefined, 400));
+  const scanPage = hist.slice(before).find((h) => h.id === "SCAN-USDT");
+  ok("pacing: backfill and scan paging share the bucket", scanPage && scanPage.t - t1 >= 1000, JSON.stringify(hist.slice(before).map((h) => h.t - t1)));
+  // A delta request through fetchSeries (review minor 6) uses the same path: one small candles page.
+  calls = [];
+  const delta = await clock.run(fetchSeries("okx", "4h", "BTCUSDT", 200, undefined, { limit: 3, overlapOpenTime: 0 }, (fresh) => fresh));
+  ok("delta through fetchSeries: one candles request of limit + 2 rows, closed bars only", calls.length === 1 && calls[0].pathname === "/api/v5/market/candles" && calls[0].searchParams.get("limit") === "5" && delta.length === 4, `${calls.length} ${calls[0]?.searchParams.get("limit")} ${delta.length}`);
+  setOkxClockForTests(null); resetOkxForTests();
 }
 
 /* ---- universe ---- */
@@ -258,6 +365,20 @@ const universeRoute = (u) => {
   ok("spot USDC mode: BTC-USDC volume converted at USDC-USDT", usdc.tickers.length === 1 && near(parseFloat(b2.quoteVolume), 90000000 * 0.9998), JSON.stringify(usdc.tickers));
   const floored = await fetchOkxTickers("okx", [], 200, undefined, "crypto", "USDT", 600_000_000);
   ok("liquidity floor applies to OKX (USD volume)", floored.tickers.map((t) => t.symbol).join() === "BTCUSDT" && floored.thin?.includes("ETHUSDT"), JSON.stringify([floored.tickers.map((t) => t.symbol), floored.thin]));
+}
+
+
+{
+  // Review minor 3 + 6: instruments failing → the -USDT-SWAP ids are kept, and the failure is remembered for 60 s.
+  resetRateLimitForTests(); resetOkxForTests(); forgetPairsForTests(); calls = []; instrumentCalls = 0;
+  route = (u) => (u.pathname === "/api/v5/public/instruments" ? (instrumentCalls++, json({ code: "50026", msg: "System error", data: [] })) : universeRoute(u));
+  const set = await fetchOkxTickers("okx-perp", [], 200, undefined, "crypto", "USDT", 0);
+  ok("instruments failure: every -USDT-SWAP ticker is kept (inverse and USDC swaps still excluded)", set.tickers.map((t) => t.symbol).sort().join() === "BTCUSDT,ETHUSDT,SOLUSDT", set.tickers.map((t) => t.symbol).join());
+  await fetchOkxTickers("okx-perp", [], 200, undefined, "crypto", "USDT", 0);
+  ok("instruments failure is cached briefly (no second instruments call)", instrumentCalls === 1, String(instrumentCalls));
+  let depthErr = null;
+  try { await fetchOrderBook("okx-perp", "BTCUSDT"); } catch (e) { depthErr = e; }
+  ok("perp order book with an unknown contract size is an error, not a book in contracts", depthErr instanceof Error && /contract size unknown/.test(depthErr.message) && !calls.some((c) => c.pathname === "/api/v5/market/books"), String(depthErr));
 }
 
 /* ---- scan dispatch ---- */

@@ -37,6 +37,9 @@ const UPBIT_BAD = {
   "single-quoted": "get('/v1/deposits')",
   "an unlisted public path": 'get("/v1/status/wallet")',
   "a near miss of a listed path": 'get("/v1/tickerx")',
+  // fix round 1 (review minor 1): a full URL literal
+  "full URL literal": 'fetch("https://api.upbit.com/v1/api_keys")',
+  "full URL in a template": "fetch(`https://api.upbit.com/v1/orders?state=${s}`)",
 };
 for (const [name, src] of Object.entries(UPBIT_BAD)) {
   test(`R20 flags an Upbit path outside UPBIT_READ_PATHS: ${name}`, () =>
@@ -51,7 +54,7 @@ test("R20 allows the Upbit read paths, including a template under the candles pr
     [`${LIB}/good-upbit.ts`]: [
       'get("/v1/market/all")', 'get("/v1/ticker/all?quote_currencies=KRW")', 'get("/v1/ticker?markets=KRW-BTC")',
       'get("/v1/orderbook?markets=KRW-BTC")', "get(`/v1/candles/minutes/240?market=${m}`)", "get(`/v1/candles/${unit}?market=${m}`)",
-      "get(`${UPBIT_PROXY_PREFIX}/v1/candles/days?market=KRW-BTC`)",
+      "get(`${UPBIT_PROXY_PREFIX}/v1/candles/days?market=KRW-BTC`)", 'fetch("https://api.upbit.com/v1/ticker?markets=KRW-BTC")',
     ].map((l) => `export const a${Math.random().toString(36).slice(2)} = () => ${l};`).join("\n"),
   }, (r) => assert.deepEqual(r.findings, [])));
 

@@ -31,6 +31,18 @@ const FORBIDDEN = {
   "Coinbase Advanced batch cancel": 'const p = "/api/v3/brokerage/orders/batch_cancel";',
   "Coinbase Advanced accounts": "fetch(`${CB}/api/v3/brokerage/accounts`)",
   "Coinbase Advanced portfolios": 'fetch("/api/v3/brokerage/portfolios")',
+  // fix round 1 (review minor 2): OKX order-placing families beyond /trade
+  "OKX trading bot": 'fetch(`${OKX_BASE}/api/v5/tradingBot/grid/order-algo`)',
+  "OKX spread order": 'post("/api/v5/sprd/order")',
+  "OKX block trading (RFQ)": 'post("/api/v5/rfq/create-rfq")',
+  "OKX copy trading": 'get("/api/v5/copytrading/current-subpositions")',
+  // fix round 1 (review minor 2): Coinbase Exchange funding paths
+  "Coinbase withdrawals (host)": 'fetch("https://api.exchange.coinbase.com/withdrawals/crypto")',
+  "Coinbase deposits (path literal)": "fetch(`${COINBASE_BASE}/deposits/coinbase-account`)",
+  "Coinbase transfers (path literal)": 'get("/transfers")',
+  "Coinbase conversions (path literal)": 'post("/conversions")',
+  "Coinbase accounts link (path literal)": 'get("/coinbase-accounts")',
+  "Coinbase profiles (host)": 'fetch("https://api.exchange.coinbase.com/profiles/transfer")',
   // v2.8 (WP26) Upbit
   "Upbit orders": "relayGet(rule, prefix, `/v1/orders?state=wait`)",
   "Upbit order": 'fetch(`${UPBIT}/v1/order?uuid=x`, { method: "DELETE" })',
@@ -64,6 +76,8 @@ const ALLOWED = {
   "Coins.ph depth": "`/openapi/quote/v1/depth?symbol=BTCPHP`",
   "a word, not a path": "// accounts, orders and fills are never touched",
   "an app route": 'router.push("/ordersheet")',
+  "the local gateway's own profile route": 'if (url.pathname === "/profiles") {',
+  "OKX public trades": "`${OKX_BASE}/api/v5/market/trades?instId=x`",
 };
 
 for (const [name, src] of Object.entries(FORBIDDEN)) {

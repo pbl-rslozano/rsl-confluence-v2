@@ -119,7 +119,7 @@ import {
   fetchCoinsphKlineRows, fetchCoinsphUniverse, phPremiumPct, resetCoinsphForTests,
 } from "./coinsph";
 // v2.8 (WP26): OKX lives in okx.ts, which imports the shared helpers below (an import cycle; see okx.ts).
-import { OKX_CONCURRENCY, OKX_PAUSE_MS, fetchOkxHistoryPage, fetchOkxKlines, fetchOkxOrderBook, fetchOkxTickers, okxBar } from "./okx";
+import { OKX_CONCURRENCY, OKX_PAUSE_MS, OKX_RATE_LIMIT_CODE, fetchOkxHistoryPage, fetchOkxKlines, fetchOkxOrderBook, fetchOkxTickers, okxBar } from "./okx";
 export type { AssetClassFilter } from "./asset-classes";
 import {
   BEST, DEFAULT_QUOTE, type DepegReading, type PriceCurrency, type QuoteMode, baseFromInput, baseOf, depegLevel, normalizeQuoteMode,
@@ -652,9 +652,10 @@ export async function fetchJson(url: string, label: string, signal?: AbortSignal
       throw new Error(`${label} error ${o.retCode}: ${o.retMsg ?? ""}`.trim());
     }
     if (o.code !== undefined && String(o.code) !== "00000" && String(o.code) !== "0") {
-      if (String(o.code) === "429" || (url.startsWith(OKX_BASE) && String(o.code) === "50011")) {
+      const okxUrl = url.startsWith(OKX_BASE);
+      if (String(o.code) === "429" || (okxUrl && String(o.code) === OKX_RATE_LIMIT_CODE)) {
         // v2.8 (WP26): OKX's "Too Many Requests" code, should it arrive in a 200 envelope [not verified].
-        const err = new RateLimitError(`${label}: rate limited (${url.startsWith(OKX_BASE) ? "OKX 50011" : "Bitget 429"}).`, 60_000);
+        const err = new RateLimitError(`${label}: rate limited (${okxUrl ? `OKX ${o.code}` : "Bitget 429"}).`, 60_000);
         noteRateLimit(err, venueOfUrl(url));
         throw err;
       }

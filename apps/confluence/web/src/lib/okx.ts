@@ -11,8 +11,13 @@
  *     strictly older than ts.
  *   - 8H is rejected (code 51000); 1D is cut on UTC+8, so the `…utc` bars are used for 6h and longer.
  *   - SPOT `volCcy24h` is quote volume; SWAP `volCcy24h` is base coin (BTC-USDT-SWAP 207733.5 BTC).
- * Rate limits are not readable from a page and were not confirmed at OKX's documentation in this build:
- * the pacing below is deliberately conservative [not verified].
+ * Rate limits (OKX API v5 docs, https://www.okx.com/docs-v5/en/, read 15 Nov 2026): GET /api/v5/market/candles
+ * 40 requests per 2 s per IP; GET /api/v5/market/history-candles 20 per 2 s per IP; GET /api/v5/public/instruments
+ * 20 per 2 s; both candle paths limit max 300 (default 100). One shared gate per path (below) keeps every OKX
+ * caller — scan, delta, backfill, page prefetch, spot and perp — at 80 % of those limits.
+ *
+ * Terms: the same docs state that use of the OKX API is subject to the "OKX API Agreement" (continued use is
+ * acceptance). To be recorded in ADR-0018 with the other venues' terms before release.
  *
  * Import cycle: market-client imports this module and this module imports market-client. Nothing here
  * touches a market-client binding at module load — only inside functions — so either load order works.
@@ -29,12 +34,21 @@ import {
 
 export type OkxSource = "okx" | "okx-perp";
 
-/** Rows per candle request on /market/candles and /market/history-candles (probe: limit=500 → 300). */
+/** Rows per candle request on /market/candles and /market/history-candles (probe: limit=500 → 300; docs: max 300). */
 export const OKX_MAX_LIMIT = 300;
-/** Pause between candle batches and between the pages of one series (rate limit [not verified]; conservative). */
+/**
+ * Pause between candle batches and between the pages of one series. The hard ceiling is the shared gate below
+ * (OKX_CANDLES_PER_S / OKX_HISTORY_PER_S, from OKX's documented limits); this pause only spreads requests out.
+ */
 export const OKX_PAUSE_MS = 120;
-/** Series fetched at once (rate limit [not verified]; conservative). */
+/** Series fetched at once; the shared gate decides how fast their pages actually go. */
 export const OKX_CONCURRENCY = 4;
+/** 80 % of OKX's documented 40 requests / 2 s for /market/candles (per IP). */
+export const OKX_CANDLES_PER_S = 16;
+/** 80 % of OKX's documented 20 requests / 2 s for /market/history-candles (per IP). */
+export const OKX_HISTORY_PER_S = 8;
+/** A failed instrument-list read is not retried for this long (review minor 3). */
+export const OKX_INSTRUMENT_RETRY_MS = 60_000;
 /** OKX's rate-limit code ("Too Many Requests") — sent with HTTP 429; also honoured in a 200 envelope [not verified]. */
 export const OKX_RATE_LIMIT_CODE = "50011";
 
@@ -77,13 +91,63 @@ export function parseOkxCandles(json: unknown, perp = false): { k: Kline[]; open
   return { k: out.map((o) => o.bar), open: out.map((o) => o.open) };
 }
 
-function pause(ms: number, signal?: AbortSignal): Promise<void> {
-  if (!(ms > 0) || signal?.aborted) return Promise.resolve();
-  return new Promise((resolve) => {
-    const done = () => { clearTimeout(id); signal?.removeEventListener("abort", done); resolve(); };
-    const id = setTimeout(done, ms);
-    signal?.addEventListener("abort", done, { once: true });
-  });
+/* ---------------- shared pacing ---------------- */
+
+/** Time source for the OKX pacing (injectable for tests). `sleep` resolves early when `signal` aborts. */
+export interface OkxClock { now(): number; sleep(ms: number, signal?: AbortSignal): Promise<void> }
+const realClock: OkxClock = {
+  now: () => Date.now(),
+  sleep: (ms, signal) => {
+    if (!(ms > 0) || signal?.aborted) return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = () => { clearTimeout(id); signal?.removeEventListener("abort", done); resolve(); };
+      const id = setTimeout(done, ms);
+      signal?.addEventListener("abort", done, { once: true });
+    });
+  },
+};
+let clock: OkxClock = realClock;
+
+/**
+ * A token bucket whose tokens come back exactly `windowMs` after they are spent (a sliding-window log): at
+ * most `limit` grants in ANY window of `windowMs`, with no burst above it (a classic bucket of `limit`
+ * tokens refilled at `limit`/s could grant 2 × limit within one second). Waiters are served in order.
+ * An aborted waiter rejects with AbortError and takes no grant.
+ */
+export function createRateGate(limit: number, windowMs: number, time: OkxClock = realClock) {
+  const spent: number[] = [];
+  let queue: Promise<void> = Promise.resolve();
+  return {
+    take(signal?: AbortSignal): Promise<void> {
+      const turn = queue.then(async () => {
+        for (;;) {
+          if (signal?.aborted) throw new DOMException("OKX request cancelled", "AbortError");
+          const now = time.now();
+          while (spent.length && spent[0] <= now - windowMs) spent.shift();
+          if (spent.length < limit) { spent.push(now); return; }
+          await time.sleep(spent[0] + windowMs - now, signal);
+        }
+      });
+      queue = turn.catch(() => undefined);
+      return turn;
+    },
+  };
+}
+
+/** One gate per OKX path, shared by every caller and by both sources (one IP, one limit). */
+let gates = { candles: createRateGate(OKX_CANDLES_PER_S, 1000, clock), history: createRateGate(OKX_HISTORY_PER_S, 1000, clock) };
+
+/** Test hook: use `c` (null = the real clock) for pacing, with fresh gates. */
+export function setOkxClockForTests(c: OkxClock | null): void {
+  clock = c ?? realClock;
+  gates = { candles: createRateGate(OKX_CANDLES_PER_S, 1000, clock), history: createRateGate(OKX_HISTORY_PER_S, 1000, clock) };
+}
+
+/** Wait for the path's gate, then for any venue cooldown set meanwhile, then fetch. */
+async function pacedJson(path: "candles" | "history", source: OkxSource, url: string, label: string, signal?: AbortSignal): Promise<unknown> {
+  await gates[path].take(signal);
+  assertNotCoolingDown(source);
+  return fetchJson(url, label, signal);
 }
 
 function instIdOrThrow(source: OkxSource, symbol: string): string {
@@ -104,15 +168,15 @@ async function closedPages(source: OkxSource, instId: string, bar: string, want:
   const maxPages = Math.ceil(want / (OKX_MAX_LIMIT - 1)) + 1;
   let after: number | null = null;
   for (let page = 0; page < maxPages && byTime.size < want; page++) {
-    if (page > 0) await pause(OKX_PAUSE_MS, signal);
-    assertNotCoolingDown(source);
+    if (page > 0) await clock.sleep(OKX_PAUSE_MS, signal);
+    assertNotCoolingDown(source); // fail fast before queueing at the gate (checked again after it)
     // +1: the newest page usually carries the bar still forming, which is dropped.
     const limit = Math.min(OKX_MAX_LIMIT, want - byTime.size + 1);
     const q = `instId=${encodeURIComponent(instId)}&bar=${bar}&limit=${limit}`;
     const url = after === null
       ? `${OKX_BASE}/api/v5/market/candles?${q}`
       : `${OKX_BASE}/api/v5/market/history-candles?${q}&after=${after}`;
-    const { k, open } = parseOkxCandles(await fetchJson(url, `OKX klines ${label}`, signal), perp);
+    const { k, open } = parseOkxCandles(await pacedJson(after === null ? "candles" : "history", source, url, `OKX klines ${label}`, signal), perp);
     if (!k.length) break;
     k.forEach((b, i) => { if (!open[i]) byTime.set(b.time, b); });
     const oldest = k[0].time;
@@ -160,7 +224,7 @@ export async function fetchOkxHistoryPage(source: OkxSource, symbol: string, bar
   assertNotCoolingDown(source);
   const instId = instIdOrThrow(source, symbol);
   const url = `${OKX_BASE}/api/v5/market/history-candles?instId=${encodeURIComponent(instId)}&bar=${bar}&limit=${OKX_MAX_LIMIT}&after=${Math.floor(endTime) + 1}`;
-  const { k, open } = parseOkxCandles(await fetchJson(url, `OKX history ${symbol}`, signal), source === "okx-perp");
+  const { k, open } = parseOkxCandles(await pacedJson("history", source, url, `OKX history ${symbol}`, signal), source === "okx-perp");
   return { bars: k.filter((_, i) => !open[i]), rows: k.length };
 }
 
@@ -172,10 +236,13 @@ interface OkxRow { t: RawOkxTicker; symbol: string }
 
 /** Live linear USDT swaps (instId → contract value in base coin), read once per INSTRUMENT_TTL_MS. */
 let swapMeta: { at: number; live: Map<string, { ctVal: number }> } | null = null;
+let swapMetaFailedAt = -Infinity;
 
-/** Test hook: forget the cached instrument list. */
+/** Test hook: forget the cached instrument list (and a remembered failure) and reset the pacing gates. */
 export function resetOkxForTests(): void {
   swapMeta = null;
+  swapMetaFailedAt = -Infinity;
+  setOkxClockForTests(clock === realClock ? null : clock);
 }
 
 /**
@@ -184,6 +251,7 @@ export function resetOkxForTests(): void {
  */
 export async function loadOkxSwapInstruments(signal?: AbortSignal): Promise<Map<string, { ctVal: number }> | null> {
   if (swapMeta && Date.now() - swapMeta.at < INSTRUMENT_TTL_MS) return swapMeta.live;
+  if (Date.now() - swapMetaFailedAt < OKX_INSTRUMENT_RETRY_MS) return null;
   try {
     const j = (await fetchJson(`${OKX_BASE}/api/v5/public/instruments?instType=SWAP`, "OKX instruments", signal)) as { data?: RawOkxInstrument[] };
     const live = new Map<string, { ctVal: number }>();
@@ -195,6 +263,7 @@ export async function loadOkxSwapInstruments(signal?: AbortSignal): Promise<Map<
     return live;
   } catch (error) {
     if (error instanceof RateLimitError || (error instanceof DOMException && error.name === "AbortError")) throw error;
+    swapMetaFailedAt = Date.now();
     return null;
   }
 }

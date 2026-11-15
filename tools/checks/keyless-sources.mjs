@@ -69,8 +69,9 @@ export function checkKeylessSources(root = ROOT) {
         // A template that continues after the literal (e.g. `/openapi/quote/v1/klines?symbol=${…}`) is matched up to "?".
         if (!allowed(path) && !paths.includes(path + "/")) findings.push(`${rel}: Coins.ph path ${path} outside the read allowlist`);
       }
-      // A `/v1/` path at the start of a string, or right after a template placeholder (`${UPBIT_PROXY_PREFIX}/v1/…`).
-      for (const m of src.matchAll(/(?:["'`]|\})(\/v1\/[A-Za-z0-9_\/.-]*)/g)) {
+      // A `/v1/` path at the start of a string, right after a template placeholder (`${UPBIT_PROXY_PREFIX}/v1/…`),
+      // or after the Upbit host in a full URL (fix round 1).
+      for (const m of src.matchAll(/(?:["'`]|\}|api\.upbit\.com)(\/v1\/[A-Za-z0-9_\/.-]*)/g)) {
         const path = m[1];
         // A template that continues after a listed prefix (`/v1/candles/${unit}`) is matched up to the prefix.
         if (!upbitAllowed(path) && !upbitPaths.includes(path)) findings.push(`${rel}: Upbit path ${path} outside the read allowlist`);
