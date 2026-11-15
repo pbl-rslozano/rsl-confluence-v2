@@ -136,8 +136,8 @@ export function splitPair(symbol: string, source?: string): PairParts {
   if (/PERP$/.test(s) && s.length > 4 && (!source || (isPerpSource(source) && source !== "okx-perp"))) return { base: s.slice(0, -4), quote: "USDC" };
   for (const q of SUFFIXES) if (s.length > q.length && s.endsWith(q)) return { base: s.slice(0, -q.length), quote: q };
   if (s.length > 3 && s.endsWith("PHP")) return { base: s.slice(0, -3), quote: "PHP" };
-  if (s.length > 3 && s.endsWith("KRW")) return { base: s.slice(0, -3), quote: "KRW" };
-  // Upbit BTC-quoted markets (SOLBTC); on other venues a BTC suffix stays unrecognised.
+  if (source === "upbit" && s.length > 3 && s.endsWith("KRW")) return { base: s.slice(0, -3), quote: "KRW" };
+  // Upbit-only: KRW and BTC-quoted markets (SOLBTC); on other venues these suffixes stay unrecognised.
   if (source === "upbit" && s.length > 3 && s.endsWith("BTC")) return { base: s.slice(0, -3), quote: "BTC" };
   if (s.length > 3 && s.endsWith("USD")) return { base: s.slice(0, -3), quote: "USD" };
   return { base: s, quote: "" };

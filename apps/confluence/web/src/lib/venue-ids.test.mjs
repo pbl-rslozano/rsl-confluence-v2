@@ -48,6 +48,24 @@ ok("okx-perp is a perp source", isPerpSource("okx-perp") && !isPerpSource("okx")
 ok("quote menus", quoteModesFor("upbit").join() === "KRW,USDT,BTC" && quoteModesFor("coinbase").join() === "USD,USDT" && quoteModesFor("okx").join() === "USDT,USDC,BEST" && quoteModesFor("okx-perp").join() === "USDT");
 ok("splitPair knows KRW and Upbit BTC quotes", splitPair("BTCKRW", "upbit").quote === "KRW" && splitPair("SOLBTC", "upbit").base === "SOL" && splitPair("BTCUSD", "coinbase").quote === "USD");
 
+console.log("regression pins: KRW/BTC rules stay Upbit-only; existing sources unchanged");
+{
+  const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  ok("BNBBKRW keeps its old split on binance and with no source", eq(splitPair("BNBBKRW", "binance"), { base: "BNBBKRW", quote: "" }) && eq(splitPair("BNBBKRW"), { base: "BNBBKRW", quote: "" }));
+  ok("BTCKRW splits on upbit", eq(splitPair("BTCKRW", "upbit"), { base: "BTC", quote: "KRW" }));
+  ok("ETHBTC stays unsplit off upbit", splitPair("ETHBTC", "binance").quote === "" && splitPair("ETHBTC").quote === "");
+  ok("WBTCUSDT -> WBTC / USDT", eq(splitPair("WBTCUSDT", "binance"), { base: "WBTC", quote: "USDT" }));
+  for (const src of ["binance", "bybit-spot", "bybit-perp", "bitget", "bitget-perp"]) {
+    ok(`${src}: BTCFDUSD / BTCUSD split, USDT default`, eq(splitPair("BTCFDUSD", src), { base: "BTC", quote: "FDUSD" }) && eq(splitPair("BTCUSD", src), { base: "BTC", quote: "USD" }) && normalizeQuoteMode(src, undefined) === (isPerpSource(src) ? "USDT" : "USDT") && priceCurrencyOf(src, "USDT") === "USD");
+  }
+  ok("binance: EURI -> EUR price, BEST kept", priceCurrencyOf("binance", "EURI") === "EUR" && normalizeQuoteMode("binance", "BEST") === "BEST" && normalizeQuoteMode("binance", "XYZ") === "USDT");
+  ok("perp: USDC kept, BEST kept (v2.7 order)", normalizeQuoteMode("bybit-perp", "USDC") === "USDC" && normalizeQuoteMode("bitget-perp", "BEST") === "BEST");
+  ok("perp suffix rule still applies to bybit-perp", eq(splitPair("BTCPERP", "bybit-perp"), { base: "BTC", quote: "USDC" }));
+  ok("coinsph: PHP everywhere", normalizeQuoteMode("coinsph", "USDT") === "PHP" && priceCurrencyOf("coinsph", "USDT") === "PHP" && priceCurrencyOf("coinsph") === "PHP" && eq(splitPair("BTCPHP", "coinsph"), { base: "BTC", quote: "PHP" }));
+  ok("quote menus of existing sources", quoteModesFor("binance").join() === "USDT,USDC,FDUSD,USD1,U,EURI,BEST" && quoteModesFor("bybit-perp").join() === "USDT,USDC,BEST" && quoteModesFor("coinsph").join() === "PHP");
+  ok("venueIdOf null cases", venueIdOf("okx-perp", "BTCUSDC") === null && venueIdOf("okx", "BTCEUR") === null && venueIdOf("coinbase", "btc-usd") === null && venueIdOf("upbit", "A.BKRW") === null && venueIdOf("binance", "BTCUSDT") === null && venueIdOf("okx", "USDT") === null);
+}
+
 console.log("venue cooldown mapping");
 ok("venueOf", venueOf("okx") === "okx" && venueOf("okx-perp") === "okx" && venueOf("coinbase") === "coinbase" && venueOf("upbit") === "upbit" && venueOf("bitget-perp") === "bitget" && venueOf("binance") === "binance");
 
