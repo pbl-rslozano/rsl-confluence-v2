@@ -104,6 +104,9 @@ export interface LedgerRow {
 /** Fund trend as stored on a row: one decimal, so web and recorder rows match. */
 export const roundFt = (v: number): number => Math.round(v * 10) / 10;
 
+/** The report shows the Fund trend sign line only when rows carrying ft exist (n > 0); otherwise the dialog is unchanged. */
+export const hasFundTrendBench = (b: { n: number } | null | undefined): b is { n: number; meanNetBps: number; edgeBps: number } => !!b && b.n > 0;
+
 /** Sign of a row's Fund trend for the benchmark: ft null or 0 → 0 (excluded from n). */
 export const ftSign = (row: Pick<LedgerRow, "ft">): -1 | 0 | 1 => (typeof row.ft === "number" && row.ft > 0 ? 1 : typeof row.ft === "number" && row.ft < 0 ? -1 : 0);
 

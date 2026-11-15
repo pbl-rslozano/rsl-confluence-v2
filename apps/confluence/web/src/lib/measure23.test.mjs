@@ -3,7 +3,7 @@
 import {
   buildReport, wilson, bootstrapMean, pbo, rng, measureOutcome, outcomeFromSnapshot, toSnapshot, costsFor,
   DEFAULT_COSTS, CLASS_EXTRA_SLIP_BPS, LEDGER_CSV_COLUMNS, ledgerRowValues, PRIMARY_WARM_BARS,
-  parseLedgerImport, sanitizeLedgerRow, isSpotSellGroup,
+  parseLedgerImport, sanitizeLedgerRow, isSpotSellGroup, hasFundTrendBench,
 } from "./ledger-metrics.ts";
 import { liveRow, scanShared, applyFundTrend } from "./scan-record.ts";
 import { fundTrend } from "./fund-trend.ts";
@@ -701,6 +701,7 @@ console.log("WP21 ft: ledger field, CSV, catch-up no-look-ahead, benchmark");
     const dense = rows.map((x) => ({ ...x, ft: 30 }));
     const allIn = buildReport(dense, withRows(dense), 30, 1, 4 * H, { fundTrendOf: sgn, shuffles: 20 }).horizons[0].benchmarks;
     ok("rows with ft null or 0 are excluded from n", excluded.fundTrend.n < allIn.fundTrend.n && excluded.momentum === null);
+    ok("the Fund trend line shows only when n > 0 (none, null and n 0 render nothing)", hasFundTrendBench(excluded.fundTrend) && !hasFundTrendBench(null) && !hasFundTrendBench(undefined) && !hasFundTrendBench({ n: 0, meanNetBps: NaN, edgeBps: NaN }));
     ok("no fundTrendOf option gives a null fund-trend benchmark", buildReport(rows, outs, 30, 1, 4 * H, { shuffles: 20 }).horizons[0].benchmarks.fundTrend === null);
     const flip = buildReport(rows, outs, 30, 1, 4 * H, { fundTrendOf: (rw) => -sgn(rw), shuffles: 20 }).horizons[0].benchmarks.fundTrend;
     const plain = buildReport(rows, outs, 30, 1, 4 * H, { fundTrendOf: sgn, shuffles: 20 }).horizons[0].benchmarks.fundTrend;
