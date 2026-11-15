@@ -211,5 +211,33 @@ console.log("\n== Evidence floor, volume handling, determinism ==");
   }
   ok("profile imports reject invalid versions, IDs and duplicates", invalid === 3);
 }
+// WP19: macro calendar through 2027, event blackout, coverage warning ---------
+console.log("\nMacro calendar (WP19)");
+{
+  const { MACRO_EVENTS, coverageUntil, coverageWarnings, inBlackout } = await import("./macro-calendar.ts");
+  const mod = await import("./macro-calendar.ts");
+  const cpi = MACRO_EVENTS.find((e) => e.id === "cpi-2027-06-10");
+  const ecb = MACRO_EVENTS.find((e) => e.kind === "ecb" && e.verified);
+  ok("MACRO_CALENDAR_UNTIL is gone", !("MACRO_CALENDAR_UNTIL" in mod));
+  ok("CPI coverage reaches December 2027", coverageUntil("cpi") >= Date.UTC(2027, 11, 1));
+  ok("NFP coverage reaches December 2027", coverageUntil("nfp") >= Date.UTC(2027, 11, 1));
+  ok("every event has a boolean verified flag", MACRO_EVENTS.every((e) => typeof e.verified === "boolean"));
+  ok("2027 BLS CPI 10 Jun 2027 at 12:30 UTC (08:30 EDT)", cpi && cpi.at === Date.UTC(2027, 5, 10, 12, 30));
+  ok("CPI -2 h is inside the blackout", inBlackout(cpi.at - 2 * H)?.id === cpi.id);
+  ok("CPI +1 h is inside the blackout", inBlackout(cpi.at + H)?.id === cpi.id);
+  ok("CPI +1 h 01 min is outside the blackout", inBlackout(cpi.at + H + 60e3) === null);
+  ok("CPI -2 h 01 min is outside the blackout", inBlackout(cpi.at - 2 * H - 60e3) === null);
+  ok("ECB is informational, never blocking", inBlackout(ecb.at) === null);
+  // Unverified dates are ignored by blocking and coverage.
+  const fake = { id: "cpi-fake", label: "US CPI", kind: "cpi", at: Date.UTC(2030, 0, 15, 13, 30), verified: false };
+  MACRO_EVENTS.push(fake);
+  ok("unverified date is ignored by inBlackout", inBlackout(fake.at) === null);
+  ok("unverified date is ignored by coverageUntil", coverageUntil("cpi") < fake.at);
+  MACRO_EVENTS.pop();
+  // Banner warning: any kind with < 30 days left.
+  const dec15 = Date.UTC(2027, 11, 15);
+  ok("banner warns when any kind has < 30 days left (clock 2027-12-15)", coverageWarnings(dec15).length > 0 && coverageWarnings(dec15).includes("cpi"));
+  ok("no warning on release day (15 Nov 2026)", coverageWarnings(Date.UTC(2026, 10, 15)).length === 0, coverageWarnings(Date.UTC(2026, 10, 15)).join());
+}
 console.log("\nEngine regression: " + passed + "/" + (passed + failed) + " passed");
 process.exit(failed === 0 ? 0 : 1);

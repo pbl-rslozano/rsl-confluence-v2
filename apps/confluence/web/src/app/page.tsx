@@ -65,7 +65,7 @@ import type { AssetClass, LedgerRow } from "@/lib/ledger-metrics";
 import { LedgerDialog } from "@/components/ledger-dialog";
 import { PaperDialog } from "@/components/paper-dialog";
 import { createPaperStore, memoryPaperPort, PAPER_COLLECTIONS, PAPER_DB_NAME } from "@/lib/paper-store";
-import { eventsNear } from "@/lib/macro-calendar";
+import { coverageUntil, coverageWarnings, eventsNear } from "@/lib/macro-calendar";
 import { loadHistoricalSeries, MAX_STORED_BARS, mergeKlines, saveHistoricalSeries } from "@/lib/history-store";
 import {
   barCloseTime,
@@ -1125,6 +1125,8 @@ export default function Home() {
   const getLiveKlines = useCallback(() => Object.fromEntries(rowsRef.current.map((row) => [row.pair, row.klines])), []);
   // Scheduled macro releases within the next 24 h (or the last 2 h), measured from the last scan.
   const macroEvents = useMemo(() => (lastUpdate ? eventsNear(lastUpdate.getTime()) : []), [lastUpdate]);
+  // Kinds whose verified dates run out within 30 days (text-only addition to the macro banner).
+  const macroStale = useMemo(() => (lastUpdate ? coverageWarnings(lastUpdate.getTime()) : []), [lastUpdate]);
   const selectedSource = DATA_SOURCES.find((s) => s.value === dataSource) ?? DATA_SOURCES[0];
 
   /* ---- v2.7 (WP13): display currency — formatting only, rows stay in their native currency ---- */
@@ -1533,7 +1535,7 @@ export default function Home() {
         </div>
       )}
 
-      {!listExpanded && lastUpdate && macroEvents.length > 0 && (
+      {!listExpanded && lastUpdate && (macroEvents.length > 0 || macroStale.length > 0) && (
         <div role="note" className="shrink-0 border-b border-violet-500/30 bg-violet-500/10 px-4 py-1 text-xs text-violet-200">
           {macroEvents.map((e) => {
             const hours = Math.round(Math.abs(e.at - lastUpdate.getTime()) / 3_600_000);
@@ -1543,6 +1545,11 @@ export default function Home() {
               </span>
             );
           })}
+          {macroStale.map((k) => (
+            <span key={`stale-${k}`} className="me-3 inline-block">
+              {t("macro.coverage", { event: t(`macro.${k}`), date: new Date(coverageUntil(k)).toISOString().slice(0, 10) })}
+            </span>
+          ))}
         </div>
       )}
 

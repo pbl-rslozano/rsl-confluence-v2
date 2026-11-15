@@ -14,6 +14,7 @@
  * ----------------------------------------------------------------------------
  */
 import { splitPair, stableQuote } from "./quotes";
+import { inBlackout } from "./macro-calendar";
 import type { AssetClass } from "./ledger-metrics";
 
 export type Side = "long" | "short";
@@ -372,6 +373,8 @@ export function evaluateProposal(p: ProposalInput, acct: AccountState, s: RiskSe
   if (typeof p.depegPct === "number" && Number.isFinite(p.depegPct) && Math.abs(p.depegPct) >= 1) reasons.push("paper.rule.depeg");
   // v2.8: 1m–15m signals are context, not trades, unless allowed.
   if (!s.allowIntradayProposals && finitePos(p.intervalMs) && p.intervalMs <= INTRADAY_MAX_MS) reasons.push("paper.rule.intradayContext");
+  // v2.8: 2 h before to 1 h after FOMC / CPI / jobs report.
+  if (s.eventBlackout && inBlackout(now)) reasons.push("paper.rule.event");
   if (p.side === "short" && !isPerpSource(p.src) && !s.allowShortsOnSpot) reasons.push("paper.rule.spotShort");
 
   // Signal rules.

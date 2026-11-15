@@ -489,5 +489,6 @@
   "paper.reason.drawdownLock": "Drawdown lock",
   "paper.reason.time": "Time stop",
   "paper.drawdownResetWaiting": "Reset drawdown lock (scan {series} first)",
-  "paper.set.timeStopOn": "Time stop (exit at the next open after the bars below; preset 24)"
+  "paper.set.timeStopOn": "Time stop (exit at the next open after the bars below; preset 24)",
+  "macro.coverage": "{event} dates are only listed until {date} — update the app; the event blackout cannot cover later releases."
 }

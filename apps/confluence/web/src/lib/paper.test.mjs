@@ -567,6 +567,14 @@ console.log("v2.8 WP19 — cost-inclusive sizing, open-loss locks, no loosening,
   const tr = processBars(tb, "binance", "4h", { SOLUSDT: [bar(T0 + 3 * I, 100, 101, 99, 100.5), bar(T0 + 4 * I, 100.7, 101, 100, 100.9)] }, T0 + 5 * I, zero);
   ok("time stop closes at the next open with reason 'time'", tr.closed.length === 1 && tr.closed[0].reason === "time" && near(tr.closed[0].exit, 100.7), tr.closed.map((c) => c.reason + "@" + c.exit).join());
 
+  // Event blackout (WP19).
+  const FOMC_AT = Date.UTC(2026, 9, 28, 18); // 28 Oct 2026 14:00 EDT
+  const inEvent = FOMC_AT - 90 * 60e3;
+  const evAt = (now, s = {}) => evaluateProposal(input({ barTime: now - 4 * H }), acct(), { ...S, ...s }, now);
+  ok("proposal 90 min before FOMC is blocked with paper.rule.event", has(evAt(inEvent), "paper.rule.event"));
+  ok("event blackout off lets it pass", !has(evAt(inEvent, { eventBlackout: false }), "paper.rule.event"));
+  ok("outside the window the rule is silent", !has(evAt(FOMC_AT - 3 * H), "paper.rule.event") && !has(evAt(FOMC_AT + 61 * 60e3), "paper.rule.event"));
+
   // Warnings and leverage.
   ok("risk per trade > 1% warns", ev({}, {}, { riskPerTradePct: 1.5 }).warnings.includes("paper.warn.riskAbove1") && !ev().warnings.length);
   ok("leverage capped at 1 until liquidation is modelled", validateSettings({ ...S, maxLeverage: 2 }).includes("maxLeverage"));
