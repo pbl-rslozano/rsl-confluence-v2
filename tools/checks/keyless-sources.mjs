@@ -3,7 +3,7 @@
  * keyless-sources.mjs — release check R20 (v2.6, ADR-0013, ADR-0014).
  *
  * Public market-data sources stay keyless and read-only:
- *   1. the public-source modules (coinsph.ts, public-hosts.ts, v2.8 native-relay.ts, okx.ts and coinbase.ts) contain no
+ *   1. the public-source modules (coinsph.ts, public-hosts.ts, v2.8 native-relay.ts, okx.ts, coinbase.ts and upbit.ts) contain no
  *      key, signature or auth-header handling;
  *   2. no app or adapter source references a path of a relayed host outside that host's read allowlist in
  *      src/lib/public-hosts.ts (an allowlist, not a denylist): Coins.ph `/openapi/…`, and v2.8 (WP26) Upbit
@@ -45,7 +45,7 @@ export function checkKeylessSources(root = ROOT) {
   const lib = "apps/confluence/web/src/lib";
 
   // v2.8 (WP26): the generic relay (Upbit) is a public-source module too.
-  for (const f of [`${lib}/coinsph.ts`, `${lib}/public-hosts.ts`, `${lib}/native-relay.ts`, `${lib}/okx.ts`, `${lib}/coinbase.ts`]) {
+  for (const f of [`${lib}/coinsph.ts`, `${lib}/public-hosts.ts`, `${lib}/native-relay.ts`, `${lib}/okx.ts`, `${lib}/coinbase.ts`, `${lib}/upbit.ts`]) {
     const src = read(f);
     if (!src) findings.push(`${f} missing`);
     else if (AUTH.test(src.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ""))) findings.push(`${f}: key/signature/auth handling in a public source`);
@@ -87,11 +87,11 @@ export function checkKeylessSources(root = ROOT) {
     if (/coins\.?ph/i.test(read(f))) findings.push(`${f}: mentions Coins.ph (no private profile allowed)`);
   }
 
-  // v2.8 (WP26): the new sources are keyless. The gateway's recorder-rule source list (server.mjs) names OKX and
-  // Coinbase as public market data, so only the key-handling code is checked for a mention.
+  // v2.8 (WP26): the new sources are keyless. The gateway's recorder-rule source list (server.mjs) names OKX,
+  // Coinbase and Upbit as public market data, so only the key-handling code is checked for a mention.
   for (const id of ["okx", "okx-perp", "coinbase", "upbit"]) {
     const e = new RegExp(`value:\\s*"${id}"[\\s\\S]*?\\}`).exec(mc)?.[0] ?? "";
-    if (!e && id !== "upbit") findings.push(`market-client.ts: ${id} source entry not found`);
+    if (!e) findings.push(`market-client.ts: ${id} source entry not found`);
     else if (/privateApi\s*:/.test(e)) findings.push(`market-client.ts: ${id} has a privateApi profile`);
   }
   for (const f of [`${lib}/private-api.ts`, "apps/confluence/web/src/components/private-api-dialog.tsx", "apps/confluence/gateway/exchange-auth.mjs"]) {

@@ -138,6 +138,15 @@ export function classifySymbol(source: string, symbol: string, venueType?: strin
     if (PHP_USD_STABLES.has(m[1])) return "fx";
     return classifySymbol("binance", `${m[1]}USDT`, venueType);
   }
+  // v2.8 (WP26): Upbit KRW and BTC markets are classified as their USDT twin; a USD stablecoin in won is the
+  // won against the dollar (FX, like Coins.ph's peso pairs) and in bitcoin it is excluded.
+  if (source === "upbit") {
+    const { base, quote } = splitPair(s, source);
+    if ((quote === "KRW" || quote === "BTC") && base) {
+      if (PHP_USD_STABLES.has(base)) return quote === "KRW" ? "fx" : "excluded";
+      return classifySymbol("binance", `${base}USDT`, venueType);
+    }
+  }
   // v2.7 (WP12.4): a pair on another stablecoin (BTCUSDC, ETHFDUSD, SOLEURI, BTCPERP USDC perps)
   // is classified as its USDT twin; a USD stablecoin against a USD-pegged quote is flat → excluded.
   if (!s.endsWith("USDT")) {

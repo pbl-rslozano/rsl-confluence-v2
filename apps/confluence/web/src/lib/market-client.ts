@@ -108,6 +108,11 @@ import { normalizePublicTrades, type PublicTrade } from "./order-flow";
  *     start/end windows walking back from the last closed bar (at most 16 per series), open bars dropped by
  *     close time, gaps cut to the newest contiguous run; 4h, 8h, 12h, 1w and 1M are built from shorter candles.
  *     One gate keeps every Coinbase request at 8/s (80 % of the documented 10/s per IP).
+ * 25. UPBIT SPOT (source "upbit", upbit.ts). KRW (default), USDT and BTC markets through the read-only relay
+ *     (native-relay.ts) on every transport — a page never fetches api.upbit.com itself; a refused or missing
+ *     relay is a feed error ("UNAVAILABLE"), never a direct fetch. Candles in 200-bar pages (`to` exclusive),
+ *     open bars dropped by close time; 6h/8h/12h/2d/4d built from shorter candles. USD volume from Upbit's own
+ *     KRW-USDT and USDT-BTC markets (R21). Two gates (candles; market/ticker/book) at 8/s each.
  *
  * 10. VOLUME IS DETECTED, NOT ASSUMED. `volumeBySymbol` reports whether each
  *     series carries real traded volume (tokenised assets and thin pairs
@@ -129,6 +134,11 @@ import {
   COINBASE_CONCURRENCY, COINBASE_MAX_LIMIT, COINBASE_PAUSE_MS, aggregateCoinbase, coinbaseGranularity, fetchCoinbaseHistoryPage,
   fetchCoinbaseKlines, fetchCoinbaseOrderBook, fetchCoinbaseTickers,
 } from "./coinbase";
+// v2.8 (WP26): Upbit lives in upbit.ts (the same import cycle as okx.ts).
+import {
+  UPBIT_CONCURRENCY, UPBIT_MAX_COUNT, UPBIT_PAUSE_MS, UpbitFeedError, fetchUpbitHistoryPage, fetchUpbitKlines, fetchUpbitOrderBook,
+  fetchUpbitTickers, upbitCandlePath,
+} from "./upbit";
 export type { AssetClassFilter } from "./asset-classes";
 import {
   BEST, DEFAULT_QUOTE, type DepegReading, type PriceCurrency, type QuoteMode, baseFromInput, baseOf, depegLevel, normalizeQuoteMode,
@@ -219,6 +229,13 @@ export const DATA_SOURCES = [
     note: "Public USD spot tickers and OHLCV candles; 4h and longer are built from shorter candles.",
     maxAssets: 100,
   },
+  // v2.8 (WP26): public data only — no privateApi, never offered under 🔑 (R20). upbit.ts, via the read-only relay.
+  {
+    value: "upbit",
+    label: "Upbit (KR)",
+    note: "Public Korean won (KRW), USDT and BTC spot markets and OHLCV candles.",
+    maxAssets: 100,
+  },
 ] as const;
 
 /** v2.6: price currency per source (volumes are always reported in USD). v2.7: EUR for EUR-stablecoin quotes. */
@@ -272,7 +289,8 @@ const VALID_INTERVALS = new Set(Object.keys(INTERVAL_MS));
 /** Intervals built from daily bars (exported for the venue modules, v2.8 WP26). */
 export const SYNTHETIC_DAY_INTERVALS: Record<string, number> = { "2d": 2, "4d": 4 };
 
-export type FetchErrorReason = "HTTP" | "PARSE" | "STALE" | "EMPTY" | "TIMEOUT" | "RATE_LIMIT" | "UNKNOWN";
+/** v2.8 (WP26): "UNAVAILABLE" = the feed cannot be reached through its relay (Upbit; never a direct fetch). */
+export type FetchErrorReason = "HTTP" | "PARSE" | "STALE" | "EMPTY" | "TIMEOUT" | "RATE_LIMIT" | "UNAVAILABLE" | "UNKNOWN";
 
 export interface FetchError {
   symbol: string;
@@ -620,6 +638,10 @@ export function rateLimitCooldown(source?: string): number {
 function noteRateLimit(err: RateLimitError, venue: Venue): void {
   rateLimitedUntil[venue] = Math.max(rateLimitedUntil[venue], Date.now() + err.retryAfterMs);
 }
+/** v2.8 (WP26): a venue module that does not go through fetchJson (Upbit's relay) sets its cooldown here. */
+export function noteVenueRateLimit(venue: Venue, err: RateLimitError): void {
+  noteRateLimit(err, venue);
+}
 /** Test hook: clear every rate-limit cooldown. */
 export function resetRateLimitForTests(): void {
   (Object.keys(rateLimitedUntil) as Venue[]).forEach((v) => { rateLimitedUntil[v] = 0; });
@@ -746,6 +768,7 @@ export class StaleFeedError extends Error {
 function classify(error: unknown): FetchErrorReason {
   if (error instanceof RateLimitError) return "RATE_LIMIT";
   if (error instanceof StaleFeedError) return "STALE";
+  if (error instanceof UpbitFeedError) return "UNAVAILABLE";
   if (error instanceof DOMException && error.name === "TimeoutError") return "TIMEOUT";
   const message = error instanceof Error ? error.message : "";
   if (/\b(4\d\d|5\d\d)\b/.test(message)) return "HTTP";
@@ -1321,6 +1344,7 @@ export function deltaSupported(source: DataSource, interval: string): boolean {
   if (source === "bybit-spot" || source === "bybit-perp") return !bybitInterval(interval).aggregate;
   if (source === "okx" || source === "okx-perp") { const m = okxBar(interval); return !!m && !m.aggregate; }
   if (source === "coinbase") { const m = coinbaseGranularity(interval); return !!m && !m.aggregate; }
+  if (source === "upbit") { const m = upbitCandlePath(interval); return !!m && !m.aggregate; }
   return !(source === "bitget-perp" ? bitgetPerpGranularity(interval) : bitgetGranularity(interval)).aggregate;
 }
 
@@ -1332,6 +1356,7 @@ export function fetchSymbolKlines(source: DataSource, interval: string, symbol: 
   if (source === "bybit-perp") return fetchBybitKlines("linear", symbol, interval, signal, bars, delta);
   if (source === "okx" || source === "okx-perp") return fetchOkxKlines(source, symbol, interval, signal, bars, delta);
   if (source === "coinbase") return fetchCoinbaseKlines(symbol, interval, signal, bars, delta);
+  if (source === "upbit") return fetchUpbitKlines(symbol, interval, signal, bars, delta);
   return fetchBitgetKlines(symbol, interval, signal, bars, source === "bitget-perp", delta);
 }
 
@@ -1393,7 +1418,7 @@ export async function fetchDirectMarketData(
   const klines: Record<string, Kline[]> = {};
   const errors: FetchError[] = [];
   // Coins.ph: one request at a time; coinsph.ts spaces and budgets them. OKX pages each series (okx.ts).
-  const concurrency = source === "coinsph" ? 1 : source === "okx" || source === "okx-perp" ? OKX_CONCURRENCY : source === "coinbase" ? COINBASE_CONCURRENCY : 6;
+  const concurrency = source === "coinsph" ? 1 : source === "okx" || source === "okx-perp" ? OKX_CONCURRENCY : source === "coinbase" ? COINBASE_CONCURRENCY : source === "upbit" ? UPBIT_CONCURRENCY : 6;
 
   let set: TickerSet;
   let coinsph: CoinsphTickerSet | null = null;
@@ -1403,6 +1428,7 @@ export async function fetchDirectMarketData(
   else if (source === "bybit-perp") set = await fetchBybitTickers("linear", assets, limit, signal, assetClass, quote, floorUsd);
   else if (source === "okx" || source === "okx-perp") set = await fetchOkxTickers(source, assets, limit, signal, assetClass, quote, floorUsd);
   else if (source === "coinbase") set = await fetchCoinbaseTickers(assets, limit, signal, assetClass, quote, floorUsd);
+  else if (source === "upbit") set = await fetchUpbitTickers(assets, limit, signal, assetClass, quote, floorUsd);
   else set = await fetchBitgetTickers(assets, limit, signal, assetClass, source === "bitget-perp", quote, floorUsd);
   const tickers = set.tickers;
   // Everything the scan line and banners need that is known once the list is chosen (PH premium comes at the end).
@@ -1435,7 +1461,7 @@ export async function fetchDirectMarketData(
     concurrency,
     signal,
     // Bitget allows ~20 public requests/s per IP; pace it harder (review S1). Coins.ph paces itself.
-    pauseMs: source === "coinsph" ? 0 : source === "bitget" || source === "bitget-perp" ? 350 : source === "okx" || source === "okx-perp" ? OKX_PAUSE_MS : source === "coinbase" ? COINBASE_PAUSE_MS : 120,
+    pauseMs: source === "coinsph" ? 0 : source === "bitget" || source === "bitget-perp" ? 350 : source === "okx" || source === "okx-perp" ? OKX_PAUSE_MS : source === "coinbase" ? COINBASE_PAUSE_MS : source === "upbit" ? UPBIT_PAUSE_MS : 120,
     isHalt: (e) => e instanceof RateLimitError,
     onResult: (symbol, value) => {
       klines[symbol] = value;
@@ -1524,6 +1550,12 @@ function historyMapping(source: DataSource, interval: string): { upstream: strin
       ...(m.aggregate ? { aggregate: (k: Kline[]) => aggregateCoinbase(k, interval, m.baseMs) } : {}),
     };
   }
+  // v2.8 (WP26): Upbit serves 1m-4h, 1d, 1w, 1M natively; 6h = 6 × 60m, 8h/12h from 240m, 2d/4d from days.
+  if (source === "upbit") {
+    const m = upbitCandlePath(interval);
+    if (!m) throw new Error(`Upbit has no ${interval} candles`);
+    return { upstream: m.path, baseMs: m.baseMs, group: m.aggregate ?? 1, pageSize: UPBIT_MAX_COUNT };
+  }
   // Binance and Coins.ph serve 8h natively.
   const special = (source === "binance" || source === "coinsph") && interval === "8h" ? undefined : HISTORY_SYNTHETIC[interval];
   const base = special?.base ?? interval;
@@ -1568,6 +1600,8 @@ async function historyPage(
   if (source === "okx" || source === "okx-perp") return fetchOkxHistoryPage(source, symbol, upstream, endTime, signal);
   // Coinbase: one 300-bar window ending at `endTime`; open bars removed (no flag — by close time).
   if (source === "coinbase") return fetchCoinbaseHistoryPage(symbol, Number(upstream), endTime, signal);
+  // Upbit: one 200-candle page before `endTime` through the relay; open bars removed (no flag — by close time).
+  if (source === "upbit") return fetchUpbitHistoryPage(symbol, upstream, endTime, signal);
   let url: string;
   if (source === "binance") {
     url = `${BINANCE_BASE}/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${upstream}&endTime=${endTime}&limit=1000`;
@@ -1718,6 +1752,7 @@ export async function fetchOrderBook(source: DataSource, symbol: string, signal?
   }
   if (source === "okx" || source === "okx-perp") return fetchOkxOrderBook(source, symbol, signal);
   if (source === "coinbase") return fetchCoinbaseOrderBook(symbol, signal);
+  if (source === "upbit") return fetchUpbitOrderBook(symbol, signal);
   if (source === "bybit-spot" || source === "bybit-perp") {
     const cat = source === "bybit-perp" ? "linear" : "spot";
     const j = (await fetchJson(`${BYBIT_BASE}/v5/market/orderbook?category=${cat}&symbol=${s}&limit=50`, `Bybit depth ${symbol}`, signal)) as { result?: { b?: unknown; a?: unknown } };

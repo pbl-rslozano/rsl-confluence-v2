@@ -167,6 +167,9 @@ export const DEFAULT_COSTS: Record<string, CostModel> = {
   // v2.8 (WP26): Coinbase Exchange base tier ($0K-$10K) taker 60 bps (maker 40 bps) — Coinbase Exchange fees,
   // https://support.coinbase.com/en/exchange/trading-and-funding/exchange-fees (read 15 Nov 2026). Slippage placeholder.
   coinbase: { feeBps: 60, slipBps: 5, fundingBpsPer8h: 0 },
+  // v2.8 (WP26): Upbit's fee schedule is not cited in the repo or the probe [not verified] — a conservative
+  // 0.25 % for every market (published figures put KRW markets lower); slippage placeholder.
+  upbit: { feeBps: 25, slipBps: 5, fundingBpsPer8h: 0 },
 };
 
 /**

@@ -109,7 +109,7 @@ import type { DerivativeSnapshot } from "@/lib/derivatives-context";
 import { ChartReplay } from "@/components/chart-replay";
 import { PriceChart } from "@/components/price-chart";
 import { BEST, baseOf as pairBase, normalizeQuoteMode, quoteModesFor, stableQuote, type DepegReading, type PriceCurrency } from "@/lib/quotes";
-import { autoCurrency, BANDS, cachedCurrencies, cachedTable, canConvert, convert, impliedUsdtPremiumPct, isStale, loadCurrencies, PEGS, rateKind, refreshRates, usdtDeviationPct, type FiatCurrency, type FxTable } from "@/lib/fx-rates";
+import { autoCurrency, BANDS, cachedCurrencies, cachedTable, canConvert, convert, impliedUsdtPremiumPct, isStale, loadCurrencies, PEGS, priceDisplay, rateKind, refreshRates, usdtDeviationPct, type FiatCurrency, type FxTable } from "@/lib/fx-rates";
 import { formatMoney, formatMoneyCompact } from "@/lib/money";
 import { FxSourcesDialog } from "@/components/fx-sources-dialog";
 import { fxCredit, fxSourceInfo, type FxChoice } from "@/lib/fx-rates";
@@ -1324,14 +1324,17 @@ export default function Home() {
 
   /* ---- v2.7 (WP13): display currency — formatting only, rows stay in their native currency ---- */
   const nativeCurrency = scanMeta.currency;
-  const priceCurrency = canConvert(nativeCurrency, displayCurrency, fx) ? displayCurrency : nativeCurrency;
+  // v2.8 (WP26): BTC-quoted prices (Upbit BTC market) never pass through fiat FX; KRW converts like PHP.
+  const shownPrices = priceDisplay(nativeCurrency, displayCurrency, fx);
+  const priceCurrency = shownPrices.currency;
+  const pricesInBtc = shownPrices.pricesInBtc && scanMeta.source === dataSource;
   const volumeCurrency = canConvert("USD", displayCurrency, fx) ? displayCurrency : "USD";
   // v2.8 WP20: a rate source's required credit wherever its rates convert values on screen — prices or volumes
   // (review round 1) — and none for the default source.
   const rateCredit = fxCredit(fx, nativeCurrency, priceCurrency, volumeCurrency);
-  const showPrice = useCallback((v: number) => formatMoney(convert(v, nativeCurrency, priceCurrency, fx), priceCurrency), [nativeCurrency, priceCurrency, fx]);
+  const showPrice = useCallback((v: number) => formatMoney(priceDisplay(nativeCurrency, priceCurrency, fx).convert(v), priceCurrency), [nativeCurrency, priceCurrency, fx]);
   const showVolume = (usd: number) => formatMoneyCompact(convert(usd, "USD", volumeCurrency, fx), volumeCurrency);
-  const chartConvert = useCallback((v: number) => convert(v, nativeCurrency, priceCurrency, fx), [nativeCurrency, priceCurrency, fx]);
+  const chartConvert = useCallback((v: number) => priceDisplay(nativeCurrency, priceCurrency, fx).convert(v), [nativeCurrency, priceCurrency, fx]);
   const liveQuotes = scanMeta.source === dataSource && scanMeta.quoteCounts ? Object.keys(scanMeta.quoteCounts) : undefined;
   const quoteModes = quoteModesFor(dataSource, liveQuotes);
   const setQuote = (mode: string) => { setDetailAsset(null); setQuoteBySource((cur) => ({ ...cur, [dataSource]: mode })); };
@@ -1696,6 +1699,8 @@ export default function Home() {
                 </>
               )}
             </span>
+            {/* v2.8 (WP26): Upbit BTC market — prices stay in BTC (never converted through fiat FX). */}
+            {pricesInBtc && <span data-testid="prices-in-btc" className="text-amber-300/80">{t("scan.pricesInBtc")}</span>}
             {monitorAssets.length > 0 && (
               <span className="text-emerald-400/80">{t("scan.watching", { list: monitorAssets.join(", ") })}</span>
             )}
@@ -1770,7 +1775,7 @@ export default function Home() {
         </div>
       )}
 
-      {!listExpanded && <FxInfoLine t={t} native={nativeCurrency} display={displayCurrency} shown={priceCurrency} fx={fx}
+      {!listExpanded && !shownPrices.pricesInBtc && <FxInfoLine t={t} native={nativeCurrency} display={displayCurrency} shown={priceCurrency} fx={fx}
         usdtPhp={scanMeta.source === "coinsph" && dataSource === "coinsph" ? scanMeta.usdPhp ?? null : null}
         onSources={() => setFxDialog(true)} />}
       <FxSourcesDialog open={fxDialog} onOpenChange={setFxDialog} t={t} choice={fxChoice}

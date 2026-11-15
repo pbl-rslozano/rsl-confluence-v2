@@ -16,7 +16,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const VALID_SOURCES = new Set<DataSource>(["binance", "bybit-spot", "bybit-perp", "bitget", "bitget-perp", "coinsph", "okx", "okx-perp", "coinbase"]);
+const VALID_SOURCES = new Set<DataSource>(["binance", "bybit-spot", "bybit-perp", "bitget", "bitget-perp", "coinsph", "okx", "okx-perp", "coinbase", "upbit"]);
 const VALID_INTERVALS = new Set(Object.keys(INTERVAL_MS));
 
 export async function GET(request: NextRequest) {

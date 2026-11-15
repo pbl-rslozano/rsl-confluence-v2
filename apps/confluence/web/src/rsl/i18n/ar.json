@@ -84,7 +84,8 @@
     "row.notUpdated",
     "row.notUpdatedHint",
     "row.updating",
-    "row.updatingHint"
+    "row.updatingHint",
+    "scan.pricesInBtc"
   ],
   "app.subtitle": "ماسح توافق مؤشرات العملات المشفّرة",
   "ctx.page": "الماسح",
@@ -626,5 +627,6 @@
   "paper.moreLimits": "مزيد من الحدود",
   "paper.addNote": "إضافة ملاحظة",
   "paper.heldFeedFailed": "تعذّر تحميل الشموع لـ {list}. إيقافات الخسارة والأهداف وإغلاقات القفل لهذه المراكز تنتظر تلك الشموع؛ وسيحاول المسح التالي مجددًا.",
-  "about.catalogApprovedPending": "معتمدة — {n, number} من النصوص الجديدة بانتظار مراجعة متحدث أصلي"
+  "about.catalogApprovedPending": "معتمدة — {n, number} من النصوص الجديدة بانتظار مراجعة متحدث أصلي",
+  "scan.pricesInBtc": "الأسعار بعملة BTC — لا تُحوَّل إلى عملة العرض لديك."
 }

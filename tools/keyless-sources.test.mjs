@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { checkKeylessSources, ROOT } from "./checks/keyless-sources.mjs";
 
 const LIB = "apps/confluence/web/src/lib";
-const FILES = [`${LIB}/coinsph.ts`, `${LIB}/public-hosts.ts`, `${LIB}/native-relay.ts`, `${LIB}/okx.ts`, `${LIB}/coinbase.ts`, `${LIB}/market-client.ts`, `${LIB}/private-api.ts`];
+const FILES = [`${LIB}/coinsph.ts`, `${LIB}/public-hosts.ts`, `${LIB}/native-relay.ts`, `${LIB}/okx.ts`, `${LIB}/coinbase.ts`, `${LIB}/upbit.ts`, `${LIB}/market-client.ts`, `${LIB}/private-api.ts`];
 
 function withFixture(files, fn) {
   const dir = mkdtempSync(join(tmpdir(), "r20-"));
@@ -115,4 +115,37 @@ test("R20 requires the Coinbase source entry", () =>
     writeFileSync(p, readFileSync(p, "utf8").replace('value: "coinbase",', 'value: "coinbase-gone",'));
     const r = checkKeylessSources(dir);
     assert.ok(r.findings.includes("market-client.ts: coinbase source entry not found"), r.findings.join("\n"));
+  }));
+
+// v2.8 (WP26, Task 5): Upbit joins the public-source modules and must exist without a private profile.
+test("R20 flags key handling in the Upbit module", () =>
+  withFixture({}, (r0, dir) => {
+    const p = join(dir, `${LIB}/upbit.ts`);
+    writeFileSync(p, readFileSync(p, "utf8") + '\nconst h = { Authorization: `Bearer ${jwt}` };\n');
+    const r = checkKeylessSources(dir);
+    assert.ok(r.findings.includes(`${LIB}/upbit.ts: key/signature/auth handling in a public source`), r.findings.join("\n"));
+  }));
+
+test("R20 flags a privateApi profile on the Upbit source", () =>
+  withFixture({}, (r0, dir) => {
+    const p = join(dir, `${LIB}/market-client.ts`);
+    writeFileSync(p, readFileSync(p, "utf8").replace('label: "Upbit (KR)",', 'label: "Upbit (KR)",\n    privateApi: "upbit",'));
+    const r = checkKeylessSources(dir);
+    assert.ok(r.findings.includes("market-client.ts: upbit has a privateApi profile"), r.findings.join("\n"));
+  }));
+
+test("R20 requires the Upbit source entry", () =>
+  withFixture({}, (r0, dir) => {
+    const p = join(dir, `${LIB}/market-client.ts`);
+    writeFileSync(p, readFileSync(p, "utf8").replace('value: "upbit",', 'value: "upbit-gone",'));
+    const r = checkKeylessSources(dir);
+    assert.ok(r.findings.includes("market-client.ts: upbit source entry not found"), r.findings.join("\n"));
+  }));
+
+test("R20 flags an Upbit path outside the read allowlist in the Upbit module", () =>
+  withFixture({}, (r0, dir) => {
+    const p = join(dir, `${LIB}/upbit.ts`);
+    writeFileSync(p, readFileSync(p, "utf8") + '\nconst x = upbitGet("/v1/orders/chance", quoteGate, "x");\n');
+    const r = checkKeylessSources(dir);
+    assert.ok(r.findings.some((f) => f.includes("upbit.ts: Upbit path /v1/orders/chance outside the read allowlist")), r.findings.join("\n"));
   }));
