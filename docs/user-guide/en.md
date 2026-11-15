@@ -77,7 +77,7 @@ The first time you open the Terminal, a short three-step setup appears. **Skip**
 
 ![Step 1: choose one of 18 languages. Each language shows its review status.](images/first-start-language.webp)
 
-1. **Language.** Pick from 18 languages. English and Arabic are *approved*. A language marked *certified* was checked by a named native-speaker reviewer; *machine-checked* means automated checks only.
+1. **Language.** Pick from 18 languages. English and Arabic are *approved*; while new Arabic strings are still drafts, About shows *approved — N new strings await native-speaker review* for Arabic. A language marked *certified* was checked by a named native-speaker reviewer; *machine-checked* means automated checks only.
 2. **Workspace.** Your desk name (default *rsLozano — Personal trading desk*), a short name, a 2–6 letter code (A–Z) and an optional logo (PNG, JPEG or plain SVG). The code appears in exported file names.
 3. **Your name.** Used in the greeting when the app opens.
 

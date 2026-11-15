@@ -2,7 +2,8 @@
 /**
  * release-check.mjs — release gate for rsL Confluence Terminal (builder skill §8–§9).
  *
- *   node tools/release-check.mjs [--with-tests] [--require-build]   (R17/R18 run when out/ is built; --require-build makes a missing build fail)
+ *   node tools/release-check.mjs [--with-tests] [--require-build] [--release]   (R17/R18 run when out/ is built; --require-build makes a missing build fail;
+ *   --release is passed by CI only on release builds — tags, workflow_dispatch, [release…] commits on main — and turns on R25)
  *
  * Fails (exit 1) on any of:
  *   R1  private-key material or key files anywhere in the source tree
@@ -35,6 +36,8 @@
  *       (tools/licence-policy.json; MPL-2.0 only with a notice entry), third-party notices complete
  *       (tools/third-party-notices.mjs --check), private workspace packages UNLICENSED, no Binance Vision archive
  *       file (CC BY-NC-SA 4.0) tracked and .gitignore keeps them out
+ *   R25 (--release) tier-1 translations reviewed (final review I-1): no tier-1 catalog string still flagged
+ *       @pendingReview (machine drafts). A merge run reports the count as SKIP and does not fail.
  */
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -338,6 +341,14 @@ if (process.argv.includes("--with-tests")) {
   const findings = [...r.findings, ...n.findings, ...builtMissing];
   check("R24", "Licence policy: shipped components allowed (MPL only with notice), notices complete, workspace UNLICENSED, no archive CSV tracked", findings.length === 0,
     findings.length ? findings.slice(0, 6).join("; ") + (findings.length > 6 ? ` … ${findings.length - 6} more` : "") : `${r.summary}; ${n.summary}`);
+}
+
+/* R25 — tier-1 translations reviewed before a release (final review I-1). Merge runs report only. */
+{
+  const { checkTranslationReview } = await import("./checks/translation-review.mjs");
+  const r = checkTranslationReview(ROOT, { release: process.argv.includes("--release") });
+  if (process.argv.includes("--release")) check("R25", "Tier-1 translations reviewed: no string pending native-speaker review", r.ok, r.ok ? r.summary : r.findings.join("; "));
+  else console.log(`SKIP  R25  Tier-1 translation review — release builds only (--release): ${r.summary}`);
 }
 
 const failed = results.filter((r) => !r.ok).length;

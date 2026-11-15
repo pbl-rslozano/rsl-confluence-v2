@@ -540,5 +540,6 @@
   "row.notUpdatedHint": "This scan could not refresh this row; it shows the history on this device. Display only: not recorded, not proposed to the paper simulator, no alerts.",
   "paper.moreLimits": "More limits",
   "paper.addNote": "Add a note",
-  "paper.heldFeedFailed": "Bars could not be loaded for {list}. Their stops, targets and lock closes wait for those bars; the next scan tries again."
+  "paper.heldFeedFailed": "Bars could not be loaded for {list}. Their stops, targets and lock closes wait for those bars; the next scan tries again.",
+  "about.catalogApprovedPending": "approved — {n, number} new strings await native-speaker review"
 }

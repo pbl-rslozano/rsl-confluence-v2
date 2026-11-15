@@ -6,14 +6,16 @@
  *   4. use only CLDR plural categories valid for its language,
  *   5. keep brand / technical tokens untranslated,
  *   6. carry a valid status (APPROVED / CERTIFIED / MACHINE-CHECKED / DRAFT — scripts/catalog-status.mjs),
- *   7. keep the safety statements identical to tools/i18n-safety-lock.json (v2.5).
+ *   7. keep the safety statements identical to tools/i18n-safety-lock.json (v2.5),
+ *   8. (tier 1) translate every string — none left identical to English outside TIER1_SAME_AS_EN; machine drafts are
+ *      listed in @pendingReview (final review I-1; release check R25 blocks a release while any remain).
  * Usage: node scripts/validate-catalogs.mjs [lang ...]
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createI18n, LANGUAGES } from "../../../../packages/core/core/rsl-i18n.js";
-import { statusErrors, safetyErrors } from "./catalog-status.mjs";
+import { statusErrors, safetyErrors, untranslatedErrors } from "./catalog-status.mjs";
 
 const dir = fileURLToPath(new URL("../src/rsl/i18n/", import.meta.url));
 const load = (c) => JSON.parse(readFileSync(join(dir, `${c}.json`), "utf8"));
@@ -64,7 +66,7 @@ for (const code of codes) {
   const missing = keys.filter((k) => !(k in cat)); const extra = ck.filter((k) => !(k in en));
   if (missing.length) errs.push(`missing: ${missing.join(", ")}`);
   if (extra.length) errs.push(`extra: ${extra.join(", ")}`);
-  errs.push(...statusErrors(code, cat, lang?.tier), ...safetyErrors(code, cat, SAFETY_LOCK));
+  errs.push(...statusErrors(code, cat, lang?.tier), ...safetyErrors(code, cat, SAFETY_LOCK), ...untranslatedErrors(code, cat, en, lang?.tier));
   const rules = lang ? new Intl.PluralRules(lang.locale).resolvedOptions().pluralCategories : ["other"];
   const i18n = createI18n({ catalogs: { en, [code]: cat }, lang: code, onMissing: (k) => errs.push(`fallback hit: ${k}`) });
   for (const k of keys) {
@@ -79,6 +81,6 @@ for (const code of codes) {
     catch (e) { errs.push(`${k}: does not parse (${e.message})`); }
   }
   if (errs.length) { failures++; console.log(`✗ ${code}\n  - ${errs.join("\n  - ")}`); }
-  else console.log(`✓ ${code}  ${ck.length} keys  ${cat["@status"]}`);
+  else console.log(`✓ ${code}  ${ck.length} keys  ${cat["@status"]}${cat["@pendingReview"]?.length ? `  · ${cat["@pendingReview"].length} pending native review` : ""}`);
 }
 process.exit(failures ? 1 : 0);

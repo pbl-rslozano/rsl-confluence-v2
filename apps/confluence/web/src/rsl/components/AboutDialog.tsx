@@ -9,7 +9,7 @@
  */
 import { useEffect, useState, type MouseEvent } from "react";
 import { LANGUAGES } from "@rsl/core-kit/core/rsl-i18n.js";
-import { CATALOGS } from "../i18n/catalogs";
+import { CATALOGS, PENDING_REVIEW } from "../i18n/catalogs";
 import { exportSnapshot, importSnapshot } from "@rsl/core-kit/core/rsl-storage.js";
 import { contactMailto, poweredBy, BRAND } from "@rsl/core-kit/core/rsl-brand.js";
 import { exportFileName } from "@rsl/core-kit/core/rsl-export.js";
@@ -184,6 +184,9 @@ function AboutBody() {
                   const st = i18n.status(l.code);
                   const meta = CATALOGS[l.code] ?? {};
                   if (st === "CERTIFIED") return <span className="text-emerald-300">{t("about.catalogCertified", { name: meta["@reviewer"] ?? "", date: meta["@certifiedAt"] ?? "" })}</span>;
+                  // Final review I-1: an approved tier-1 catalog with machine drafts says how many await review.
+                  const pending = PENDING_REVIEW[l.code]?.length ?? 0;
+                  if (st === "APPROVED" && pending) return <span data-testid={`catalog-pending-${l.code}`} className="text-amber-300">{t("about.catalogApprovedPending", { n: pending })}</span>;
                   if (st === "APPROVED") return <span className="text-emerald-300">{t("about.catalogApproved")}</span>;
                   if (st === "MACHINE-CHECKED") return <span className="text-sky-300">{t("about.catalogMachine")}</span>;
                   return <span className="text-amber-300">{t("about.catalogDraft")}</span>;

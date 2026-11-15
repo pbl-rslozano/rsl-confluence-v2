@@ -50,3 +50,50 @@ test("certified catalogs name the reviewer's GitHub login (CI requires that logi
   assert.match(statusErrors("es", { ...cat, "@reviewerGithub": "not a login!" }, 2).join(" "), /@reviewerGithub/);
   assert.match(statusErrors("es", { "@status": "MACHINE-CHECKED", "@reviewerGithub": "ana", ...base }, 2).join(" "), /only set on CERTIFIED/);
 });
+
+/* ---- Final review I-1: tier-1 drafts flagged for native review; no tier-1 string left in English ---- */
+import * as cs from "./catalog-status.mjs";
+import { readFileSync } from "node:fs";
+
+const enBase = { "a.one": "One", "b.two": "Two", "ledger.psr": "PSR" };
+
+test("tier-1 catalog: a string left identical to English fails; allow-listed brand/provider/ticker keys pass", () => {
+  assert.equal(typeof cs.untranslatedErrors, "function", "untranslatedErrors exported");
+  const ar = { "@status": "APPROVED", "a.one": "واحد", "b.two": "Two", "ledger.psr": "PSR" };
+  assert.match((cs.untranslatedErrors?.("ar", ar, enBase, 1) ?? []).join(" "), /b\.two/);
+  assert.deepEqual(cs.untranslatedErrors?.("ar", { ...ar, "b.two": "اثنان" }, enBase, 1), []);
+  assert.ok(cs.TIER1_SAME_AS_EN?.includes("ledger.psr"));
+  // Tier 2 may fall back to English (plan Global Constraint) and en is the source.
+  assert.deepEqual(cs.untranslatedErrors?.("ja", { "a.one": "One" }, enBase, 2), []);
+  assert.deepEqual(cs.untranslatedErrors?.("en", enBase, enBase, 1), []);
+});
+
+test("tier-1 @pendingReview lists existing message keys, once each; only tier-1 catalogs carry it", () => {
+  const ar = { "@status": "APPROVED", "a.one": "واحد", "b.two": "اثنان" };
+  assert.deepEqual(statusErrors("ar", { ...ar, "@pendingReview": ["b.two"] }, 1), []);
+  assert.match(statusErrors("ar", { ...ar, "@pendingReview": ["c.nope"] }, 1).join(" "), /pendingReview/);
+  assert.match(statusErrors("ar", { ...ar, "@pendingReview": "b.two" }, 1).join(" "), /pendingReview/);
+  assert.match(statusErrors("ar", { ...ar, "@pendingReview": ["b.two", "b.two"] }, 1).join(" "), /pendingReview/);
+  assert.match(statusErrors("ar", { ...ar, "@pendingReview": ["@status"] }, 1).join(" "), /pendingReview/);
+  assert.match(statusErrors("es", { "@status": "MACHINE-CHECKED", ...base, "@pendingReview": ["a.one"] }, 2).join(" "), /pendingReview/);
+});
+
+test("release gate: fails while tier-1 strings are pending native review, passes without", () => {
+  assert.equal(typeof cs.pendingReviewErrors, "function", "pendingReviewErrors exported");
+  const ar = { "@status": "APPROVED", "a.one": "واحد", "b.two": "اثنان" };
+  assert.match((cs.pendingReviewErrors?.("ar", { ...ar, "@pendingReview": ["a.one", "b.two"] }) ?? []).join(" "), /ar: 2 strings pending native-speaker review/);
+  assert.deepEqual(cs.pendingReviewErrors?.("ar", ar), []);
+  assert.deepEqual(cs.pendingReviewErrors?.("ar", { ...ar, "@pendingReview": [] }), []);
+});
+
+test("repository ar.json: no English-identical string outside the allow-list; drafts are flagged for review", () => {
+  const dir = new URL("../src/rsl/i18n/", import.meta.url);
+  const en = JSON.parse(readFileSync(new URL("en.json", dir), "utf8"));
+  const ar = JSON.parse(readFileSync(new URL("ar.json", dir), "utf8"));
+  assert.deepEqual(cs.untranslatedErrors?.("ar", ar, en, 1) ?? ["untranslatedErrors missing"], []);
+  assert.deepEqual(statusErrors("ar", ar, 1), []);
+  const pending = ar["@pendingReview"] ?? [];
+  for (const k of ["about.edition", "fx.src.ecb", "paper.intro", "paper.drawdownWaiting", "paper.heldFeedFailed", "about.catalogApprovedPending"]) {
+    assert.ok(pending.includes(k), `${k} is flagged @pendingReview`);
+  }
+});
