@@ -48,7 +48,8 @@ const argNames = (src) => {
 const VARS = { version: "2.5.2", build: "20261108", size: "19.4 MB", event: "FOMC", hours: 5, id: "a1b2c3d4e5f60718", fee: 10, slip: 5, funding: 1, bars: 300, n: 3, count: 2, s: "1.2", time: "10:00", list: "BTC, ETH", customer: "Personal", theme: "light",
   kind: "sqlite", days: 5, k: 4, name: "Ronald", total: 3, language: "English", reason: "test", date: "2027-01-29", h: 6,
   source: "Coins.ph (PH)", floor: "$250k", sha: "0123456789ab…", // v2.6
-  code: "SAR", rate: "3.75", authority: "SAMA", band: "7.75–7.85", native: "USD", price: "$0.9987", coin: "FDUSD", dev: "−1.50 %", ref: "USDT", fallback: "built-in official pegs" }; // v2.7
+  code: "SAR", rate: "3.75", authority: "SAMA", band: "7.75–7.85", native: "USD", price: "$0.9987", coin: "FDUSD", dev: "−1.50 %", ref: "USDT", fallback: "built-in official pegs", // v2.7
+  pct: 10, series: "binance|4h" }; // v2.8
 const PROTECTED = ["BTC", "ETH", "SQLite", "IndexedDB", "localStorage", "JSON", "PNG", "JPEG", "SVG", "Bybit", "A–Z", "Coins.ph", "USDT", "SHA-256"]; // v2.6: +Coins.ph, USDT, SHA-256
 const wanted = process.argv.slice(2);
 const codes = wanted.length ? wanted : readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => f.replace(".json", ""));

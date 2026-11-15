@@ -70,6 +70,10 @@ export interface AccountState {
   killSwitch: boolean;
   /** Last scan heartbeat for this proposal's source × timeframe (ms; 0 = never). */
   lastHeartbeat: number;
+  /** v2.8: highest marked equity (incl. open P&L) since the book started or the last drawdown RESET. */
+  peakEquity?: number;
+  /** v2.8: the drawdown lock is engaged (clears only by RESET). */
+  drawdownLocked?: boolean;
 }
 
 export interface RiskSettings {
@@ -99,6 +103,8 @@ export interface RiskSettings {
   deadManBars: number;
   /** Total notional of all positions ≤ maxLeverage × equity (1 = no leverage). */
   maxLeverage: number;
+  /** v2.8: stop and close everything once equity falls this % below its highest mark. */
+  maxDrawdownLockPct: number;
 }
 
 export const DEFAULT_RISK_SETTINGS: RiskSettings = {
@@ -116,6 +122,7 @@ export const DEFAULT_RISK_SETTINGS: RiskSettings = {
   maxSignalAgeBars: 1,
   deadManBars: 3,
   maxLeverage: 1,
+  maxDrawdownLockPct: 10,
 };
 
 /** Valid range for every numeric setting: [min, max]. Used by the settings form and `validateSettings`. */
@@ -132,6 +139,7 @@ export const RISK_SETTING_LIMITS: Record<Exclude<keyof RiskSettings, "allowShort
   maxSignalAgeBars: [0, 10],
   deadManBars: [1, 100],
   maxLeverage: [0.1, 10],
+  maxDrawdownLockPct: [1, 50],
 };
 
 /** Integer-only settings. */
@@ -218,6 +226,7 @@ export type RuleKey =
   | "paper.rule.deadMan"
   | "paper.rule.dailyLock"
   | "paper.rule.weeklyLock"
+  | "paper.rule.drawdownLock"
   | "paper.rule.maxPositions"
   | "paper.rule.openRisk"
   | "paper.rule.cluster"
@@ -264,6 +273,13 @@ export function deadManTripped(lastHeartbeat: number, intervalMs: number, now: n
   return !(lastHeartbeat > 0) || now - lastHeartbeat > deadManBars * intervalMs;
 }
 
+/** v2.8: the drawdown lock is engaged, or equity is at or below peak × (1 − maxDrawdownLockPct). */
+export function drawdownBreached(acct: Pick<AccountState, "equity" | "peakEquity" | "drawdownLocked">, s: RiskSettings): boolean {
+  if (acct.drawdownLocked) return true;
+  const peak = acct.peakEquity;
+  return typeof peak === "number" && peak > 0 && acct.equity <= peak * (1 - s.maxDrawdownLockPct / 100) + 1e-9;
+}
+
 /**
  * Evaluate one proposal against the account and settings at instant `now`.
  * Pure and deterministic.
@@ -289,6 +305,7 @@ export function evaluateProposal(p: ProposalInput, acct: AccountState, s: RiskSe
   const weekBase = acct.equity - acct.realisedWeek;
   if (acct.realisedToday < 0 && dayBase > 0 && -acct.realisedToday >= (s.dailyLossLockPct / 100) * dayBase) reasons.push("paper.rule.dailyLock");
   if (acct.realisedWeek < 0 && weekBase > 0 && -acct.realisedWeek >= (s.weeklyLossLockPct / 100) * weekBase) reasons.push("paper.rule.weeklyLock");
+  if (drawdownBreached(acct, s)) reasons.push("paper.rule.drawdownLock");
 
   // Portfolio rules.
   if (acct.positions.length >= s.maxPositions) reasons.push("paper.rule.maxPositions");

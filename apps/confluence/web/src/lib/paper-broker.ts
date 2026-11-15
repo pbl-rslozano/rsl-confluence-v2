@@ -37,7 +37,7 @@ import {
   type Side,
 } from "./risk-engine";
 
-export const PAPER_SCHEMA = 1;
+export const PAPER_SCHEMA = 2;
 export const DEFAULT_STARTING_EQUITY = 10_000;
 /** The typed word that resets the kill switch. Not translated. */
 export const KILL_RESET_WORD = "RESET";
@@ -48,7 +48,7 @@ const DECISION_TTL_MS = 14 * 86_400_000;
 const DAY = 86_400_000;
 
 export type PositionStatus = "pending" | "open";
-export type ExitReason = "stop" | "target" | "manual";
+export type ExitReason = "stop" | "target" | "manual" | "drawdown lock" | "time";
 
 export interface PaperPosition {
   id: string;
@@ -85,6 +85,8 @@ export interface PaperPosition {
   lastBarTime: number;
   /** Set by a manual close; the exit happens at the first bar opening at or after it. */
   closeRequestedAt: number | null;
+  /** v2.8: why the close was requested (absent = manual). */
+  closeReason?: ExitReason;
 }
 
 export interface JournalEntry {
@@ -131,6 +133,14 @@ export interface PaperAccount {
   /** Decided proposals, so a decided signal is not proposed again. */
   decisions: Record<string, { d: "approved" | "rejected" | "blocked" | "expired"; at: number }>;
   seq: number;
+  /** v2.8 (schema 2): highest marked equity since the start or the last drawdown RESET. */
+  peakEquity: number;
+  /** v2.8: drawdown lock engaged; clears only by RESET once every lock close has filled. */
+  drawdownLocked: boolean;
+  /** v2.8: when a lock (drawdown) was last cleared — the no-loosening rule runs until the next UTC day. */
+  lockClearedAt: number | null;
+  /** v2.8: journal of drawdown RESETs. */
+  resets: { at: number; equity: number; peakBefore: number }[];
 }
 
 export interface PaperBook {
@@ -168,6 +178,10 @@ export function newBook(now: number, startingEquity = DEFAULT_STARTING_EQUITY, s
       usedNonces: [],
       decisions: {},
       seq: 0,
+      peakEquity: eq,
+      drawdownLocked: false,
+      lockClearedAt: null,
+      resets: [],
     },
     positions: [],
     journal: [],
@@ -222,6 +236,8 @@ export function accountSnapshot(book: PaperBook, src: string, tf: string, now: n
     realisedWeek: realisedSince(book.journal, utcWeekStart(now)),
     killSwitch: book.account.killSwitch,
     lastHeartbeat: book.account.heartbeats[seriesKey(src, tf)] ?? 0,
+    peakEquity: book.account.peakEquity,
+    drawdownLocked: book.account.drawdownLocked,
   };
 }
 
@@ -243,6 +259,9 @@ export function lockState(book: PaperBook, src: string, tf: string, intervalMs: 
     deadMan: deadManTripped(snap.lastHeartbeat, intervalMs, now, s.deadManBars),
     realisedToday: snap.realisedToday,
     realisedWeek: snap.realisedWeek,
+    drawdown: book.account.drawdownLocked,
+    /** Fall from the peak, fraction of the peak. */
+    drawdownPct: book.account.peakEquity > 0 ? Math.max(0, (book.account.peakEquity - snap.equity) / book.account.peakEquity) : 0,
   };
 }
 
@@ -458,7 +477,7 @@ export function processBars(
       }
       // Manual close: exit at this bar's open (not on the fill bar itself — that would be a zero-length trade).
       if (!fillBar && p.closeRequestedAt != null && bar.time >= p.closeRequestedAt) {
-        exit = { px: bar.open, reason: "manual", at: bar.time };
+        exit = { px: bar.open, reason: p.closeReason ?? "manual", at: bar.time };
         p.lastBarTime = bar.time;
         break;
       }
@@ -518,10 +537,58 @@ export function processBars(
 
   const anyBars = Object.values(barsByPair).some((k) => k && k.length);
   const heartbeats = anyBars ? { ...book.account.heartbeats, [seriesKey(src, tf)]: now } : book.account.heartbeats;
+  const next: PaperBook = { account: { ...book.account, balance, seq, heartbeats }, positions, journal: [...book.journal, ...closed] };
+  return { book: applyDrawdown(next, now), filled, closed };
+}
+
+/**
+ * v2.8 drawdown lock: after every bar batch, with every position at its latest
+ * mark, raise the peak or — at peak × (1 − maxDrawdownLockPct) — engage the
+ * lock: cancel pending positions and request a close of every open one at the
+ * next open of its own series.
+ */
+function applyDrawdown(book: PaperBook, now: number): PaperBook {
+  const a = book.account;
+  if (a.drawdownLocked) return book;
+  const equity = bookEquity(book);
+  if (!(equity > 0) && !(a.peakEquity > 0)) return book;
+  if (equity > a.peakEquity) return { ...book, account: { ...a, peakEquity: equity } };
+  if (!(a.peakEquity > 0) || equity > a.peakEquity * (1 - a.settings.maxDrawdownLockPct / 100) + 1e-9) return book;
+  const positions = book.positions
+    .filter((p) => p.status === "open")
+    .map((p) => (p.closeRequestedAt != null ? p : { ...p, closeRequestedAt: now, closeReason: "drawdown lock" as const }));
+  return { ...book, account: { ...a, drawdownLocked: true }, positions };
+}
+
+/** Series (`src|tf`) that still hold a position, sorted — the scans RESET is waiting for. */
+export function waitingSeries(book: PaperBook): string[] {
+  return [...new Set(book.positions.map((p) => seriesKey(p.src, p.tf)))].sort();
+}
+
+/**
+ * v2.8: clear the drawdown lock. Needs the typed word (KILL_RESET_WORD) and no
+ * open or pending positions; sets the peak to current equity (a fresh 10%) and
+ * journals the reset on the account. The realised loss is kept.
+ */
+export function resetDrawdown(book: PaperBook, typed: string, now: number): { ok: boolean; book: PaperBook; waitingSeries: string[] } {
+  const waiting = waitingSeries(book);
+  if (!book.account.drawdownLocked) return { ok: true, book, waitingSeries: [] };
+  if (String(typed ?? "").trim() !== KILL_RESET_WORD || waiting.length) return { ok: false, book, waitingSeries: waiting };
+  const equity = bookEquity(book);
+  const a = book.account;
   return {
-    book: { account: { ...book.account, balance, seq, heartbeats }, positions, journal: [...book.journal, ...closed] },
-    filled,
-    closed,
+    ok: true,
+    waitingSeries: [],
+    book: {
+      ...book,
+      account: {
+        ...a,
+        drawdownLocked: false,
+        peakEquity: equity,
+        lockClearedAt: now,
+        resets: [...a.resets, { at: now, equity, peakBefore: a.peakEquity }].slice(-100),
+      },
+    },
   };
 }
 

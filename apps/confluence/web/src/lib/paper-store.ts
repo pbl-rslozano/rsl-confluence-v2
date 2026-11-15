@@ -15,7 +15,7 @@
  * ----------------------------------------------------------------------------
  */
 import type { LedgerPort } from "./signal-ledger";
-import { newBook, PAPER_SCHEMA, type JournalEntry, type PaperAccount, type PaperBook, type PaperPosition } from "./paper-broker";
+import { bookEquity, newBook, PAPER_SCHEMA, type JournalEntry, type PaperAccount, type PaperBook, type PaperPosition } from "./paper-broker";
 import { normaliseSettings } from "./risk-engine";
 
 export type PaperPort = LedgerPort;
@@ -28,7 +28,30 @@ const ACCOUNT_ID = "account";
 
 function isAccount(doc: unknown): doc is PaperAccount {
   const a = doc as PaperAccount | null;
-  return !!a && a.schema === PAPER_SCHEMA && Number.isFinite(a.balance) && Number.isFinite(a.startingEquity);
+  return !!a && (a.schema === PAPER_SCHEMA || a.schema === (1 as unknown)) && Number.isFinite(a.balance) && Number.isFinite(a.startingEquity);
+}
+
+/**
+ * v2.8 migration (schema 1 → 2): the drawdown fields are added with the peak at
+ * the book's current marked equity, so opening an old book never engages the
+ * lock. Schema-2 documents keep their stored values (invalid ones are repaired).
+ */
+export function migrateAccount(raw: PaperAccount, positions: PaperPosition[], base: PaperAccount): PaperAccount {
+  const account: PaperAccount = {
+    ...base,
+    ...raw,
+    schema: PAPER_SCHEMA,
+    settings: normaliseSettings(raw.settings),
+    heartbeats: { ...(raw.heartbeats ?? {}) },
+    usedNonces: Array.isArray(raw.usedNonces) ? raw.usedNonces : [],
+    decisions: { ...(raw.decisions ?? {}) },
+    drawdownLocked: raw.drawdownLocked === true,
+    lockClearedAt: Number.isFinite(raw.lockClearedAt) ? raw.lockClearedAt : null,
+    resets: Array.isArray(raw.resets) ? raw.resets : [],
+  };
+  const marked = bookEquity({ account, positions, journal: [] });
+  account.peakEquity = Number.isFinite(raw.peakEquity) && raw.peakEquity > 0 ? raw.peakEquity : marked;
+  return account;
 }
 
 export function createPaperStore(portOrPromise: PaperPort | Promise<PaperPort>) {
@@ -45,20 +68,11 @@ export function createPaperStore(portOrPromise: PaperPort | Promise<PaperPort>) 
     return enqueue(async (port) => {
       const raw = await port.get(PAPER_STATE, ACCOUNT_ID);
       const base = newBook(now);
-      const account: PaperAccount = isAccount(raw)
-        ? {
-            ...base.account,
-            ...raw,
-            settings: normaliseSettings(raw.settings),
-            heartbeats: { ...(raw.heartbeats ?? {}) },
-            usedNonces: Array.isArray(raw.usedNonces) ? raw.usedNonces : [],
-            decisions: { ...(raw.decisions ?? {}) },
-          }
-        : base.account;
       const positions = (await port.list(PAPER_POSITIONS))
         .map(({ doc }) => doc as PaperPosition)
         .filter((p) => p && typeof p.id === "string" && p.size > 0)
         .sort((a, b) => a.approvedAt - b.approvedAt || a.id.localeCompare(b.id));
+      const account: PaperAccount = isAccount(raw) ? migrateAccount(raw, positions, base.account) : base.account;
       const journal = (await port.list(PAPER_JOURNAL))
         .map(({ doc }) => doc as JournalEntry)
         .filter((j) => j && typeof j.id === "string" && Number.isFinite(j.pnl))

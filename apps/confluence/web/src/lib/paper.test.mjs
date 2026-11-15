@@ -361,5 +361,66 @@ console.log("Boundary — paper only");
   ok("same replay bar produces deterministic paper results",
     JSON.stringify(replayed) === JSON.stringify(advanceReplayTrade(queued, instrument, next)));
 }
+
+console.log("v2.8 WP19 — drawdown lock (10%) and RESET");
+{
+  const { resetDrawdown, PAPER_SCHEMA } = await import("./paper-broker.ts");
+  const zero = { feeBps: 0, slipBps: 0, fundingBpsPer8h: 0 };
+  ok("drawdown lock default 10", DEFAULT_RISK_SETTINGS.maxDrawdownLockPct === 10);
+  ok("drawdown lock range 1–50", validateSettings({ ...S, maxDrawdownLockPct: 0.5 }).includes("maxDrawdownLockPct")
+    && validateSettings({ ...S, maxDrawdownLockPct: 51 }).includes("maxDrawdownLockPct")
+    && validateSettings({ ...S, maxDrawdownLockPct: 10 }).length === 0);
+  ok("paper schema is 2", PAPER_SCHEMA === 2 && newBook(T0).account.schema === 2);
+  ok("new book starts with peak = starting equity, unlocked", newBook(T0).account.peakEquity === 10_000 && newBook(T0).account.drawdownLocked === false);
+  const has = (v, key) => v.reasons.includes(key);
+  ok("equity ≤ peak × 0.9 blocks new trades", has(evaluateProposal(input(), acct({ equity: 10_000, peakEquity: 11_200 }), S, NOW), "paper.rule.drawdownLock"));
+  ok("equity above the floor passes", !has(evaluateProposal(input(), acct({ equity: 10_100, peakEquity: 11_200 }), S, NOW), "paper.rule.drawdownLock"));
+  ok("an active lock blocks even after equity recovers", has(evaluateProposal(input(), acct({ equity: 12_000, peakEquity: 12_000, drawdownLocked: true }), S, NOW), "paper.rule.drawdownLock"));
+
+  // Book: one open SOL long on binance|4h (enlarged to 300 units, far stop), one open ETH long on
+  // bybit-spot|4h, one pending XRP on binance|4h.
+  const b0 = liveBook();
+  const pr = createProposal(b0, input(), NOW, "dd1");
+  const b1 = approveProposal(b0, pr, "dd1", NOW).book;
+  let b = processBars(b1, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 100.5, 99.5, 100)] }, T0 + 3 * I, zero).book;
+  const sol = { ...b.positions[0], size: 300, stop: 1, stopDistance: 99, plannedRisk: 300 * 99, target: 1000, targetDistance: 900 };
+  const eth = { ...sol, id: "pos-eth", proposalId: "eth", pair: "ETHUSDT", src: "bybit-spot", size: 0.1, entry: 3000, mark: 3000, stop: 1, target: 9000, plannedRisk: 299.9, refPrice: 3000 };
+  const xrp = { ...sol, id: "pos-xrp", proposalId: "xrp", pair: "XRPUSDT", status: "pending", entry: null, openedAt: null, size: 10, plannedRisk: 1 };
+  b = { ...b, positions: [sol, eth, xrp] };
+  const up = processBars(b, "binance", "4h", { SOLUSDT: [bar(T0 + 3 * I, 100, 101.2, 99.8, 101)] }, T0 + 4 * I, zero).book;
+  ok("peak tracks highest marked equity incl. open P&L", near(up.account.peakEquity, 10_000 + 300 * 1) && !up.account.drawdownLocked, String(up.account.peakEquity));
+  const LOCK_AT = T0 + 5 * I;
+  const down = processBars(up, "binance", "4h", { SOLUSDT: [bar(T0 + 4 * I, 101, 101, 96.2, 96.5)] }, LOCK_AT, zero).book;
+  ok("drop to ≤ 90% of peak engages the lock", down.account.drawdownLocked === true);
+  ok("pending positions are cancelled", !down.positions.some((x) => x.status === "pending"));
+  ok("every open position gets a close request", down.positions.length === 2 && down.positions.every((x) => x.closeRequestedAt === LOCK_AT && x.closeReason === "drawdown lock"));
+  ok("lockState reports the drawdown", lockState(down, "binance", "4h", I, LOCK_AT).drawdown === true && lockState(down, "binance", "4h", I, LOCK_AT).drawdownPct > 0.1);
+  const r1 = resetDrawdown(down, "RESET", LOCK_AT + 1);
+  ok("RESET refused while closes are pending, naming the series", !r1.ok && r1.waitingSeries.join(",") === "binance|4h,bybit-spot|4h", r1.waitingSeries.join(","));
+  const c1 = processBars(down, "binance", "4h", { SOLUSDT: [bar(T0 + 5 * I, 96, 97, 95.5, 96.4)] }, T0 + 6 * I, zero);
+  ok("scanned series closes at its next open with reason 'drawdown lock'", c1.closed.length === 1 && c1.closed[0].reason === "drawdown lock" && near(c1.closed[0].exit, 96));
+  ok("lock stays engaged after the closes", c1.book.account.drawdownLocked === true);
+  const r2 = resetDrawdown(c1.book, "RESET", T0 + 6 * I);
+  ok("lock closes unscanned series later and RESET waits", !r2.ok && r2.waitingSeries.join(",") === "bybit-spot|4h");
+  const c2 = processBars(c1.book, "bybit-spot", "4h", { ETHUSDT: [bar(T0 + 6 * I, 2990, 3000, 2980, 2995)] }, T0 + 7 * I, zero);
+  ok("unscanned series closes on its own next scan", c2.closed.length === 1 && c2.closed[0].reason === "drawdown lock" && c2.book.positions.length === 0);
+  ok("wrong word refused", !resetDrawdown(c2.book, "reset", T0 + 7 * I).ok);
+  const r3 = resetDrawdown(c2.book, "RESET", T0 + 7 * I);
+  ok("RESET after every close sets a fresh peak at current equity", r3.ok && !r3.book.account.drawdownLocked && near(r3.book.account.peakEquity, bookEquity(r3.book)));
+  ok("RESET is journaled on the account", r3.book.account.resets.length === 1 && r3.book.account.resets[0].at === T0 + 7 * I && r3.book.account.lockClearedAt === T0 + 7 * I);
+  ok("RESET with no lock is a no-op", (() => { const z = resetDrawdown(newBook(T0), "RESET", T0); return z.ok && z.book.account.resets.length === 0; })());
+  ok("evaluate sees the book's peak", accountSnapshot(down, "binance", "4h", LOCK_AT).drawdownLocked === true && accountSnapshot(up, "binance", "4h", T0 + 4 * I).peakEquity === up.account.peakEquity);
+
+  // Migration: a stored v1 account with an open position.
+  const port = memoryPaperPort();
+  const v1 = { ...newBook(T0).account, schema: 1, balance: 9_500, startingEquity: 10_000 };
+  delete v1.peakEquity; delete v1.drawdownLocked; delete v1.resets; delete v1.lockClearedAt;
+  await port.put("paper_state", "account", v1);
+  const openPos = { ...sol, size: 10, mark: 98, entry: 100 };
+  await port.put("paper_positions", openPos.id, openPos);
+  const migrated = await createPaperStore(Promise.resolve(port)).load(T0);
+  ok("migrates v1 book with open positions", migrated.account.schema === 2 && migrated.account.balance === 9_500 && migrated.positions.length === 1
+    && migrated.account.drawdownLocked === false && near(migrated.account.peakEquity, bookEquity(migrated)), JSON.stringify({ s: migrated.account.schema, b: migrated.account.balance, p: migrated.account.peakEquity }));
+}
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

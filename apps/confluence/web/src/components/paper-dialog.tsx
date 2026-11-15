@@ -56,6 +56,8 @@ import {
   rejectProposal,
   requestClose,
   resetKill,
+  resetDrawdown,
+  waitingSeries,
   setStartingEquity,
   unrealised,
   updateSettings,
@@ -140,6 +142,8 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
   const [settingErrors, setSettingErrors] = useState<string[]>([]);
   const [killText, setKillText] = useState("");
   const [killError, setKillError] = useState(false);
+  const [ddText, setDdText] = useState("");
+  const [ddError, setDdError] = useState(false);
   /** Source of truth for async handlers; updated only in callbacks, never during render. */
   const bookRef = useRef<PaperBook | null>(null);
   const proposalsRef = useRef<Proposal[]>([]);
@@ -347,6 +351,18 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
     setMessage(t("paper.killResetDone"));
   };
 
+  const resetDd = () => {
+    const cur = bookRef.current;
+    if (!cur) return;
+    const res = resetDrawdown(cur, ddText, Date.now());
+    if (!res.ok) { setDdError(true); return; }
+    commit(res.book);
+    setDdError(false);
+    setDdText("");
+    log("paper.drawdown", "paper", "drawdown lock reset (typed confirmation) — peak restarted at current equity");
+    setMessage(t("paper.drawdownResetDone"));
+  };
+
   const saveSettings = () => {
     const cur = bookRef.current;
     if (!cur) return;
@@ -412,7 +428,7 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
       {label}: {on ? t("paper.stateOn") : t("paper.stateOff")}
     </Badge>
   );
-  const blocked = !!view && (view.locks.kill || view.locks.deadMan || view.locks.daily || view.locks.weekly);
+  const blocked = !!view && (view.locks.kill || view.locks.deadMan || view.locks.daily || view.locks.weekly || view.locks.drawdown);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -455,6 +471,7 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                 {lockBadge(view.locks.weekly, t("paper.lockWeekly"))}
                 {lockBadge(view.locks.kill, t("paper.lockKill"))}
                 {lockBadge(view.locks.deadMan, t("paper.lockDeadMan"))}
+                {lockBadge(view.locks.drawdown, t("paper.lockDrawdown"))}
               </div>
               {view.locks.deadMan && (
                 <p role="alert" className="mt-2 flex items-center gap-1.5 text-xs text-amber-300"><AlertTriangle className="h-3.5 w-3.5" />{t("paper.deadMan", { bars: s.deadManBars })}</p>
@@ -736,6 +753,32 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                 </form>
               )}
             </section>
+
+            {/* ---------- Drawdown lock (v2.8) ---------- */}
+            {book.account.drawdownLocked && (
+              <section aria-labelledby="paper-dd" className="rounded-lg border border-rose-500/50 bg-rose-500/5 p-3">
+                <h3 id="paper-dd" className="mb-1 flex items-center gap-2 text-sm font-semibold text-zinc-200"><OctagonX className="h-4 w-4 text-rose-400" />{t("paper.lockDrawdown")}</h3>
+                <p className="mb-2 text-xs text-zinc-400">{t("paper.drawdownHelp", { pct: book.account.settings.maxDrawdownLockPct })}</p>
+                {waitingSeries(book).length > 0 && (
+                  <p role="status" className="mb-2 text-xs text-amber-300">{t("paper.drawdownWaiting", { series: waitingSeries(book).join(", ") })}</p>
+                )}
+                <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); resetDd(); }}>
+                  <label className="flex flex-col gap-1 text-xs text-zinc-300" htmlFor="paper-dd-confirm">
+                    {t("paper.drawdownConfirm", { name: KILL_RESET_WORD })}
+                    <input
+                      id="paper-dd-confirm"
+                      autoComplete="off"
+                      value={ddText}
+                      onChange={(e) => { setDdText(e.target.value); setDdError(false); }}
+                      aria-invalid={ddError}
+                      className="h-8 w-40 rounded-md border border-zinc-700 bg-zinc-900 px-2 font-mono text-zinc-100 aria-[invalid=true]:border-rose-500"
+                    />
+                  </label>
+                  <Button type="submit" size="sm" variant="outline" disabled={waitingSeries(book).length > 0} className="h-8 border-zinc-700 text-zinc-300">{t("paper.drawdownReset")}</Button>
+                  {ddError && <p role="alert" className="w-full text-xs text-rose-300">{t("paper.drawdownMismatch", { name: KILL_RESET_WORD })}</p>}
+                </form>
+              </section>
+            )}
           </div>
         )}
 

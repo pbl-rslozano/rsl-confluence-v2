@@ -465,5 +465,15 @@
   "fx.src.erapi": "ExchangeRate-API (وصول مفتوح)",
   "fx.src.floatrates": "FloatRates (المنهجية غير منشورة)",
   "fx.src.custom": "مصدر مخصص (غير مُختبَر)",
-  "fx.displayOnly": "تغيّر الأسعار ما يُعرض فقط. الدرجات والسجل والتداول الورقي لا تستخدمها أبدًا."
+  "fx.displayOnly": "تغيّر الأسعار ما يُعرض فقط. الدرجات والسجل والتداول الورقي لا تستخدمها أبدًا.",
+  "paper.lockDrawdown": "Drawdown lock",
+  "paper.rule.drawdownLock": "Drawdown lock reached: new trades are blocked until RESET.",
+  "paper.drawdownHelp": "When equity falls {pct}% below its highest mark (open P&L included), new trades stop and every open trade closes at the next open of its own chart. Gaps and fees can take the loss past {pct}%. RESET keeps the loss and starts a fresh {pct}% from current equity.",
+  "paper.drawdownWaiting": "Waiting for these charts to be scanned so their closes can fill: {series}",
+  "paper.drawdownConfirm": "Type {name} to restart the drawdown limit from current equity",
+  "paper.drawdownReset": "Reset drawdown lock",
+  "paper.drawdownMismatch": "Type {name} exactly, after every lock close has filled.",
+  "paper.drawdownResetDone": "Drawdown lock reset — a fresh limit starts from current equity.",
+  "paper.drawdownNow": "From peak",
+  "paper.set.maxDrawdownLockPct": "Drawdown lock (% below highest equity)"
 }

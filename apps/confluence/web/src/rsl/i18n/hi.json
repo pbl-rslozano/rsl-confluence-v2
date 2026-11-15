@@ -465,5 +465,15 @@
   "fx.src.erapi": "ExchangeRate-API (खुली पहुँच)",
   "fx.src.floatrates": "FloatRates (पद्धति प्रकाशित नहीं)",
   "fx.src.custom": "अपना स्रोत (परीक्षित नहीं)",
-  "fx.displayOnly": "दरें केवल प्रदर्शन बदलती हैं। स्कोर, लेजर और पेपर ट्रेडिंग इनका कभी उपयोग नहीं करते।"
+  "fx.displayOnly": "दरें केवल प्रदर्शन बदलती हैं। स्कोर, लेजर और पेपर ट्रेडिंग इनका कभी उपयोग नहीं करते।",
+  "paper.lockDrawdown": "Drawdown lock",
+  "paper.rule.drawdownLock": "Drawdown lock reached: new trades are blocked until RESET.",
+  "paper.drawdownHelp": "When equity falls {pct}% below its highest mark (open P&L included), new trades stop and every open trade closes at the next open of its own chart. Gaps and fees can take the loss past {pct}%. RESET keeps the loss and starts a fresh {pct}% from current equity.",
+  "paper.drawdownWaiting": "Waiting for these charts to be scanned so their closes can fill: {series}",
+  "paper.drawdownConfirm": "Type {name} to restart the drawdown limit from current equity",
+  "paper.drawdownReset": "Reset drawdown lock",
+  "paper.drawdownMismatch": "Type {name} exactly, after every lock close has filled.",
+  "paper.drawdownResetDone": "Drawdown lock reset — a fresh limit starts from current equity.",
+  "paper.drawdownNow": "From peak",
+  "paper.set.maxDrawdownLockPct": "Drawdown lock (% below highest equity)"
 }
