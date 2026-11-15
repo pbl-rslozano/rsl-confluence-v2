@@ -408,14 +408,20 @@ function ReversalBadge({ r }: { r: ReversalResult }) {
 }
 
 function PatternBadge({ pattern }: { pattern: PatternSignal }) {
+  const { t } = useRsl();
   if (pattern.direction === "NONE" || pattern.confidence === "NONE") {
     return (
-      <span className="text-[11px] text-zinc-600" title={pattern.summary}>
-        {pattern.matches > 0 ? `${pattern.matches} mixed` : "—"}
+      <span className="text-[11px] text-zinc-600" title={pattern.matches > 0 ? `${t("pattern.none")}. ${pattern.summary}` : pattern.summary}>
+        {pattern.matches > 0 ? t("pattern.mixed", { n: pattern.matches }) : "—"}
       </span>
     );
   }
   const up = pattern.direction === "UP";
+  const tip = t("pattern.badgeTip", {
+    h: pattern.horizonBars,
+    move: fmtPct(pattern.expectedMovePct),
+    sim: Math.round(pattern.averageSimilarity * 100),
+  });
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold ${
@@ -423,7 +429,7 @@ function PatternBadge({ pattern }: { pattern: PatternSignal }) {
           ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-300"
           : "border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-300"
       }`}
-      title={`${pattern.summary} Expected historical mean: ${fmtPct(pattern.expectedMovePct)}. Asset base rate: ${Math.round(pattern.baseRate * 100)}%. Similarity: ${Math.round(pattern.averageSimilarity * 100)}%. Descriptive only — not a validated forecast.`}
+      title={`${up ? t("pattern.up") : t("pattern.down")} · ${pattern.confidence}. ${pattern.summary} ${tip}`}
     >
       {up ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
       {Math.round(pattern.winRate * 100)}% · {pattern.confidence.slice(0, 3)}
@@ -1676,7 +1682,7 @@ export default function Home() {
                       <RotateCcw className="h-3.5 w-3.5" /> {t("col.reversal")}
                     </div>
                   </th>
-                  <th className="px-3 py-1.5 font-medium text-center">{t("col.pattern")}</th>
+                  <th className="px-3 py-1.5 font-medium text-center" title={t("pattern.title")}>{t("col.pattern")}</th>
                   <th className="px-3 py-1.5 pe-4 text-end font-medium">{t("col.signal")}</th>
                 </tr>
               </thead>
@@ -2252,7 +2258,7 @@ function FvgPanel({ c, fmt: fmtPrice }: { c: ConfluenceResult; fmt: (p: number) 
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
         <span className="font-semibold uppercase tracking-wider text-zinc-400">{t("detail.fvg")}</span>
         <span className="font-mono text-zinc-300">
-          {t("detail.fvgModifier")} ×{c.fvgModifier.toFixed(2)}{c.confidence !== undefined ? ` · ${t("detail.confidence")} ${c.confidence}` : ""}
+          {t("fvg.label")} ×{c.fvgModifier.toFixed(2)}{c.confidence !== undefined ? ` · ${t("detail.confidence")} ${c.confidence}` : ""}
         </span>
       </div>
       {c.fvgReason && <p className="text-zinc-400">{c.fvgReason}</p>}
@@ -2327,6 +2333,7 @@ function ReversalPanel({ r }: { r: ReversalResult }) {
 }
 
 function PatternPanel({ pattern }: { pattern: PatternSignal }) {
+  const { t } = useRsl();
   const active = pattern.direction !== "NONE" && pattern.confidence !== "NONE";
   const up = pattern.direction === "UP";
   const tone = !active ? "border-zinc-700 bg-zinc-800/30"
@@ -2338,32 +2345,32 @@ function PatternPanel({ pattern }: { pattern: PatternSignal }) {
         <div className="flex items-center gap-2">
           <Zap className="h-4 w-4 text-cyan-400" />
           <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-            Historical pattern signal
+            {t("pattern.title")}
           </span>
         </div>
         {active ? (
           <span className={`text-sm font-semibold ${up ? "text-cyan-300" : "text-fuchsia-300"}`}>
-            {up ? "Future bias ↑" : "Future bias ↓"} · {pattern.confidence}
+            {up ? t("pattern.up") : t("pattern.down")} · {pattern.confidence}
           </span>
         ) : (
-          <span className="text-xs text-zinc-500">No validated edge</span>
+          <span className="text-xs text-zinc-500">{t("pattern.none")}</span>
         )}
       </div>
       <p className="mt-1.5 text-xs text-zinc-400">{pattern.summary}</p>
       {pattern.matches > 0 && (
         <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <MiniStat label="Analogues" value={String(pattern.matches)} />
-          <MiniStat label="Directional hit" value={`${Math.round(pattern.winRate * 100)}%`} />
+          <MiniStat label={t("pattern.analogues")} value={String(pattern.matches)} />
+          <MiniStat label={t("pattern.hit")} value={`${Math.round(pattern.winRate * 100)}%`} />
           <MiniStat
-            label={`${pattern.horizonBars}-bar mean`}
+            label={t("pattern.mean", { h: pattern.horizonBars })}
             value={fmtPct(pattern.expectedMovePct)}
             tone={pattern.expectedMovePct > 0 ? "up" : pattern.expectedMovePct < 0 ? "down" : undefined}
           />
-          <MiniStat label="Similarity" value={`${Math.round(pattern.averageSimilarity * 100)}%`} />
+          <MiniStat label={t("pattern.similarity")} value={`${Math.round(pattern.averageSimilarity * 100)}%`} />
         </div>
       )}
       <p className="mt-2 text-[10px] leading-relaxed text-zinc-600">
-        Based only on earlier closed-bar analogues. This is a probabilistic research signal, not a forecast or financial advice.
+        {t("pattern.disclaimer")}
       </p>
     </div>
   );

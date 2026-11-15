@@ -38,7 +38,7 @@ console.log("Engine identity");
   ok("behaviour fingerprint is deterministic", behaviourFingerprint() === behaviourFingerprint());
   // Pinned: changing any indicator, band, weight or the window changes this.
   // Update the pin ONLY together with ENGINE_VERSION when the engine is changed on purpose.
-  ok("configId pinned for engine 2.3.0", id === "2c1a18ad8a61e9ab", id);
+  ok("configId pinned for engine 2.4.0", id === "5c30b5c39f5ba3f2", id);
   ok("stableStringify sorts keys", stableStringify({ b: 1, a: [2, { d: 1, c: 0 }] }) === '{"a":[2,{"c":0,"d":1}],"b":1}');
   ok("hash64 differs for different input", hash64("a") !== hash64("b"));
 }

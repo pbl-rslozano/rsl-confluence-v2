@@ -163,7 +163,6 @@
   "detail.blocBreakout": "Rottura",
   "detail.blocFlow": "Flusso",
   "detail.fvg": "Gap di valore equo",
-  "detail.fvgModifier": "Modificatore di fiducia",
   "detail.confidence": "fiducia",
   "detail.fvgNone": "Nessun gap attivo",
   "detail.fvgBull": "Gap rialzista",
@@ -509,5 +508,17 @@
   "paper.csv.mfe": "MFE (R)",
   "paper.csv.reason": "Pre-trade reason",
   "paper.csv.tag": "Setup tag",
-  "paper.csv.notes": "Notes"
+  "paper.csv.notes": "Notes",
+  "pattern.title": "Historical analogues (descriptive)",
+  "pattern.up": "Past analogues ↑",
+  "pattern.down": "Past analogues ↓",
+  "pattern.none": "No excess over base rate",
+  "fvg.label": "FVG adjustment (unvalidated)",
+  "pattern.mixed": "{n} mixed",
+  "pattern.badgeTip": "{h}-bar historical mean: {move}. Similarity: {sim}%. Descriptive only — not a validated forecast.",
+  "pattern.analogues": "Analogues",
+  "pattern.hit": "Directional hit",
+  "pattern.mean": "{h}-bar mean",
+  "pattern.similarity": "Similarity",
+  "pattern.disclaimer": "Based only on earlier closed-bar analogues: it describes what similar past sequences did. A direction is shown only when the 95% lower bound of the hit rate beats the asset's base rate by more than 2 points. Not a forecast or financial advice."
 }

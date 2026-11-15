@@ -163,7 +163,6 @@
   "detail.blocBreakout": "突破",
   "detail.blocFlow": "资金流",
   "detail.fvg": "公允价值缺口",
-  "detail.fvgModifier": "置信度修正",
   "detail.confidence": "置信度",
   "detail.fvgNone": "无有效缺口",
   "detail.fvgBull": "看涨缺口",
@@ -509,5 +508,17 @@
   "paper.csv.mfe": "MFE (R)",
   "paper.csv.reason": "Pre-trade reason",
   "paper.csv.tag": "Setup tag",
-  "paper.csv.notes": "Notes"
+  "paper.csv.notes": "Notes",
+  "pattern.title": "Historical analogues (descriptive)",
+  "pattern.up": "Past analogues ↑",
+  "pattern.down": "Past analogues ↓",
+  "pattern.none": "No excess over base rate",
+  "fvg.label": "FVG adjustment (unvalidated)",
+  "pattern.mixed": "{n} mixed",
+  "pattern.badgeTip": "{h}-bar historical mean: {move}. Similarity: {sim}%. Descriptive only — not a validated forecast.",
+  "pattern.analogues": "Analogues",
+  "pattern.hit": "Directional hit",
+  "pattern.mean": "{h}-bar mean",
+  "pattern.similarity": "Similarity",
+  "pattern.disclaimer": "Based only on earlier closed-bar analogues: it describes what similar past sequences did. A direction is shown only when the 95% lower bound of the hit rate beats the asset's base rate by more than 2 points. Not a forecast or financial advice."
 }

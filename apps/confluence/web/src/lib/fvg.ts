@@ -16,6 +16,12 @@
  *
  * This is a 1:1 TypeScript port of the reference implementation validated by a
  * 21-assertion regression suite.
+ *
+ * v2.8 (WP19): a gap counts only when it is at least `minGapAtr` (0.5) × ATR(14)
+ * measured at the middle candle of the three-bar window. A fixed 0.05 % floor
+ * let ordinary bar-to-bar noise register as "imbalance" on volatile assets;
+ * `minGapPct` stays as an optional absolute floor (default 0). The modifier is
+ * still an unvalidated adjustment — the UI labels it so.
  */
 
 /** Minimal OHLC candle. Structurally compatible with indicators.ts `Kline`. */
@@ -46,8 +52,16 @@ export interface FvgZone {
 export interface FvgOptions {
   /** Treat the final candle as closed (default false → excluded, anti-repaint). */
   lastBarClosed?: boolean;
-  /** Ignore gaps smaller than this fraction of price (default 0.05%). */
+  /** Optional absolute floor: ignore gaps smaller than this fraction of price (default 0 — off; v2.7: 0.05%). */
   minGapPct?: number;
+  /**
+   * v2.8: ignore gaps smaller than this multiple of ATR(14) at the middle candle
+   * (default 0.5; 0 turns the ATR minimum off). ATR here is this module's own
+   * definition — the mean true range of the last 14 bars up to and including the
+   * middle candle (fewer at the very start of a series), the same ATR the magnet
+   * distance uses — so fvg.ts stays dependency-free.
+   */
+  minGapAtr?: number;
   /** Cap on active zones returned (most recent kept). */
   maxZones?: number;
   minModifier?: number;
@@ -59,7 +73,8 @@ export interface FvgOptions {
 
 export const FVG_DEFAULTS: Required<FvgOptions> = {
   lastBarClosed: false,
-  minGapPct: 0.0005,
+  minGapPct: 0,
+  minGapAtr: 0.5,
   maxZones: 24,
   minModifier: 0.85,
   maxModifier: 1.15,
@@ -144,22 +159,37 @@ export function detectFVG(candles: FvgCandle[], opts?: FvgOptions): FvgDetection
   const out: FvgDetection = { active: [], all: [], lastClosedIndex: n - 1 };
   if (n < 3) return out;
 
+  // Prefix sums of true range (tr[j] for j ≥ 1) → ATR(14) at any bar in O(1).
+  const period = 14;
+  const trSum = new Float64Array(n);
+  for (let j = 1; j < n; j++) {
+    const b = view[j];
+    const p = view[j - 1];
+    const tr = Math.max(b.high - b.low, Math.abs(b.high - p.close), Math.abs(b.low - p.close));
+    trSum[j] = trSum[j - 1] + tr;
+  }
+  const atrAt = (j: number): number => {
+    const from = Math.max(1, j - period + 1);
+    return (trSum[j] - trSum[from - 1]) / (j - from + 1);
+  };
+
   const zones: FvgZone[] = [];
   for (let i = 2; i < n; i++) {
     const c0 = view[i - 2];
     const c2 = view[i];
     const mid = (c2.high + c2.low) / 2 || 1;
+    const minSize = o.minGapAtr > 0 ? o.minGapAtr * atrAt(i - 1) : 0;
     if (c2.low > c0.high) {
       const top = c2.low;
       const bot = c0.high;
       const size = top - bot;
-      if (size / mid >= o.minGapPct) zones.push(mkZone("bull", top, bot, size, size / mid, i, c2.time));
+      if (size / mid >= o.minGapPct && size >= minSize) zones.push(mkZone("bull", top, bot, size, size / mid, i, c2.time));
     }
     if (c2.high < c0.low) {
       const btop = c0.low;
       const bbot = c2.high;
       const bsize = btop - bbot;
-      if (bsize / mid >= o.minGapPct) zones.push(mkZone("bear", btop, bbot, bsize, bsize / mid, i, c2.time));
+      if (bsize / mid >= o.minGapPct && bsize >= minSize) zones.push(mkZone("bear", btop, bbot, bsize, bsize / mid, i, c2.time));
     }
   }
 

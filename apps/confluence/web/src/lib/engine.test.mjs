@@ -7,7 +7,8 @@ import {
   runConfluence, indRSI, indMFI, indCCI, NEUTRAL_BAND, STRONG_BAND, INDICATORS,
 } from "./indicators.ts";
 import { detectFVG, fvgModifier } from "./fvg.ts";
-import { detectHistoricalPattern, clearPatternCache } from "./pattern-signal.ts";
+import { detectHistoricalPattern, clearPatternCache, patternConfidence, PATTERN_PARAMS } from "./pattern-signal.ts";
+import { wilson } from "./ledger-metrics.ts";
 import { detectReversal } from "./reversal.ts";
 import { barCloseTime, contiguousTail, dropUnclosed, INTERVAL_MS } from "./market-client.ts";
 
@@ -96,7 +97,7 @@ console.log("\n== M3: noise stays NEUTRAL; drift is detected (null calibration) 
   }
   const lr = labelled / n, sr = strong / n;
   ok(`bands are ${NEUTRAL_BAND}/${STRONG_BAND}`, NEUTRAL_BAND === 55 && STRONG_BAND === 70);
-  ok(`≤ 8% of random-walk bars get a direction (got ${(lr * 100).toFixed(1)}%)`, lr <= 0.08);
+  ok(`≤ 6% of random-walk bars get a direction (got ${(lr * 100).toFixed(1)}%)`, lr <= 0.06);
   ok(`≤ 2.5% of random-walk bars are STRONG (got ${(sr * 100).toFixed(1)}%)`, sr <= 0.025);
   // Power check: a persistent drift (per-bar Sharpe 0.5) must be labelled far
   // more often than noise, or the bands are merely suppressing everything.
@@ -161,11 +162,33 @@ console.log("\n== H3 / L9: analogue engine ==");
   const times = p1.analogues.map((a) => a.time).sort((x, y) => x - y);
   ok("analogue outcome windows never overlap (≥ 6 bars apart)", times.every((t, i) => i === 0 || t - times[i - 1] >= 6 * H));
   ok("base rate is reported", typeof p1.baseRate === "number" && p1.baseRate >= 0 && p1.baseRate <= 1);
-  ok("a direction requires ≥ 5 analogues", p1.direction === "NONE" || p1.matches >= 5);
-  ok("a direction must beat the base rate by ≥ 10 pts", p1.direction === "NONE" || p1.winRate - p1.baseRate >= 0.10 - 1e-9);
+  ok("a direction requires ≥ 20 analogues (v2.8)", p1.direction === "NONE" || p1.matches >= 20);
+  ok("at most 40 analogues are used (v2.8)", p1.matches <= 40);
+  // v2.8 (WP19): the Wilson 95% lower bound of the hit rate must exceed the base rate by > 2 pts.
+  const lb = (p) => wilson(Math.round(p.winRate * p.matches), p.matches, 1.96)[0];
+  ok("a direction needs Wilson lower bound > base rate + 0.02", p1.direction === "NONE" || lb(p1) > p1.baseRate + 0.02);
+  ok("the signal reports its Wilson lower bound", p1.direction === "NONE" || Math.abs((p1.lowerBound ?? -1) - lb(p1)) < 1e-9);
   const short = fromCloses(Array.from({ length: 200 }, (_, i) => 100 + Math.sin(i / 6)));
   const ps = detectHistoricalPattern(short, { volumeAvailable: true, intervalMs: H, currentConfluence: runConfluence(short, { intervalMs: H }), currentReversal: { ...detectReversal(short), direction: "UP" } });
   ok("200 bars of history cannot produce a directional analogue call", ps.direction === "NONE");
+}
+
+console.log("\n== H1 (v2.8): Pattern Wilson gate and confidence cut-offs ==");
+{
+  ok("MIN_MATCHES 20, MAX_MATCHES 40, MAX_HISTORY_ANCHORS 600",
+    PATTERN_PARAMS.minMatches === 20 && PATTERN_PARAMS.maxMatches === 40 && PATTERN_PARAMS.maxHistoryAnchors === 600, JSON.stringify(PATTERN_PARAMS));
+  // patternConfidence(wins, n, baseRate) → { direction called?, confidence, lowerBound }
+  const at = (wins, n, base) => patternConfidence(wins, n, base);
+  ok("20 / 20 hits vs 50% base → HIGH (lower bound 0.839)", at(20, 20, 0.5).confidence === "HIGH" && at(20, 20, 0.5).called);
+  // 14/20: lower bound 0.481 → excess −0.019 at base 0.5 → abstain
+  ok("14 / 20 vs 50% base abstains (lower bound below base + 0.02)", !at(14, 20, 0.5).called && at(14, 20, 0.5).confidence === "NONE");
+  // 30/40 = 0.75: lower bound ≈ 0.598; excess over 0.55 ≈ 0.048 → LOW; over 0.50 ≈ 0.098 → MODERATE; over 0.49 ≈ 0.108 → HIGH
+  ok("excess just under 0.05 is LOW", at(30, 40, 0.55).confidence === "LOW", String(at(30, 40, 0.55).lowerBound));
+  ok("excess in [0.05, 0.10) is MODERATE", at(30, 40, 0.50).confidence === "MODERATE");
+  ok("excess ≥ 0.10 is HIGH", at(30, 40, 0.49).confidence === "HIGH");
+  const lb30 = wilson(30, 40)[0];
+  ok("excess must be strictly greater than +0.02", !at(30, 40, lb30 - 0.02 + 1e-12).called && at(30, 40, lb30 - 0.021).called);
+  ok("lower bound equals wilson(wins, n, 1.96)[0]", Math.abs(at(30, 40, 0.5).lowerBound - wilson(30, 40, 1.96)[0]) < 1e-12);
 }
 
 console.log("\n== Evidence floor, volume handling, determinism ==");
@@ -185,7 +208,7 @@ console.log("\n== Evidence floor, volume handling, determinism ==");
   const enabled = VOTING_INDICATORS.map((indicator) => indicator.id);
   const all = { version: 1, enabled };
   ok("all-enabled scoring profile normalizes to default", normalizeScoringProfile(all) === null);
-  ok("shipped fingerprint is preserved", engineConfigId() === "2c1a18ad8a61e9ab");
+  ok("shipped fingerprint is preserved (engine 2.4.0)", engineConfigId() === "5c30b5c39f5ba3f2", engineConfigId());
   ok("explicit all-enabled profile preserves every default result",
     JSON.stringify(runConfluence(k)) === JSON.stringify(runConfluence(k, { profile: all })));
   const profile = { version: 1, enabled: ["rsi", "stochastic"] };

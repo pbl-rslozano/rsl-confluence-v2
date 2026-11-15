@@ -869,7 +869,7 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
     await p.waitForSelector("text=Signals recorded");
     const ledgerText = await p.locator('[role="dialog"]').textContent();
     const recorded = Number((ledgerText.match(/Signals recorded: (\d+)/) || [])[1]);
-    record("M-8b", "Browser engine id equals the Node/replay engine id (bundle-independent)", ledgerText.includes("Engine 2c1a18ad8a61e9ab"), (ledgerText.match(/Engine [0-9a-f]{16}/) || ["none"])[0] + " vs 2c1a18ad8a61e9ab");
+    record("M-8b", "Browser engine id equals the Node/replay engine id (bundle-independent)", ledgerText.includes("Engine 5c30b5c39f5ba3f2"), (ledgerText.match(/Engine [0-9a-f]{16}/) || ["none"])[0] + " vs 5c30b5c39f5ba3f2");
     record("M-8", "Signal ledger records every scored series (one row per bar, deduplicated)", recorded >= 4 && recorded <= 12, `recorded ${recorded}; ${/Engine [0-9a-f]{16}/.test(ledgerText) ? "engine id shown" : "no engine id"}`);
     await p.screenshot({ path: path.join(OUT, "11-ledger-1366.png") });
     const [dl] = await Promise.all([p.waitForEvent("download"), p.getByRole("button", { name: "Export CSV" }).click()]);
@@ -1124,7 +1124,7 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
     record("SP-H", "Profile change cancels an older-history request without reopening stale detail", await p.getByRole("dialog").count() === 0);
     const config = await editor.locator("code").textContent();
     record("SP-1", "A custom scoring profile gets a distinct active engine ID",
-      /^[a-f0-9]{16}$/.test(config) && config !== "2c1a18ad8a61e9ab");
+      /^[a-f0-9]{16}$/.test(config) && config !== "5c30b5c39f5ba3f2");
     const [download] = await Promise.all([p.waitForEvent("download"), editor.getByRole("button", { name: "Export scoring profile" }).click()]);
     const profile = JSON.parse(fs.readFileSync(await download.path(), "utf8"));
     record("SP-2", "Export records the enabled voting IDs", profile.version === 1 && !profile.enabled.includes("sma") && profile.enabled.length === 17);
@@ -1143,7 +1143,7 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
     await editor.getByRole("button", { name: "Apply scoring profile" }).click();
     await waitRows(p);
     await p.getByRole("button", { name: "Scoring profile · Default", exact: true }).waitFor();
-    record("SP-5", "Reset restores the shipped scoring identity", await editor.locator("code").textContent() === "2c1a18ad8a61e9ab");
+    record("SP-5", "Reset restores the shipped scoring identity", await editor.locator("code").textContent() === "5c30b5c39f5ba3f2");
     await c.close();
   }
 

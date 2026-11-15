@@ -21,9 +21,24 @@
  *    similarity; 2.01 reported that drift as pattern evidence.
  *  - CONSISTENT FEATURES. The current sequence is scored on the same trailing
  *    180-bar window as the historical ones.
+ *
+ * v2.8 (WP19, engine 2.4.0) — honesty pass:
+ *  - The old gate (≥ 5 analogues, ≥ 60 % agreement, ≥ 10 pts over base rate)
+ *    called a direction on ~31 % of pure-noise windows and HIGH on ~6 %:
+ *    with 5–12 analogues a 10-point edge is well inside sampling error.
+ *  - Now 20–40 analogues are used and a direction is called only when the
+ *    Wilson 95 % LOWER bound of the hit rate exceeds the base rate by more than
+ *    MIN_EXCESS (0.02). Confidence comes from that excess alone:
+ *    HIGH ≥ 0.10, MODERATE ≥ 0.05, LOW otherwise.
+ *  - Up to 600 history anchors (≈ 135 at 1,000 bars; the cap only matters
+ *    after "Load 5K").
+ *  - The output is descriptive (what past analogues did), not a validated
+ *    forecast; the UI says so. The noise regression (noise.test.mjs) pins
+ *    ≥ 95 % NONE and 0 HIGH on Gaussian / t(3) / GARCH noise.
  */
 import { runConfluence, type ConfluenceResult, type Kline } from "./indicators";
 import { detectReversal, type ReversalResult, type TrendDir } from "./reversal";
+import { wilson } from "./ledger-metrics";
 
 export type PatternDirection = "UP" | "DOWN" | "NONE";
 export type PatternConfidence = "HIGH" | "MODERATE" | "LOW" | "NONE";
@@ -44,6 +59,8 @@ export interface PatternSignal {
   horizonBars: number;
   /** Share of all evaluated anchors whose 6-bar outcome matched `direction`. */
   baseRate: number;
+  /** v2.8: Wilson 95 % lower bound of `winRate` (0 when there are no analogues). */
+  lowerBound?: number;
   summary: string;
   analogues: PatternMatch[];
 }
@@ -59,14 +76,51 @@ interface Snapshot {
 const MIN_BARS = 110;
 const FEATURE_BARS = 4;
 const HORIZON_BARS = 6;
-const MAX_HISTORY_ANCHORS = 140;
+const MAX_HISTORY_ANCHORS = 600;
 const MIN_SIMILARITY = 0.72;
-const MIN_MATCHES = 5;
-const MAX_MATCHES = 12;
-/** Directional agreement must exceed the asset's base rate by this much. */
-const MIN_EDGE = 0.10;
+const MIN_MATCHES = 20;
+const MAX_MATCHES = 40;
+/** Wilson z (95 %). */
+const WILSON_Z = 1.96;
+/** v2.8: the Wilson lower bound must exceed the base rate by MORE than this. */
+const MIN_EXCESS = 0.02;
+/** v2.8 confidence cut-offs on (lower bound − base rate). */
+const HIGH_EXCESS = 0.10;
+const MODERATE_EXCESS = 0.05;
 /** Trailing context used to score every snapshot (current and historical). */
 const SNAPSHOT_WINDOW = 180;
+
+/** Published parameters — part of the engine identity (engine-config.ts). */
+export const PATTERN_PARAMS = {
+  featureBars: FEATURE_BARS,
+  horizonBars: HORIZON_BARS,
+  maxHistoryAnchors: MAX_HISTORY_ANCHORS,
+  minSimilarity: MIN_SIMILARITY,
+  minMatches: MIN_MATCHES,
+  maxMatches: MAX_MATCHES,
+  snapshotWindow: SNAPSHOT_WINDOW,
+  wilsonZ: WILSON_Z,
+  minExcess: MIN_EXCESS,
+  highExcess: HIGH_EXCESS,
+  moderateExcess: MODERATE_EXCESS,
+} as const;
+
+/**
+ * v2.8 decision rule. `called` only when wilson(wins, n, 1.96)[0] > baseRate + 0.02;
+ * confidence from excess = lowerBound − baseRate: HIGH ≥ 0.10, MODERATE ≥ 0.05, else LOW.
+ */
+export function patternConfidence(
+  wins: number,
+  n: number,
+  baseRate: number,
+): { called: boolean; confidence: PatternConfidence; lowerBound: number; excess: number } {
+  const lowerBound = n > 0 ? wilson(wins, n, WILSON_Z)[0] : 0;
+  const excess = lowerBound - baseRate;
+  if (!(n > 0) || !(excess > MIN_EXCESS)) return { called: false, confidence: "NONE", lowerBound, excess };
+  const confidence: PatternConfidence =
+    excess >= HIGH_EXCESS ? "HIGH" : excess >= MODERATE_EXCESS ? "MODERATE" : "LOW";
+  return { called: true, confidence, lowerBound, excess };
+}
 
 /* -------------------------------------------------------------------------- *
  *  Snapshot memo — closed bars are immutable, so a bar's snapshot never changes
@@ -110,6 +164,7 @@ export const emptySignal = (summary: string): PatternSignal => ({
   averageSimilarity: 0,
   horizonBars: HORIZON_BARS,
   baseRate: 0,
+  lowerBound: 0,
   summary,
   analogues: [],
 });
@@ -259,12 +314,14 @@ export function detectHistoricalPattern(
     analogues.reduce((sum, match) => sum + match.similarity, 0) / analogues.length;
   const baseRate =
     evaluated === 0 ? 0 : (direction === "DOWN" ? downOutcomes : upOutcomes) / evaluated;
-  const edge = winRate - baseRate;
 
-  // Abstain unless the analogues beat the asset's own base rate by MIN_EDGE
-  // and reach 60% agreement. Similar-looking history that merely follows the
-  // asset's drift is not pattern evidence.
-  if (direction === "NONE" || winRate < 0.60 || edge < MIN_EDGE) {
+  // v2.8: abstain unless the Wilson 95 % lower bound of the hit rate beats the
+  // asset's own base rate by more than MIN_EXCESS. Similar-looking history that
+  // merely follows the asset's drift — or a hit rate within sampling error of
+  // it — is not pattern evidence.
+  const gate = patternConfidence(direction === "NONE" ? 0 : wins, analogues.length, baseRate);
+  const lb = Math.round(gate.lowerBound * 100);
+  if (direction === "NONE" || !gate.called) {
     return {
       direction: "NONE",
       confidence: "NONE",
@@ -274,29 +331,28 @@ export function detectHistoricalPattern(
       averageSimilarity,
       horizonBars: HORIZON_BARS,
       baseRate,
+      lowerBound: gate.lowerBound,
       summary:
-        `${analogues.length} analogues: ${Math.round(winRate * 100)}% vs ` +
-        `${Math.round(baseRate * 100)}% base rate — no edge over the asset's normal drift.`,
+        `${analogues.length} analogues: ${Math.round(winRate * 100)}% (95% lower bound ${lb}%) vs ` +
+        `${Math.round(baseRate * 100)}% base rate — no excess over base rate.`,
       analogues,
     };
   }
 
-  let confidence: PatternConfidence = "LOW";
-  if (analogues.length >= 10 && edge >= 0.25 && averageSimilarity >= 0.80) confidence = "HIGH";
-  else if (analogues.length >= 8 && edge >= 0.17 && averageSimilarity >= 0.76) confidence = "MODERATE";
-
   return {
     direction,
-    confidence,
+    confidence: gate.confidence,
     matches: analogues.length,
     winRate,
     expectedMovePct: weightedMove,
     averageSimilarity,
     horizonBars: HORIZON_BARS,
     baseRate,
+    lowerBound: gate.lowerBound,
     summary:
-      `${analogues.length} independent analogues · ${Math.round(winRate * 100)}% moved ` +
-      `${direction.toLowerCase()} over ${HORIZON_BARS} bars vs ${Math.round(baseRate * 100)}% base rate.`,
+      `${analogues.length} past analogues · ${Math.round(winRate * 100)}% moved ` +
+      `${direction.toLowerCase()} over ${HORIZON_BARS} bars (95% lower bound ${lb}%) vs ` +
+      `${Math.round(baseRate * 100)}% base rate. Descriptive, not a validated forecast.`,
     analogues,
   };
 }

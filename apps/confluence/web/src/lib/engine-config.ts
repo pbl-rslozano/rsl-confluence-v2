@@ -34,9 +34,11 @@ import {
   type Kline,
 } from "./indicators";
 import { detectReversal } from "./reversal";
+import { PATTERN_PARAMS } from "./pattern-signal";
+import { FVG_DEFAULTS } from "./fvg";
 
 /** Bump when the engine is changed on purpose (and update the pinned configId test). */
-export const ENGINE_VERSION = "2.3.0";
+export const ENGINE_VERSION = "2.4.0"; // v2.8 (WP19): Pattern Wilson gate, FVG 0.5 × ATR(14) minimum
 
 export { ENGINE_BARS, MIN_ENGINE_BARS } from "./engine-window";
 import { ENGINE_BARS, MIN_ENGINE_BARS } from "./engine-window";
@@ -56,6 +58,11 @@ export const ENGINE_PARAMS = {
   // hashing them made the browser and Node disagree on the configId. The
   // behaviour fingerprint below already covers every indicator's output.
   indicatorCount: INDICATORS.length,
+  // v2.8 (engine 2.4.0): the historical-analogue gate and the FVG minimum are
+  // engine parameters too. Pattern output is not in the behaviour fingerprint
+  // (it is not recorded in the ledger), so its rule must be hashed explicitly.
+  pattern: PATTERN_PARAMS,
+  fvg: { minGapPct: FVG_DEFAULTS.minGapPct, minGapAtr: FVG_DEFAULTS.minGapAtr },
 } as const;
 
 /* ---------------------------------------------------------------------------

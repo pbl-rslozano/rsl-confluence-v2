@@ -57,7 +57,24 @@ const bearSeq = () => [c(1,20,21,18,19), c(2,18,18,14,14.5), c(3,15,15,13,13.5)]
   ok("detection deterministic", JSON.stringify(detectFVG(seq,{lastBarClosed:true}))===JSON.stringify(detectFVG(seq,{lastBarClosed:true}))); }
 
 { const seq=[c(1,100,100.00,99.9,100),c(2,100,100.2,100,100.1),c(3,100.0001,100.3,100.0001,100.2)];
-  ok("micro-gap filtered by minGapPct", detectFVG(seq,{lastBarClosed:true}).all.length===0); }
+  // v2.8: with the defaults this gap is now rejected by the ATR minimum (minGapPct defaults to 0).
+  ok("micro-gap filtered by minGapPct", detectFVG(seq,{lastBarClosed:true}).all.length===0);
+  ok("minGapPct still works as an explicit floor", detectFVG(seq,{lastBarClosed:true,minGapAtr:0,minGapPct:0.0005}).all.length===0 && detectFVG(seq,{lastBarClosed:true,minGapAtr:0}).all.length===1); }
+
+// v2.8 (WP19): minimum gap 0.5 × ATR(14) at the middle candle. 15 flat bars
+// (true range 2 each) then a middle bar with true range 2, so ATR(14) there = 2.
+{ const flat = Array.from({ length: 15 }, (_, i) => c(i + 1, 100, 101, 99, 100));
+  const withGap = (g) => flat.concat([c(16, 100, 102, 100, 101.5), c(17, 101 + g + 0.2, 101 + g + 1, 101 + g, 101 + g + 0.8)]);
+  ok("minGapAtr defaults to 0.5", FVG_DEFAULTS.minGapAtr === 0.5);
+  ok("minGapPct is only a floor (default 0)", FVG_DEFAULTS.minGapPct === 0);
+  ok("gap of 0.4 × ATR(14) is rejected", detectFVG(withGap(0.8), { lastBarClosed: true }).all.length === 0);
+  const acc = detectFVG(withGap(1.2), { lastBarClosed: true }).all;
+  ok("gap of 0.6 × ATR(14) is accepted", acc.length === 1 && acc[0].type === "bull" && approx(acc[0].bottom, 101) && approx(acc[0].top, 102.2));
+  ok("minGapAtr 0 turns the ATR minimum off", detectFVG(withGap(0.8), { lastBarClosed: true, minGapAtr: 0 }).all.length === 1);
+  // mirror: bearish gap of 0.4 / 0.6 × ATR below the flat range
+  const bearGap = (g) => flat.concat([c(16, 100, 100, 98, 98.5), c(17, 99 - g - 0.2, 99 - g, 99 - g - 1, 99 - g - 0.8)]);
+  ok("bear gap of 0.4 × ATR rejected, 0.6 × ATR accepted",
+    detectFVG(bearGap(0.8), { lastBarClosed: true }).all.length === 0 && detectFVG(bearGap(1.2), { lastBarClosed: true }).all.length === 1); }
 
 console.log("\nFVG regression: " + passed + "/" + (passed+failed) + " passed");
 process.exit(failed===0?0:1);
