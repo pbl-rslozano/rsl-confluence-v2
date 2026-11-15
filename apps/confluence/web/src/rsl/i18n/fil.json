@@ -485,5 +485,8 @@
   "paper.rule.depeg": "The quote stablecoin is 1% or more off its peg against USDT.",
   "paper.rule.intradayContext": "1m–15m signals are context only (allow them in risk settings).",
   "paper.rule.event": "Inside a macro event window (2 h before to 1 h after FOMC, CPI or jobs report).",
-  "paper.warn.riskAbove1": "Risk per trade above 1% of equity — losing streaks compound fast."
+  "paper.warn.riskAbove1": "Risk per trade above 1% of equity — losing streaks compound fast.",
+  "paper.reason.drawdownLock": "Drawdown lock",
+  "paper.reason.time": "Time stop",
+  "paper.drawdownResetWaiting": "Reset drawdown lock (scan {series} first)"
 }

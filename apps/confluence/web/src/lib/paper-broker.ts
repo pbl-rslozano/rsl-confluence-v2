@@ -27,6 +27,7 @@ import type { Kline } from "./indicators";
 import { costsFor as ledgerCostsFor, type AssetClass, type CostModel } from "./ledger-metrics";
 import {
   deadManTripped,
+  drawdownBreached,
   evaluateProposal,
   LOOSENING_KEYS,
   lossLocks,
@@ -51,6 +52,14 @@ const DAY = 86_400_000;
 
 export type PositionStatus = "pending" | "open";
 export type ExitReason = "stop" | "target" | "manual" | "drawdown lock" | "time";
+/** Catalog key for each exit reason (the journal label); a Record, so a new reason cannot be left without one. */
+export const EXIT_REASON_KEYS: Record<ExitReason, string> = {
+  stop: "paper.reason.stop",
+  target: "paper.reason.target",
+  manual: "paper.reason.manual",
+  "drawdown lock": "paper.reason.drawdownLock",
+  time: "paper.reason.time",
+};
 
 export interface PaperPosition {
   id: string;
@@ -444,7 +453,7 @@ export function updateSettings(book: PaperBook, next: RiskSettings, now = Date.n
 /** Starting equity can only change on an empty book (no positions, no journal). */
 export function setStartingEquity(book: PaperBook, equity: number): { ok: boolean; book: PaperBook } {
   if (book.positions.length || book.journal.length || !(equity > 0) || !Number.isFinite(equity) || equity > 1e12) return { ok: false, book };
-  return { ok: true, book: { ...book, account: { ...book.account, startingEquity: equity, balance: equity } } };
+  return { ok: true, book: { ...book, account: { ...book.account, startingEquity: equity, balance: equity, peakEquity: equity } } };
 }
 
 /* ------------------------------------------------------------------ *
@@ -602,7 +611,7 @@ function applyDrawdown(book: PaperBook, now: number): PaperBook {
   const equity = bookEquity(book);
   if (!(equity > 0) && !(a.peakEquity > 0)) return book;
   if (equity > a.peakEquity) return { ...book, account: { ...a, peakEquity: equity } };
-  if (!(a.peakEquity > 0) || equity > a.peakEquity * (1 - a.settings.maxDrawdownLockPct / 100) + 1e-9) return book;
+  if (!(a.peakEquity > 0) || !drawdownBreached({ equity, peakEquity: a.peakEquity, drawdownLocked: false }, a.settings)) return book;
   const positions = book.positions
     .filter((p) => p.status === "open")
     .map((p) => (p.closeRequestedAt != null ? p : { ...p, closeRequestedAt: now, closeReason: "drawdown lock" as const }));

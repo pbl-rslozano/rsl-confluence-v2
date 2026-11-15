@@ -424,6 +424,32 @@ console.log("v2.8 WP19 — drawdown lock (10%) and RESET");
     && migrated.account.drawdownLocked === false && near(migrated.account.peakEquity, bookEquity(migrated)), JSON.stringify({ s: migrated.account.schema, b: migrated.account.balance, p: migrated.account.peakEquity }));
 }
 
+console.log("v2.8 WP19 — fix round 1 (Task 1)");
+{
+  const { EXIT_REASON_KEYS } = await import("./paper-broker.ts");
+  const en = JSON.parse(readFileSync(join(process.cwd(), "src/rsl/i18n/en.json"), "utf8"));
+  const reasons = ["stop", "target", "manual", "drawdown lock", "time"];
+  ok("every ExitReason maps to a catalog key present in en.json",
+    reasons.every((r) => typeof EXIT_REASON_KEYS?.[r] === "string" && !/\s/.test(EXIT_REASON_KEYS[r]) && typeof en[EXIT_REASON_KEYS[r]] === "string"),
+    JSON.stringify(EXIT_REASON_KEYS));
+  // T1-2: entering a starting equity on a fresh book must not trip the drawdown lock.
+  const lowered = setStartingEquity(newBook(T0), 5_000);
+  ok("setStartingEquity sets the peak to the new equity", lowered.ok && lowered.book.account.peakEquity === 5_000, String(lowered.book.account.peakEquity));
+  const zero = { feeBps: 0, slipBps: 0, fundingBpsPer8h: 0 };
+  const hb = { ...lowered.book, account: { ...lowered.book.account, heartbeats: { "binance|4h": NOW } } };
+  ok("a fresh book at 5 000 is not drawdown-locked", !evaluateProposal(input(), accountSnapshot(hb, "binance", "4h", NOW), hb.account.settings, NOW).reasons.includes("paper.rule.drawdownLock"));
+  const raised = setStartingEquity(newBook(T0), 50_000);
+  ok("raising the starting equity moves the peak too", raised.ok && raised.book.account.peakEquity === 50_000);
+  const scanned = processBars(hb, "binance", "4h", { SOLUSDT: [bar(T0 + 6 * I, 1, 1, 1, 1)] }, T0 + 7 * I, zero).book;
+  ok("a scan after lowering does not engage the lock", scanned.account.drawdownLocked === false);
+  // T1-4: a NaN mark never engages the lock (and drawdownBreached is the single formula).
+  const { drawdownBreached } = await import("./risk-engine.ts");
+  ok("drawdownBreached: NaN equity is not a breach", drawdownBreached({ equity: NaN, peakEquity: 10_000, drawdownLocked: false }, S) === false);
+  const nanBook = { ...liveBook(), positions: [{ id: "n", proposalId: "n", configId: "c", pair: "SOLUSDT", src: "binance", tf: "4h", assetClass: "crypto", side: "long", size: 1, stopDistance: 4, targetDistance: 8, plannedRisk: 4, refPrice: 100, signalBarTime: T0, intervalMs: I, approvedAt: T0, status: "open", entry: 100, openedAt: T0 + I, stop: 96, target: 108, mark: NaN, fundingPaid: 0, feesPaid: 0, closeRequestedAt: null }] };
+  const nanRes = processBars(nanBook, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 100.5, 99.5, 100)] }, T0 + 3 * I, zero);
+  ok("a NaN mark does not engage the lock", nanRes.book.account.drawdownLocked === false);
+}
+
 console.log("v2.8 WP19 — cost-inclusive sizing, open-loss locks, no loosening, caps and gates");
 {
   const has = (v, key) => v.reasons.includes(key);

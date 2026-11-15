@@ -59,6 +59,7 @@ import {
   resetKill,
   resetDrawdown,
   waitingSeries,
+  EXIT_REASON_KEYS,
   setStartingEquity,
   unrealised,
   updateSettings,
@@ -662,7 +663,7 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                           <td className="px-2 py-1.5 text-end">{fmtMoney(j.fees + j.funding)}</td>
                           <td className={`px-2 py-1.5 text-end ${pnlClass(j.pnl)}`}>{fmtSigned(j.pnl)}</td>
                           <td className={`px-2 py-1.5 text-end ${pnlClass(j.r)}`}>{fmtNum(j.r)}</td>
-                          <td className="px-2 py-1.5 font-sans">{t(`paper.reason.${j.reason}`)}</td>
+                          <td className="px-2 py-1.5 font-sans">{t(EXIT_REASON_KEYS[j.reason] ?? `paper.reason.${j.reason}`)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -757,12 +758,14 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
             </section>
 
             {/* ---------- Drawdown lock (v2.8) ---------- */}
-            {book.account.drawdownLocked && (
+            {book.account.drawdownLocked && (() => {
+              const waiting = waitingSeries(book).join(", ");
+              return (
               <section aria-labelledby="paper-dd" className="rounded-lg border border-rose-500/50 bg-rose-500/5 p-3">
                 <h3 id="paper-dd" className="mb-1 flex items-center gap-2 text-sm font-semibold text-zinc-200"><OctagonX className="h-4 w-4 text-rose-400" />{t("paper.lockDrawdown")}</h3>
                 <p className="mb-2 text-xs text-zinc-400">{t("paper.drawdownHelp", { pct: book.account.settings.maxDrawdownLockPct })}</p>
-                {waitingSeries(book).length > 0 && (
-                  <p role="status" className="mb-2 text-xs text-amber-300">{t("paper.drawdownWaiting", { series: waitingSeries(book).join(", ") })}</p>
+                {waiting && (
+                  <p role="status" className="mb-2 text-xs text-amber-300">{t("paper.drawdownWaiting", { series: waiting })}</p>
                 )}
                 <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); resetDd(); }}>
                   <label className="flex flex-col gap-1 text-xs text-zinc-300" htmlFor="paper-dd-confirm">
@@ -776,11 +779,12 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                       className="h-8 w-40 rounded-md border border-zinc-700 bg-zinc-900 px-2 font-mono text-zinc-100 aria-[invalid=true]:border-rose-500"
                     />
                   </label>
-                  <Button type="submit" size="sm" variant="outline" disabled={waitingSeries(book).length > 0} className="h-8 border-zinc-700 text-zinc-300">{t("paper.drawdownReset")}</Button>
+                  <Button type="submit" size="sm" variant="outline" disabled={waiting !== ""} className="h-8 border-zinc-700 text-zinc-300">{waiting ? t("paper.drawdownResetWaiting", { series: waiting }) : t("paper.drawdownReset")}</Button>
                   {ddError && <p role="alert" className="w-full text-xs text-rose-300">{t("paper.drawdownMismatch", { name: KILL_RESET_WORD })}</p>}
                 </form>
               </section>
-            )}
+              );
+            })()}
           </div>
         )}
 
