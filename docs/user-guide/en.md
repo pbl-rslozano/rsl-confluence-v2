@@ -5,6 +5,10 @@ The rsL Confluence Terminal is a multi-indicator market scanner. For every asset
 
 > **Important.** The Terminal is an analysis tool, not financial advice. It reads public market prices only and never places an order on any exchange. Paper trading is simulated.
 
+**v2.8 (in progress, Step 1 — WP19, WP20, WP27):** a 10% **drawdown lock** with RESET and more paper limits, a
+**liquidity floor** for thin crypto pairs, honest Pattern and fair-value-gap labels, the **open-source licences** and data
+credits, and a list that **appears at once** from saved history while the scan refreshes it (sections 4, 5, 12, 16).
+
 **New in v2.7:** choose the **stablecoin** each exchange is quoted in (USDT, USDC, FDUSD, USD1 … or the deepest one per coin), show prices in **any currency** at official reference rates, and **zoom, pan and go full screen** on the chart (pinch on phones).
 
 ## In this guide
@@ -113,6 +117,8 @@ The first scan starts on its own. New installs scan **Binance Spot**, quoted in 
 
 ### The summary strip
 Under the header: number of assets scanned, the share that are **Bull**, **Bear** and **Neutral**, reversal counts (**Rev ↑/↓**), your workspace, the source, how long the scan took, errors, when it was updated, and **bar** — the time of the closed bar the signals were computed on. Signals never use the candle that is still forming.
+When the liquidity floor left crypto pairs out (section 9), the strip also says *n thin pairs under $1M/day are not
+scored*; point at it to see which pairs.
 
 ### The table
 | Column | Meaning |
@@ -133,12 +139,33 @@ Click **#, Asset, Price, 24h %, Volume** or **Score** to sort; click again to re
 
 **Expand list** (above the table) hides the header controls and notes so the asset list fills the screen. **Show controls** brings them back; the choice is remembered on that device.
 
+<!-- wp:WP27 -->
+### Smooth loading (v2.8)
+The list no longer starts empty and appears all at once at the end of a scan:
+- **Instant start.** When you open the app, rows appear at once from the market history saved on this device, each
+  marked **updating · *bar time*** (the time of the newest saved closed bar), and refresh in place as fresh data arrives.
+  This needs browser storage (or the app's own storage); without saved history — the first scan on a device, a private
+  window, or cleared site data — the first scan works as before.
+- **Priority order.** Your Watch list (or the selected watchlist) comes first, otherwise the top 10 by volume; then the
+  next 20, the next 20 … up to the Top N you chose (25, 50, 100 — the default — or 200). Rows appear as each one is
+  scored and the progress bar shows the whole scan.
+- **Saved rows are display only.** Until a fresh fetch refreshes it, a row shown from saved history is never recorded in
+  the ledger, never proposed to paper trading and never raises an alert. Its **Pattern** shows **—** until it is
+  refreshed. Rank, relative strength, beta and ledger rows are worked out once the whole list is in, exactly as in a
+  full scan, so what is recorded is the same as before.
+- **not updated · *bar time*** marks a row whose fetch failed this scan: it still shows the saved history, display only.
+  Point at either badge for the explanation.
+- **Delta fetch.** When the saved history is unbroken, only the bars after the last saved closed bar are fetched (plus one
+  overlap bar to check it; if that bar differs, the saved series is thrown away and fetched again in full). The engine
+  always sees the same 1,000-bar window, so scores equal a full download.
+- Changing source or timeframe cancels the queued work and starts again. At rest the screen looks exactly as in v2.7.
+
 ### Notes and banners
 - **Rate line** (v2.7, grey): shown when prices are not in US dollars — for example *Prices in SAR · 1 USD = 3.75 SAR · official peg (SAMA) · Frankfurter central-bank rates · as of 2026-11-11 · stablecoins at 1 USDT = 1 USD (USDT now $0.9987)*. An amber **rates are more than 3 days old** tag appears when the device could not refresh them.
 - **Depeg banner** (v2.7, amber or red): the stablecoin you scan in has moved away from $1 on this exchange — **Watch** at 0.5 %, **Warning** at 1 %, **Severe** at 2 %. Information only; signals are unchanged. A short spike on one exchange is possible (USDe touched $0.65 on one exchange for about 40 minutes in October 2025), so compare with another source before acting.
 - **Storage and backup banner** (yellow): the browser version may lose data when the device runs low on space. The banner also appears when you have never exported a backup or the last one is 7 or more days old; its **Export backup** button saves one straight away. If the device blocks storage completely, a notice says settings are kept only until you close the app.
 - **Error banner**: a scan failed. **Retry** scans again; **Use Bybit** switches the source when Binance cannot be reached.
-- **Macro banner**: shown 24 hours before and 2 hours after a scheduled FOMC decision, US CPI, US jobs report or ECB decision. Volatility is often higher around those releases; how much that affects the signals is not yet measured. The built-in calendar lists US CPI and jobs-report dates up to December 2026.
+- **Macro banner**: shown 24 hours before and 2 hours after a scheduled FOMC decision, US CPI, US jobs report or ECB decision. Volatility is often higher around those releases; how much that affects the signals is not yet measured. The built-in calendar (v2.8) lists FOMC, US CPI, US jobs-report and ECB dates through late 2027, taken from the Fed, BLS and ECB pages; a date that could not be confirmed there is shown but never blocks paper trades. When any kind has fewer than 30 days of dates left, the banner adds a line such as *CPI dates are only listed until … — update the app; the event blackout cannot cover later releases*.
 - **Stale banner**: shown when at least three assets (and at least 5% of the scan) returned candles that were too old; they were left out. Fewer stale assets show only as *n stale* in the summary strip.
 - **Rate-limit banner**: the exchange asked the app to slow down; scanning pauses for the time shown and partial results stay on screen.
 
@@ -180,10 +207,16 @@ ATR 14, Std Dev 20 and fair-value gaps are shown for information but do not vote
 The Reversal column looks for a turn **against** the current trend (the trend is judged from the 50-bar average and its slope). It checks nine clues: RSI divergence, MACD momentum loss, a return inside the Bollinger bands, a Stochastic cross, a Parabolic SAR flip, a Supertrend flip, RSI leaving overbought or oversold, an engulfing candle, and a hammer or shooting star. Three or more net clues are **HIGH**, two **MOD**, one **LOW**. HIGH is a count of clues, not a probability that the trend will turn. Point at the badge to see which clues fired.
 
 ### Pattern
-The Pattern column is not a chart-shape detector. It looks back through the same asset's history for moments that looked like now (score, reversal and trend over the last four bars) and counts how often price rose over the next six bars.
-- **↑ 75% · MOD** means similar moments rose 75% of the time, with moderate confidence.
-- **N mixed** means it found N similar moments, but too few (under five) or without a clear edge over the asset's normal behaviour.
-- **—** means it found no similar moments.
+The Pattern column is not a chart-shape detector, and it is descriptive, not a validated forecast. It looks back through
+the same asset's earlier closed bars for moments that looked like now (score, reversal and trend over the last four bars;
+the 20 to 40 closest analogues) and counts how often price moved each way over the next six bars.
+- A direction (**Past analogues ↑** or **↓**) is shown only when the 95% **Wilson lower bound** of that hit rate beats the
+  asset's own base rate by more than 2 points. Confidence comes from that excess alone: **HIGH** at 10 points or more,
+  **MODERATE** at 5 or more, **LOW** otherwise. On random price series this gate calls almost nothing (in the noise test
+  about 99% of windows abstain and none are HIGH).
+- **N mixed** means it found N analogues but no excess over the base rate (*No excess over base rate*), or fewer than 20
+  analogues (*Too few analogues* — no comparison is made). Point at it for the reason.
+- **—** means it found no analogues, or the row is still shown from saved history (section 4).
 
 ## 6. The asset detail sheet
 Click an asset name to open its detail sheet. Scroll down for each section. The sheet closes when you change the source, timeframe or quote, so it never acts on rows from another scan.
@@ -212,7 +245,7 @@ The chart toolbar has **+** (zoom in), **−** (zoom out), **Reset**, **Full scr
 ![Analysis sections: trend and reversal, historical pattern, bloc scores and context.](images/detail-analysis.webp)
 
 - **Trend & reversal**: the current trend and any reversal clues.
-- **Historical pattern signal**: the analogues behind the Pattern column — how many, how often they moved in the signal's direction, the average 6-bar move and how similar they were.
+- **Historical analogues (descriptive)**: the analogues behind the Pattern column — how many, how often they moved in the signal's direction with its 95% lower bound against the base rate, the average 6-bar move and how similar they were. With 1–19 analogues it says *Too few analogues*.
 - **Bloc scores**: the four bloc scores, the efficiency ratio and the contrarian weight.
 - **Context (logged, not scored)**: extra information that is recorded with the signal but does not change it:
   - **Relative strength**: where this asset's 20-bar return ranks in the scan, 0–100.
@@ -226,7 +259,7 @@ The chart toolbar has **+** (zoom in), **−** (zoom out), **Reset**, **Full scr
 
 ![Fair-value gaps and key levels.](images/detail-levels.webp)
 
-- **Fair-value gaps**: price gaps left by fast moves. A gap that agrees with the signal raises the shown confidence slightly; an opposing gap lowers it (×0.85 to ×1.15). Gaps never change the score or the signal.
+- **Fair-value gaps**: price gaps left by fast moves, at least 0.5 × ATR(14) wide (v2.8; this ATR is a simple 14-bar average of the true range, not Wilder's smoothing). A gap that agrees with the signal raises the shown confidence slightly; an opposing gap lowers it (×0.85 to ×1.15), shown as **FVG adjustment (unvalidated)** because that adjustment has not been measured yet. Gaps never change the score or the signal.
 - **Key levels (20-bar)**: pivot, two resistance levels (R1, R2) and two support levels (S1, S2), each marked above or below price, in the display currency.
 
 ![The indicator panel lists every vote with its value.](images/detail-indicators.webp)
@@ -292,6 +325,10 @@ Open **⇄ Rate sources** in the header (or **Rate sources** at the end of the g
 | **fawazahmed0 currency-api** | community project, method not published | about 340 codes | |
 | **FloatRates** | daily rates, method not published | about 145 | its SAR is not exactly the peg |
 
+- **Credits (v2.8).** Wherever ExchangeRate-API's rates are on screen — the rate line, the expanded list and the detail
+  sheet (also with chart replay open) — the app shows its required link **Rates By Exchange Rate API**. With the European
+  Central Bank the rate line says *derived from ECB euro reference rates · Source: ECB statistics (rebased to USD by this
+  app)*: the ECB publishes euro rates, and the app turns them into a dollar base itself.
 - **Update now** fetches the chosen source straight away; **Last updated** shows when and **as of** shows the date the rates refer to. **Update automatically (every 6 hours)** can be switched off.
 - When you choose one source, the app uses only that source. If it cannot be reached, the rate line says so and the last rates it gave are kept (or the Gulf pegs) — it never switches to another provider behind your back.
 - **Custom source (not listed).** Type the source's name and address, open it in your browser, save its rates file (JSON) and press **Import its rates file**. The app reads the common formats (a list of rates against USD or another base). A custom source is marked **Not tested**: its rates are used exactly as you import them. For your security the app never connects to an address that is not on its list, so a custom source is updated by importing a new file. To have a source tested and added to the list, use **Send a written request to the developer** (it opens an e-mail with the name and address filled in).
@@ -329,7 +366,8 @@ A pair on another stablecoin is classed like its USDT twin (PAXGUSDC is a commod
 - **USDT premium** (rate line, v2.7): how far Coins.ph's USDT peso price is from the official peso rate.
 - **Slower refresh.** Coins.ph allows each internet connection only about 120 requests a minute (heavier requests may count more). The app scans at most 40 pairs from this source and auto-refreshes no faster than every 5 minutes. If Coins.ph asks it to slow down, only Coins.ph pauses — the other sources keep working — and it resumes by itself. A **Refresh** right after a scan can take up to a minute to start, because the app waits until it is back under the limit.
 - **Not available:** no public price feed was found for PDAX, GCash GCrypto, Maya, GoTyme or UnionBank, so they are not included. If one publishes such a feed, it can be added later.
-- **Web version:** the published web app and the local launcher reach Coins.ph through their own address. If you put the web files on another host, Coins.ph may show **Blocked or unreachable**; the installed apps are not affected.
+- **Web version:** the published web app and the local launcher reach Coins.ph through their own address. If you put the web files on another host, Coins.ph may show **Blocked or unreachable**; the installed apps are not affected. This relay of Coins.ph's public prices (through Netlify on the published web app) serves **personal use only** until Coins.ph confirms in writing that its public market data may be relayed; that confirmation has not been received yet.
+- **Bybit and Bitget in the Philippines.** In the Philippines the SEC's advisory of 4 August 2025 lists Bybit and Bitget among unregistered crypto platforms, and some internet providers block them. The app only reads their public prices; connecting an account key under API is your own decision under local rules.
 - Peso prices are always fetched live. The web app's offline copy never stores them, so a scan never shows old Coins.ph prices as current.
 - Coins.ph is never offered under **API** — there is no account connection for it — and its peso pairs are not proposed in paper trading (the paper account is in USDT).
 
@@ -362,6 +400,11 @@ The scoring profile turns individual indicators on or off; weights and threshold
 - **Reset scoring draft** turns all 18 indicators back on (press **Apply scoring profile** to use it).
 - **Export scoring profile** saves it as `scoring-profile.json`. **Import scoring profile** loads a saved file into the editor; press **Apply scoring profile** to use it.
 - A signal still needs at least 70% of the enabled indicators to be calculable. With no indicator ticked, every signal is suppressed.
+- **Liquidity floor (crypto, 24 h volume)** (v2.8, in the same panel): crypto pairs with less 24-hour quote volume than
+  this are left out of the score, with a note in the summary strip (section 4). Default **$1M**; choose $250k–$10M or
+  **Off**. The volume is in US dollars, valued at the quote's own price on the same exchange (1 USDT = 1 USD) — the
+  display currency never changes it. Coins.ph peso pairs keep their own thin-pair rule (section 8). It is a scan setting,
+  not a paper-trading rule.
 
 ## 10. Alerts
 ### Reversal alerts (🔔)
@@ -388,6 +431,14 @@ Every scored closed bar is recorded with the engine version. The ledger shows ho
 - **Results by group**: hit rate against the base rate, mean net result in basis points (bp), edge against the base, profit factor and a 95% confidence interval.
 - **Score calibration**: the average move for each score band, so you can see whether higher scores led to bigger moves.
 - **Costs**: each outcome enters at the next bar's open and pays fees, slippage and (on perpetuals) funding.
+- **Spot SELL** groups (v2.8): on spot sources a SELL cannot be shorted, so those groups are labelled **(long avoided)**
+  next to the short result — read them as the losses a long would have avoided.
+- **Days needed at the current Sharpe** (v2.8): how many days of signals it would take, at the current Sharpe, for the
+  probabilistic Sharpe to reach 0.95 — in total and beyond the blocks already logged. When the current Sharpe is zero or
+  negative it gives no figure. Small edges usually take **years** to confirm, not weeks.
+- **What each row records** (v2.8, engine 2.4.0): the 18 individual votes, the Pattern output, and the funding rate and
+  open-interest change when a recorder snapshot of at most 2 hours is available (otherwise empty). They are logged and
+  exported, never scored. Rows of engine 2.3.0 stay and are reported separately.
 
 | Source | Fee per side | Slippage per side | Funding per 8 h |
 |---|---|---|---|
@@ -414,14 +465,15 @@ Other stablecoin quotes on the same exchange use the same costs. RWA and stocks 
 | Beats 20-bar momentum | A simple trend rule must do worse. |
 | Pre-registered horizon, decision date reached | The test was fixed in advance. |
 
-**Pre-registration.** Choose a horizon and press **Pre-register h = N**. The hypothesis is then fixed and the verdict can be read only after at least 90 days, using signals recorded after that moment. This prevents choosing the best-looking horizon after the fact.
+**Pre-registration.** Choose a horizon and press **Pre-register h = N**. The hypothesis is then fixed and the verdict can be read only after at least 90 days, using signals recorded after that moment. This prevents choosing the best-looking horizon after the fact. In this confirmatory view the deflated Sharpe counts only the active pre-registered hypotheses of the current engine (v2.8); the exploratory view keeps counting every view you looked at.
 
 ### Keep the ledger safe
 - **Export CSV** or **Export JSON** at least weekly; the dialog reminds you. An export holds the current source, timeframe and asset class only, so export each one you use.
-- **Import ledger** restores a JSON export (or a recorder file). CSV cannot be imported, and Coins.ph rows are not accepted.
+- **Import ledger** restores a JSON or CSV export (CSV from v2.8) or a recorder file. Every row is checked; duplicates are ignored and Coins.ph rows are not accepted.
 - In the browser version, press **Keep storage** to ask the browser not to delete the ledger when space is low.
 - **Clear ledger** deletes every recorded signal for **all** sources and timeframes, for good, after a confirmation.
 
+<!-- wp:WP19 -->
 ## 12. Paper trading
 Paper trading practises the discipline the ledger asks for. STRONG score bands become practice **proposals** (not yet validated by the ledger), a risk engine checks each one, and only you can approve. No order is ever sent to any exchange.
 
@@ -433,16 +485,59 @@ Paper trading practises the discipline the ledger asks for. STRONG score bands b
 3. **Approve** or **Reject**. A proposal expires when the next bar closes, and each one can be decided only once.
 4. An approved trade fills at the **next bar's open** (never at the signal price). Stop and target are re-anchored to the fill. If a bar touches both, the stop counts first; a gap through the stop exits at the open.
 5. **Close at next open** exits manually; **Cancel** withdraws an order that has not filled yet.
+6. **Add a note** (v2.8, optional and collapsed) under a proposal takes a short *Why this trade?* reason and a **Setup**
+   tag; they are kept with the trade (or with the rejection) and exported in the journal CSV. **Approve** stays one click.
+
+**Costs inside the risk budget (v2.8).** The size is the risk budget ÷ (stop distance + entry × round-trip cost), where the
+round trip is 2 × (fee + slippage). So a clean stop-out loses about **1 R** (slightly less — about −0.98 R on Binance and
+−0.95 R on Coins.ph for a stop 2% away — because the stop is placed from the filled entry); in v2.7 the same stop lost about
+−1.12 R and −1.37 R. Funding is not in the budget, and a gap through the stop can still lose more than 1 R. Where the scan
+has measured an order book in the last 24 hours (top 10 pairs per source, once a day), that pair's **measured slippage**
+replaces the default slippage in sizing and fills.
+
+**Proposals that are blocked (v2.8).** Besides the locks below and the existing limits, a proposal is blocked:
+- **Event blackout** (on by default): from 2 hours before to 1 hour after an FOMC decision, US CPI or US jobs report (the
+  ECB decision is shown in the macro banner but never blocks). Turn it off with *Pause around FOMC, CPI and jobs reports*.
+- **Crypto cap**: at most **3** open crypto positions (crypto moves together).
+- **Depeg**: when the quote stablecoin is 1% or more off its peg against USDT (USDT itself is the reference).
+- **Intraday**: proposals from 1-minute to 15-minute charts are context only by default; *Allow 1m–15m proposals* lets
+  them through.
+
+**Time stop** (off by default): when you turn it on it is preset to 24 bars; a trade still open after that many bars exits
+at the next open, reason *time*. **Warnings:** risk per trade above 1% of equity shows a warning on each proposal, and the
+total notional is capped at 1 × equity until liquidation is modelled. **Rejected** proposals are kept with your note and
+the result the same ATR bracket later gave, so your choices can be compared with the system.
 
 **Currency (v2.7).** The paper account is kept in USDT, so only pairs quoted in a dollar stablecoin (USDT, USDC, FDUSD …) can be proposed; peso (Coins.ph) and euro pairs are refused with a reason. One position per coin: BTCUSDT and BTCUSDC count as the same exposure.
 
 ### Locks
-- **Daily and weekly loss locks** block new approvals after the set loss.
+- **Daily and weekly loss locks** block new approvals after the set loss. From v2.8 **open losses count**: the lock
+  compares equity (open P&L included) with the first mark at or after 00:00 UTC each day / each Monday.
+- **Drawdown lock** (v2.8, default **10%**, 1–50%): when equity, open P&L included, falls 10% below its highest mark, the
+  app (a) blocks new trades, (b) cancels pending positions — they are removed without a journal entry, since they never
+  filled — and (c) closes every open trade at the **next open of its own chart**, reason *drawdown lock*. A position whose
+  chart is not being scanned closes at that chart's next scan; the dead-man badge shows it. The highest mark is checked
+  after every scan with each position at its latest price (bars missed while the app was closed are marked at the next
+  scan from their real closes). A **Drawdown lock** badge and a red **RESET** box appear only while the lock is active.
+  - **Losses can exceed 10%.** The closes happen at the next bar's open, so gaps, moves between marks, exit costs and a
+    longer timeframe's wait for its next open can take the loss past the limit.
+  - **RESET.** After every lock close has filled (no open or pending positions), type `RESET` (the same word as the kill
+    switch, a separate button) and press **Reset drawdown lock**: the highest mark restarts at current equity — a fresh
+    10% — and the reset is recorded with the account (the trade journal and its statistics are unchanged). While closes
+    are still waiting, the button is disabled and names the source and timeframe to scan, for example *Reset drawdown
+    lock (scan binance|4h first)*. RESET keeps the loss; it only restarts the 10% from where you are.
+  - **How prop firms compare.** Topstep closes positions at its Maximum Loss Limit, which trails the end-of-day balance;
+    FTMO's Maximum Loss is 10% of initial capital measured on equity (2-Step; on the 1-Step the floor trails the highest
+    end-of-day balance). This lock trails the highest **marked** equity, which is stricter. Topstep's paid Reset restarts a
+    Trading Combine at its starting balance; this RESET keeps the loss and only restarts the 10% from current equity.
 - **Kill switch** blocks every new approval until you reset it (type `RESET`). It does not close open positions.
 - **Dead-man switch**: if no scan has run for the set number of bars, approvals stop and open positions are marked unmanaged. Keep the app scanning while you hold paper positions.
+- **No loosening while locked (v2.8).** While the daily, weekly or drawdown lock or the kill switch is active, the app
+  refuses to raise a loss lock, risk per trade, open risk or total notional; that is allowed again from the next UTC day
+  after the lock clears (the drawdown lock clears only by RESET). The dead-man switch does not count here.
 
 ### Journal
-Closed trades are listed with costs, P&L and exit reason, plus trades, win rate, average win/loss in R, expectancy, net P&L and maximum drawdown. **Export CSV** saves the journal. **Replay trade** replays a closed trade on its saved candles, and **Annotate** adds tags and notes. The journal counts **closed** paper trades towards **50**, the number needed before anything beyond paper is even considered. Matching them to the recorded bars (reconciliation) is a separate step.
+Closed trades are listed with costs, P&L and exit reason, plus trades, win rate, average win/loss in R, expectancy, net P&L and maximum drawdown (from v2.8 the largest percentage drawdown, tracked on its own). **More statistics** (collapsed) adds profit factor, a 95% range for the win rate, average MAE and MFE in R (how far trades went against and for you), and a histogram of trades by R; below 30 trades it says the figures are too few to judge. The CSV adds MAE, MFE, the pre-trade reason, the setup tag and notes, with localised column names. **Export CSV** saves the journal. **Replay trade** replays a closed trade on its saved candles, and **Annotate** adds tags and notes. The journal counts **closed** paper trades towards **50**, the number needed before anything beyond paper is even considered. Matching them to the recorded bars (reconciliation) is a separate step.
 
 ### Risk settings
 ![Risk settings and the kill switch.](images/paper-settings.webp)
@@ -461,11 +556,16 @@ Closed trades are listed with costs, P&L and exit reason, plus trades, win rate,
 | Minimum \|score\| | 55 | 0–100 |
 | Max signal age (bars) | 1 | 0–10 |
 | Dead-man limit (bars) | 3 | 1–100 |
-| Max total notional (× equity) | 1 | 0.1–10 |
+| Max total notional (× equity) | 1 | 0.1–1 (v2.8: capped at 1 until liquidation is modelled) |
 | Allow shorts on spot | off | on/off |
 | Require a fresh signal | on | on/off |
+| *More limits* (v2.8, collapsed): Drawdown lock (% below highest equity) | 10 | 1–50 |
+| Max open crypto positions | 3 | 1–50 |
+| Time stop (bars held; 0 = off) | 0 (off; preset 24 when turned on) | 0–1000 |
+| Pause around FOMC, CPI and jobs reports | on | on/off |
+| Allow 1m–15m proposals | off | on/off |
 
-A *cluster* is a group of related assets: BTC and ETH (on any quote), other crypto, and each other asset class. **Save settings** applies them; **Revert** undoes unsaved changes. Starting equity can be changed only while no trade is open or recorded, and there is no button to reset the paper account.
+The v2.8 limits sit in the collapsed **More limits** section after the settings grid; it opens by itself when one of its fields is invalid. A *cluster* is a group of related assets: BTC and ETH (on any quote), other crypto, and each other asset class. **Save settings** applies them; **Revert** undoes unsaved changes. Starting equity can be changed only while no trade is open or recorded, and there is no button to reset the paper account.
 
 ## 13. Private API (read-only)
 ![Private API setup through the local gateway.](images/private-api.webp)
@@ -474,6 +574,11 @@ A *cluster* is a group of related assets: BTC and ETH (on any quote), other cryp
 1. On the computer, start the local gateway: `npm run gateway` in the gateway folder (or `pnpm gateway` from the project folder). It listens only on `127.0.0.1:8787` and prints a **gateway token**, which changes on every restart.
 2. In **API**, choose the exchange and environment (testnet or mainnet), paste the token, your API key and secret (and the passphrase for Bitget), then **Test and connect**.
 3. The dialog shows the key's label, a masked key and whether it is **Read only**, **Trading enabled** or **Permission unknown**.
+
+From v2.8 the gateway only keeps a **read-only** key: a key that reports write permissions, or reports none on mainnet, is
+refused. Binance testnet keys (which have no permissions endpoint) are allowed and labelled *permissions not reported*. A
+Bitget key with an empty or missing permission list counts as unknown and is refused; a Bybit read-only key with an empty
+permission list stays allowed.
 
 Keys go only to the gateway on your own computer, which keeps them in memory; the browser never stores them and the form is cleared after connecting. Reloading the app forgets the connection. Create a dedicated read-only key with withdrawals disabled and an IP allowlist. The gateway has no order, withdrawal or transfer function.
 
@@ -508,8 +613,28 @@ A failed source never borrows another source's candles. Missing rows are listed,
 - **Restore.** **Restore backup** checks the file (format, checksum, app and version) before it replaces anything, then reloads.
 - **Audit trail.** A tamper-evident log of important actions: app start, settings changes, identity changes, backups, ledger exports and imports, and every paper-trading decision. About shows *intact (n entries)*, or *BROKEN at #k* if an entry was altered.
 - **Identity.** **Edit identity** changes the workspace, logo and your name; **Export identity (JSON)** saves it.
-- **Privacy.** The app only reads public data: market prices (Binance, Bybit, Bitget, Coins.ph — on the web, Coins.ph is reached through the app's own address), the public update file, and — only when a price needs converting, every 6 hours or on **Update now** — exchange rates from the source you chose: `api.frankfurter.dev` (Automatic falls back to `cdn.jsdelivr.net` / `latest.currency-api.pages.dev`), or `data-api.ecb.europa.eu`, `open.er-api.com` or `www.floatrates.com` when you pick them. A custom source is never contacted; you import its file. No account, identifier or cookie is sent and there is no tracking; like any web request, each source sees your internet address (for Coins.ph on the web, Netlify's).
+- **Privacy.** The app only reads public data: market prices (Binance, Bybit, Bitget, Coins.ph — on the web, Coins.ph is reached through the app's own address), the public update file, and — only when a price needs converting, every 6 hours or on **Update now** — exchange rates from the source you chose: `api.frankfurter.dev` (Automatic falls back to `cdn.jsdelivr.net` / `latest.currency-api.pages.dev`), or `data-api.ecb.europa.eu`, `open.er-api.com` or `www.floatrates.com` when you pick them. A custom source is never contacted; you import its file. No account, identifier or cookie is sent and there is no tracking; like any web request, each source sees your internet address (for Coins.ph on the web, Netlify's). **On Windows**, the desktop app runs on Microsoft's WebView2 Runtime, whose Microsoft Defender SmartScreen (on by default) and automatic updates may contact Microsoft — see the WebView2 notice under **About → Open-source licences**.
 - Market data belongs to each exchange and is shown for personal use. Exchange rates are reference rates for information, not rates you can trade at.
+
+<!-- wp:WP20 -->
+### Licences and credits (v2.8)
+- **About → Open-source licences** (collapsed, just above the credit line) says that the app includes open-source
+  software and opens **Third-party notices (THIRD-PARTY-NOTICES.txt)**: every shipped component with its licence and
+  copyright notice — the npm packages (with fallback texts for those published without a licence file), shadcn/ui (MIT),
+  the fonts under the full SIL Open Font License 1.1 with each family's copyright line, and, in the desktop and phone
+  apps, the Rust and native components (including MPL-2.0 parts with their source locations, SQLCipher, and Microsoft's
+  WebView2 Runtime terms on Windows). The same section holds the trademark line: *Bollinger Bands® is a registered
+  trademark of John Bollinger. Exchange and token names and logos belong to their owners and only identify the market; no
+  affiliation or endorsement.*
+- **About** names this edition *Personal build — no licence key required*. The app itself is © rsLozano, all rights
+  reserved (the `LICENSE` file).
+- **Data credits.** Rates from ExchangeRate-API carry *Rates By Exchange Rate API*; ECB rates carry *Source: ECB
+  statistics (rebased to USD by this app)* (section 7). Coins.ph prices relayed on the web are for personal use only
+  (section 8).
+- **Binance Vision archive (backtesting tool).** The optional `fetch-binance-archive` tool downloads Binance's public
+  monthly archives from data.binance.vision. Under the Binance Vision Terms of Use v1.0 (26 Aug 2026) that data is
+  CC BY-NC-SA 4.0: personal, non-production backtesting only; credit Binance Vision and keep CC BY-NC-SA 4.0 on anything you
+  share that is derived from it; commercial use needs a data licence from Binance. The app itself never uses the archive.
 
 ## 17. Updates
 When a newer version is published, a line appears above the footer with the new version; on Android it also shows the download size and SHA-256 fingerprint. On the web, choose **Reload to update**. On Android, choose **Download update**: the system browser downloads the signed APK, and installing it keeps your data (from v2.6 to v2.7.0 only, uninstall first: see *Android: moving from v2.6* in §1). On iPhone, install the new build with Sideloadly. On desktop, install the new installer. **Later** hides the notice until the next version. Under **About → Updates** you can switch automatic checks off, check now, and see the last result. The check runs when the app opens, when it comes back online, and every 6 hours. It only reads one public file (`/updates/latest.json`); nothing is sent.
@@ -551,6 +676,11 @@ The desktop app also has menus: **File** (Export backup…, Restore backup…), 
 | A custom rates file is refused | It holds no rates the app can read; save the source's JSON (not its web page) and import that. |
 | **Load 5K older** says the row is from an earlier scan | You changed source or timeframe; wait for the new scan, then reopen the asset. |
 | A paper proposal says the account is in USDT | Peso and euro pairs cannot be booked in the USDT paper account; scan a dollar-stablecoin quote. |
+| Rows say **updating · …** | They are shown from the history on this device while the scan refreshes them (section 4); they are display only until then. |
+| A row says **not updated · …** | Its fetch failed this scan; it shows saved history, display only. The next scan tries again. |
+| *n thin pairs … are not scored* | The liquidity floor left those crypto pairs out; lower or turn off **Liquidity floor** in the scoring-profile panel (section 9). |
+| **Reset drawdown lock** is greyed out | Lock closes are still waiting: scan the source and timeframe the button names so they fill, then type `RESET`. |
+| Saving says *risk can't be loosened until the next UTC day* | A lock is active: limits cannot be loosened until the next UTC day after it clears (section 12). |
 | Ledger says **Not proven yet** | Normal for months, and for a small edge often years rather than weeks (see the power readout in the ledger). Keep scanning and export the ledger weekly. |
 | A paper proposal cannot be approved | Read the reason under it (lock, cluster limit, open-risk cap, stale signal…). Engaged kill switch: reset it with `RESET`. |
 | Settings disappeared (browser) | The browser cleared its storage. Restore your last backup from About. |
@@ -577,6 +707,10 @@ The desktop app also has menus: **File** (Export backup…, Restore backup…), 
 | **Quote currency** | What a pair is priced in: BTCUSDC is bitcoin priced in USDC. |
 | **Depeg** | A stablecoin trading away from its fixed value. |
 | **Peg** | A currency held at a fixed rate by its central bank (SAR 3.75 per USD). |
+| **Drawdown** | How far equity has fallen from its highest mark, in %. |
+| **Analogue** | An earlier moment in the same asset's history that looked like now (Pattern). |
+| **Wilson lower bound** | A cautious low estimate of a hit rate from a small sample (95% level). |
+| **MAE / MFE** | Maximum adverse / favourable excursion: how far a trade went against / for you, in R. |
 | **Reference rate** | An official or central-bank mid rate published for information; not a rate you can trade at. |
 
 ## 22. Help
