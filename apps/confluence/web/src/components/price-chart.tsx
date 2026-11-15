@@ -527,7 +527,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
                 <line x1={PAD_L} y1={panelTop} x2={PAD_L + chartW} y2={panelTop} stroke="var(--color-zinc-700)" strokeWidth={1} />
                 <line x1={PAD_L} y1={yScore(0)} x2={PAD_L + chartW} y2={yScore(0)} stroke="var(--color-zinc-800)" strokeWidth={1} strokeDasharray="3 3" />
                 {areaD && <path data-fund-area="size" d={areaD} fill={PANEL_COLOURS.size} opacity={0.2} />}
-                {scoreD && <path data-fund-line="score" data-last={scoreLast ?? undefined} d={scoreD} fill="none" stroke={PANEL_COLOURS.score} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />}
+                {scoreD && <path data-fund-line="score" data-n={panel.score.filter((q) => q != null).length} data-last={scoreLast ?? undefined} d={scoreD} fill="none" stroke={PANEL_COLOURS.score} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />}
                 {trendD && <path data-fund-line="trend" data-last={trendLast?.toFixed(2)} d={trendD} fill="none" stroke={PANEL_COLOURS.trend} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />}
                 <text x={PAD_L + 4} y={panelTop + 12} fontSize={10} fontFamily={mono}>
                   <tspan fill={PANEL_COLOURS.score}>{t("ft.panelScore")}</tspan>

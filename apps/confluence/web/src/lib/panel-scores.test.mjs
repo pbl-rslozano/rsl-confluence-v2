@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { scoreVisibleBars } from "./scan-jobs.ts";
 import { scoreSeries } from "./scan-pipeline.ts";
 import { resolvePanelScores, panelCacheKey, panelBarsNeeded, PANEL_MAX_BARS } from "./panel-scores.ts";
+import { createLatestWins } from "./latest-wins.ts";
 import { clearChartOptIn, setChartOptIn, getChartOptIn } from "./chart-optin-store.ts";
 
 const H = 3_600_000;
@@ -71,16 +72,66 @@ test("cache hit when every bar is known; no worker means unresolved bars stay ou
   assert.equal(r.total, 300);
   assert.equal(r.scored, 0);
   assert.equal(r.scores.get(k[800].time), null); // no full window
-  assert.equal(r.scores.has(k[1050].time), false); // not scored, not cached
+  assert.equal(r.scores.get(k[1050].time), null); // not scored
+  assert.equal(r.shortHistory, true);
   assert.equal(cache.has(k[1050].time), false);
 });
 
-test("a range over 300 bars takes the newest 300", async () => {
+test("a range over 300 bars takes the newest 300; total is the view size", async () => {
   const k = klines(1400);
   const r = await resolvePanelScores({ klines: k, from: 0, to: 1400, cache: new Map(), known: new Map(), run: async (e, c, kn) => scoreVisibleBars(job, k.slice(0, e), c, kn) });
   assert.equal(r.capped, true);
-  assert.equal(r.total, PANEL_MAX_BARS);
+  assert.equal(r.total, 1400); // M = bars in view
   assert.equal(r.scored, PANEL_MAX_BARS);
+  assert.equal(r.shortHistory, false); // the newest 300 are all scored: only the cap applies
+});
+
+test("a 500-bar view with 300 scored still reports M = 500", async () => {
+  const k = klines(1400);
+  const r = await resolvePanelScores({ klines: k, from: 900, to: 1400, cache: new Map(), known: new Map(), run: async (e, c, kn) => scoreVisibleBars(job, k.slice(0, e), c, kn) });
+  assert.deepEqual([r.total, r.scored, r.capped, r.shortHistory], [500, 300, true, false]);
+});
+
+test("short-window nulls are not cached: merging older bars re-scores the same cache", async () => {
+  const full = klines(1400);
+  const held = full.slice(300); // 1,100 bars: only 101 of the newest 300 have a full window
+  const cache = new Map();
+  const run = (ks) => async (e, c, kn) => scoreVisibleBars(job, ks.slice(0, e), c, kn);
+  const r1 = await resolvePanelScores({ klines: held, from: 800, to: 1100, cache, known: new Map(), run: run(held) });
+  assert.equal(r1.scored, 101);
+  assert.equal(r1.shortHistory, true);
+  // the older bars arrive: same series key, same cache, same bars by time
+  const r2 = await resolvePanelScores({ klines: full, from: 1100, to: 1400, cache, known: new Map(), run: run(full) });
+  assert.equal(r2.scored, 300);
+  assert.equal(r2.shortHistory, false);
+});
+
+test("the Confluence score is computed for stocks too (session filter inside scoreSeries)", () => {
+  const k = klines(1100);
+  const out = scoreVisibleBars({ ...job, assetClass: "stock" }, k, 5);
+  assert.equal(out.length, 5);
+  assert.equal(out.at(-1), scoreSeries(k.slice(-1000), { ...opts, assetClass: "stock" }).confluence.score);
+});
+
+test("latest wins: a superseded waiting request resolves null; only one runs at a time", async () => {
+  let running = 0, maxRunning = 0;
+  const ran = [];
+  const exec = (a) => new Promise((ok) => { running++; maxRunning = Math.max(maxRunning, running); ran.push(a); setTimeout(() => { running--; ok(a * 10); }, 20); });
+  const q = createLatestWins(exec, 1000);
+  const [a, b, c] = await Promise.all([q(1), q(2), q(3)]);
+  assert.deepEqual([a, b, c], [10, null, 30]);
+  assert.deepEqual(ran, [1, 3]);
+  assert.equal(maxRunning, 1);
+});
+
+test("latest wins: a timeout resolves that request null, calls onTimeout, and the queue keeps working", async () => {
+  const timedOut = [];
+  let n = 0;
+  const exec = (a) => (n++ === 0 ? new Promise(() => {}) : Promise.resolve(a * 10));
+  const q = createLatestWins(exec, 30, (a) => timedOut.push(a));
+  assert.equal(await q(1), null);
+  assert.deepEqual(timedOut, [1]);
+  assert.equal(await q(2), 20); // the worker is not "broken": the next request runs
 });
 
 test("cache key and bars needed", () => {

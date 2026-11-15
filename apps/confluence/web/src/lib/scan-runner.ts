@@ -7,6 +7,7 @@
 import { runScanJobSafe, type ScanJob, type ScanJobResult } from "./scan-jobs";
 import type { Kline } from "./indicators";
 import { packKlines } from "./scan-jobs";
+import { createLatestWins } from "./latest-wins";
 
 /** A worker batch that has not answered within this time is treated as hung. */
 const WORKER_TIMEOUT_MS = 120_000;
@@ -85,32 +86,41 @@ export async function runScanJobs(jobs: ScanJob[], { allowMainThread = true } = 
   }
 }
 
+/** A panel request that has not answered within this time resolves null; unlike a scan batch it never disables the worker. */
+const PANEL_TIMEOUT_MS = 30_000;
+
+interface PanelRequest {
+  job: Omit<ScanJob, "packed">;
+  klines: Kline[];
+  visible: number;
+  known: ReadonlyMap<number, number>;
+  id?: number;
+}
+
+function postPanel(req: PanelRequest): Promise<(number | null)[] | null> {
+  const w = getWorker();
+  if (!w) return Promise.resolve(null);
+  const id = (req.id = nextId++);
+  return new Promise<(number | null)[]>((resolve, reject) => {
+    pending.set(id, { resolve: resolve as (r: never) => void, reject });
+    const packed = packKlines(req.klines);
+    w.postMessage({ id, panelScores: { job: { ...req.job, packed }, visible: req.visible, known: [...req.known] } }, [packed.buffer]);
+  }).finally(() => pending.delete(id));
+}
+
+/** One panel request at a time, the newest waiting one wins; a timeout drops only that request. */
+const panelQueue = createLatestWins<PanelRequest, (number | null)[]>(postPanel, PANEL_TIMEOUT_MS, (req) => { if (req.id !== undefined) pending.delete(req.id); });
+
 /**
  * v2.8 (WP21): per-bar Confluence scores for the Fund trend panel, in the scan worker. Never runs on the main thread
- * (300 scoreSeries calls would freeze the UI): without a worker, or when it fails, resolves null. `klines` ends at the
- * newest bar to score; `known` are ledger scores by bar time, used as they are.
+ * (300 scoreSeries calls would freeze the UI): without a worker, when superseded by a newer request, on timeout or on
+ * failure it resolves null. `klines` ends at the newest bar to score; `known` are ledger scores by bar time, used as they are.
  */
-export async function runPanelScores(
+export function runPanelScores(
   job: Omit<ScanJob, "packed">,
   klines: Kline[],
   visible: number,
   known: ReadonlyMap<number, number>,
 ): Promise<(number | null)[] | null> {
-  const w = getWorker();
-  if (!w) return null;
-  const id = nextId++;
-  try {
-    const scores = await new Promise<(number | null)[]>((resolve, reject) => {
-      const timer = setTimeout(() => { pending.delete(id); markBroken(); reject(new Error("scan worker timed out")); }, WORKER_TIMEOUT_MS);
-      pending.set(id, {
-        resolve: ((r: (number | null)[]) => { clearTimeout(timer); resolve(r); }) as (r: never) => void,
-        reject: (e) => { clearTimeout(timer); reject(e); },
-      });
-      const packed = packKlines(klines);
-      w.postMessage({ id, panelScores: { job: { ...job, packed }, visible, known: [...known] } }, [packed.buffer]);
-    });
-    return scores;
-  } catch {
-    return null;
-  }
+  return panelQueue({ job, klines, visible, known });
 }

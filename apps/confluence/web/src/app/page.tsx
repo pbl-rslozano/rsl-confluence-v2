@@ -683,28 +683,32 @@ export default function Home() {
    * With fewer than 1,299 contiguous bars held, the missing older bars are fetched ONCE per series (one history page).
    */
   const detailPanelOn = chartOptIn.has("fund-panel");
-  const panelSeriesKey = detailAsset && detailPanelOn && isFundTrendClass(detailAsset.assetClass) ? `${detailAsset.src}|${detailAsset.tf}|${detailAsset.pair}` : null;
+  // The Confluence line is the list's score for every asset class; only Fund trend / size / rank are crypto-only.
+  const panelSeriesKey = detailAsset && detailPanelOn ? `${detailAsset.src}|${detailAsset.tf}|${detailAsset.pair}` : null;
   const panelLastBar = detailAsset?.klines.at(-1)?.time ?? 0;
   const panelOlderRef = useRef<Map<string, Kline[]>>(new Map());
   const [panelOlderVer, setPanelOlderVer] = useState(0);
   const [panelRange, setPanelRange] = useState<{ from: number; to: number } | null>(null);
-  const [panelResult, setPanelResult] = useState<{ key: string; scores: PanelScoreMap; scored: number; total: number; capped: boolean } | null>(null);
+  const [panelResult, setPanelResult] = useState<{ key: string; scores: PanelScoreMap; scored: number; total: number; capped: boolean; shortHistory: boolean } | null>(null);
   const onPanelRange = useCallback((from: number, to: number) => setPanelRange((cur) => (cur && cur.from === from && cur.to === to ? cur : { from, to })), []);
-  const panelKlineCount = detailAsset?.klines.length ?? 0;
-  const panelFirstBar = detailAsset?.klines[0]?.time ?? 0;
+  // The older-bars guard is the series key alone (source|tf|pair): a growing series never aborts and re-sends it, so it is ONE request.
+  const panelHeldRef = useRef({ count: 0, first: 0 });
+  useEffect(() => { panelHeldRef.current = { count: detailAsset?.klines.length ?? 0, first: detailAsset?.klines[0]?.time ?? 0 }; });
   useEffect(() => {
-    if (!panelSeriesKey || !detailAsset || panelKlineCount >= panelBarsNeeded(PANEL_MAX_BARS) || panelOlderRef.current.has(panelSeriesKey)) return;
+    const held = panelHeldRef.current;
+    if (!panelSeriesKey || !detailAsset || held.count >= panelBarsNeeded(PANEL_MAX_BARS) || panelOlderRef.current.has(panelSeriesKey)) return;
     const [src, tf, pair] = [detailAsset.src, detailAsset.tf, detailAsset.pair];
     const ac = new AbortController();
     void (async () => {
       let older: Kline[] = [];
       try {
-        const limit = panelBarsNeeded(PANEL_MAX_BARS) - panelKlineCount;
-        const endTime = panelFirstBar - 1;
+        // One history page at most (1,000 bars) on both paths; fetchHistory itself never goes below 200.
+        const limit = Math.min(1000, Math.max(200, panelBarsNeeded(PANEL_MAX_BARS) - held.count));
+        const endTime = held.first - 1;
         if (usesDirectFetch()) {
           older = (await fetchHistory(src, pair, tf, limit, endTime, ac.signal)).klines; // asserts the venue cooldown
         } else {
-          const qs = new URLSearchParams({ source: src, interval: tf, symbol: pair, limit: String(Math.max(200, limit)), endTime: String(endTime) });
+          const qs = new URLSearchParams({ source: src, interval: tf, symbol: pair, limit: String(limit), endTime: String(endTime) });
           const response = await fetch(`/api/market/history?${qs.toString()}`, { cache: "no-store", signal: ac.signal });
           const payload = await response.json() as { klines?: Kline[] };
           if (response.ok && payload.klines) older = payload.klines;
@@ -718,7 +722,7 @@ export default function Home() {
       setPanelOlderVer((n) => n + 1);
     })();
     return () => ac.abort();
-  }, [panelSeriesKey, panelKlineCount, panelFirstBar]);
+  }, [panelSeriesKey]);
   useEffect(() => {
     if (!panelSeriesKey || !detailAsset || !panelRange) return; // a stale result is ignored by its key
     let cancelled = false;
@@ -740,14 +744,15 @@ export default function Home() {
         if (cancelled) return;
         const jobBase = { key: panelSeriesKey, intervalMs: INTERVAL_MS[detailAsset.tf], volumeAvailable: true, assetClass: detailAsset.assetClass, profile: scoringProfile };
         const res = await resolvePanelScores({ klines: ext, from, to, cache, known, run: (end, count, kn) => runPanelScores(jobBase, ext.slice(0, end), count, kn) });
-        if (!cancelled) setPanelResult({ key: panelSeriesKey, scores: res.scores, scored: res.scored, total: res.total, capped: res.capped });
+        if (!cancelled) setPanelResult({ key: panelSeriesKey, scores: res.scores, scored: res.scored, total: res.total, capped: res.capped, shortHistory: res.shortHistory });
       })();
     }, 150);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [panelSeriesKey, panelRange, panelLastBar, panelOlderVer, detailAsset, activeConfigId, ledgerStore, scoringProfile]);
   const panelNote = useMemo(() => {
     if (!panelSeriesKey || !panelResult || panelResult.key !== panelSeriesKey || panelResult.scored >= panelResult.total) return undefined;
-    return t(panelResult.capped ? "ft.panelCapped" : "ft.panelNote", { n: panelResult.scored, m: panelResult.total });
+    // M = bars in view, N = bars with a score. Short history (some of the newest 300 lack a full window) wins over the cap note.
+    return t(panelResult.shortHistory ? "ft.panelNote" : "ft.panelCapped", { n: panelResult.scored, m: panelResult.total });
   }, [panelSeriesKey, panelResult, t]);
   /** Fund rank across the scan's crypto rows of this source (the feed's values; ties share a rank). */
   const detailFundRank = useMemo(() => {

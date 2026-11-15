@@ -3,7 +3,7 @@
  *
  * Only the visible bars (at most PANEL_MAX_BARS) whose full ENGINE_BARS window is available are scored. A bar's score comes
  * from, in order: this pair/timeframe/last-bar cache, a ledger row with the same cfg and wb = ENGINE_BARS, or the scan
- * worker (`run`). Bars without a full window are null and never drawn. Scoring itself is `scoreVisibleBars` (scan-jobs.ts),
+ * worker (`run`). Bars without a full window are null and never drawn (and never cached, so merged older bars re-score them). Scoring itself is `scoreVisibleBars` (scan-jobs.ts),
  * the production window, so a scored bar equals the list's score.
  */
 import { ENGINE_BARS } from "./engine-window";
@@ -32,11 +32,13 @@ export function resetPanelCacheForTests() { cache.clear(); }
 export interface PanelScoreResult {
   /** Score per bar open time in the asked range (null where no full window). */
   scores: PanelScoreMap;
-  /** Bars in the asked range (after the 300-bar cap) and how many carry a score. */
+  /** M: bars in the asked range (the whole view, before the 300-bar cap). N (`scored`): bars of it that carry a score. */
   total: number;
   scored: number;
   /** True when the range was longer than PANEL_MAX_BARS and only its newest bars were taken. */
   capped: boolean;
+  /** True when some bar of the (capped) window has no score: no full 1,000-bar window, or not scored yet. */
+  shortHistory: boolean;
 }
 
 /**
@@ -61,7 +63,8 @@ export async function resolvePanelScores(opts: {
   for (let j = from; j < to; j++) {
     const t = klines[j].time;
     if (have.has(t)) continue;
-    if (j + 1 < ENGINE_BARS) { have.set(t, null); continue; }
+    // No full window: NOT cached, so older bars merged later (same series key) re-score these bars.
+    if (j + 1 < ENGINE_BARS) continue;
     const k = known.get(t);
     if (k !== undefined) { have.set(t, k); continue; }
     need.push(j);
@@ -76,10 +79,9 @@ export async function resolvePanelScores(opts: {
   const scores: PanelScoreMap = new Map();
   let scored = 0;
   for (let j = from; j < to; j++) {
-    const v = have.get(klines[j].time);
-    if (v === undefined) continue;
+    const v = have.get(klines[j].time) ?? null;
     scores.set(klines[j].time, v);
     if (v !== null) scored++;
   }
-  return { scores, total: to - from, scored, capped };
+  return { scores, total: Math.max(0, Math.min(klines.length, opts.to) - Math.max(0, opts.from)), scored, capped, shortHistory: scored < to - from };
 }

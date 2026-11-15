@@ -1864,6 +1864,7 @@ function dsCompare(base, now, prefix = "") {
       if (u.searchParams.get("interval") !== "1d" || u.searchParams.get("symbol") !== "ETHUSDT") return route.fallback();
       return route.fulfill({ status: 500, headers: { "access-control-allow-origin": "*", "content-type": "application/json" }, body: JSON.stringify({ code: -1, msg: "upstream error" }) });
     });
+    let gateOn = false, releaseOlder; const olderGate = new Promise((ok) => { releaseOlder = ok; }); // the older-bars page is held until the test lets it go
     // BTC: a steady +1 %/day daily series (Fund trend +100, size 200 %) ...
     await c.route(/^https:\/\/data-api\.binance\.vision\/api\/v3\/klines/, async (route) => {
       const u = new URL(route.request().url());
@@ -1882,6 +1883,8 @@ function dsCompare(base, now, prefix = "") {
       const all = [];
       for (let i = 0; i <= total; i++) { const o = px; px *= Math.exp(0.001 + rnd() * 0.01); const t = last - (total - i) * step; all.push([t, String(o), String(Math.max(o, px) * 1.002), String(Math.min(o, px) * 0.998), String(px), String(1000 + (i % 13)), t + step - 1]); }
       const end = Number(u.searchParams.get("endTime")) || Infinity, limit = Math.min(1000, Number(u.searchParams.get("limit") || 500));
+      // The older-bars page answers slowly (real network): the first scoring pass runs without it, the merge must re-score.
+      if (gateOn && u.searchParams.has("endTime")) await Promise.race([olderGate, new Promise((ok) => setTimeout(ok, 40000))]);
       return route.fulfill({ status: 200, headers, body: JSON.stringify(all.filter((r) => r[0] <= end).slice(-limit)) });
     });
     const p = await c.newPage();
@@ -1894,9 +1897,17 @@ function dsCompare(base, now, prefix = "") {
     const heightAtRest = await chart.locator("svg").first().evaluate((e) => e.getBoundingClientRect().height);
     const offAtRest = await chart.locator('[data-fund="panel"]').count() === 0;
     await p.getByRole("button", { name: "Indicators", exact: true }).click();
+    gateOn = true;
     await p.getByRole("checkbox", { name: "Fund trend panel", exact: true }).check();
     const score = chart.locator('[data-fund-line="score"]');
+    // Slow older bars: the first pass has no full window (999 bars held), so the note says so and no score line exists yet.
+    await chart.locator('[data-testid="fund-panel-note"]').waitFor({ timeout: 30000 }).catch(() => null);
+    const noteEarly = await chart.locator('[data-testid="fund-panel-note"]').count();
+    const nEarly = await score.count();
+    releaseOlder();
     await score.waitFor({ timeout: 30000 }).catch(() => null);
+    await chart.locator('[data-testid="fund-panel-note"]').waitFor({ state: "detached", timeout: 30000 }).catch(() => null);
+    const nLate = Number(await score.getAttribute("data-n").catch(() => 0));
     const lines = { score: await score.count(), trend: await chart.locator('[data-fund-line="trend"]').count(), area: await chart.locator('[data-fund-area="size"]').count() };
     const rankEl = chart.locator('[data-testid="fund-rank"]');
     await rankEl.waitFor({ timeout: 20000 }).catch(() => null);
@@ -1918,6 +1929,18 @@ function dsCompare(base, now, prefix = "") {
     const shortNote = p.locator('[data-testid="fund-panel-note"]');
     await shortNote.waitFor({ timeout: 30000 }).catch(() => null);
     const shortText = await shortNote.textContent().catch(() => null);
+    // A tokenised stock: the panel still draws the list's Confluence score; Fund trend and size are n/a.
+    await p.keyboard.press("Escape");
+    await p.getByRole("combobox", { name: "Asset class" }).click();
+    await p.getByRole("option", { name: "Stocks (tokenised)" }).click();
+    await p.waitForFunction(() => /TSLAB/.test(document.querySelector("tbody")?.textContent || ""), null, { timeout: 15000 });
+    await p.getByRole("button", { name: /^TSLAB/ }).first().click();
+    const stockScore = p.locator('[data-fund-line="score"]');
+    await stockScore.waitFor({ timeout: 30000 }).catch(() => null);
+    const stock = {
+      score: await stockScore.count(), trend: await p.locator('[data-fund-line="trend"]').count(), area: await p.locator('[data-fund-area="size"]').count(),
+      note: await p.locator('[data-testid="fund-trend-note"]').textContent().catch(() => null),
+    };
     // Reset to defaults also clears the opt-ins.
     await p.getByRole("button", { name: "Indicators", exact: true }).click();
     await p.getByRole("button", { name: "Reset to defaults", exact: true }).click();
@@ -1928,10 +1951,11 @@ function dsCompare(base, now, prefix = "") {
       drawn: await p.locator('[data-fund]').count(),
     };
     record("FT-3", "Panel off by default; on: Confluence and Fund trend lines plus the Fund size area, \"Fund rank 1 of N\", the last score equals the list's; short history shows \"Score shown for N of M bars\"; a failed daily load says so; Reset to defaults clears the opt-ins",
-      offAtRest && lines.score === 1 && lines.trend === 1 && lines.area === 1 && /^Fund rank 1 of \d+$/.test(rankText || "") && sameAsList && noteFull === 0 && heightOn > heightAtRest
+      offAtRest && lines.score === 1 && lines.trend === 1 && lines.area === 1 && /^Fund rank 1 of \d+$/.test(rankText || "") && sameAsList && noteFull === 0 && noteEarly === 1 && nEarly === 0 && nLate > 100 && heightOn > heightAtRest
         && unavailable === "Fund trend: data unavailable, try again later" && /^Score shown for \d+ of \d+ bars \(needs 1,000 earlier bars\)$/.test(shortText || "")
+        && stock.score === 1 && stock.trend === 0 && stock.area === 0 && stock.note === "Fund trend: n/a for this asset class"
         && !afterReset.panelBox && !afterReset.ribbonBox && afterReset.stored === "[]" && afterReset.drawn === 0,
-      { offAtRest, lines, rankText, lastScore, listScore, noteFull, heightAtRest, heightOn, unavailable, shortText, afterReset });
+      { offAtRest, noteEarly, nEarly, nLate, stock, lines, rankText, lastScore, listScore, noteFull, heightAtRest, heightOn, unavailable, shortText, afterReset });
     await p.keyboard.press("Escape");
     await c.close();
   }
