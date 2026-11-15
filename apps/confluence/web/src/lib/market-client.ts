@@ -353,11 +353,13 @@ export interface AllResponse {
   thinSymbols?: string[];
   /** v2.8 (WP19): the US$ floor `thinSymbols` fell under (Coins.ph's thin rule or the crypto liquidity floor). */
   thinFloorUsd?: number;
+  /** v2.8 (WP26 final wave): pairs the liquidity floor left out because their USD volume is unknown (Upbit without KRW-USDT). */
+  unknownVolumeSymbols?: string[];
 }
 
 /** v2.8 (WP27): what a scan knows once its list is chosen (the same fields its final response carries). */
 export type ListMeta = Pick<AllResponse, "universe" | "basisBySymbol" | "belowFloor" | "priceCurrency" | "quote" | "quoteBySymbol"
-  | "quoteCounts" | "approxVolume" | "depeg" | "thinSymbols" | "thinFloorUsd" | "usdPhp">;
+  | "quoteCounts" | "approxVolume" | "depeg" | "thinSymbols" | "thinFloorUsd" | "usdPhp" | "unknownVolumeSymbols">;
 
 /** v2.8 (WP27): progressive-scan hooks (direct-fetch builds only). */
 export interface ProgressiveFetch {
@@ -423,6 +425,7 @@ export interface TickerSet {
   tickers: ServerTicker[]; universe: UniverseEntry[]; basis: Record<string, number>; belowFloor: number;
   /** v2.7 */ quoteBySymbol?: Record<string, string>; quoteCounts?: Record<string, number>; approx?: string[]; depeg?: DepegReading[];
   /** v2.8 (WP19): crypto pairs left out by the liquidity floor. */ thin?: string[];
+  /** v2.8 (WP26 final wave): pairs the floor left out because their USD volume is unknown (not counted as thin). */ unknownVolume?: string[];
 }
 
 /* ---------------------------------------------------------------------------
@@ -1444,6 +1447,7 @@ export async function fetchDirectMarketData(
     ...(set.depeg?.length ? { depeg: set.depeg } : {}),
     // v2.8 (WP19): crypto pairs under the liquidity floor, for the thin-pair note in the scan line.
     ...(set.thin?.length ? { thinSymbols: set.thin, thinFloorUsd: floorUsd } : {}),
+    ...(set.unknownVolume?.length ? { unknownVolumeSymbols: set.unknownVolume } : {}),
     ...(coinsph ? { usdPhp: coinsph.usdPhp, thinSymbols: coinsph.thin, thinFloorUsd: COINSPH_MIN_USD_TURNOVER } : {}),
   };
   progressive.onTickers?.(tickers, listMeta);

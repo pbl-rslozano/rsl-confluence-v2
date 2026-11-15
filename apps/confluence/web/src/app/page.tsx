@@ -195,6 +195,8 @@ interface ScanMeta {
   thin: string[];
   /** v2.8 (WP19): the US$ floor the thin pairs fell under (Coins.ph thin rule or the crypto liquidity floor). */
   thinFloorUsd?: number;
+  /** v2.8 (WP26 final wave): pairs the liquidity floor left out because their US$ volume is unknown. */
+  unknownVolume?: string[];
   /** v2.7: timeframe and quote mode of these rows, the quote of each row, venue quote counts, depeg readings. */
   tf?: string;
   quote?: string;
@@ -804,6 +806,7 @@ export default function Home() {
         setScanMeta({
           source, currency: lm.priceCurrency ?? "USD", premium: {}, thin: lm.thinSymbols ?? [], thinFloorUsd: lm.thinFloorUsd,
           tf, quote: lm.quote, quoteBySymbol: lm.quoteBySymbol, quoteCounts: lm.quoteCounts, approx: lm.approxVolume, depeg: lm.depeg, usdPhp: lm.usdPhp,
+          unknownVolume: lm.unknownVolumeSymbols,
         });
       } else if (newView && shown.length && !lm && metaStage < 1) {
         metaStage = 1;
@@ -1140,7 +1143,7 @@ export default function Home() {
       setScanMeta({
         source, currency: data.priceCurrency ?? "USD", premium: data.premiumBySymbol ?? {}, thin: data.thinSymbols ?? [], thinFloorUsd: data.thinFloorUsd,
         tf, quote: data.quote, quoteBySymbol: data.quoteBySymbol, quoteCounts: data.quoteCounts, approx: data.approxVolume,
-        depeg: data.depeg, usdPhp: data.usdPhp,
+        depeg: data.depeg, usdPhp: data.usdPhp, unknownVolume: data.unknownVolumeSymbols,
       });
       setDetailAsset((current) => current ? out.find((row) => row.pair === current.pair) ?? null : null);
       setScanStats({
@@ -1687,6 +1690,13 @@ export default function Home() {
                 <>
                   <span className="mx-1.5 text-zinc-700">·</span>
                   <span data-testid="liquidity-note" title={scanMeta.thin.join(", ")}>{t("liq.thin", liquidityNote)}</span>
+                </>
+              )}
+              {/* v2.8 (WP26 final wave): pairs left out because their US$ volume is unknown (not "thin"). */}
+              {scanMeta.source === dataSource && (scanMeta.unknownVolume?.length ?? 0) > 0 && (
+                <>
+                  <span className="mx-1.5 text-zinc-700">·</span>
+                  <span data-testid="unknown-volume-note" title={scanMeta.unknownVolume?.join(", ")}>{t("liq.unknown", { n: scanMeta.unknownVolume?.length ?? 0 })}</span>
                 </>
               )}
               <span className="mx-1.5 text-zinc-700">·</span>

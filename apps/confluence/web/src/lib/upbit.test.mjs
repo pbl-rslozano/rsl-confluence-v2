@@ -366,9 +366,25 @@ console.log("universe");
   fresh();
   route = universeRoute(TICKERS.filter((x) => x.market !== "KRW-USDT"));
   const set = await fetchUpbitTickers([], 100, undefined, "crypto", "KRW", 0);
-  ok("KRW-USDT missing: KRW volumes unknown (NaN), prices still listed", set.tickers.length === 3 && set.tickers.every((x) => Number.isNaN(parseFloat(x.quoteVolume))), JSON.stringify(set.tickers));
+  // Final wave: unknown stays unknown inside the module (NaN ranks last), but no "NaN" string reaches the page.
+  ok("KRW-USDT missing: prices still listed; quoteVolume is a finite \"0\" (never \"NaN\")", set.tickers.length === 3 &&
+    set.tickers.every((x) => x.quoteVolume === "0" && x.quoteVolume !== "NaN" && Number.isFinite(parseFloat(x.lastPrice))), JSON.stringify(set.tickers));
+  ok("KRW-USDT missing, floor off: nothing is called thin or unknown-and-dropped", set.thin.length === 0 && !(set.unknownVolume?.length), JSON.stringify([set.thin, set.unknownVolume]));
   const floored = await fetchUpbitTickers([], 100, undefined, "crypto", "KRW", 1_000_000);
-  ok("KRW-USDT missing: an unknown volume never clears an active liquidity floor", floored.tickers.length === 0 && floored.thin.length === 3, JSON.stringify(floored.thin));
+  ok("KRW-USDT missing: an unknown volume never clears an active liquidity floor", floored.tickers.length === 0, JSON.stringify(floored.tickers));
+  ok("KRW-USDT missing: the note counts them as unknown volume, not as thin pairs under the floor",
+    floored.thin.length === 0 && floored.unknownVolume?.slice().sort().join() === "BTCKRW,ETHKRW,XRPKRW", JSON.stringify([floored.thin, floored.unknownVolume]));
+  const r = await fetchDirectMarketData("1h", "upbit", [], 10, undefined, () => 200, "crypto", "KRW", 1_000_000);
+  ok("KRW-USDT missing: the scan response carries unknownVolumeSymbols (no thinSymbols)", r.unknownVolumeSymbols?.length === 3 && !r.thinSymbols, JSON.stringify([r.unknownVolumeSymbols, r.thinSymbols]));
+  // A real thin pair alongside: thin stays thin (known volume under the floor).
+  fresh();
+  route = universeRoute();
+  const both = await fetchUpbitTickers([], 100, undefined, "crypto", "KRW", 100_000_000);
+  ok("KRW-USDT present: thin pairs stay in thin, unknownVolume empty", both.thin.includes("XRPKRW") && !(both.unknownVolume?.length), JSON.stringify([both.thin, both.unknownVolume]));
+  const { readFileSync } = await import("node:fs");
+  const pageSrc = readFileSync(`${process.cwd()}/src/app/page.tsx`, "utf8");
+  const en = JSON.parse(readFileSync(`${process.cwd()}/src/rsl/i18n/en.json`, "utf8"));
+  ok("page shows the unknown-volume note from the scan meta (liq.unknown)", /unknownVolume: (data|lm)\.unknownVolumeSymbols/.test(pageSrc) && /t\("liq\.unknown"/.test(pageSrc) && typeof en["liq.unknown"] === "string" && /\{n, number\}/.test(en["liq.unknown"]));
 }
 
 /* ---- scan dispatch, Node transport ---- */

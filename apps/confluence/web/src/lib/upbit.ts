@@ -364,17 +364,23 @@ export async function fetchUpbitTickers(
   const universe = universeOf("upbit", ranked.map((r) => ({ symbol: r.symbol, qv: usd(r) })));
   const inCls = ranked.filter((r) => inClass("upbit", r.symbol, assetClass));
   const turnover = inCls.filter((r) => passesTurnoverFloor("upbit", r.symbol, usd(r)));
-  const { kept: floored, thin } = splitLiquidity("upbit", turnover, floorUsd, assets, limit);
+  const { kept: floored, thin: left } = splitLiquidity("upbit", turnover, floorUsd, assets, limit);
+  // Final wave: a pair the floor left out because its USD volume is unknown (no KRW-USDT / USDT-BTC price) is not
+  // "thin" — the scan line says "unknown US$ volume" for it instead.
+  const unknownVol = new Set(turnover.filter((r) => !Number.isFinite(r.qvUsd)).map((r) => r.symbol));
+  const thin = left.filter((s) => !unknownVol.has(s));
+  const unknownVolume = left.filter((s) => unknownVol.has(s));
   const tickers = floored.map(({ t: r, qvUsd }, i) => {
     const last = Number(r.t.trade_price);
     const rate = Number(r.t.signed_change_rate);
     const open = Number(r.t.opening_price);
     const pct = Number.isFinite(rate) ? rate * 100 : open > 0 && Number.isFinite(last) ? ((last - open) / open) * 100 : 0;
-    return { rank: i + 1, symbol: r.symbol, lastPrice: Number.isFinite(last) ? String(last) : "0", priceChangePercent: pct.toFixed(4), quoteVolume: String(qvUsd) };
+    // An unknown USD volume is sent as "0" (what the ranking and the turnover floor above already count it as), never "NaN".
+    return { rank: i + 1, symbol: r.symbol, lastPrice: Number.isFinite(last) ? String(last) : "0", priceChangePercent: pct.toFixed(4), quoteVolume: Number.isFinite(qvUsd) ? String(qvUsd) : "0" };
   });
   return {
     tickers: filterTickers(tickers, assets, limit, "upbit"), universe, basis: {}, belowFloor: inCls.length - turnover.length,
-    quoteBySymbol: quoteMapOf(floored), quoteCounts: counts, approx: [], depeg: [], thin,
+    quoteBySymbol: quoteMapOf(floored), quoteCounts: counts, approx: [], depeg: [], thin, unknownVolume,
   };
 }
 

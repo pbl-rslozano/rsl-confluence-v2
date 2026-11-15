@@ -94,7 +94,8 @@
     "about.uses.exchange",
     "about.uses.archive",
     "about.uses.rates",
-    "paper.rule.currency"
+    "paper.rule.currency",
+    "liq.unknown"
   ],
   "app.subtitle": "ماسح توافق مؤشرات العملات المشفّرة",
   "ctx.page": "الماسح",
@@ -645,5 +646,6 @@
   "about.thanksTerms": "الشروط",
   "about.uses.exchange": "بيانات السوق العامة: الأسعار والشموع",
   "about.uses.archive": "أرشيف الشموع التاريخي للاختبار الرجعي (للاستخدام الشخصي)",
-  "about.uses.rates": "أسعار صرف العملات لعملات العرض"
+  "about.uses.rates": "أسعار صرف العملات لعملات العرض",
+  "liq.unknown": "{n, number} من الأزواج حجم تداولها بالدولار الأمريكي غير معروف، فلا تُقيَّم"
 }
