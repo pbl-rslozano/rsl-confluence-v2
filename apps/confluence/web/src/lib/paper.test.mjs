@@ -12,7 +12,7 @@ import {
 import {
   newBook, createProposal, approveProposal, rejectProposal, processBars, requestClose, engageKill, resetKill,
   journalStats, accountSnapshot, isUnmanaged, lockState, bookEquity, updateSettings, setStartingEquity, randomNonce,
-  utcWeekStart, utcDayStart, KILL_RESET_WORD,
+  utcWeekStart, utcDayStart, KILL_RESET_WORD, slippageFor, depegFor,
 } from "./paper-broker.ts";
 import { createPaperStore, memoryPaperPort, PAPER_JOURNAL_COLUMNS, journalRowValues } from "./paper-store.ts";
 import { DEFAULT_COSTS } from "./ledger-metrics.ts";
@@ -574,6 +574,35 @@ console.log("v2.8 WP19 — cost-inclusive sizing, open-loss locks, no loosening,
   ok("proposal 90 min before FOMC is blocked with paper.rule.event", has(evAt(inEvent), "paper.rule.event"));
   ok("event blackout off lets it pass", !has(evAt(inEvent, { eventBlackout: false }), "paper.rule.event"));
   ok("outside the window the rule is silent", !has(evAt(FOMC_AT - 3 * H), "paper.rule.event") && !has(evAt(FOMC_AT + 61 * 60e3), "paper.rule.event"));
+
+
+  // Measured slippage (WP19): readings < 24 h old feed sizing and fills; older ones fall back to default costs.
+  const SLIP_NOW = NOW;
+  const reads = (ageH) => ({ SOLUSDT: { bps: 20, at: SLIP_NOW - ageH * H } });
+  const m23 = slippageFor(reads(23), "SOLUSDT", SLIP_NOW);
+  const m25 = slippageFor(reads(25), "SOLUSDT", SLIP_NOW);
+  ok("slippageFor: 23 h old reading returned, 25 h old and unknown pair undefined", m23 === 20 && m25 === undefined && slippageFor(reads(1), "ETHUSDT", SLIP_NOW) === undefined && slippageFor(undefined, "SOLUSDT", SLIP_NOW) === undefined);
+  ok("slippageFor: rejects negative, NaN and future-dated readings", slippageFor({ A: { bps: -1, at: SLIP_NOW } }, "A", SLIP_NOW) === undefined && slippageFor({ A: { bps: NaN, at: SLIP_NOW } }, "A", SLIP_NOW) === undefined && slippageFor({ A: { bps: 5, at: SLIP_NOW + H } }, "A", SLIP_NOW) === undefined);
+  const defP = createProposal(liveBook(), input(), NOW, "m0");
+  const p23 = createProposal(liveBook(), input(), NOW, "m1", m23);
+  const p25 = createProposal(liveBook(), input(), NOW, "m2", m25);
+  const rt = (bps) => (2 * (DEFAULT_COSTS.binance.feeBps + bps)) / 1e4;
+  ok("reading 23h old is used for sizing and fills", p23 && near(p23.input.roundTripCost, rt(20)) && p23.verdict.size < defP.verdict.size, `${p23?.input.roundTripCost} ${p23?.verdict.size} vs ${defP.verdict.size}`);
+  const f23 = approveProposal(liveBook(), p23, "m1", NOW + 1000).book;
+  const fill23 = processBars(f23, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 101, 99, 100)] }, T0 + 3 * I, undefined, { SOLUSDT: m23 }).book.positions[0];
+  ok("reading 23h old: fill slips by the measured 20 bp", near(fill23.entry, 100 * (1 + 20 / 1e4)), String(fill23.entry));
+  ok("reading 25h old falls back to default costs", p25 && near(p25.input.roundTripCost, rt(DEFAULT_COSTS.binance.slipBps)) && p25.verdict.size === defP.verdict.size);
+  const fill25 = processBars(approveProposal(liveBook(), p25, "m2", NOW + 1000).book, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 101, 99, 100)] }, T0 + 3 * I, undefined, m25 === undefined ? {} : { SOLUSDT: m25 }).book.positions[0];
+  ok("reading 25h old: fill uses the default slippage", near(fill25.entry, 100 * (1 + DEFAULT_COSTS.binance.slipBps / 1e4)), String(fill25.entry));
+  const fillOv = processBars(approveProposal(liveBook(), p23, "m1", NOW + 1000).book, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 101, 99, 100)] }, T0 + 3 * I, zero, { SOLUSDT: 20 }).book.positions[0];
+  ok("costsOverride still wins over measured slippage", near(fillOv.entry, 100));
+
+  // Depeg gate wiring (WP19): quote's deviation from USDT, null for USDT or no reading.
+  const dr = [{ coin: "USDC", reference: "USDT", price: 0.985, deviationPct: -1.5, level: "warning" }, { coin: "FDUSD", reference: "USDT", price: 1.006, deviationPct: 0.6, level: "watch" }];
+  ok("depegFor: USDC quote returns -1.5, USDT and unread quotes null", depegFor(dr, "USDC") === -1.5 && depegFor(dr, "USDT") === null && depegFor(dr, "BTC") === null && depegFor(undefined, "USDC") === null && depegFor(dr, undefined) === null);
+  ok("depegFor: a reading against a non-USDT reference is ignored", depegFor([{ coin: "USDC", reference: "EUR", deviationPct: 3 }], "USDC") === null);
+  const dpP = createProposal(liveBook(), input({ depegPct: depegFor(dr, "USDC") }), NOW, "d1");
+  ok("depeg reading -1.5 % blocks the proposal; 0.6 % does not", dpP.verdict.reasons.includes("paper.rule.depeg") && !createProposal(liveBook(), input({ depegPct: depegFor(dr, "FDUSD") }), NOW, "d2").verdict.reasons.includes("paper.rule.depeg"));
 
   // Warnings and leverage.
   ok("risk per trade > 1% warns", ev({}, {}, { riskPerTradePct: 1.5 }).warnings.includes("paper.warn.riskAbove1") && !ev().warnings.length);

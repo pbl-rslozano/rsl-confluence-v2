@@ -209,7 +209,32 @@ export function newBook(now: number, startingEquity = DEFAULT_STARTING_EQUITY, s
 
 export const seriesKey = (src: string, tf: string) => `${src}|${tf}`;
 /** Same cost model as the ledger, including the per-class slippage extra (review S14). */
-export const costsFor = (src: string, ac: AssetClass = "crypto"): CostModel => ledgerCostsFor(src, ac);
+export const costsFor = (src: string, ac: AssetClass = "crypto", measuredSlipBps?: number): CostModel => ledgerCostsFor(src, ac, measuredSlipBps);
+
+/** A measured slippage reading older than this is not used (default costs apply). */
+export const SLIPPAGE_MAX_AGE_MS = 24 * 3_600_000;
+
+/**
+ * v2.8: the stored order-book slippage (bp per side, at 10,000 notional) of a pair, only while the reading is
+ * under 24 h old (and not dated in the future); undefined otherwise so the default costs apply. Pure.
+ */
+export function slippageFor(readings: Record<string, { bps: number; at: number }> | undefined | null, pair: string, now: number): number | undefined {
+  const r = readings?.[pair];
+  if (!r || !Number.isFinite(r.bps) || r.bps < 0 || !Number.isFinite(r.at)) return undefined;
+  const age = now - r.at;
+  return age >= 0 && age < SLIPPAGE_MAX_AGE_MS ? r.bps : undefined;
+}
+
+/**
+ * v2.8: the quote stablecoin's deviation from USDT (%) for the depeg gate. null for USDT (the reference), for a
+ * quote with no reading and for readings against another reference. Pure.
+ */
+export function depegFor(readings: ReadonlyArray<{ coin: string; reference: string; deviationPct: number }> | undefined | null, quote: string | undefined | null): number | null {
+  if (!quote || quote === "USDT" || !readings) return null;
+  const r = readings.find((d) => d.coin === quote && d.reference === "USDT");
+  return r && Number.isFinite(r.deviationPct) ? r.deviationPct : null;
+}
+
 const dirOf = (side: Side) => (side === "long" ? 1 : -1);
 
 /** Unrealised net P&L of a position at its mark (entry fee and funding so far included). */
@@ -316,8 +341,8 @@ export function withCosts(input: ProposalInput, measuredSlipBps?: number): Propo
   return { ...input, roundTripCost: (2 * (c.feeBps + c.slipBps)) / 1e4 };
 }
 
-export function createProposal(book: PaperBook, rawInput: ProposalInput, now: number, nonce: string): Proposal | null {
-  const input = withCosts(rawInput);
+export function createProposal(book: PaperBook, rawInput: ProposalInput, now: number, nonce: string, measuredSlipBps?: number): Proposal | null {
+  const input = withCosts(rawInput, measuredSlipBps);
   const id = proposalId(input);
   if (book.account.decisions[id]) return null;
   const expiresAt = proposalExpiry(input);
@@ -478,6 +503,8 @@ export function processBars(
   barsByPair: Record<string, Kline[] | undefined>,
   now: number,
   costsOverride?: CostModel,
+  /** v2.8: measured slippage (bp per side) by pair, already age-checked via `slippageFor`; costsOverride wins. */
+  slipByPair?: Record<string, number>,
 ): ProcessResult {
   const filled: PaperPosition[] = [];
   const closed: JournalEntry[] = [];
@@ -487,7 +514,7 @@ export function processBars(
   for (const orig of book.positions) {
     const k = orig.src === src && orig.tf === tf ? barsByPair[orig.pair] : undefined;
     if (!k || !k.length) { positions.push(orig); continue; }
-    const costs = costsOverride ?? costsFor(src, orig.assetClass);
+    const costs = costsOverride ?? costsFor(src, orig.assetClass, slipByPair?.[orig.pair]);
     const fee = costs.feeBps / 1e4;
     const slip = costs.slipBps / 1e4;
     let p: PaperPosition = { ...orig };

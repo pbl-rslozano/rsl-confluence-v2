@@ -514,6 +514,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   // v2.6 (WP10): source health line and per-scan currency / Coins.ph extras.
   const [health, setHealth] = useState<(SourceHealth & { source: string }) | null>(null);
+  const [paperSlippage, setPaperSlippage] = useState<Record<string, { bps: number; at: number }>>({});
   const [scanMeta, setScanMeta] = useState<ScanMeta>({ source: "binance", currency: "USD", premium: {}, thin: [] });
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [search, setSearch] = useState("");
@@ -964,6 +965,9 @@ export default function Home() {
       if (newReversals.length > 0) {
         setReversalAlert(newReversals.slice(0, 12));
       }
+      // v2.8: stored order-book slippage readings for the paper simulator (read before the rows publish, so the scan sees them).
+      try { setPaperSlippage(await ledgerStore.slippage(source)); } catch { setPaperSlippage({}); }
+      if (ac.signal.aborted) return;
       setRows(out);
       // Currency, premium and thin list change with the rows they describe, never before
       // (otherwise the previous source's rows show ₱ while the new scan is still scoring).
@@ -1810,6 +1814,9 @@ export default function Home() {
         source={dataSource}
         timeframe={timeframe}
         engineConfigId={activeConfigId}
+        slippage={paperSlippage}
+        depeg={scanMeta.source === dataSource ? scanMeta.depeg : undefined}
+        quoteBySymbol={scanMeta.source === dataSource ? scanMeta.quoteBySymbol : undefined}
       />
 
       {/* ---------- Detail modal ---------- */}

@@ -45,6 +45,8 @@ import {
   bookEquity,
   costsFor,
   createProposal,
+  depegFor,
+  slippageFor,
   engageKill,
   isUnmanaged,
   journalStats,
@@ -96,6 +98,11 @@ interface Props {
   engineConfigId: string;
   /** Optional subscription for extra bars; return an unsubscribe function. */
   onBar?: (listener: PaperBarListener) => () => void;
+  /** v2.8: stored order-book slippage readings of this source (pair → bps, time); only readings < 24 h old are used. */
+  slippage?: Record<string, { bps: number; at: number }>;
+  /** v2.8: stablecoin depeg readings of the scan these rows came from, and each row's quote (pair → quote). */
+  depeg?: ReadonlyArray<{ coin: string; reference: string; deviationPct: number }>;
+  quoteBySymbol?: Record<string, string>;
 }
 
 type NumericKey = keyof typeof RISK_SETTING_LIMITS;
@@ -131,7 +138,7 @@ function draftOf(s: RiskSettings): Record<string, string> {
   return Object.fromEntries(NUMERIC_KEYS.map((k) => [k, String(s[k])]));
 }
 
-export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe, engineConfigId, onBar }: Props) {
+export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe, engineConfigId, onBar, slippage, depeg, quoteBySymbol }: Props) {
   const { t, id, platform, audit, announce, port } = useRsl();
   const [annotating, setAnnotating] = useState<JournalEntry | null>(null);
   const [review, setReview] = useState<{ trade: JournalEntry; candles: Kline[] } | null>(null);
@@ -200,13 +207,18 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
   const ingestBars = useCallback((bars: Record<string, Kline[]>, at: number) => {
     const cur = bookRef.current;
     if (!cur) return;
-    const res = processBars(cur, source, timeframe, bars, at); // per-position costs (asset class)
+    const slipByPair: Record<string, number> = {};
+    for (const pair of Object.keys(bars)) {
+      const m = slippageFor(slippage, pair, at); // readings < 24 h old only
+      if (m !== undefined) slipByPair[pair] = m;
+    }
+    const res = processBars(cur, source, timeframe, bars, at, undefined, slipByPair); // per-position costs (asset class, measured slippage)
     commit(res.book);
     for (const j of res.closed) {
       log("paper.close", "paper", `${j.id} ${j.pair} ${j.side} ${j.reason} · exit ${fmtPx(j.exit)} · pnl ${fmtSigned(j.pnl)} · R ${fmtNum(j.r)}`);
       announce(t("paper.closedMsg", { name: j.pair, s: fmtNum(j.r) }));
     }
-  }, [source, timeframe, commit, log, announce, t]);
+  }, [source, timeframe, slippage, commit, log, announce, t]);
 
   /** Strong BUY/SELL rows → proposals (one per signal bar; decided or expired ones are not re-proposed). */
   const refreshProposals = useCallback((scan: PaperScanRow[], at: number) => {
@@ -234,18 +246,19 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
         configId: engineConfigId,
         barTime: last.time,
         intervalMs,
+        depegPct: depegFor(depeg, quoteBySymbol?.[row.pair]),
       };
       const pid = proposalId(input);
       const prior = existing.get(pid);
       if (prior && at <= prior.expiresAt && !cur.account.decisions[pid]) { next.push(prior); continue; }
-      const p = createProposal(cur, input, at, randomNonce());
+      const p = createProposal(cur, input, at, randomNonce(), slippageFor(slippage, row.pair, at));
       if (p) {
         next.push(p);
         log("paper.propose", "paper", `${p.id} · ${p.verdict.approved ? "passes" : `blocked: ${p.verdict.reasons.join(",")}`}`);
       }
     }
     setProposalList(next);
-  }, [source, timeframe, engineConfigId, intervalMs, log]);
+  }, [source, timeframe, engineConfigId, intervalMs, slippage, depeg, quoteBySymbol, log]);
 
   // Latest handlers for the scan effect and the external feed, so a re-created
   // callback (e.g. after a language change) never re-runs ingestion by itself.
