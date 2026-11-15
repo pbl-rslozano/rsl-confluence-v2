@@ -15,7 +15,7 @@
  * rate, net expectancy, score calibration, cross-sectional rank IC and the
  * probabilistic Sharpe ratio, with an indicative go/no-go check.
  */
-import { baseOf as pairBase } from "@/lib/quotes";
+import { baseOf as pairBase, splitPair } from "@/lib/quotes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, Download, Loader2, Lock, ShieldCheck, Trash2, Upload } from "lucide-react";
 import { exportFileName, toCSV } from "@rsl/core-kit/core/rsl-export.js";
@@ -173,7 +173,7 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
         const at = new Map(k.map((b, i) => [b.time, i]));
         for (const row of list) {
           // Per-pair measured slippage (order-book depth) replaces the default when known.
-          const c: CostModel = costsFor(source, row.ac, slip[pair]?.bps);
+          const c: CostModel = costsFor(source, row.ac, slip[pair]?.bps, splitPair(pair, source).quote);
           const i = at.get(row.t);
           if (i !== undefined && i >= 20) {
             const ret = k[i].close / k[i - 20].close - 1;
@@ -304,7 +304,7 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
       const k = mergeKlines(saved, getLiveKlines()[pair]);
       for (const row of list) {
         const rec: Record<number, number> = {};
-        const c = costsFor(source, row.ac);
+        const c = costsFor(source, row.ac, undefined, splitPair(pair, source).quote);
         for (const h of DEFAULT_HORIZONS) { const o = measureOutcome(row, k, h, c, intervalMs); if (o) rec[h] = o.net; }
         outByRow.set(row.id, rec);
       }

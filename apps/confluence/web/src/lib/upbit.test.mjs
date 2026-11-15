@@ -13,7 +13,7 @@ import {
   DATA_SOURCES, INTERVAL_MS, RateLimitError, barCloseTime, contiguousTail, deltaSupported, fetchDirectMarketData, fetchHistory,
   fetchOrderBook, fetchSeries, rateLimitCooldown, resetRateLimitForTests,
 } from "./market-client.ts";
-import { DEFAULT_COSTS } from "./ledger-metrics.ts";
+import { DEFAULT_COSTS, costsFor } from "./ledger-metrics.ts";
 import { forgetPairsForTests, normalizeQuoteMode, priceCurrencyOfQuote, quoteModesFor } from "./quotes.ts";
 import { classifySymbol } from "./asset-classes.ts";
 import { healthFromError, healthFromScan, slowAfterMs } from "./source-health.ts";
@@ -125,6 +125,15 @@ const ub = DATA_SOURCES.find((s) => s.value === "upbit");
 ok("DATA_SOURCES upbit entry (label, note, maxAssets, keyless)",
   ub?.label === "Upbit (KR)" && ub.note === "Public Korean won (KRW), USDT and BTC spot markets and OHLCV candles." && ub.maxAssets === 100 && !("privateApi" in ub), JSON.stringify(ub));
 ok("DEFAULT_COSTS upbit exists, spot (no funding)", DEFAULT_COSTS.upbit?.feeBps > 0 && DEFAULT_COSTS.upbit.fundingBpsPer8h === 0, JSON.stringify(DEFAULT_COSTS.upbit));
+// Final wave: per-quote Upbit fees (secondary source): KRW markets 5 bps taker; BTC and USDT markets 25 bps.
+ok("Upbit per-quote costs: KRW 5 bps, BTC and USDT 25 bps, no quote → 25 bps; slippage and class extras unchanged",
+  costsFor("upbit", "crypto", undefined, "KRW").feeBps === 5 && costsFor("upbit", "crypto", undefined, "BTC").feeBps === 25 &&
+  costsFor("upbit", "crypto", undefined, "USDT").feeBps === 25 && costsFor("upbit", "crypto").feeBps === 25 &&
+  costsFor("upbit", "crypto", 3, "KRW").slipBps === 3 && costsFor("upbit", "crypto", undefined, "KRW").slipBps === DEFAULT_COSTS.upbit.slipBps &&
+  costsFor("upbit", "crypto", undefined, "KRW").fundingBpsPer8h === 0,
+  JSON.stringify(["KRW", "BTC", "USDT", undefined].map((q) => costsFor("upbit", "crypto", undefined, q))));
+ok("per-quote costs leave every other source unchanged (a KRW/USD quote elsewhere is the source default)",
+  Object.keys(DEFAULT_COSTS).filter((s) => s !== "upbit").every((s) => ["KRW", "USD", "USDT", "BTC"].every((q) => costsFor(s, "crypto", undefined, q).feeBps === DEFAULT_COSTS[s].feeBps)));
 ok("source health gives a paged Upbit scan 90 s before it is \"slow\"", slowAfterMs("upbit") === 90_000);
 ok("quotes: KRW by default, USDT/BTC on request; KRW, USD, BTC prices",
   normalizeQuoteMode("upbit", undefined) === "KRW" && normalizeQuoteMode("upbit", "BTC") === "BTC" && normalizeQuoteMode("upbit", "USDC") === "KRW" &&

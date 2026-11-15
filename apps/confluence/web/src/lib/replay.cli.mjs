@@ -31,6 +31,7 @@ import { enrich } from "./enrichment.ts";
 import { ENGINE_BARS, engineConfigId, ENGINE_VERSION } from "./engine-config.ts";
 import { barCloseTime, contiguousTail, fetchHistoryRange, INTERVAL_MS, loadInstrumentTypes } from "./market-client.ts";
 import { hashId } from "./signal-ledger.ts";
+import { splitPair } from "./quotes.ts";
 import { barWhileClosed, classifySymbol } from "./asset-classes.ts";
 import {
   buildReport, costsFor, DEFAULT_COSTS, DEFAULT_HORIZONS, LEDGER_CSV_COLUMNS, ledgerRowValues, measureOutcome, pbo, WARM_MIN_BARS,
@@ -84,8 +85,8 @@ const minBars = Math.max(WARM_MIN_BARS, Number(args["min-bars"] ?? ENGINE_BARS))
 const outcomeMode = args.outcome ?? "horizon";
 if (!OUTCOME_MODES.includes(outcomeMode)) throw new Error(`Unknown --outcome ${outcomeMode} (${OUTCOME_MODES.join(", ")})`);
 const explicitCosts = args["fee-bps"] !== undefined || args["slip-bps"] !== undefined || args["funding-bps"] !== undefined;
-/** Per-class costs unless the caller fixed them on the command line. */
-const costsOf = (ac) => (explicitCosts ? costs : costsFor(source, ac));
+/** Per-class (and, v2.8, per-quote-market) costs unless the caller fixed them on the command line. */
+const costsOf = (ac, pair) => (explicitCosts ? costs : costsFor(source, ac, undefined, pair ? splitPair(pair, source).quote : undefined));
 
 // Trials register (one JSON line per distinct configuration ever run).
 const trialsFile = resolve(args["trials-file"] ?? join(dirname(outDir), "trials.jsonl"));
@@ -197,7 +198,7 @@ function outcomesOf(list) {
   const outcomes = new Map(DEFAULT_HORIZONS.map((h) => [h, []]));
   for (const r of warm) {
     const k = series.get(r.pair);
-    const c = costsOf(r.ac);
+    const c = costsOf(r.ac, r.pair);
     for (const h of DEFAULT_HORIZONS) {
       const o = measureOutcome(r, k, h, c, intervalMs);
       if (!o) continue;
@@ -269,7 +270,7 @@ function bracketsOf(list) {
   const outs = [];
   // ATR(14) on the engine window ending at each signal bar (measureBracket's default).
   for (const r of list.filter((x) => (x.eb ?? x.wb) >= minBars && !x.uc && x.m !== 0)) {
-    const o = measureBracket(r, series.get(r.pair), costsOf(r.ac), intervalMs);
+    const o = measureBracket(r, series.get(r.pair), costsOf(r.ac, r.pair), intervalMs);
     if (o) outs.push(o);
   }
   return summarizeBrackets(outs);

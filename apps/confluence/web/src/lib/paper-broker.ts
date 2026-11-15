@@ -24,6 +24,7 @@
  * ----------------------------------------------------------------------------
  */
 import type { Kline } from "./indicators";
+import { splitPair } from "./quotes";
 import {
   bracketAdvance, bracketInit, costsFor as ledgerCostsFor, wilson,
   type AssetClass, type BracketSpec, type BracketState, type CostModel,
@@ -272,7 +273,7 @@ export function newBook(now: number, startingEquity = DEFAULT_STARTING_EQUITY, s
 
 export const seriesKey = (src: string, tf: string) => `${src}|${tf}`;
 /** Same cost model as the ledger, including the per-class slippage extra (review S14). */
-export const costsFor = (src: string, ac: AssetClass = "crypto", measuredSlipBps?: number): CostModel => ledgerCostsFor(src, ac, measuredSlipBps);
+export const costsFor = (src: string, ac: AssetClass = "crypto", measuredSlipBps?: number, quote?: string): CostModel => ledgerCostsFor(src, ac, measuredSlipBps, quote);
 
 /** A measured slippage reading older than this is not used (default costs apply). */
 export const SLIPPAGE_MAX_AGE_MS = 24 * 3_600_000;
@@ -544,7 +545,7 @@ function advanceRejected(
     if (x.bracketOutcome || !x.spec || !x.bracket || x.src !== src || x.tf !== tf) return x;
     const k = barsByPair[x.pair];
     if (!k || !k.length) return x;
-    const costs = costsOverride ?? costsFor(src, x.assetClass, x.slipBps ?? slipByPair?.[x.pair]);
+    const costs = costsOverride ?? costsFor(src, x.assetClass, x.slipBps ?? slipByPair?.[x.pair], splitPair(x.pair, src).quote);
     const b = bracketAdvance(x.spec, x.bracket, k, costs);
     if (b === x.bracket || (b.lastBarTime === x.bracket.lastBarTime && b.status === x.bracket.status)) return x;
     changed = true;
@@ -638,7 +639,7 @@ export function processBars(
   for (const orig of book.positions) {
     const k = orig.src === src && orig.tf === tf ? barsByPair[orig.pair] : undefined;
     if (!k || !k.length) { positions.push(orig); continue; }
-    const costs = costsOverride ?? costsFor(src, orig.assetClass, orig.slipBps ?? slipByPair?.[orig.pair]);
+    const costs = costsOverride ?? costsFor(src, orig.assetClass, orig.slipBps ?? slipByPair?.[orig.pair], splitPair(orig.pair, src).quote);
     const fee = costs.feeBps / 1e4;
     const slip = costs.slipBps / 1e4;
     let p: PaperPosition = { ...orig };

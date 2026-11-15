@@ -167,9 +167,18 @@ export const DEFAULT_COSTS: Record<string, CostModel> = {
   // v2.8 (WP26): Coinbase Exchange base tier ($0K-$10K) taker 60 bps (maker 40 bps) — Coinbase Exchange fees,
   // https://support.coinbase.com/en/exchange/trading-and-funding/exchange-fees (read 15 Nov 2026). Slippage placeholder.
   coinbase: { feeBps: 60, slipBps: 5, fundingBpsPer8h: 0 },
-  // v2.8 (WP26): Upbit's fee schedule is not cited in the repo or the probe [not verified] — a conservative
-  // 0.25 % for every market (published figures put KRW markets lower); slippage placeholder.
+  // v2.8 (WP26): Upbit BTC and USDT markets 0.25 % taker — secondary source (Upbit review, digitalmoneybox.com,
+  // 2026); check Upbit's fee page [not verified on upbit.com]. KRW markets are cheaper: QUOTE_FEE_BPS. Slippage placeholder.
   upbit: { feeBps: 25, slipBps: 5, fundingBpsPer8h: 0 },
+};
+
+/**
+ * v2.8 (WP26 final wave): taker fee per quote market where a venue charges by market (bps, one side); any other quote
+ * uses DEFAULT_COSTS. Upbit KRW markets 0.05 % — secondary source (Upbit review, digitalmoneybox.com, 2026); check
+ * Upbit's fee page [not verified on upbit.com].
+ */
+export const QUOTE_FEE_BPS: Record<string, Record<string, number>> = {
+  upbit: { KRW: 5 },
 };
 
 /**
@@ -180,12 +189,14 @@ export const DEFAULT_COSTS: Record<string, CostModel> = {
  */
 export const CLASS_EXTRA_SLIP_BPS: Record<AssetClass, number> = { crypto: 0, rwa: 10, stock: 10, fx: 3, commodity: 5 };
 
-export function costsFor(source: string, ac: AssetClass, measuredSlipBps?: number): CostModel {
+/** Costs for one source (and, v2.8, the pair's quote market where QUOTE_FEE_BPS has a per-market fee). */
+export function costsFor(source: string, ac: AssetClass, measuredSlipBps?: number, quote?: string): CostModel {
   const base = DEFAULT_COSTS[source] ?? DEFAULT_COSTS.binance;
   const slip = measuredSlipBps !== undefined && Number.isFinite(measuredSlipBps) && measuredSlipBps >= 0
     ? measuredSlipBps
     : base.slipBps + (CLASS_EXTRA_SLIP_BPS[ac] ?? 0);
-  return { ...base, slipBps: slip };
+  const fee = quote ? QUOTE_FEE_BPS[source]?.[quote.toUpperCase()] : undefined;
+  return { ...base, ...(fee !== undefined ? { feeBps: fee } : {}), slipBps: slip };
 }
 
 export const DEFAULT_HORIZONS = [1, 3, 6, 12, 24];
