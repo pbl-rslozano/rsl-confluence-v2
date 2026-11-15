@@ -34,3 +34,6 @@ export { normalizeScoringProfile } from "../../web/src/lib/scoring-profile.ts";
 // v2.8 (WP19): the Pattern output and the derivative context recorded on each row.
 export { detectHistoricalPattern } from "../../web/src/lib/pattern-signal.ts";
 export { derivativeFields, parseDerivativeSnapshots, DERIV_MAX_AGE_MS } from "../../web/src/lib/derivatives-context.ts";
+// v2.8 (WP21): the Fund trend benchmark and its daily-bar feed (in Node the feed's marker and cache are in memory).
+export { fundTrend } from "../../web/src/lib/fund-trend.ts";
+export { loadFundTrends, cachedDailyBars, resetFundTrendFeedForTests } from "../../web/src/lib/fund-trend-feed.ts";

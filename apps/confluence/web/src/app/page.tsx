@@ -66,6 +66,8 @@ import { LedgerDialog } from "@/components/ledger-dialog";
 import { PaperDialog } from "@/components/paper-dialog";
 import { createPaperStore, memoryPaperPort, PAPER_COLLECTIONS, PAPER_DB_NAME } from "@/lib/paper-store";
 import { coverageUntil, coverageWarnings, eventsNear } from "@/lib/macro-calendar";
+import { loadFundTrends } from "@/lib/fund-trend-feed";
+import type { FundTrendState } from "@/lib/fund-trend";
 import { deltaPlan, loadHistoricalSeries, MAX_STORED_BARS, mergeDelta, mergeKlines, saveHistoricalSeries } from "@/lib/history-store";
 import {
   createBatcher, initialRows, liveOnly, priorityOrder, PRIORITY_TOP, ProgressiveRows, recordable, rememberedTickers, rememberTickers,
@@ -635,6 +637,9 @@ export default function Home() {
   /** v2.8 (WP27): other-timeframe series of the priority rows (`src:tf:symbol`, display only). */
   const seriesCacheRef = useRef<SeriesCache>(new Map());
   const historyAbortRef = useRef<AbortController | null>(null);
+  /** v2.8 (WP21): Fund trend per `source|symbol`, filled by the daily-bar feed that runs behind a finished scan (no display yet). */
+  const [, setFundTrends] = useState<Map<string, FundTrendState>>(new Map());
+  const fundAbortRef = useRef<AbortController | null>(null);
   const alertedReversalRef = useRef<Map<string, number>>(new Map());
 
   // v2.5: theme preference (System / Light / Dark) → resolved theme → tokens on <html data-theme>.
@@ -773,6 +778,7 @@ export default function Home() {
   const load = useCallback(async (tf: TF, source: DataSource, assets: string[], limit: number, cls: AssetClassFilter, quoteMode: string) => {
     if (!profileReady) return;
     abortRef.current?.abort();
+    fundAbortRef.current?.abort(); // a new scan stops the daily-bar feed of the previous one
     const ac = new AbortController();
     abortRef.current = ac;
     setLoading(true);
@@ -1164,6 +1170,19 @@ export default function Home() {
           cache: seriesCacheRef.current, signal: ac.signal,
         });
       }
+      // v2.8 (WP21): the daily-bar feed starts only now, behind the finished scan, for live rows (never display-only cached ones).
+      if (usesDirectFetch() && !ac.signal.aborted) {
+        const feedRows = liveOnly(out).map((r) => ({ symbol: r.pair, ac: r.assetClass }));
+        if (feedRows.length) {
+          const feed = new AbortController();
+          fundAbortRef.current = feed;
+          ac.signal.addEventListener("abort", () => feed.abort(), { once: true });
+          void loadFundTrends(source, feedRows, Date.now(), {
+            signal: feed.signal,
+            onValue: (symbol, state) => setFundTrends((cur) => new Map(cur).set(`${source}|${symbol}`, state)),
+          }).catch(() => undefined); // aborted by a newer scan or a source switch
+        }
+      }
     } catch (e) {
       if (!ac.signal.aborted) {
         batcher.cancel();
@@ -1180,6 +1199,8 @@ export default function Home() {
   }, [ledgerStore, watchlistScope, scoringProfile, profileReady, activeConfigId, rsl.port, liquidityFloorUsd]);
 
   useEffect(() => () => { historyAbortRef.current?.abort(); }, [dataSource, timeframe, scoringProfile]);
+  // v2.8 (WP21): a source switch (or leaving the page) aborts the daily-bar feed.
+  useEffect(() => () => { fundAbortRef.current?.abort(); }, [dataSource]);
 
   const backfillHistory = useCallback(async (asset: AssetRow) => {
     historyAbortRef.current?.abort();

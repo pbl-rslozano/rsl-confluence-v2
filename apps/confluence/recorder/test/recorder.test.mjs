@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
-  barWhileClosed, classifySymbol, detectHistoricalPattern, ENGINE_BARS, enrich, percentiles, resetRateLimitForTests, rateLimitCooldown, ret20, scoreSeries, toLedgerRow,
+  barWhileClosed, classifySymbol, detectHistoricalPattern, ENGINE_BARS, enrich, percentiles, resetFundTrendFeedForTests, resetRateLimitForTests, rateLimitCooldown, ret20, scoreSeries, toLedgerRow,
 } from "../src/engine.mjs";
 import { createRecorder, readHeartbeatStatus } from "../src/recorder-core.mjs";
 import { nextWake } from "../src/schedule.mjs";
@@ -51,6 +51,7 @@ function expectedLive(klBySym, rec) {
 
 beforeEach(() => {
   resetRateLimitForTests();
+  resetFundTrendFeedForTests();
   mock.timers.enable({ apis: ["Date"], now: T0 });
 });
 afterEach(() => mock.timers.reset());
@@ -62,12 +63,16 @@ test("live rows are identical to scoreSeries + toLedgerRow (+ enrich) on the sam
   assert.equal(result.ok, true);
   assert.equal(result.written, 3);
   // Warm start: no cache yet, so every series asked for the full 1,000-bar window.
-  assert.deepEqual(ex.calls.filter((c) => c.path === "/api/v3/klines").map((c) => new URL(c.url).searchParams.get("limit")), ["1000", "1000", "1000"]);
+  assert.deepEqual(ex.calls.filter((c) => c.path === "/api/v3/klines" && new URL(c.url).searchParams.get("interval") === "4h").map((c) => new URL(c.url).searchParams.get("limit")), ["1000", "1000", "1000"]);
+  // v2.8 (WP21): one daily request per crypto pair for the Fund trend benchmark, after the scan's candles.
+  assert.equal(ex.calls.filter((c) => c.path === "/api/v3/klines" && new URL(c.url).searchParams.get("interval") === "1d").length, 3);
 
   const cur = currentOpen(T0);
   const klBySym = Object.fromEntries(UNIVERSE.map((u) => [u.symbol, bars(u.symbol, cur - 999 * IV, cur - IV)])); // in-progress bar dropped
   const got = ledgerRows(dir);
-  assert.deepEqual(got, expectedLive(klBySym, T0));
+  // v2.8 (WP21): `ft` is a logged benchmark (number or null), never part of the score; compare the rest.
+  assert.ok(got.every((r) => r.ft === null || Number.isFinite(r.ft)), "every crypto row carries ft");
+  assert.deepEqual(got.map(({ ft, ...r }) => r), expectedLive(klBySym, T0));
   assert.equal(got[0].wb, 999, "engine saw every closed bar it was given");
   assert.equal(got[2].rk, 3, "rank = position in the scanned (class) universe, as in the app");
   assert.equal(got[2].rku, 4, "rku = position in the full unfiltered venue ranking");
@@ -143,7 +148,8 @@ test("catch-up after a gap scores every missed closed bar with the full ENGINE_B
         universeRank: FULL_RANK[u.symbol], rankSource: "now",
       });
       Object.assign(exp, enrich(exp, kl.slice(0, j + 1), { intervalMs: IV, btc: merged.BTCUSDT, rs: null }));
-      assert.deepEqual(row, JSON.parse(JSON.stringify(exp)), `${u.symbol} ${new Date(row.t).toISOString()}`);
+      const { ft, ...scored } = row; // v2.8 (WP21): ft is a benchmark, not part of the scored row
+      assert.deepEqual(scored, JSON.parse(JSON.stringify(exp)), `${u.symbol} ${new Date(row.t).toISOString()}`);
     }
   }
   // Second cycle needed only 1,000 bars per series and the cache filled the rest.
@@ -332,4 +338,32 @@ test("fix round 1 (Task 8): a ledger pair now under the liquidity floor still ge
   assert.equal(result.openHorizonPairs, 1, "THINUSDT is an open-horizon pair");
   assert.ok(ex2.calls.some((c) => c.path === "/api/v3/klines" && c.symbol === "THINUSDT"), "open-horizon candles are fetched without the floor");
   assert.equal(ledgerRows(dir).filter((r) => r.pair === "THINUSDT").length, before, "candles only — no new row for a thin pair");
+});
+
+test("v2.8 (WP21): crypto rows log ft from the pair's own daily bars, once per pair per UTC day", async (t) => {
+  const dayMs = 86_400_000;
+  const dailyUrl = (url) => url.pathname === "/api/v3/klines" && url.searchParams.get("interval") === "1d";
+  const daily = (url) => {
+    const todayOpen = Math.floor(Date.now() / dayMs) * dayMs;
+    const limit = Math.min(1000, Number(url.searchParams.get("limit")));
+    const rows = Array.from({ length: limit }, (_, i) => {
+      const time = todayOpen - (limit - 1 - i) * dayMs;
+      const c = 100 * Math.exp(0.002 * i + 0.01 * Math.sin(i));
+      return [time, String(c), String(c * 1.01), String(c * 0.99), String(c), "10", time + dayMs - 1, "0", 10, "5", "0", "0"];
+    });
+    return new Response(JSON.stringify(rows), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const dir = tempDir(t);
+  const ex = mockExchange({ override: (url) => (dailyUrl(url) ? daily(url) : undefined) });
+  await runOnce(dir, ex);
+  const rows = ledgerRows(dir);
+  assert.equal(rows.length, 3);
+  assert.ok(rows.every((r) => typeof r.ft === "number" && r.ft > 0 && r.ft <= 100), JSON.stringify(rows.map((r) => r.ft)));
+  assert.equal(ex.calls.filter((c) => dailyUrl(new URL(c.url))).length, 3, "one daily request per pair");
+
+  // Same UTC day, next 4h bar: the in-memory marker means no new daily request (same process memory).
+  const before = ex.calls.filter((c) => dailyUrl(new URL(c.url))).length;
+  mock.timers.setTime(T0 + IV);
+  await runOnce(dir, ex);
+  assert.equal(ex.calls.filter((c) => dailyUrl(new URL(c.url))).length, before);
 });
