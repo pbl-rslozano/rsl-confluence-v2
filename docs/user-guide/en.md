@@ -7,7 +7,8 @@ The rsL Confluence Terminal is a multi-indicator market scanner. For every asset
 
 **v2.8 (in progress, Step 1 — WP19, WP20, WP27):** a 10% **drawdown lock** with RESET and more paper limits, a
 **liquidity floor** for thin crypto pairs, honest Pattern and fair-value-gap labels, the **open-source licences** and data
-credits, and a list that **appears at once** from saved history while the scan refreshes it (sections 4, 5, 12, 16).
+credits, and a list that **appears at once** from saved history while the scan refreshes it (sections 4, 5, 6, 7, 8, 9, 11, 12, 13, 16, with new
+rows in 20 and 21).
 
 **New in v2.7:** choose the **stablecoin** each exchange is quoted in (USDT, USDC, FDUSD, USD1 … or the deepest one per coin), show prices in **any currency** at official reference rates, and **zoom, pan and go full screen** on the chart (pinch on phones).
 
@@ -486,7 +487,7 @@ Paper trading practises the discipline the ledger asks for. STRONG score bands b
 4. An approved trade fills at the **next bar's open** (never at the signal price). Stop and target are re-anchored to the fill. If a bar touches both, the stop counts first; a gap through the stop exits at the open.
 5. **Close at next open** exits manually; **Cancel** withdraws an order that has not filled yet.
 6. **Add a note** (v2.8, optional and collapsed) under a proposal takes a short *Why this trade?* reason and a **Setup**
-   tag; they are kept with the trade (or with the rejection) and exported in the journal CSV. **Approve** stays one click.
+   tag. On an approved trade they are kept with the trade and exported in the journal CSV. **Approve** stays one click.
 
 **Costs inside the risk budget (v2.8).** The size is the risk budget ÷ (stop distance + entry × round-trip cost), where the
 round trip is 2 × (fee + slippage). So a clean stop-out loses about **1 R** (slightly less — about −0.98 R on Binance and
@@ -505,8 +506,8 @@ replaces the default slippage in sizing and fills.
 
 **Time stop** (off by default): when you turn it on it is preset to 24 bars; a trade still open after that many bars exits
 at the next open, reason *time*. **Warnings:** risk per trade above 1% of equity shows a warning on each proposal, and the
-total notional is capped at 1 × equity until liquidation is modelled. **Rejected** proposals are kept with your note and
-the result the same ATR bracket later gave, so your choices can be compared with the system.
+total notional is capped at 1 × equity until liquidation is modelled. **Rejected** proposals, with any note and the result the
+same ATR bracket later gave, are kept in the paper account on this device; they are not shown on screen or exported yet.
 
 **Currency (v2.7).** The paper account is kept in USDT, so only pairs quoted in a dollar stablecoin (USDT, USDC, FDUSD …) can be proposed; peso (Coins.ph) and euro pairs are refused with a reason. One position per coin: BTCUSDT and BTCUSDC count as the same exposure.
 
