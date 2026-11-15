@@ -10,7 +10,7 @@ import { classifySymbol } from "./asset-classes.ts";
 import { baseOf as riskBaseOf, clusterOf } from "./risk-engine.ts";
 import {
   fetchDirectMarketData, resetRateLimitForTests, bitgetProductOf, fetchHistory, passesLiquidityFloor, paceFromUsedWeight, binancePaceMs,
-  DEFAULT_LIQUIDITY_FLOOR_USD, usedWeightReadable, rateLimitCooldown,
+  DEFAULT_LIQUIDITY_FLOOR_USD, usedWeightReadable, rateLimitCooldown, INTERVAL_MS,
 } from "./market-client.ts";
 import { thinNote, scoreSeries } from "./scan-pipeline.ts";
 import { deltaPlan, mergeDelta } from "./history-store.ts";
@@ -414,6 +414,57 @@ ok("WP27 429 halts all tiers: skipped pairs reported, fetched ones kept",
 const blocked = await fetchDirectMarketData("1h", "binance", [], 40, undefined, () => 200, "crypto", "USDT", 0).then(() => "ran", (e) => e?.name);
 ok("WP27 429 halts all tiers: the next scan is refused while cooling down", blocked === "RateLimitError", String(blocked));
 fail429 = null;
+resetRateLimitForTests();
+
+/* ===== v2.8: aggregated (and exact-page native) history returns N closed bars at every time of day =====
+ * Binance, Bybit and Bitget serve the bar now forming on top of a page, so the base bars a request counts include it;
+ * the bucket still forming is dropped by the aggregation. The clock is pinned and swept across a bucket; N is chosen
+ * so the base-bar need is an exact multiple of the venue's page (1,000 rows; Bitget 200), where no page over-reads. */
+{
+  const HOUR = 3_600_000, DAY = 86_400_000;
+  const realNow = Date.now;
+  const realTimeout = globalThis.setTimeout;
+  const baseOfUpstream = (u) => ({ "1h": HOUR, "60": HOUR, "4h": 4 * HOUR, "4H": 4 * HOUR, "240": 4 * HOUR, "1d": DAY, "D": DAY, "1Dutc": DAY }[u]);
+  const server = (url) => {
+    const u = new URL(String(url));
+    const venue = u.hostname.includes("binance") ? "binance" : u.hostname.includes("bybit") ? "bybit" : "bitget";
+    const upstream = u.searchParams.get(venue === "bybit" ? "interval" : venue === "bitget" ? "granularity" : "interval");
+    const B = baseOfUpstream(upstream);
+    const end = Number(u.searchParams.get(venue === "bybit" ? "end" : "endTime"));
+    const limit = Number(u.searchParams.get("limit"));
+    const rows = [];
+    for (let t = Math.floor(Math.min(end, Date.now()) / B) * B; rows.length < limit; t -= B) { // newest first; the forming bar is the first row
+      const p = 100 + ((t / B) % 50);
+      rows.push(venue === "binance" ? [t, String(p), String(p + 2), String(p - 1), String(p + 1), "10", t + B - 1, "1000", 10, "5"] : [String(t), String(p), String(p + 2), String(p - 1), String(p + 1), "10", "1000"]);
+    }
+    if (venue === "binance") return json(rows.reverse());
+    return json(venue === "bybit" ? { retCode: 0, result: { list: rows } } : { code: "00000", data: rows });
+  };
+  const run = async (source, tf, n, now) => {
+    resetRateLimitForTests();
+    Date.now = () => now; globalThis.setTimeout = (f) => setImmediate(f);
+    globalThis.fetch = async (url) => server(url);
+    try { return (await fetchHistory(source, "BTCUSDT", tf, n)).klines; } finally { Date.now = realNow; globalThis.setTimeout = realTimeout; }
+  };
+  const T0 = Date.UTC(2026, 10, 15, 0, 0, 0);
+  const matrix = [
+    ["binance", "2d", DAY, 2, 500], ["binance", "4d", DAY, 4, 250],
+    ["bybit-spot", "8h", 4 * HOUR, 2, 500], ["bybit-perp", "8h", 4 * HOUR, 2, 500], ["bybit-spot", "2d", DAY, 2, 500], ["bybit-perp", "4d", DAY, 4, 250],
+    ["bitget", "8h", 4 * HOUR, 2, 200], ["bitget-perp", "8h", 4 * HOUR, 2, 200], ["bitget", "2d", DAY, 2, 200], ["bitget-perp", "4d", DAY, 4, 200],
+    ["binance", "1h", HOUR, 1, 1000], ["bybit-spot", "1h", HOUR, 1, 1000],
+  ];
+  for (const [source, tf, B, steps, n] of matrix) {
+    const M = INTERVAL_MS[tf];
+    const bad = [];
+    for (let k = 0; k < steps; k++) for (const off of [0, 1, B - 1]) {
+      const now = Math.floor((T0 + 40 * M) / M) * M + k * B + off;
+      const ks = await run(source, tf, n, now);
+      const want = Math.floor(now / M) * M - M;
+      if (!(ks.length === n && ks.every((b, i) => b.time % M === 0 && (i === 0 || b.time - ks[i - 1].time === M)) && ks.at(-1).time === want)) bad.push(`${new Date(now).toISOString()}: ${ks.length}/${n}`);
+    }
+    ok(`history ${source} ${tf} x ${n}: N complete closed bars at every phase of the bucket`, bad.length === 0, bad.slice(0, 3).join("; "));
+  }
+}
 resetRateLimitForTests();
 globalThis.fetch = realFetch;
 console.log(`\nQuote suite: ${passed}/${passed + failed} passed`);

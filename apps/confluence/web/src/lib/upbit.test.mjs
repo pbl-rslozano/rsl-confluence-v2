@@ -184,6 +184,13 @@ console.log("parsing");
 /* ---- klines ---- */
 console.log("klines");
 const formingOf = (tf) => bucket(tf, Date.now());
+/** Runs `fn` with Date.now() pinned to `ts` (the test drives the time of day; nothing here reads the real clock). */
+async function atNow(ts, fn) {
+  const real = Date.now;
+  Date.now = () => ts;
+  try { return await fn(); } finally { Date.now = real; }
+}
+const PIN_T0 = Date.UTC(2026, 10, 15, 0, 0, 0); // a Sunday midnight, an edge of every 6h/8h/12h/1d bucket
 {
   fresh();
   route = candleServer();
@@ -525,11 +532,36 @@ console.log("history and order book");
   ok("fetchHistory: a short page is the start of history", short.complete && short.klines.length === 300, `${short.complete} ${short.klines.length}`);
   calls = [];
   route = candleServer();
-  const h8 = await fetchHistory("upbit", "BTCKRW", "8h", 200);
+  // Pinned clock: the bar count of an aggregated history must not depend on the time of day (see the sweep below).
+  const h8 = await atNow(PIN_T0, () => fetchHistory("upbit", "BTCKRW", "8h", 200));
   ok("fetchHistory 8h: from minutes/240, epoch-aligned", candleCalls().every((c) => c.u.pathname === "/v1/candles/minutes/240") && h8.klines.length === 200 && h8.klines.every((b) => b.time % INTERVAL_MS["8h"] === 0), String(h8.klines.length));
   calls = [];
   const hw = await fetchHistory("upbit", "BTCKRW", "1w", 200);
   ok("fetchHistory 1w: /v1/candles/weeks, Monday weeks", candleCalls().every((c) => c.u.pathname === "/v1/candles/weeks") && hw.klines.length === 200 && hw.klines.every((b) => new Date(b.time).getUTCDay() === 1));
+}
+{
+  // Aggregated history at every phase of the bucket: N requested -> N complete closed bars, never the forming bucket.
+  // Swept at each base-bar edge (0, +1 ms, base - 1 ms), so "now" is in every half/third/sixth of an 8h/12h/6h/2d/4d bucket.
+  const cases = [["6h", "1h"], ["8h", "4h"], ["12h", "4h"], ["2d", "1d"], ["4d", "1d"]];
+  for (const [tf, base] of cases) {
+    const M = INTERVAL_MS[tf]; const B = INTERVAL_MS[base]; const group = M / B;
+    const bad = [];
+    for (const n of [200, 201]) for (let k = 0; k < group; k++) for (const off of [0, 1, B - 1]) {
+      const now = bucket(tf, PIN_T0 + 40 * M) + k * B + off;
+      fresh(); route = candleServer();
+      const h = await atNow(now, () => fetchHistory("upbit", "BTCKRW", tf, n));
+      const ks = h.klines;
+      const good = ks.length === n && ks.every((b, i) => b.time % M === 0 && (i === 0 || b.time - ks[i - 1].time === M)) && ks.at(-1).time === bucket(tf, now) - M;
+      if (!good) bad.push(`n=${n} phase ${k}+${off}: ${ks.length} bars, newest ${ks.at(-1) ? (bucket(tf, now) - ks.at(-1).time) / M : "-"} buckets back`);
+    }
+    ok(`fetchHistory ${tf} (from ${base}): N complete closed bars at every phase of the bucket`, bad.length === 0, bad.slice(0, 3).join("; "));
+  }
+  // Start of history is still honest: a pair listed 150 four-hour bars ago returns the whole 8h buckets it has, complete=true.
+  fresh();
+  const now = bucket("8h", PIN_T0 + 40 * INTERVAL_MS["8h"]) + H4 + 5;
+  route = candleServer({ listedAt: bucket("4h", now) - 150 * H4 });
+  const young = await atNow(now, () => fetchHistory("upbit", "NEWKRW", "8h", 200));
+  ok("fetchHistory 8h: a short history returns what exists and says complete", young.complete && young.klines.length >= 74 && young.klines.length <= 75, `${young.complete} ${young.klines.length}`);
 }
 {
   fresh();

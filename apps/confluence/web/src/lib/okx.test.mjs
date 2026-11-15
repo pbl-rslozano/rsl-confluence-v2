@@ -432,6 +432,33 @@ console.log("history and order book");
   ok("fetchHistory 8h aggregates 4H bars", calls.every((c) => c.searchParams.get("bar") === "4H") && h8.klines.length === 200 && h8.klines.every((b) => b.time % INTERVAL_MS["8h"] === 0));
 }
 {
+  // Aggregated history at every phase of the bucket (clock pinned): N requested -> N complete closed bars. 300 = an exact
+  // multiple of OKX's 300-row page (600 base bars), where no page over-reads and the spare group is what keeps N.
+  const real = Date.now;
+  const realTimeout = globalThis.setTimeout;
+  const atNow = async (ts, fn) => { Date.now = () => ts; globalThis.setTimeout = (f) => setImmediate(f); try { return await fn(); } finally { Date.now = real; globalThis.setTimeout = realTimeout; } };
+  const T0 = Date.UTC(2026, 10, 15, 0, 0, 0);
+  const D1 = INTERVAL_MS["1d"];
+  for (const [tf, base, baseMs, steps] of [["8h", "4H", INTERVAL_MS["4h"], 2], ["2d", "1Dutc", D1, 2], ["4d", "1Dutc", D1, 4]]) {
+    const M = INTERVAL_MS[tf];
+    for (const n of [200, 300]) {
+      const bad = [];
+      for (const src of ["okx", "okx-perp"]) for (let k = 0; k < steps; k++) for (const off of [0, 1, baseMs - 1]) {
+        const now = Math.floor((T0 + 40 * M) / M) * M + k * baseMs + off;
+        resetRateLimitForTests(); calls = [];
+        let skipped = 0;
+        setOkxClockForTests({ now: () => Date.now() + skipped, sleep: async (ms) => { skipped += Math.max(0, ms); } });
+        const h = await atNow(now, async () => { route = candleServer(baseMs); return fetchHistory(src, "BTCUSDT", tf, n); });
+        const ks = h.klines;
+        const want = Math.floor(now / M) * M - M;
+        if (!(ks.length === n && ks.every((b, i) => b.time % M === 0 && (i === 0 || b.time - ks[i - 1].time === M)) && ks.at(-1).time === want && calls.every((c) => c.searchParams.get("bar") === base))) bad.push(`${src} ${new Date(now).toISOString()}: ${ks.length}/${n} bars`);
+      }
+      setOkxClockForTests(null);
+      ok(`fetchHistory ${tf} x ${n} (from ${base}): N complete closed bars at every phase of the bucket`, bad.length === 0, bad.slice(0, 3).join("; "));
+    }
+  }
+}
+{
   resetRateLimitForTests(); resetOkxForTests(); calls = [];
   // Book rows [price, size, liquidated orders, orders] — layout from OKX's docs [not verified by the probe].
   const book = { asks: [["65000", "10", "0", "3"], ["65010", "5", "0", "1"]], bids: [["64990", "20", "0", "2"]], ts: "1794743384165" };
