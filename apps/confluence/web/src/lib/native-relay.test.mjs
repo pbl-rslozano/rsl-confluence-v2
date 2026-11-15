@@ -61,7 +61,7 @@ console.log("Refusals happen before any request");
   reset();
   const e1 = await rejects(relayGet(upbitRule, "/x/upbit", "/v1/accounts"));
   ok("relay refuses a path outside the allowlist", e1 instanceof RelayError && e1.kind === "REFUSED" && fetchCalls.length === 0, String(e1));
-  for (const p of ["/v1/orders?state=wait", "/v1/orders/chance?market=KRW-BTC", "/v1/withdraws", "/v1/candles/../accounts", "/v1/candles/%2e%2e/accounts", "/v1/candles/minutes%2f..%2faccounts", "/v1/candles\\..\\accounts", "v1/ticker", "//evil.example/v1/ticker", "/v1/ticker#x"]) {
+  for (const p of ["/v1/orders?state=wait", "/v1/orders/chance?market=KRW-BTC", "/v1/withdraws", "/v1/candles/../accounts", "/v1/candles/%2e%2e/accounts", "/v1/candles/minutes%2f..%2faccounts", "/v1/candles/%252e%252e/accounts", "/v1/candles/%25/x", "/v1/candles\\..\\accounts", "v1/ticker", "//evil.example/v1/ticker", "/v1/ticker#x"]) {
     reset();
     const e = await rejects(relayGet(upbitRule, "/x/upbit", p));
     ok(`proxy refuses ${p}`, e instanceof RelayError && e.kind === "REFUSED" && fetchCalls.length === 0, String(e));

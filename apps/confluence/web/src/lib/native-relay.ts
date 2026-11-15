@@ -98,9 +98,9 @@ export async function relayGet(rule: NativeHostRule, proxyPrefix: string, pathAn
   const q = pathAndQuery.indexOf("?");
   const path = q >= 0 ? pathAndQuery.slice(0, q) : pathAndQuery;
   const absolute = rule.origin + pathAndQuery;
-  // Both fences: the rule's own paths on the raw text (no "..", encoded slashes or dots, backslashes,
-  // fragments), and the NATIVE_HOSTS table on the parsed URL (a forged rule cannot widen the paths).
-  if (!pathAllowed(path, rule.paths) || /%2e|#/i.test(pathAndQuery) || !isAllowedNativeUrl(absolute)) {
+  // Both fences: the rule's own paths on the raw text (no "..", encoded slashes, dots or percent signs,
+  // backslashes, fragments), and the NATIVE_HOSTS table on the parsed URL (a forged rule cannot widen the paths).
+  if (!pathAllowed(path, rule.paths) || /%2e|%25/i.test(path) || pathAndQuery.includes("#") || !isAllowedNativeUrl(absolute)) {
     throw new RelayError("REFUSED", `relay: path not allowed: ${path}`);
   }
   if (!proxyPrefix.startsWith("/") || proxyPrefix.endsWith("/")) throw new RelayError("REFUSED", "relay: bad proxy prefix");

@@ -57,22 +57,28 @@ const COINSPH_READ_PATHS = ["/openapi/v1/time", "/openapi/v1/exchangeInfo", "/op
 const UPBIT_ORIGIN = "https://api.upbit.com";
 const UPBIT_PROXY_PREFIX = "/x/upbit";
 const UPBIT_READ_PATHS = ["/v1/market/all", "/v1/ticker/all", "/v1/ticker", "/v1/orderbook", "/v1/candles/"];
-// `strict` (v2.8 relays): also refuse percent-encoded dots, which the upstream URL parser would
-// resolve as "..", and never follow an upstream redirect. Coins.ph keeps its v2.6 behaviour.
+// `strict` (v2.8 relays): never follow an upstream redirect. Coins.ph keeps its v2.6 fetch options.
 const RELAYS = [
   { name: "Coins.ph", origin: COINSPH_ORIGIN, prefix: COINSPH_PROXY_PREFIX, paths: COINSPH_READ_PATHS, strict: false },
   { name: "Upbit", origin: UPBIT_ORIGIN, prefix: UPBIT_PROXY_PREFIX, paths: UPBIT_READ_PATHS, strict: true },
 ];
-/** null = not a relay URL; undefined = a relay URL whose path is refused; otherwise { target, name }. */
+const pathOk = (paths, path) => paths.some((p) => (p.endsWith("/") ? path.startsWith(p) && path.length > p.length : path === p));
+/** null = not a relay URL; undefined = a relay URL whose path is refused; otherwise { target, name, strict }. */
 function relayTarget(url) {
   const relay = RELAYS.find((r) => url.startsWith(r.prefix + "/"));
   if (!relay) return null;
   const rest = url.slice(relay.prefix.length);
   const q = rest.indexOf("?");
   const path = q >= 0 ? rest.slice(0, q) : rest;
-  if (path.includes("..") || /%2f|%5c|\\/i.test(path) || (relay.strict && /%2e/i.test(path))) return undefined;
-  const ok = relay.paths.some((p) => (p.endsWith("/") ? path.startsWith(p) && path.length > p.length : path === p));
-  return ok ? { target: relay.origin + rest, name: relay.name, strict: relay.strict } : undefined;
+  // Raw text: no "..", no encoded dot, slash, backslash or percent (no read path contains any of them).
+  if (path.includes("..") || /%2e|%2f|%5c|%25|\\/i.test(path) || !pathOk(relay.paths, path)) return undefined;
+  // v2.8 (review fix): re-check what fetch() will actually request. The URL parser resolves dot
+  // segments ("%2e%2e" included), so the parsed path must still be an allowed read path on the origin.
+  const target = relay.origin + rest;
+  let u;
+  try { u = new URL(target); } catch { return undefined; }
+  if (u.origin !== relay.origin || u.username || u.password || u.hash || !pathOk(relay.paths, u.pathname)) return undefined;
+  return { target, name: relay.name, strict: relay.strict };
 }
 async function proxyRelay({ target, name, strict }, res) {
   try {
