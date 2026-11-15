@@ -463,12 +463,14 @@ export async function refreshRates(opts: { force?: boolean; fetcher?: Fetcher; s
   return cached ?? pegTable(now);
 }
 /**
- * v2.8 WP20 (licence audit): the credit a source's terms require, when its rates convert something on screen —
- * prices shown in another currency than the market's own (`shown !== native`). ExchangeRate-API requires
- * "Rates By Exchange Rate API" on the pages that use its rates; the ECB asks for the source. Frankfurter (the default)
- * and the fallbacks need none, so the default layout carries no extra text.
+ * v2.8 WP20 (licence audit): the credit a source's terms require, whenever its rates convert something on screen —
+ * prices shown in another currency than the market's own (`shown !== native`), or volumes (always valued in USD)
+ * shown in another currency (`volumeShown !== "USD"`, e.g. a peso market displayed in PHP: prices native, volumes
+ * converted; review round 1). ExchangeRate-API requires "Rates By Exchange Rate API" on the pages that use its rates;
+ * the ECB asks for the source. Frankfurter (the default) and the fallbacks need none, so the default layout carries
+ * no extra text.
  */
-export function fxCredit(fx: FxTable | null, native: string, shown: string): { text: string; url: string } | undefined {
-  if (!fx || native === shown) return undefined;
+export function fxCredit(fx: FxTable | null, native: string, shown: string, volumeShown = "USD"): { text: string; url: string } | undefined {
+  if (!fx || (native === shown && volumeShown === "USD")) return undefined;
   return fxSourceInfo(fx.source)?.attribution;
 }

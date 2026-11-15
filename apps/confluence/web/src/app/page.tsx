@@ -1162,9 +1162,10 @@ export default function Home() {
   /* ---- v2.7 (WP13): display currency — formatting only, rows stay in their native currency ---- */
   const nativeCurrency = scanMeta.currency;
   const priceCurrency = canConvert(nativeCurrency, displayCurrency, fx) ? displayCurrency : nativeCurrency;
-  // v2.8 WP20: a rate source's required credit wherever its rates convert values on screen (none for the default source).
-  const rateCredit = fxCredit(fx, nativeCurrency, priceCurrency);
   const volumeCurrency = canConvert("USD", displayCurrency, fx) ? displayCurrency : "USD";
+  // v2.8 WP20: a rate source's required credit wherever its rates convert values on screen — prices or volumes
+  // (review round 1) — and none for the default source.
+  const rateCredit = fxCredit(fx, nativeCurrency, priceCurrency, volumeCurrency);
   const showPrice = useCallback((v: number) => formatMoney(convert(v, nativeCurrency, priceCurrency, fx), priceCurrency), [nativeCurrency, priceCurrency, fx]);
   const showVolume = (usd: number) => formatMoneyCompact(convert(usd, "USD", volumeCurrency, fx), volumeCurrency);
   const chartConvert = useCallback((v: number) => convert(v, nativeCurrency, priceCurrency, fx), [nativeCurrency, priceCurrency, fx]);
@@ -1986,13 +1987,14 @@ export default function Home() {
                 <CategoryIndicatorList indicators={detailAsset.confluence.indicators} />
                 {detailAsset.confluence.warnings.map((warning) => <div key={warning} className="border-t border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">{warning}</div>)}
               </div>
-              {/* v2.8 WP20: required rate credit while converted prices are on screen (none for the default source). */}
+              </>}
+              {/* v2.8 WP20: required rate credit while the sheet shows values converted with its rates — also with chart
+                  replay open (review round 1); none for the default source. */}
               {rateCredit && (
                 <p data-testid="fx-credit-detail" className="text-[10px] text-zinc-500">
                   <a href={rateCredit.url} target="_blank" rel="noopener noreferrer" className="text-cyan-300/90 hover:underline">{rateCredit.text}</a>
                 </p>
               )}
-              </>}
             </div>
           )}
         </DialogContent>

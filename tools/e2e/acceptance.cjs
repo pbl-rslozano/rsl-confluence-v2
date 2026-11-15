@@ -1445,9 +1445,14 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
     await detailLink.waitFor({ timeout: 15000 }).catch(() => null);
     await detailLink.scrollIntoViewIfNeeded().catch(() => null);
     const detail = await credit(detailLink);
+    // Review round 1: the credit stays while chart replay is open in the sheet.
+    await p.getByRole("button", { name: "Open chart replay" }).click().catch(() => null);
+    await p.getByRole("button", { name: "Close chart replay" }).waitFor({ timeout: 10000 }).catch(() => null);
+    await detailLink.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => null);
+    const replay = await credit(p.locator('[data-testid="fx-credit-detail"] a'));
     const okCredit = (x) => x && x.visible && x.text === "Rates By Exchange Rate API" && x.href === "https://www.exchangerate-api.com";
-    record("FX-16", "ExchangeRate-API + SAR: \"Rates By Exchange Rate API\" link in normal mode, expanded list and the detail sheet; none for the default source",
-      defaultExpanded === 0 && okCredit(normal) && okCredit(expanded) && okCredit(detail), { defaultExpanded, normal, expanded, detail });
+    record("FX-16", "ExchangeRate-API + SAR: \"Rates By Exchange Rate API\" link in normal mode, expanded list, the detail sheet and with chart replay open; none for the default source",
+      defaultExpanded === 0 && okCredit(normal) && okCredit(expanded) && okCredit(detail) && okCredit(replay), { defaultExpanded, normal, expanded, detail, replay });
     await p.keyboard.press("Escape");
     await c.close();
   }

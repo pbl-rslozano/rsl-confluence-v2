@@ -159,5 +159,8 @@ ok("WP20 fxCredit: ExchangeRate-API credited whenever its rates convert what is 
 ok("WP20 fxCredit: nothing when no value is converted, or the source needs no credit (default Frankfurter)",
   fxCredit(tbl("erapi"), "USD", "USD") === undefined && fxCredit(tbl("frankfurter"), "USD", "SAR") === undefined && fxCredit(null, "USD", "SAR") === undefined &&
   fxCredit(tbl("ecb"), "USD", "SAR")?.text === "Source: ECB statistics (rebased to USD by this app)");
+ok("WP20 fix 1 fxCredit: volume-only conversion (USD volume shown in PHP on a peso market) still credits the source",
+  fxCredit(tbl("erapi"), "PHP", "PHP", "PHP")?.text === "Rates By Exchange Rate API" && fxCredit(tbl("erapi"), "EUR", "EUR", "EUR")?.text === "Rates By Exchange Rate API" &&
+  fxCredit(tbl("erapi"), "USD", "USD", "USD") === undefined && fxCredit(tbl("erapi"), "PHP", "PHP", "USD") === undefined);
 console.log(`\nFX suite: ${passed}/${passed + failed} passed`);
 if (failed) process.exit(1);
