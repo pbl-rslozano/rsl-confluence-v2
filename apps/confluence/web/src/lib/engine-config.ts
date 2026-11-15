@@ -59,8 +59,9 @@ export const ENGINE_PARAMS = {
   // behaviour fingerprint below already covers every indicator's output.
   indicatorCount: INDICATORS.length,
   // v2.8 (engine 2.4.0): the historical-analogue gate and the FVG minimum are
-  // engine parameters too. Pattern output is not in the behaviour fingerprint
-  // (it is not recorded in the ledger), so its rule must be hashed explicitly.
+  // engine parameters too. Pattern output is not part of the behaviour
+  // fingerprint (the fingerprint covers the scored indicators; since WP19 the
+  // ledger does record the Pattern call as pd/pc), so its rule is hashed explicitly.
   pattern: PATTERN_PARAMS,
   fvg: { minGapPct: FVG_DEFAULTS.minGapPct, minGapAtr: FVG_DEFAULTS.minGapAtr },
 } as const;

@@ -52,3 +52,19 @@ test("an in-progress entry cannot be for this or an older version (a release mus
     assert.match(r.findings.join(" "), /in progress/);
   }
 });
+
+// Final review M-2 / M-3 / M-4: doc and comment fixes on the real tree.
+test("final review doc fixes: downgrade note, Pattern comment, slippage sample size", async () => {
+  const { readFileSync } = await import("node:fs");
+  const root = join(new URL(".", import.meta.url).pathname, "..");
+  const read = (p) => readFileSync(join(root, p), "utf8");
+  const changelog = read("CHANGELOG.md");
+  const entry = changelog.slice(0, changelog.indexOf("\n# v2.7.0"));
+  assert.match(entry, /going back to v2\.7[^\n]*export/i, "CHANGELOG v2.8.0: export before going back to v2.7");
+  assert.match(read("docs/user-guide/en.md"), /going back to v2\.7[^\n]*export/i, "guide: export before going back to v2.7");
+  const ec = read("apps/confluence/web/src/lib/engine-config.ts");
+  assert.doesNotMatch(ec, /not recorded in the ledger/, "engine-config.ts: Pattern output IS recorded since WP19");
+  const page = read("apps/confluence/web/src/app/page.tsx");
+  assert.match(page, /slippageBps\(await fetchOrderBook\(source, r\.pair\), 10_000\)/);
+  assert.match(read("docs/measurement.md"), /top 10 pairs at \$10,000/);
+});
