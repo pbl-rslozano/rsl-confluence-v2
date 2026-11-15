@@ -7,7 +7,7 @@ import {
   runConfluence, indRSI, indMFI, indCCI, NEUTRAL_BAND, STRONG_BAND, INDICATORS,
 } from "./indicators.ts";
 import { detectFVG, fvgModifier } from "./fvg.ts";
-import { detectHistoricalPattern, clearPatternCache, patternConfidence, PATTERN_PARAMS } from "./pattern-signal.ts";
+import { detectHistoricalPattern, clearPatternCache, patternConfidence, patternAbstainKey, PATTERN_PARAMS } from "./pattern-signal.ts";
 import { wilson } from "./ledger-metrics.ts";
 import { detectReversal } from "./reversal.ts";
 import { barCloseTime, contiguousTail, dropUnclosed, INTERVAL_MS } from "./market-client.ts";
@@ -171,6 +171,24 @@ console.log("\n== H3 / L9: analogue engine ==");
   const short = fromCloses(Array.from({ length: 200 }, (_, i) => 100 + Math.sin(i / 6)));
   const ps = detectHistoricalPattern(short, { volumeAvailable: true, intervalMs: H, currentConfluence: runConfluence(short, { intervalMs: H }), currentReversal: { ...detectReversal(short), direction: "UP" } });
   ok("200 bars of history cannot produce a directional analogue call", ps.direction === "NONE");
+}
+
+console.log("\n== WP19 wording: Pattern abstain label ==");
+{
+  ok("too few analogues -> pattern.tooFew", patternAbstainKey({ tooFew: true }) === "pattern.tooFew");
+  ok("a comparison that found no excess -> pattern.none", patternAbstainKey({}) === "pattern.none" && patternAbstainKey({ tooFew: false }) === "pattern.none");
+  // The real abstain path: 1-19 analogues sets tooFew; a gate failure with >= 20 does not.
+  let seen = 0, bad = 0;
+  for (let seed = 1; seed <= 12 && seen < 1; seed++) {
+    let x = seed * 7919;
+    const rnd = () => ((x = (x * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const k = fromCloses(Array.from({ length: 700 }, (_, i) => 100 + 6 * Math.sin(i / (9 + seed)) + 3 * Math.sin(i / 4) + (rnd() - 0.5) * 2));
+    clearPatternCache();
+    const p = detectHistoricalPattern(k, { volumeAvailable: true, intervalMs: H, currentConfluence: runConfluence(k, { intervalMs: H }), currentReversal: { ...detectReversal(k), direction: "UP" } });
+    if (p.matches >= 1 && p.matches < 20) { seen++; if (p.tooFew !== true || patternAbstainKey(p) !== "pattern.tooFew") bad++; }
+    if (p.matches >= 20 && p.tooFew) bad++;
+  }
+  ok("1-19 analogues carry tooFew (and >= 20 never do)", bad === 0 && seen >= 1, "seen=" + seen);
 }
 
 console.log("\n== H1 (v2.8): Pattern Wilson gate and confidence cut-offs ==");

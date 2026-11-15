@@ -58,7 +58,7 @@ import { packKlines, type ScanJob } from "@/lib/scan-jobs";
 import { createLedgerStore } from "@/lib/signal-ledger";
 import { createIndexedDBAdapter } from "@rsl/core-kit/core/rsl-storage.js";
 import { emptyReversal, floorLabel, suppressedConfluence, thinNote, type SeriesScore } from "@/lib/scan-pipeline";
-import { emptySignal } from "@/lib/pattern-signal";
+import { emptySignal, patternAbstainKey } from "@/lib/pattern-signal";
 import { ENGINE_BARS, engineConfigId } from "@/lib/engine-config";
 import { ASSET_CLASS_FILTERS, barWhileClosed, classifySymbol, hasSessionGaps, type AssetClassFilter } from "@/lib/asset-classes";
 import type { AssetClass, LedgerRow } from "@/lib/ledger-metrics";
@@ -351,6 +351,7 @@ function MasterBadge({ c }: { c: ConfluenceResult }) {
  * a muted dash. Tooltip lists every contributing reversal signal.
  */
 function ReversalBadge({ r }: { r: ReversalResult }) {
+  const { t } = useRsl();
   if (r.confidence === "NONE" || r.direction === "NONE" || !r.isReversal) {
     return (
       <TooltipProvider delayDuration={150}>
@@ -393,6 +394,9 @@ function ReversalBadge({ r }: { r: ReversalResult }) {
           <div className="px-3 py-1.5 text-[11px] text-zinc-400 border-b border-zinc-800">
             {r.summary}
           </div>
+          <div className="px-3 py-1.5 text-[11px] text-zinc-500 border-b border-zinc-800">
+            {t("reversal.clueNote")}
+          </div>
           <div className="max-h-56 overflow-y-auto p-1">
             {r.signals.map((s, i) => (
               <div key={i} className="flex items-center justify-between gap-2 rounded px-2 py-1 text-xs hover:bg-zinc-800/60">
@@ -414,7 +418,7 @@ function PatternBadge({ pattern }: { pattern: PatternSignal }) {
   const { t } = useRsl();
   if (pattern.direction === "NONE" || pattern.confidence === "NONE") {
     return (
-      <span className="text-[11px] text-zinc-600" title={pattern.matches > 0 ? `${t("pattern.none")}. ${pattern.summary}` : pattern.summary}>
+      <span className="text-[11px] text-zinc-600" title={pattern.matches > 0 && pattern.tooFew ? `${t(patternAbstainKey(pattern))}. ${pattern.summary}` : pattern.summary}>
         {pattern.matches > 0 ? t("pattern.mixed", { n: pattern.matches }) : "—"}
       </span>
     );
@@ -2379,7 +2383,7 @@ function PatternPanel({ pattern }: { pattern: PatternSignal }) {
             {up ? t("pattern.up") : t("pattern.down")} · {pattern.confidence}
           </span>
         ) : (
-          <span className="text-xs text-zinc-500">{t("pattern.none")}</span>
+          <span className="text-xs text-zinc-500">{t(patternAbstainKey(pattern))}</span>
         )}
       </div>
       <p className="mt-1.5 text-xs text-zinc-400">{pattern.summary}</p>

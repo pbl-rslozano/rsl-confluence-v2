@@ -134,7 +134,7 @@ Click **#, Asset, Price, 24h %, Volume** or **Score** to sort; click again to re
 - **Depeg banner** (v2.7, amber or red): the stablecoin you scan in has moved away from $1 on this exchange — **Watch** at 0.5 %, **Warning** at 1 %, **Severe** at 2 %. Information only; signals are unchanged. A short spike on one exchange is possible (USDe touched $0.65 on one exchange for about 40 minutes in October 2025), so compare with another source before acting.
 - **Storage and backup banner** (yellow): the browser version may lose data when the device runs low on space. The banner also appears when you have never exported a backup or the last one is 7 or more days old; its **Export backup** button saves one straight away. If the device blocks storage completely, a notice says settings are kept only until you close the app.
 - **Error banner**: a scan failed. **Retry** scans again; **Use Bybit** switches the source when Binance cannot be reached.
-- **Macro banner**: shown 24 hours before and 2 hours after a scheduled FOMC decision, US CPI, US jobs report or ECB decision. Signals around those releases are less reliable. The built-in calendar lists US CPI and jobs-report dates up to December 2026.
+- **Macro banner**: shown 24 hours before and 2 hours after a scheduled FOMC decision, US CPI, US jobs report or ECB decision. Volatility is often higher around those releases; how much that affects the signals is not yet measured. The built-in calendar lists US CPI and jobs-report dates up to December 2026.
 - **Stale banner**: shown when at least three assets (and at least 5% of the scan) returned candles that were too old; they were left out. Fewer stale assets show only as *n stale* in the summary strip.
 - **Rate-limit banner**: the exchange asked the app to slow down; scanning pauses for the time shown and partial results stay on screen.
 
@@ -173,7 +173,7 @@ ATR 14, Std Dev 20 and fair-value gaps are shown for information but do not vote
 - **Closed bars only.** The unfinished candle is always dropped. A feed whose newest closed bar is more than 2½ bars old is marked stale and gets no signal.
 
 ### Reversal
-The Reversal column looks for a turn **against** the current trend (the trend is judged from the 50-bar average and its slope). It checks nine clues: RSI divergence, MACD momentum loss, a return inside the Bollinger bands, a Stochastic cross, a Parabolic SAR flip, a Supertrend flip, RSI leaving overbought or oversold, an engulfing candle, and a hammer or shooting star. Three or more net clues are **HIGH**, two **MOD**, one **LOW**. Point at the badge to see which clues fired.
+The Reversal column looks for a turn **against** the current trend (the trend is judged from the 50-bar average and its slope). It checks nine clues: RSI divergence, MACD momentum loss, a return inside the Bollinger bands, a Stochastic cross, a Parabolic SAR flip, a Supertrend flip, RSI leaving overbought or oversold, an engulfing candle, and a hammer or shooting star. Three or more net clues are **HIGH**, two **MOD**, one **LOW**. HIGH is a count of clues, not a probability that the trend will turn. Point at the badge to see which clues fired.
 
 ### Pattern
 The Pattern column is not a chart-shape detector. It looks back through the same asset's history for moments that looked like now (score, reversal and trend over the last four bars) and counts how often price rose over the next six bars.
@@ -419,7 +419,7 @@ Other stablecoin quotes on the same exchange use the same costs. RWA and stocks 
 - **Clear ledger** deletes every recorded signal for **all** sources and timeframes, for good, after a confirmation.
 
 ## 12. Paper trading
-Paper trading practises the discipline the ledger asks for. Strong signals become **proposals**, a risk engine checks each one, and only you can approve. No order is ever sent to any exchange.
+Paper trading practises the discipline the ledger asks for. STRONG score bands become practice **proposals** (not yet validated by the ledger), a risk engine checks each one, and only you can approve. No order is ever sent to any exchange.
 
 ![Paper trading: account, locks and proposals.](images/paper.webp)
 
@@ -547,7 +547,7 @@ The desktop app also has menus: **File** (Export backup…, Restore backup…), 
 | A custom rates file is refused | It holds no rates the app can read; save the source's JSON (not its web page) and import that. |
 | **Load 5K older** says the row is from an earlier scan | You changed source or timeframe; wait for the new scan, then reopen the asset. |
 | A paper proposal says the account is in USDT | Peso and euro pairs cannot be booked in the USDT paper account; scan a dollar-stablecoin quote. |
-| Ledger says **Not proven yet** | Normal for weeks or months. Keep scanning and export the ledger weekly. |
+| Ledger says **Not proven yet** | Normal for months, and for a small edge often years rather than weeks (see the power readout in the ledger). Keep scanning and export the ledger weekly. |
 | A paper proposal cannot be approved | Read the reason under it (lock, cluster limit, open-risk cap, stale signal…). Engaged kill switch: reset it with `RESET`. |
 | Settings disappeared (browser) | The browser cleared its storage. Restore your last backup from About. |
 | The page from the zip shows nothing | Use the included launcher; opening `index.html` directly does not work. |

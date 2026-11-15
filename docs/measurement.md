@@ -84,4 +84,4 @@ Survivorship-safe data: `node tools/fetch-binance-archive.mjs --list` lists ever
 - **Universe look-ahead**: replay rows have no historical top-N rank (rank = 0); forward rows have the universe log.
 - **Slippage** is measured only for the top 10 pairs at $1,000; size up and it grows.
 - **Multiple testing**: the trials register counts what you look at in the app and in replay — but not what you try elsewhere.
-- **Short samples**: a few hundred signals on one timeframe is weak evidence; forward-record 3–6 months before acting.
+- **Short samples**: a few hundred signals on one timeframe is weak evidence; forward-record 3–6 months before acting. The power readout often shows **years, not weeks**, for a small edge; read it before expecting a verdict.

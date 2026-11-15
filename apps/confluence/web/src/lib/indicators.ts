@@ -115,7 +115,7 @@ export const MIN_VALID_VOTING_SHARE = 0.7;
  * NEUTRAL_BAND = 55 → about 5% of noise bars receive a direction.
  * STRONG_BAND  = 70 → about 1.3% of noise bars are STRONG.
  *
- * At that same 5% false-positive rate the gated engine labels 19–70% of bars on
+ * At that same 5% false-positive rate the gated engine labels 15–70% (re-probed v2.7) of bars on
  * synthetic drifting series (per-bar Sharpe 0.2–0.5), versus 11–16% without
  * the gate. The regression suite asserts the noise rates, so a change that
  * inflates scores on noise fails the build. Re-run the calibration after any

@@ -710,6 +710,12 @@ export interface GroupStats {
   costBps: number;
 }
 
+/**
+ * v2.8 (WP19): on a spot source a SELL cannot be shorted without borrowing, so a SELL group is "long avoided"
+ * (the long a buyer skipped) and its P&L is the short's. True for the report's SELL groups on non-perpetual sources.
+ */
+export const isSpotSellGroup = (label: string, source: string): boolean => label.startsWith("SELL") && !/perp/i.test(source);
+
 /** Direction-matched base: holding every scored bar blindly in `dir`, after costs and funding. */
 /**
  * Direction-matched base outcomes, charged `cost` (a fraction) each. Callers

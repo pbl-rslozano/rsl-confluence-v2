@@ -3,7 +3,7 @@
 import {
   buildReport, wilson, bootstrapMean, pbo, rng, measureOutcome, outcomeFromSnapshot, toSnapshot, costsFor,
   DEFAULT_COSTS, CLASS_EXTRA_SLIP_BPS, LEDGER_CSV_COLUMNS, ledgerRowValues, PRIMARY_WARM_BARS,
-  parseLedgerImport, sanitizeLedgerRow,
+  parseLedgerImport, sanitizeLedgerRow, isSpotSellGroup,
 } from "./ledger-metrics.ts";
 import { liveRow, scanShared } from "./scan-record.ts";
 import { runCatchUp, packKlines } from "./scan-jobs.ts";
@@ -598,6 +598,13 @@ console.log("WP19 CSV: v2.7 import, hostile values, round-trip");
     const imp = parseLedgerImport(csvOf(header, [l1, l2]));
     return [imp.rows.length === 0 && imp.rejected === 2, JSON.stringify(imp)];
   });
+}
+
+console.log("\n== WP19 wording: spot SELL is 'long avoided' ==");
+{
+  ok("SELL groups on spot sources are long avoided", ["binance", "bybit-spot", "bitget", "coinsph"].every((src) => isSpotSellGroup("SELL · all", src) && isSpotSellGroup("SELL · strong", src)));
+  ok("BUY groups are never long avoided", !isSpotSellGroup("BUY · all", "binance") && !isSpotSellGroup("BUY · strong", "bybit-spot"));
+  ok("SELL groups on perpetual sources are real shorts", !isSpotSellGroup("SELL · all", "bybit-perp") && !isSpotSellGroup("SELL · strong", "bitget-perp"));
 }
 
 console.log(`\nMeasurement v2.3 suite: ${passed}/${passed + failed} passed`);

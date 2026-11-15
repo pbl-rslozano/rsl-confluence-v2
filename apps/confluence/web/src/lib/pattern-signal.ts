@@ -61,6 +61,8 @@ export interface PatternSignal {
   baseRate: number;
   /** v2.8: Wilson 95 % lower bound of `winRate` (0 when there are no analogues). */
   lowerBound?: number;
+  /** v2.8: true when Pattern abstained because fewer than MIN_MATCHES analogues were found (no comparison was made). */
+  tooFew?: boolean;
   summary: string;
   analogues: PatternMatch[];
 }
@@ -154,6 +156,10 @@ export function clearPatternCache(key?: string): void {
   if (key) snapshotCache.delete(key);
   else snapshotCache.clear();
 }
+
+/** i18n key for the "abstained" label: too few analogues means no comparison with the base rate was made. */
+export const patternAbstainKey = (p: Pick<PatternSignal, "tooFew">): "pattern.tooFew" | "pattern.none" =>
+  p.tooFew ? "pattern.tooFew" : "pattern.none";
 
 export const emptySignal = (summary: string): PatternSignal => ({
   direction: "NONE",
@@ -296,6 +302,7 @@ export function detectHistoricalPattern(
     return {
       ...emptySignal(`Only ${analogues.length} comparable historical sequence${analogues.length === 1 ? "" : "s"} found.`),
       matches: analogues.length,
+      tooFew: true,
       analogues,
     };
   }

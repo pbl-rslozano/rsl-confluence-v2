@@ -45,6 +45,7 @@ import {
   type Outcome,
   type OutcomeSnapshot,
   WARM_MIN_BARS,
+  isSpotSellGroup,
 } from "@/lib/ledger-metrics";
 import { loadHistoricalSeries, mergeKlines, saveHistoricalSeries } from "@/lib/history-store";
 import { fetchHistory, INTERVAL_MS, RateLimitError, type DataSource } from "@/lib/market-client";
@@ -462,7 +463,7 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
                   <tbody className="font-mono tabular-nums">
                     {current.groups.map((g) => (
                       <tr key={g.label} className="border-t border-zinc-800">
-                        <th scope="row" className="px-2 py-1.5 text-start font-sans font-medium text-zinc-200">{g.label}</th>
+                        <th scope="row" className="px-2 py-1.5 text-start font-sans font-medium text-zinc-200">{isSpotSellGroup(g.label, source) ? `${g.label} (${t("ledger.longAvoided")})` : g.label}</th>
                         <td className="px-2 py-1.5 text-end">{g.n}</td>
                         <td className="px-2 py-1.5 text-end">{fmtPct(g.hitRate)}</td>
                         <td className="px-2 py-1.5 text-end text-zinc-400">{fmtPct(g.baseHitRate)}</td>

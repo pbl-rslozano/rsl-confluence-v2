@@ -1,7 +1,7 @@
 /**
  * macro-calendar.ts — v2.8
  * High-impact scheduled US/EU macro releases, hard-coded from primary publishers.
- * Used to warn that signals around these times are less reliable and (FOMC/CPI/NFP only)
+ * Used to warn that volatility is often higher around these times (how much it affects the signals is not yet measured) and (FOMC/CPI/NFP only)
  * to block new paper trades 2 h before to 1 h after the release (event blackout).
  *
  * Sources, all accessed 15 Nov 2026:
