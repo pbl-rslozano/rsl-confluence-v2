@@ -7,7 +7,7 @@
 // store round-trip through an in-memory port.
 import {
   evaluateProposal, DEFAULT_RISK_SETTINGS, validateSettings, normaliseSettings, clusterOf, defaultLotStep, roundToStep,
-  isPerpSource, signalAgeBars,
+  isPerpSource, signalAgeBars, lossLocks, TIME_STOP_PRESET_BARS, timeStopToggleBars,
 } from "./risk-engine.ts";
 import {
   newBook, createProposal, approveProposal, rejectProposal, processBars, requestClose, engageKill, resetKill,
@@ -32,6 +32,7 @@ const H = 3600e3;
 const I = 4 * H;
 const T0 = Date.UTC(2026, 9, 26, 0); // Monday 26 Oct 2026 00:00 UTC
 const S = DEFAULT_RISK_SETTINGS;
+const lossLocksOf = (a) => lossLocks(a, S);
 
 /** A proposal input for a fresh strong BUY on bar T0 (closes at T0 + I). */
 const input = (over = {}) => ({
@@ -460,19 +461,53 @@ console.log("v2.8 WP19 — cost-inclusive sizing, open-loss locks, no loosening,
   ok("1 R includes the round-trip cost", near(v.riskAmount, v.size * (4 + 100 * binRt)));
   ok("no round-trip cost given → old sizing", ev().size === 12.5);
   // End to end: a clean stop-out through the broker is ≈ −1 R (stop 2% from entry).
-  const cleanStopR = (src) => {
+  const cleanStopR = (src, pair) => {
     const c = DEFAULT_COSTS[src];
     const b0 = { ...newBook(T0), account: { ...newBook(T0).account, heartbeats: { [`${src}|4h`]: NOW } } };
-    const pr = createProposal(b0, input({ src, pair: src === "coinsph" ? "SOLUSDT" : "SOLUSDT" }), NOW, "c" + src);
+    const rt = 2 * (c.feeBps + c.slipBps) / 1e4;
+    const pr = createProposal(b0, input({ src, pair, atr: 1, roundTripCost: rt }), NOW, "c" + src);
     const b1 = approveProposal(b0, pr, "c" + src, NOW).book;
-    const o = processBars(b1, src, "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 100.5, 99.5, 100)] }, T0 + 3 * I, c).book;
+    const o = processBars(b1, src, "4h", { [pair]: [bar(T0 + 2 * I, 100, 100.5, 99.5, 100)] }, T0 + 3 * I, c).book;
     const e = o.positions[0].entry;
-    return processBars(o, src, "4h", { SOLUSDT: [bar(T0 + 3 * I, e, e, e - 4.5, e - 4.2)] }, T0 + 4 * I, c).closed[0].r;
+    const stopDist = o.positions[0].stopDistance;
+    return { r: processBars(o, src, "4h", { [pair]: [bar(T0 + 3 * I, e, e, e - stopDist - 0.5, e - stopDist)] }, T0 + 4 * I, c).closed[0].r, stopDist };
   };
-  const rb = cleanStopR("binance");
-  ok("clean stop-out ≈ −1 R on Binance (in [−1.00, −0.97])", rb >= -1.0 - 1e-9 && rb <= -0.97, String(rb));
-  const rc = cleanStopR("bitget");
-  ok("clean stop-out ≈ −1 R on another venue", rc >= -1.0 - 1e-9 && rc <= -0.94, String(rc));
+  const rb = cleanStopR("binance", "SOLUSDT");
+  ok("clean stop-out ≈ −1 R on Binance (2% stop, in [−1.00, −0.97])", near(rb.stopDist, 2) && rb.r >= -1.0 - 1e-9 && rb.r <= -0.97, JSON.stringify(rb));
+  const rc = cleanStopR("coinsph", "SOLUSDT");
+  ok("clean stop-out ≈ −1 R on Coins.ph (2% stop, in [−1.00, −0.94])", near(rc.stopDist, 2) && rc.r >= -1.0 - 1e-9 && rc.r <= -0.94, JSON.stringify(rc));
+
+  // T2-1: changing the starting equity restarts the day/week marks (and the peak) at the new equity.
+  const low = setStartingEquity(newBook(T0), 1_000);
+  ok("lowering the starting equity resets day/week marks and peak", low.ok && low.book.account.dayMark.equity === 1_000 && low.book.account.weekMark.equity === 1_000 && low.book.account.peakEquity === 1_000,
+    JSON.stringify([low.book.account.dayMark, low.book.account.weekMark]));
+  const lowLive = { ...low.book, account: { ...low.book.account, heartbeats: { "binance|4h": NOW } } };
+  const lowLocks = lockState(lowLive, "binance", "4h", I, NOW);
+  ok("lowering 10 000 → 1 000 does not trip the daily or weekly lock", !lowLocks.daily && !lowLocks.weekly && !lowLocks.drawdown);
+  const high = setStartingEquity(newBook(T0), 50_000);
+  ok("raising resets day/week marks to the new equity", high.book.account.dayMark.equity === 50_000 && high.book.account.weekMark.equity === 50_000);
+  const highSnap = accountSnapshot({ ...high.book, account: { ...high.book.account, balance: 48_900 } }, "binance", "4h", NOW);
+  ok("after raising to 50 000 a −2.2% day is still a daily lock", lossLocksOf(highSnap).daily);
+
+  // T2-2: a loss realised in the scan that sets today's mark counts toward today's locks.
+  {
+    const zeroC = { feeBps: 0, slipBps: 0, fundingBpsPer8h: 0 };
+    const x0 = liveBook();
+    const xp = createProposal(x0, input(), NOW, "t22");
+    const x1 = processBars(approveProposal(x0, xp, "t22", NOW).book, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 100.5, 99.5, 100)] }, T0 + 3 * I, zeroC).book;
+    const A = { ...x1.positions[0], size: 75, entry: 100, mark: 100, stop: 98, stopDistance: 2, target: 1000, targetDistance: 900, plannedRisk: 150, feesPaid: 0, fundingPaid: 0 };
+    const B = { ...A, id: "pos-B", proposalId: "B", pair: "ETHUSDT", size: 100, stop: 1, plannedRisk: 99 * 100 };
+    const x2 = { ...x1, positions: [A, B], account: { ...x1.account, balance: 10_000 } };
+    const D2 = T0 + 86_400_000;
+    const s1 = processBars(x2, "binance", "4h", { SOLUSDT: [bar(D2, 100, 100, 97, 97.5)], ETHUSDT: [bar(D2, 100, 100, 100, 100)] }, D2 + I, zeroC);
+    ok("the overnight stop closed at −1.5%", s1.closed.length === 1 && near(s1.closed[0].pnl, -150), JSON.stringify(s1.closed.map((c) => c.pnl)));
+    ok("the day mark is the equity before today's realised loss", near(s1.book.account.dayMark.equity, 10_000), String(s1.book.account.dayMark.equity));
+    const s2 = processBars(s1.book, "binance", "4h", { ETHUSDT: [bar(D2 + I, 100, 100, 99.3, 99.4)] }, D2 + 2 * I, zeroC);
+    const ls = lockState(s2.book, "binance", "4h", I, D2 + 2 * I);
+    ok("−1.5% realised then −0.6% open engages the 2% daily lock", ls.daily === true, JSON.stringify([bookEquity(s2.book), s2.book.account.dayMark]));
+  }
+  // The realised basis is kept as the other half of "the stricter of the two".
+  ok("realised basis still locks when the mark basis alone would not", lossLocksOf({ ...acct({ equity: 9_790, realisedToday: -210 }), dayStartEquity: 9_790 }).daily);
 
   ok("open losses count toward the daily lock", has(ev({}, { equity: 9_790, realisedToday: 0, dayStartEquity: 10_000 }), "paper.rule.dailyLock"));
   ok("daily lock not tripped at 1.9% open loss", !has(ev({}, { equity: 9_810, realisedToday: 0, dayStartEquity: 10_000 }), "paper.rule.dailyLock"));
@@ -523,6 +558,7 @@ console.log("v2.8 WP19 — cost-inclusive sizing, open-loss locks, no loosening,
 
   // Time stop.
   ok("time stop off by default", S.timeStopBars === 0);
+  ok("time-stop checkbox: on fills the 24-bar preset, off sets 0", timeStopToggleBars(true) === TIME_STOP_PRESET_BARS && TIME_STOP_PRESET_BARS === 24 && timeStopToggleBars(false) === 0);
   const zero = { feeBps: 0, slipBps: 0, fundingBpsPer8h: 0 };
   const tb0 = { ...liveBook(), account: { ...liveBook().account, settings: { ...S, timeStopBars: 2 } } };
   const tpr = createProposal(tb0, input(), NOW, "ts");

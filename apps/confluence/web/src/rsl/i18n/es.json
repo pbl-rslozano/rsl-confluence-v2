@@ -488,5 +488,6 @@
   "paper.warn.riskAbove1": "Risk per trade above 1% of equity — losing streaks compound fast.",
   "paper.reason.drawdownLock": "Drawdown lock",
   "paper.reason.time": "Time stop",
-  "paper.drawdownResetWaiting": "Reset drawdown lock (scan {series} first)"
+  "paper.drawdownResetWaiting": "Reset drawdown lock (scan {series} first)",
+  "paper.set.timeStopOn": "Time stop (exit at the next open after the bars below; preset 24)"
 }

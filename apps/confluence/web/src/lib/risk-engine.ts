@@ -150,6 +150,8 @@ export const LOOSENING_KEYS = ["dailyLossLockPct", "weeklyLossLockPct", "maxDraw
 export const BOOLEAN_SETTINGS = ["allowShortsOnSpot", "requireFreshSignal", "eventBlackout", "allowIntradayProposals"] as const;
 /** v2.8: preset offered when the time stop is turned on. */
 export const TIME_STOP_PRESET_BARS = 24;
+/** Bars to put in the time-stop field when the on/off checkbox changes: the preset when turned on, 0 when off. */
+export const timeStopToggleBars = (on: boolean): number => (on ? TIME_STOP_PRESET_BARS : 0);
 /** v2.8: proposals at or below this bar length are intraday context. */
 export const INTRADAY_MAX_MS = 15 * 60_000;
 
@@ -299,13 +301,14 @@ export interface RiskVerdict {
 
 export type WarningKey = "paper.warn.riskAbove1";
 
-/** v2.8: daily / weekly loss locks. With start-of-period marks, open losses count (equity vs the mark);
- * without them (engine-only callers) the v2.2 realised basis is used. */
+/** v2.8: daily / weekly loss locks, on the stricter of two bases: the start-of-period mark (open losses count) and
+ * the v2.2 realised basis (realised loss over equity − realised) — so a loss realised before the mark was set,
+ * or an engine-only caller without marks, still locks. */
 export function lossLocks(acct: AccountState, s: RiskSettings): { daily: boolean; weekly: boolean } {
   const hit = (start: number | undefined, realised: number, pct: number) => {
-    if (typeof start === "number" && start > 0) return start - acct.equity >= (pct / 100) * start - 1e-9;
+    const marked = typeof start === "number" && start > 0 && start - acct.equity >= (pct / 100) * start - 1e-9;
     const base = acct.equity - realised;
-    return realised < 0 && base > 0 && -realised >= (pct / 100) * base;
+    return marked || (realised < 0 && base > 0 && -realised >= (pct / 100) * base);
   };
   return { daily: hit(acct.dayStartEquity, acct.realisedToday, s.dailyLossLockPct), weekly: hit(acct.weekStartEquity, acct.realisedWeek, s.weeklyLossLockPct) };
 }

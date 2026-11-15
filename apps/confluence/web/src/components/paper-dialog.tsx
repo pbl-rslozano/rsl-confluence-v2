@@ -32,6 +32,7 @@ import {
   evaluateProposal,
   RISK_SETTING_LIMITS,
   BOOLEAN_SETTINGS,
+  timeStopToggleBars,
   validateSettings,
   type Master,
   type ProposalInput,
@@ -715,6 +716,15 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                   ))}
                 </div>
                 <div className="flex flex-wrap gap-4 text-xs text-zinc-300">
+                  <label className="flex items-center gap-2" htmlFor="paper-timeStopOn">
+                    <input
+                      id="paper-timeStopOn"
+                      type="checkbox"
+                      checked={Number(draft.timeStopBars) > 0}
+                      onChange={(e) => setDraft((d) => ({ ...d, timeStopBars: String(timeStopToggleBars(e.target.checked)) }))}
+                    />
+                    {t("paper.set.timeStopOn")}
+                  </label>
                   {BOOLEAN_SETTINGS.map((k) => (
                     <label key={k} className="flex items-center gap-2" htmlFor={`paper-${k}`}>
                       <input id={`paper-${k}`} type="checkbox" checked={draftFlags[k]} onChange={(e) => setDraftFlags((f) => ({ ...f, [k]: e.target.checked }))} />

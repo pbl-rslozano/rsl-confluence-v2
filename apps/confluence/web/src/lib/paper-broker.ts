@@ -453,7 +453,7 @@ export function updateSettings(book: PaperBook, next: RiskSettings, now = Date.n
 /** Starting equity can only change on an empty book (no positions, no journal). */
 export function setStartingEquity(book: PaperBook, equity: number): { ok: boolean; book: PaperBook } {
   if (book.positions.length || book.journal.length || !(equity > 0) || !Number.isFinite(equity) || equity > 1e12) return { ok: false, book };
-  return { ok: true, book: { ...book, account: { ...book.account, startingEquity: equity, balance: equity, peakEquity: equity } } };
+  return { ok: true, book: { ...book, account: { ...book.account, startingEquity: equity, balance: equity, peakEquity: equity, dayMark: { day: book.account.dayMark.day, equity }, weekMark: { week: book.account.weekMark.week, equity } } } };
 }
 
 /* ------------------------------------------------------------------ *
@@ -593,8 +593,10 @@ function applyMarks(book: PaperBook, now: number): PaperBook {
   const equity = bookEquity(book);
   const day = utcDayStart(now);
   const week = utcWeekStart(now);
-  const dayMark = a.dayMark?.day === day ? a.dayMark : { day, equity };
-  const weekMark = a.weekMark?.week === week ? a.weekMark : { week, equity };
+  // The mark is the equity before anything realised this period: a stop-out in the scan that sets the mark is a
+  // loss of the period, not part of its starting point.
+  const dayMark = a.dayMark?.day === day ? a.dayMark : { day, equity: equity - realisedSince(book.journal, day) };
+  const weekMark = a.weekMark?.week === week ? a.weekMark : { week, equity: equity - realisedSince(book.journal, week) };
   const next: PaperBook = { ...book, account: { ...a, dayMark, weekMark } };
   return lockActive(next, now) ? { ...next, account: { ...next.account, lastLockAt: now } } : next;
 }
