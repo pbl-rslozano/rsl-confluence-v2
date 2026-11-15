@@ -8,6 +8,9 @@ import {
 } from "@/lib/chart-view";
 import { shellFullscreen } from "@/lib/shell-fullscreen";
 import { formatAxisTicks } from "@/lib/money";
+import { useRsl } from "@/rsl/RslContext";
+import { useChartOptIn } from "@/lib/chart-optin";
+import { ribbonStyle } from "@/lib/fund-trend";
 
 /**
  * PriceChart — custom SVG candlestick chart with indicator overlays.
@@ -47,7 +50,14 @@ interface Props {
   formatAxis?: (p: number) => string;
   /** Display-currency conversion applied to axis labels (WP13); the candles stay in the market's currency. */
   convertPrice?: (p: number) => number;
+  /** v2.8 (WP21): Fund trend per candle, aligned to `klines` (null = no value). Drawn only when the opt-in ribbon is on. */
+  fundTrend?: (number | null)[];
+  /** v2.8 (WP21): short muted line shown with the ribbon when there is nothing to draw (n/a class, not enough history). */
+  fundTrendNote?: string;
 }
+
+const RIBBON_H = 6;
+const RIBBON_COLOURS = { up: "#34d399", down: "#fb7185", grey: "#71717a" } as const;
 
 const LAYERS = {
   "ema-fast": "Fast EMA",
@@ -112,7 +122,10 @@ function canUseNativeFullscreen(el: HTMLElement | null): boolean {
   return Boolean(document.fullscreenEnabled && typeof el.requestFullscreen === "function");
 }
 
-export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatAxis, convertPrice }: Props) {
+export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatAxis, convertPrice, fundTrend, fundTrendNote }: Props) {
+  const { t } = useRsl();
+  const optIns = useChartOptIn();
+  const showRibbon = optIns.has("fund-ribbon");
   const total = klines.length;
   const [view, setView] = useState<ChartView>(() => initialView(total, visible));
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
@@ -304,6 +317,10 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
     const bbU = sample(bbUpper), bbL = sample(bbLower);
     for (const s2 of series) s2.values = sample(s2.values);
     const histogram = k === 1 ? fullHist : bucketEnds.map((e) => fullHist[e]);
+    // v2.8 (WP21): Fund trend at each drawn bar (the bucket's last bar when bars are grouped).
+    const ribbon = showRibbon && fundTrend && fundTrend.length === klines.length
+      ? bucketEnds.map((e) => fundTrend[start + e] ?? null)
+      : null;
 
     const step = chartW / bars.length;
     const x = (i: number) => PAD_L + i * step + step / 2;
@@ -330,13 +347,13 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
       const idx = Math.floor((i / (nTimeTicks - 1)) * (bars.length - 1));
       timeTicks.push({ x: x(idx), label: fmtTime(bars[idx].time) });
     }
-    return { slice: bars, perBar: k, x, y, bodyW, step, bbUpper: bbU, bbLower: bbL, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series };
-  }, [klines, start, v.end, hidden, periods, showBollinger, showMacd, priceH, chartW, formatAxis, convertPrice]);
+    return { slice: bars, perBar: k, x, y, bodyW, step, bbUpper: bbU, bbLower: bbL, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series, ribbon };
+  }, [klines, start, v.end, hidden, periods, showBollinger, showMacd, priceH, chartW, formatAxis, convertPrice, showRibbon, fundTrend]);
 
   /* Static layers are memoised: moving the pointer re-renders only the crosshair and readout (review #6). */
   const layers = useMemo(() => {
     if (!model) return null;
-    const { slice, x, y, bodyW, bbUpper, bbLower, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series } = model;
+    const { slice, x, y, bodyW, step, bbUpper, bbLower, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series, ribbon } = model;
     const viewH = volTop + (showVolume ? VOL_H : 0) + PAD_B;
     let bandPath = "";
     let firstUp = true;
@@ -432,6 +449,17 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
               );
             })}
           </g>
+          {ribbon && <g data-fund="ribbon">
+            {ribbon.map((val, i) => {
+              const st = ribbonStyle(val);
+              if (st.colour === "none") return null;
+              return (
+                <rect key={`r${i}`} data-ft={(val as number).toFixed(2)} data-ft-colour={st.colour}
+                  x={x(i) - step / 2} y={PAD_T + priceH - RIBBON_H} width={step} height={RIBBON_H}
+                  fill={RIBBON_COLOURS[st.colour]} opacity={st.alpha} />
+              );
+            })}
+          </g>}
           {timeTicks.map((t, i) => (
             <text key={`t${i}`} x={t.x} y={viewH - 6} fill="var(--color-zinc-500)" fontSize={10} fontFamily="ui-monospace, monospace" textAnchor="middle">
               {t.label}
@@ -631,6 +659,14 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
               </div>
             );
           })}
+          {(["fund-ribbon", "fund-panel"] as const).map((id) => (
+            <div key={id} className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={optIns.has(id)} onChange={(event) => optIns.set(id, event.target.checked)} />
+                {t(id === "fund-ribbon" ? "chart.fundRibbon" : "chart.fundPanel")}
+              </label>
+            </div>
+          ))}
           <button type="button" className="justify-self-start rounded border border-zinc-600 px-2 py-1"
             onClick={() => updateSettings(DEFAULT_SETTINGS)}>Reset to defaults</button>
         </fieldset>
@@ -677,6 +713,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
         )}
       </svg>
       </div>
+      {showRibbon && fundTrendNote && <p className="mt-1 px-1 text-[10px] text-zinc-500" data-testid="fund-trend-note">{fundTrendNote}</p>}
 
       <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1 text-[11px]">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

@@ -96,7 +96,11 @@
     "about.uses.archive",
     "about.uses.rates",
     "paper.rule.currency",
-    "liq.unknown"
+    "liq.unknown",
+    "chart.fundRibbon",
+    "chart.fundPanel",
+    "ft.notEnough",
+    "ft.na"
   ],
   "app.subtitle": "ماسح توافق مؤشرات العملات المشفّرة",
   "ctx.page": "الماسح",
@@ -649,5 +653,9 @@
   "about.uses.archive": "أرشيف الشموع التاريخي للاختبار الرجعي (للاستخدام الشخصي)",
   "about.uses.rates": "أسعار صرف العملات لعملات العرض",
   "liq.unknown": "{n, number} من الأزواج حجم تداولها بالدولار الأمريكي غير معروف، فلا تُقيَّم",
-  "ledger.bench.fundTrend": "إشارة اتجاه الصندوق"
+  "ledger.bench.fundTrend": "إشارة اتجاه الصندوق",
+  "chart.fundRibbon": "شريط اتجاه الصندوق",
+  "chart.fundPanel": "لوحة اتجاه الصندوق",
+  "ft.notEnough": "اتجاه الصندوق: السجل غير كافٍ",
+  "ft.na": "اتجاه الصندوق: غير متاح لفئة الأصول هذه"
 }

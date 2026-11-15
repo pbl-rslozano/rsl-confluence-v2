@@ -1799,6 +1799,60 @@ function dsCompare(base, now, prefix = "") {
     await c.close();
   }
 
+  /* ===== v2.8 WP21 (Fund trend): opt-in chart toggles and the ribbon ===== */
+  /* acceptance-ids: FT-1, FT-2 */
+  {
+    const c = await newContext(browser);
+    await mockExchanges(c);
+    // Registered after mockExchanges, so it wins: a steady +1 %/day BTC daily series (Fund trend = +100, every z clipped at +2).
+    await c.route(/^https:\/\/data-api\.binance\.vision\/api\/v3\/klines/, async (route) => {
+      const u = new URL(route.request().url());
+      if (u.searchParams.get("interval") !== "1d" || u.searchParams.get("symbol") !== "BTCUSDT") return route.fallback();
+      const day = 864e5, n = 1000, start = Math.floor(Date.now() / day) * day - n * day;
+      const rows = [];
+      for (let i = 0; i <= n; i++) { const o = 100 * Math.exp(0.01 * i), cl = 100 * Math.exp(0.01 * (i + 1)); rows.push([start + i * day, String(o), String(cl * 1.001), String(o * 0.999), String(cl), "1000", start + (i + 1) * day - 1]); }
+      return route.fulfill({ status: 200, headers: { "access-control-allow-origin": "*", "content-type": "application/json" }, body: JSON.stringify(rows) });
+    });
+    const p = await c.newPage();
+    await p.goto(BASE, { waitUntil: "domcontentloaded" });
+    await completeFirstRun(p);
+    await waitRows(p);
+    await p.getByRole("button", { name: /^BTC/ }).first().click();
+    const chart = p.locator('[data-testid="price-chart"]');
+    await chart.waitFor();
+    await p.getByRole("button", { name: "Indicators", exact: true }).click();
+    const ribbonBox = p.getByRole("checkbox", { name: "Fund trend ribbon", exact: true });
+    const panelBox = p.getByRole("checkbox", { name: "Fund trend panel", exact: true });
+    const both = await ribbonBox.count() === 1 && await panelBox.count() === 1;
+    const offAtRest = both && !(await ribbonBox.isChecked()) && !(await panelBox.isChecked());
+    const drawnAtRest = await chart.locator('[data-fund]').count();
+    const stored = await p.evaluate(() => localStorage.getItem("ct-chart-optin-v1"));
+    record("FT-1", "Fund trend ribbon and panel toggles sit in the Indicators menu, are off by default (nothing stored), and no ribbon is drawn at rest",
+      both && offAtRest && drawnAtRest === 0 && stored === null, { both, offAtRest, drawnAtRest, stored });
+
+    await ribbonBox.check();
+    await chart.locator('[data-fund="ribbon"] rect').first().waitFor({ timeout: 15000 }).catch(() => null);
+    const segs = await chart.locator('[data-fund="ribbon"] rect').evaluateAll((els) => els.map((e) => ({ ft: Number(e.getAttribute("data-ft")), colour: e.getAttribute("data-ft-colour"), fill: e.getAttribute("fill"), opacity: Number(e.getAttribute("opacity")), h: Number(e.getAttribute("height")) })));
+    const last = segs[segs.length - 1];
+    const wantAlpha = last ? 0.25 + 0.75 * Math.min(1, Math.abs(last.ft) / 100) : NaN;
+    const upOk = !!last && last.colour === "up" && last.fill === "#34d399" && last.ft > 99 && Math.abs(last.opacity - wantAlpha) < 0.005 && last.h === 6;
+    const storedOn = await p.evaluate(() => localStorage.getItem("ct-chart-optin-v1"));
+    await p.keyboard.press("Escape");
+    // A tokenised stock row has no Fund trend: the muted n/a line shows instead of a ribbon.
+    await p.getByRole("combobox", { name: "Asset class" }).click();
+    await p.getByRole("option", { name: "Stocks (tokenised)" }).click();
+    await p.waitForFunction(() => /TSLAB/.test(document.querySelector("tbody")?.textContent || ""), null, { timeout: 15000 });
+    await p.getByRole("button", { name: /^TSLAB/ }).first().click();
+    const note = p.locator('[data-testid="fund-trend-note"]');
+    await note.waitFor({ timeout: 10000 }).catch(() => null);
+    const noteText = await note.textContent().catch(() => null);
+    const stockRibbons = await p.locator('[data-fund="ribbon"]').count();
+    record("FT-2", "Ribbon on with mocked daily bars (+1 %/day): 6 px segments, last one is the up colour at the expected alpha; a tokenised stock shows \"Fund trend: n/a for this asset class\" and no ribbon",
+      upOk && storedOn === '["fund-ribbon"]' && noteText === "Fund trend: n/a for this asset class" && stockRibbons === 0, { segs: segs.length, last, storedOn, noteText, stockRibbons });
+    await p.keyboard.press("Escape");
+    await c.close();
+  }
+
   /* ===== v2.8 WP27: smooth loading — progressive rows; layout at rest unchanged ===== */
   /* acceptance-ids: PG-1, PG-2 */
   {

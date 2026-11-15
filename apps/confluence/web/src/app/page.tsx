@@ -66,9 +66,10 @@ import { LedgerDialog } from "@/components/ledger-dialog";
 import { PaperDialog } from "@/components/paper-dialog";
 import { createPaperStore, memoryPaperPort, PAPER_COLLECTIONS, PAPER_DB_NAME } from "@/lib/paper-store";
 import { coverageUntil, coverageWarnings, eventsNear } from "@/lib/macro-calendar";
-import { cachedDailyBars, loadFundTrends } from "@/lib/fund-trend-feed";
+import { cachedDailyBars, loadDailyBars, loadFundTrends } from "@/lib/fund-trend-feed";
+import { useChartOptIn } from "@/lib/chart-optin";
 import { createSerialQueue, writeLiveRows } from "@/lib/fund-feed-gate";
-import type { FundTrendState } from "@/lib/fund-trend";
+import { fundTrendSeries, isFundTrendClass, type FundTrendState } from "@/lib/fund-trend";
 import { deltaPlan, loadHistoricalSeries, MAX_STORED_BARS, mergeDelta, mergeKlines, saveHistoricalSeries } from "@/lib/history-store";
 import {
   createBatcher, initialRows, liveOnly, priorityOrder, PRIORITY_TOP, ProgressiveRows, recordable, rememberedTickers, rememberTickers,
@@ -644,6 +645,33 @@ export default function Home() {
   /** v2.8 (WP21): the latest Fund trend state per `source|symbol`, readable from the scan (live ledger rows log `ft` from it). */
   const fundStateRef = useRef<Map<string, FundTrendState>>(new Map());
   const fundAbortRef = useRef<AbortController | null>(null);
+  /**
+   * v2.8 (WP21): the detail sheet loads daily bars ONLY while the opt-in ribbon or panel is on (nothing at rest),
+   * from the row's own source (cached once per UTC day), and aborts on close, symbol change or toggle off.
+   */
+  const chartOptIn = useChartOptIn();
+  const detailFundWanted = chartOptIn.has("fund-ribbon") || chartOptIn.has("fund-panel");
+  const detailFundKey = detailAsset && isFundTrendClass(detailAsset.assetClass) && detailFundWanted && usesDirectFetch()
+    ? `${detailAsset.src}|${detailAsset.pair}` : null;
+  const [detailDaily, setDetailDaily] = useState<{ key: string; bars: Kline[] | null } | null>(null);
+  useEffect(() => {
+    if (!detailFundKey) return;
+    const [src, pair] = [detailFundKey.slice(0, detailFundKey.indexOf("|")), detailFundKey.slice(detailFundKey.indexOf("|") + 1)];
+    const ac = new AbortController();
+    loadDailyBars(src as DataSource, pair, Date.now(), ac.signal).then(
+      (bars) => { if (!ac.signal.aborted) setDetailDaily({ key: detailFundKey, bars }); },
+      () => { if (!ac.signal.aborted) setDetailDaily({ key: detailFundKey, bars: null }); },
+    );
+    return () => ac.abort();
+  }, [detailFundKey]);
+  const detailFund = useMemo(() => {
+    if (!detailAsset || !detailFundWanted) return null;
+    if (!isFundTrendClass(detailAsset.assetClass)) return { series: undefined, note: "ft.na" as const };
+    if (!detailFundKey || detailDaily?.key !== detailFundKey || !detailDaily.bars) return { series: undefined, note: null }; // loading (or failed): pass nothing
+    const ms = INTERVAL_MS[detailAsset.tf];
+    const series = fundTrendSeries(detailDaily.bars, detailAsset.klines.map((k) => ({ time: k.time, closeTime: barCloseTime(k.time, ms) })));
+    return { series, note: series.every((v) => v == null) ? "ft.notEnough" as const : null };
+  }, [detailAsset, detailFundWanted, detailFundKey, detailDaily]);
   /** v2.8 (WP21): one daily-bar run at a time (post-scan feed and catch-up share it), so concurrency stays 2 in total. */
   const fundQueueRef = useRef(createSerialQueue());
   const alertedReversalRef = useRef<Map<string, number>>(new Map());
@@ -2198,6 +2226,8 @@ export default function Home() {
                   convertPrice={chartConvert}
                   klines={detailAsset.klines}
                   visible={chartDepth === "all" ? Number.MAX_SAFE_INTEGER : Number(chartDepth)}
+                  fundTrend={detailFund?.series}
+                  fundTrendNote={detailFund?.note ? t(detailFund.note) : undefined}
                 />
               ) : (
                 <div className="flex h-32 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950/50 text-sm text-zinc-500">

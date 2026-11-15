@@ -552,5 +552,9 @@
   "about.uses.archive": "Historical candle archive for backtesting (personal use)",
   "about.uses.rates": "Currency exchange rates for display currencies",
   "liq.unknown": "{n, number} pairs with unknown US$ volume are not scored",
-  "ledger.bench.fundTrend": "Fund trend sign"
+  "ledger.bench.fundTrend": "Fund trend sign",
+  "chart.fundRibbon": "Fund trend ribbon",
+  "chart.fundPanel": "Fund trend panel",
+  "ft.notEnough": "Fund trend: not enough history",
+  "ft.na": "Fund trend: n/a for this asset class"
 }
