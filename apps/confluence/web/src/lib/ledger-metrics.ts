@@ -23,8 +23,10 @@
  *     SELL must beat.
  * ----------------------------------------------------------------------------
  */
-import type { Kline } from "./indicators";
+import { atr as atrSeries, type Kline } from "./indicators";
 import { detectSplit } from "./splits";
+import { ENGINE_BARS } from "./engine-window";
+import { FR_MAX, OI_CHG_MAX, OI_CHG_MIN } from "./derivatives-context";
 
 export type AssetClass = "crypto" | "rwa" | "stock" | "fx" | "commodity";
 
@@ -85,6 +87,47 @@ export interface LedgerRow {
   earn?: 0 | 1;
   /** Bars the indicators actually saw after the stock session filter (absent = wb). */
   eb?: number;
+  /* ---- v2.8 (WP19): logged context, never scored; null = not recorded (older rows, catch-up, replay) ---- */
+  /** The 18 votes, base-4 packed in the engine's voter order (digit 0 = first voter): 0 bull, 1 bear, 2 neutral, 3 not valid / informational. */
+  vt?: number | null;
+  /** Historical-analogue Pattern output: direction UP 1 / DOWN −1 / NONE 0, confidence none/low/moderate/high 0…3. */
+  pd?: -1 | 0 | 1 | null;
+  pc?: 0 | 1 | 2 | 3 | null;
+  /** Bybit linear funding rate per interval (fraction) and open-interest change (%) from a derivative snapshot ≤ 2 h before the bar close. */
+  fr?: number | null;
+  oiChg?: number | null;
+}
+
+/* ------------------------------------------------------------------ *
+ *  v2.8 (WP19) vote vector: 18 base-4 digits in one integer
+ * ------------------------------------------------------------------ */
+export type VoteDigit = 0 | 1 | 2 | 3;
+export const VOTE_COUNT = 18;
+/** 4^18 − 1 = 68 719 476 735: 36 bits, safe in a JS number but beyond 32-bit shifts — packed with × 4 / % 4 only. */
+export const VOTE_MAX = 4 ** VOTE_COUNT - 1;
+
+/** Pack 18 digits (0 bull, 1 bear, 2 neutral, 3 not valid) — digit 0 is the least significant. Throws on a bad vector. */
+export function packVotes(states: readonly VoteDigit[]): number {
+  if (!Array.isArray(states) || states.length !== VOTE_COUNT) throw new RangeError(`packVotes: ${VOTE_COUNT} digits expected`);
+  let v = 0;
+  for (let i = VOTE_COUNT - 1; i >= 0; i--) {
+    const d = states[i];
+    if (d !== 0 && d !== 1 && d !== 2 && d !== 3) throw new RangeError(`packVotes: digit ${i} is not 0…3`);
+    v = v * 4 + d;
+  }
+  return v;
+}
+
+/** Inverse of packVotes (digit 0 first). */
+export function unpackVotes(vt: number): VoteDigit[] {
+  if (!Number.isSafeInteger(vt) || vt < 0 || vt > VOTE_MAX) throw new RangeError("unpackVotes: 0…4^18−1 expected");
+  const out: VoteDigit[] = [];
+  let v = vt;
+  for (let i = 0; i < VOTE_COUNT; i++) {
+    out.push((v % 4) as VoteDigit);
+    v = Math.floor(v / 4);
+  }
+  return out;
 }
 
 /** Bars the engine really scored on (session-filtered stocks see fewer than the raw window). */
@@ -227,6 +270,171 @@ export function measureOutcome(row: LedgerRow, k: Kline[], horizon: number, cost
 }
 
 /* ------------------------------------------------------------------ *
+ *  v2.8 (WP19) outcome mode "atr-bracket" — the paper broker's bracket
+ *  (2 × ATR stop, 2 R target, stop first when a bar touches both, a gap
+ *  through the stop exits at the open), so ADR-0010 gate 3 compares paper
+ *  R with the same rule. One implementation, stepped bar by bar: the
+ *  ledger/replay loop it over the bars after a signal; the paper broker
+ *  advances it for rejected proposals as new bars close.
+ * ------------------------------------------------------------------ */
+export const OUTCOME_MODES = ["horizon", "atr-bracket"] as const;
+export type OutcomeMode = (typeof OUTCOME_MODES)[number];
+export const BRACKET_ATR_MULT = 2;
+export const BRACKET_RR = 2;
+
+export interface BracketSpec {
+  dir: 1 | -1;
+  /** Signal-bar close (sizing reference). */
+  refPrice: number;
+  stopDistance: number;
+  targetDistance: number;
+  /** 1 R per unit: stop distance + refPrice × round-trip cost (the paper sizing rule). */
+  riskPerUnit: number;
+  signalBarTime: number;
+  /** Fill at the open of the first bar opening at or after this instant (and after the signal bar). */
+  fillFrom: number;
+  intervalMs: number;
+}
+
+export interface BracketState {
+  status: "pending" | "open" | "closed";
+  entry: number | null;
+  openedAt: number | null;
+  stop: number;
+  target: number;
+  /** Funding paid per unit so far (negative = received). */
+  funding: number;
+  lastBarTime: number;
+  r?: number;
+  exitReason?: "stop" | "target";
+  closedAt?: number;
+}
+
+export const bracketInit = (spec: BracketSpec): BracketState => ({
+  status: "pending", entry: null, openedAt: null, stop: 0, target: 0, funding: 0, lastBarTime: spec.signalBarTime,
+});
+
+/**
+ * Advance a bracket over newly closed bars (already-seen bars are skipped).
+ * Pure; mirrors paper-broker processBars exactly: slippage against the
+ * position on fill and exit, taker fee on both, funding per bar held.
+ */
+export function bracketAdvance(spec: BracketSpec, state: BracketState, bars: Kline[], costs: CostModel): BracketState {
+  if (state.status === "closed") return state;
+  const s: BracketState = { ...state };
+  const dir = spec.dir;
+  const fee = costs.feeBps / 1e4;
+  const slip = costs.slipBps / 1e4;
+  const fundingPerBar = (costs.fundingBpsPer8h / 1e4) * (spec.intervalMs / 3_600_000 / 8);
+  for (const bar of bars) {
+    if (bar.time <= s.lastBarTime) continue;
+    if (!(bar.open > 0) || !(bar.high > 0) || !(bar.low > 0) || !(bar.close > 0)) { s.lastBarTime = bar.time; continue; }
+    let fillBar = false;
+    if (s.status === "pending") {
+      if (bar.time < spec.fillFrom || bar.time <= spec.signalBarTime) { s.lastBarTime = bar.time; continue; }
+      s.entry = bar.open * (1 + dir * slip);
+      s.openedAt = bar.time;
+      s.stop = s.entry - dir * spec.stopDistance;
+      s.target = s.entry + dir * spec.targetDistance;
+      s.status = "open";
+      fillBar = true;
+    }
+    const entry = s.entry as number;
+    s.funding += fundingPerBar * entry * dir;
+    let exit: { px: number; reason: "stop" | "target" } | null = null;
+    if (dir === 1) {
+      if (!fillBar && bar.open <= s.stop) exit = { px: bar.open, reason: "stop" };
+      else if (bar.low <= s.stop) exit = { px: s.stop, reason: "stop" };
+      else if (bar.high >= s.target) exit = { px: s.target, reason: "target" };
+    } else {
+      if (!fillBar && bar.open >= s.stop) exit = { px: bar.open, reason: "stop" };
+      else if (bar.high >= s.stop) exit = { px: s.stop, reason: "stop" };
+      else if (bar.low <= s.target) exit = { px: s.target, reason: "target" };
+    }
+    s.lastBarTime = bar.time;
+    if (exit) {
+      const exitPx = exit.px * (1 - dir * slip);
+      const pnl = dir * (exitPx - entry) - entry * fee - exitPx * fee - s.funding;
+      return { ...s, status: "closed", r: spec.riskPerUnit > 0 ? pnl / spec.riskPerUnit : 0, exitReason: exit.reason, closedAt: bar.time + spec.intervalMs };
+    }
+  }
+  return s;
+}
+
+export interface BracketOutcome {
+  row: LedgerRow;
+  r: number;
+  reason: "stop" | "target";
+  /** Close of the exit bar (ms). */
+  closedAt: number;
+  /** Bars held, fill bar included. */
+  bars: number;
+  atr: number;
+  stopDistance: number;
+}
+
+/**
+ * Measure one directional row in "atr-bracket" mode: entry at the next bar's
+ * open, stop 2 × ATR(14) of the engine window ending at the signal bar
+ * (`opts.atr` overrides), target 2 R. null for NEUTRAL rows, a missing bar,
+ * an unusable ATR, or a bracket not resolved by the newest bar.
+ */
+export function measureBracket(
+  row: LedgerRow, k: Kline[], costs: CostModel, intervalMs: number,
+  opts: { atr?: number; atrMult?: number; rr?: number } = {},
+): BracketOutcome | null {
+  if (row.m === 0) return null;
+  const i = indexOfTime(k, row.t);
+  if (i < 0 || i + 1 >= k.length) return null;
+  const a = opts.atr ?? atrSeries(k.slice(Math.max(0, i + 1 - ENGINE_BARS), i + 1), 14).at(-1) ?? NaN;
+  const stopDistance = (opts.atrMult ?? BRACKET_ATR_MULT) * a;
+  if (!(stopDistance > 0) || !(row.c > 0) || !Number.isFinite(stopDistance)) return null;
+  const dir = row.m;
+  if (dir === 1 && !(row.c - stopDistance > 0)) return null; // same "nonsense ATR" rule as the risk engine
+  const rt = (2 * (costs.feeBps + costs.slipBps)) / 1e4;
+  const spec: BracketSpec = {
+    dir, refPrice: row.c, stopDistance, targetDistance: stopDistance * (opts.rr ?? BRACKET_RR),
+    riskPerUnit: stopDistance + row.c * rt, signalBarTime: row.t, fillFrom: row.t + intervalMs, intervalMs,
+  };
+  // Contiguity: a missing bar inside the hold would hide a stop; stop at the first hole.
+  let j = i + 1;
+  const maxGap = intervalMs >= 28 * 86_400_000 ? 31 * 86_400_000 : intervalMs + intervalMs / 2;
+  while (j < k.length && k[j].time - k[j - 1].time <= maxGap) j++;
+  const s = bracketAdvance(spec, bracketInit(spec), k.slice(i + 1, j), costs);
+  if (s.status !== "closed" || s.r === undefined || !s.exitReason || s.closedAt === undefined || s.openedAt === null) return null;
+  return { row, r: s.r, reason: s.exitReason, closedAt: s.closedAt, bars: Math.round((s.closedAt - s.openedAt) / intervalMs), atr: a, stopDistance };
+}
+
+/**
+ * Summary of atr-bracket outcomes, one trade at a time per series (a signal
+ * while that series' bracket is still open is skipped — no pyramiding, as in
+ * the paper book): n, mean R, hit rate (R > 0) with its Wilson interval.
+ */
+export function summarizeBrackets(outs: BracketOutcome[]): { n: number; meanR: number; hitRate: number; hitCi: [number, number]; stops: number; targets: number } {
+  const bySeries = new Map<string, BracketOutcome[]>();
+  for (const o of outs) {
+    const key = `${o.row.src}|${o.row.tf}|${o.row.pair}`;
+    const l = bySeries.get(key);
+    if (l) l.push(o); else bySeries.set(key, [o]);
+  }
+  const kept: BracketOutcome[] = [];
+  for (const list of bySeries.values()) {
+    list.sort((a, b) => a.row.t - b.row.t);
+    let freeAt = -Infinity;
+    for (const o of list) if (o.row.tc >= freeAt) { kept.push(o); freeAt = o.closedAt; }
+  }
+  const wins = kept.filter((o) => o.r > 0).length;
+  return {
+    n: kept.length,
+    meanR: kept.length ? kept.reduce((a, o) => a + o.r, 0) / kept.length : NaN,
+    hitRate: kept.length ? wins / kept.length : NaN,
+    hitCi: wilson(wins, kept.length),
+    stops: kept.filter((o) => o.reason === "stop").length,
+    targets: kept.filter((o) => o.reason === "target").length,
+  };
+}
+
+/* ------------------------------------------------------------------ *
  *  Statistics helpers
  * ------------------------------------------------------------------ */
 const mean = (x: number[]) => (x.length ? x.reduce((a, b) => a + b, 0) / x.length : NaN);
@@ -241,7 +449,8 @@ function median(x: number[]): number {
   const h = s.length >> 1;
   return s.length % 2 ? s[h] : (s[h - 1] + s[h]) / 2;
 }
-function moment(x: number[], p: number): number {
+/** p-th standardised sample moment (sample SD); 3 = skew γ₃, 4 = raw kurtosis γ₄ (3 for normal returns). */
+export function moment(x: number[], p: number): number {
   const m = mean(x);
   const sd = std(x);
   if (!(sd > 0)) return NaN;
@@ -303,11 +512,12 @@ export function spearman(x: number[], y: number[]): number {
  * for `trials` configurations tried (Bailey & López de Prado 2012/2014). With
  * trials = 1 the DSR equals the PSR against 0.
  */
-export function sharpeStats(returns: number[], trials = 1): { sr: number; psr: number; dsr: number; sr0: number } {
+export interface SharpeStats { sr: number; psr: number; dsr: number; sr0: number; g3: number; g4: number }
+export function sharpeStats(returns: number[], trials = 1): SharpeStats {
   const n = returns.length;
   const sd = std(returns);
   const sr = sd > 0 ? mean(returns) / sd : NaN;
-  if (!(n > 2) || !Number.isFinite(sr)) return { sr, psr: NaN, dsr: NaN, sr0: NaN };
+  if (!(n > 2) || !Number.isFinite(sr)) return { sr, psr: NaN, dsr: NaN, sr0: NaN, g3: NaN, g4: NaN };
   const g3 = moment(returns, 3);
   const g4 = moment(returns, 4);
   const denom = Math.sqrt(Math.max(1e-12, 1 - g3 * sr + ((g4 - 1) / 4) * sr * sr));
@@ -317,7 +527,53 @@ export function sharpeStats(returns: number[], trials = 1): { sr: number; psr: n
   const sr0 = trials > 1
     ? Math.sqrt(1 / (n - 1)) * ((1 - euler) * normInv(1 - 1 / trials) + euler * normInv(1 - 1 / (trials * Math.E)))
     : 0;
-  return { sr, psr: psrAt(0), dsr: psrAt(sr0), sr0 };
+  return { sr, psr: psrAt(0), dsr: psrAt(sr0), sr0, g3, g4 };
+}
+
+/**
+ * v2.8 (WP19) power: blocks n needed for PSR ≥ 0.95 at this Sharpe, from
+ * SR·√(n−1) ≥ 1.645·√(1 − γ₃·SR + (γ₄−1)/4·SR²) → n = 1 + (1.645·√(…)/SR)²,
+ * rounded up (term under the root floored at 1e-12, as in sharpeStats).
+ * null when SR ≤ 0 (it never gets there) or an input is not finite.
+ */
+export function blocksForPsr95(sr: number, g3: number, g4: number): number | null {
+  if (!(sr > 0) || !Number.isFinite(sr) || !Number.isFinite(g3) || !Number.isFinite(g4)) return null;
+  const root = Math.sqrt(Math.max(1e-12, 1 - g3 * sr + ((g4 - 1) / 4) * sr * sr));
+  return Math.ceil(1 + ((1.645 * root) / sr) ** 2);
+}
+
+/** Days needed at the current Sharpe for PSR 0.95: blocks needed ÷ observed blocks per day, rounded up; null when SR ≤ 0. */
+export function daysForPsr95(sr: number, g3: number, g4: number, blocksPerDay: number): number | null {
+  const n = blocksForPsr95(sr, g3, g4);
+  if (n === null || !(blocksPerDay > 0) || !Number.isFinite(blocksPerDay)) return null;
+  return Math.ceil(n / blocksPerDay);
+}
+
+export interface PowerReadout {
+  /** Blocks already in the PSR (h-bar portfolio returns) and how many the ledger observes per day. */
+  blocks: number;
+  blocksPerDay: number;
+  /** Total days needed at the current Sharpe, and days remaining beyond the blocks already logged; null when SR ≤ 0. */
+  totalDays: number | null;
+  remainingDays: number | null;
+}
+
+export function powerReadout(sharpe: Pick<SharpeStats, "sr" | "g3" | "g4">, blocks: number, blocksPerDay: number): PowerReadout {
+  const need = blocksForPsr95(sharpe.sr, sharpe.g3, sharpe.g4);
+  const totalDays = daysForPsr95(sharpe.sr, sharpe.g3, sharpe.g4, blocksPerDay);
+  const remainingDays = need === null || totalDays === null ? null : Math.ceil(Math.max(0, need - blocks) / blocksPerDay);
+  return { blocks, blocksPerDay, totalDays, remainingDays };
+}
+
+/**
+ * v2.8 (WP19) confirmatory gate: the confirmatory report deflates its Sharpe by
+ * the ACTIVE pre-registered hypotheses only — those fixed for the engine being
+ * evaluated (a pre-registration on an older engine id can no longer be
+ * confirmed by these rows). At least 1. The exploratory report keeps the
+ * all-views trial count.
+ */
+export function confirmatoryTrials(preregistrations: ReadonlyArray<{ cfg: string }>, cfg: string): number {
+  return Math.max(1, preregistrations.filter((p) => p && p.cfg === cfg).length);
 }
 
 /** Deterministic PRNG (mulberry32) so bootstrap/shuffle results are reproducible. */
@@ -511,7 +767,9 @@ export interface HorizonReport {
   groups: GroupStats[];
   calibration: { bucket: string; n: number; meanGrossBps: number }[];
   ic: { mean: number; tStat: number; periods: number };
-  sharpe: { sr: number; psr: number; dsr: number; sr0: number };
+  sharpe: SharpeStats;
+  /** v2.8 (WP19): days needed at this Sharpe for PSR 0.95, from the same block returns. */
+  power: PowerReadout;
   /** v2.3 benchmarks the signal must beat. */
   benchmarks: {
     /** 20-bar momentum sign on the same bars (needs momentumOf). */
@@ -565,6 +823,11 @@ export function thinNonOverlapping(outs: Outcome[], horizon: number, intervalMs:
 
 /** Mean of `outs` nets per time block of h bars: one portfolio return per block. */
 export function blockReturns(outs: Outcome[], horizon: number, intervalMs: number): number[] {
+  return blockSeries(outs, horizon, intervalMs).returns;
+}
+
+/** Block returns plus the observed blocks per day (blocks ÷ days from the first to the last block, inclusive). */
+function blockSeries(outs: Outcome[], horizon: number, intervalMs: number): { returns: number[]; blocksPerDay: number } {
   const block = horizon * intervalMs;
   const sums = new Map<number, { s: number; n: number }>();
   for (const o of outs) {
@@ -573,7 +836,9 @@ export function blockReturns(outs: Outcome[], horizon: number, intervalMs: numbe
     cur.s += o.net; cur.n += 1;
     sums.set(b, cur);
   }
-  return [...sums.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v.s / v.n);
+  const keys = [...sums.keys()].sort((a, b) => a - b);
+  const spanDays = keys.length ? ((keys[keys.length - 1] - keys[0] + 1) * block) / 86_400_000 : 0;
+  return { returns: keys.map((k) => { const v = sums.get(k)!; return v.s / v.n; }), blocksPerDay: spanDays > 0 ? keys.length / spanDays : NaN };
 }
 
 /**
@@ -689,13 +954,16 @@ export function buildReport(
       shuffledP = (atLeast + 1) / (reps + 1);
     }
 
+    const blocks = blockSeries([...buys, ...sells], h, intervalMs);
+    const sharpe = sharpeStats(blocks.returns, trials);
     horizons.push({
       horizon: h,
       scored: baseOuts.length,
       groups,
       calibration,
       ic: { mean: mean(ics), tStat: icSd > 0 ? (mean(ics) / icSd) * Math.sqrt(ics.length) : NaN, periods: ics.length },
-      sharpe: sharpeStats(blockReturns([...buys, ...sells], h, intervalMs), trials),
+      sharpe,
+      power: powerReadout(sharpe, blocks.returns.length, blocks.blocksPerDay),
       benchmarks: { momentum, shuffledP },
     });
   }
@@ -725,6 +993,8 @@ export const LEDGER_CSV_COLUMNS = [
   "reversal_dir", "reversal_conf", "warm_bars", "live", "underlying_closed",
   "universe_rank_full", "rank_source", "rs_percentile", "btc_beta", "htf_trend", "taker_delta",
   "macro_event_hours", "basis_pct", "band_pinned", "split_muted", "earnings_window", "engine_bars",
+  // v2.8 (WP19) — appended, so v2.7 column positions are unchanged.
+  "vote_vector", "pattern_dir", "pattern_conf", "funding_rate", "oi_change_pct",
 ] as const;
 
 const iso = (ms: number) => (ms ? new Date(ms).toISOString() : "");
@@ -736,6 +1006,7 @@ export function ledgerRowValues(r: LedgerRow): (string | number)[] {
     r.rd, r.rc, r.wb, r.live, r.uc ?? 0,
     r.rku ?? "", r.rks ?? "", r.rs ?? "", r.beta ?? "", r.htf ?? "", r.td ?? "",
     r.mev ?? "", r.bp ?? "", r.pin ?? "", r.spl ?? "", r.earn ?? "", engineBarsOf(r),
+    r.vt ?? "", r.pd ?? "", r.pc ?? "", r.fr ?? "", r.oiChg ?? "",
   ];
 }
 
@@ -748,6 +1019,26 @@ const SAFE_PAIR = /^[A-Z0-9]{2,30}$/;
 const SAFE_TOKEN = /^[A-Za-z0-9._-]{1,40}$/;
 const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const optNum = (v: unknown) => (v === null || v === undefined ? v : finite(v) ? v : undefined);
+export { FR_MAX, OI_CHG_MAX, OI_CHG_MIN };
+const INVALID = Symbol("invalid");
+/**
+ * v2.8 (WP19) strict checks for the new fields: absent/null → null; a value
+ * of the wrong type or out of range rejects the WHOLE row (a hostile or
+ * corrupted file must not import half a row).
+ */
+function strictNew(r: Record<string, unknown>): Pick<LedgerRow, "vt" | "pd" | "pc" | "fr" | "oiChg"> | typeof INVALID {
+  const nil = (v: unknown) => v === null || v === undefined;
+  const { vt, pd, pc, fr, oiChg } = r;
+  if (!nil(vt) && !(Number.isSafeInteger(vt) && (vt as number) >= 0 && (vt as number) <= VOTE_MAX)) return INVALID;
+  if (!nil(pd) && pd !== -1 && pd !== 0 && pd !== 1) return INVALID;
+  if (!nil(pc) && pc !== 0 && pc !== 1 && pc !== 2 && pc !== 3) return INVALID;
+  if (!nil(fr) && !(finite(fr) && Math.abs(fr) <= FR_MAX)) return INVALID;
+  if (!nil(oiChg) && !(finite(oiChg) && oiChg >= OI_CHG_MIN && oiChg <= OI_CHG_MAX)) return INVALID;
+  return {
+    vt: nil(vt) ? null : (vt as number), pd: nil(pd) ? null : (pd as -1 | 0 | 1), pc: nil(pc) ? null : (pc as 0 | 1 | 2 | 3),
+    fr: nil(fr) ? null : (fr as number), oiChg: nil(oiChg) ? null : (oiChg as number),
+  };
+}
 
 /**
  * Validate one untrusted row and return a clean copy with only known fields,
@@ -769,6 +1060,8 @@ export function sanitizeLedgerRow(x: unknown): LedgerRow | null {
   const m = r.m === 1 || r.m === -1 || r.m === 0 ? r.m : null;
   const st = r.st === 0 || r.st === 1 || r.st === 2 ? r.st : null;
   if (m === null || st === null || Math.abs(r.sc as number) > 100) return null;
+  const v28 = strictNew(r);
+  if (v28 === INVALID) return null;
   const bl = Array.isArray(r.bl) && r.bl.length === 4 && r.bl.every(finite) ? (r.bl as number[]) : [0, 0, 0, 0];
   const bit = (v: unknown): 0 | 1 => (v === 1 || v === true ? 1 : 0);
   const out: LedgerRow = {
@@ -791,7 +1084,94 @@ export function sanitizeLedgerRow(x: unknown): LedgerRow | null {
     eb: finite(r.eb) && r.eb >= 0 ? r.eb : undefined,
   };
   for (const [k, v] of Object.entries(extra)) if (v !== undefined) (out as unknown as Record<string, unknown>)[k] = v;
+  return Object.assign(out, v28);
+}
+
+/* ------------------------------------------------------------------ *
+ *  v2.8 (WP19) — CSV import (the app's Export CSV and the replay's ledger.csv)
+ * ------------------------------------------------------------------ */
+/** RFC 4180 records (quoted fields, doubled quotes, CRLF or LF). */
+function csvRecords(text: string): string[][] {
+  const out: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { cell += '"'; i++; } else quoted = false;
+      } else cell += ch;
+    } else if (ch === '"' && cell === "") quoted = true;
+    else if (ch === ",") { row.push(cell); cell = ""; }
+    else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      row.push(cell); cell = "";
+      if (row.length > 1 || row[0] !== "") out.push(row);
+      row = [];
+    } else cell += ch;
+  }
+  if (cell !== "" || row.length) { row.push(cell); out.push(row); }
   return out;
+}
+
+const NUM_CELL = /^-?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
+const ISO_CELL = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
+/** A numeric cell → number; empty → null; anything else stays a string so the sanitiser rejects or drops it. */
+const csvNum = (c: string | undefined): number | string | null => {
+  if (c === undefined || c === "") return null;
+  if (!NUM_CELL.test(c)) return c;
+  const n = Number(c);
+  return Number.isFinite(n) ? n : c;
+};
+const csvTime = (c: string | undefined): number | string | null => {
+  if (c === undefined || c === "") return null;
+  return ISO_CELL.test(c) && Number.isFinite(Date.parse(c)) ? Date.parse(c) : c;
+};
+const DIRECTION_CELL: Record<string, -1 | 0 | 1> = { BUY: 1, SELL: -1, NEUTRAL: 0 };
+const STRENGTH_CELL: Record<string, 0 | 1 | 2> = { WEAK: 0, MODERATE: 1, STRONG: 2 };
+
+/** True when `text` starts with the ledger CSV header (BOM and quotes tolerated). */
+export function looksLikeLedgerCsv(text: string): boolean {
+  return /^\uFEFF?"?id"?,"?config_id"?,/.test(text);
+}
+
+/**
+ * Parse a ledger CSV into untrusted row objects (then sanitised like JSON).
+ * Columns are found by header name, so a v2.7 file without the v2.8 columns
+ * imports with those fields null, and extra columns (net_return_h*) are ignored.
+ */
+export function parseLedgerCsv(text: string, maxRows = 500_000): { rows: LedgerRow[]; rejected: number } {
+  const recs = csvRecords(text.replace(/^\uFEFF/, ""));
+  const header = recs.shift() ?? [];
+  const col = new Map(header.map((h, i) => [h.trim(), i]));
+  const rows: LedgerRow[] = [];
+  let rejected = 0;
+  for (const rec of recs) {
+    if (rows.length >= maxRows) { rejected++; continue; }
+    const get = (name: (typeof LEDGER_CSV_COLUMNS)[number]) => { const i = col.get(name); return i === undefined ? undefined : rec[i]; };
+    const strOrNull = (name: (typeof LEDGER_CSV_COLUMNS)[number]) => { const v = get(name); return v === undefined || v === "" ? undefined : v; };
+    const num = (name: (typeof LEDGER_CSV_COLUMNS)[number]) => csvNum(get(name));
+    const opt = (name: (typeof LEDGER_CSV_COLUMNS)[number]) => { const v = num(name); return v === null ? undefined : v; };
+    const wb = num("warm_bars");
+    const eb = num("engine_bars");
+    const raw: Record<string, unknown> = {
+      id: get("id"), cfg: get("config_id"), ev: strOrNull("engine_version"), app: strOrNull("app_version"), src: get("source"), tf: get("timeframe"),
+      pair: get("pair"), ac: get("asset_class"), t: csvTime(get("bar_open_utc")), tc: csvTime(get("bar_close_utc")), rec: csvTime(get("recorded_utc")) ?? undefined,
+      c: num("close"), sc: num("score"), m: DIRECTION_CELL[get("direction") ?? ""] ?? null, st: STRENGTH_CELL[get("strength") ?? ""] ?? null,
+      sup: num("suppressed"), lv: num("low_volatility"), v: num("valid_voters"), bu: num("bull"), be: num("bear"), er: num("efficiency_ratio"),
+      bl: [num("bloc_trend"), num("bloc_mean_reversion"), num("bloc_breakout"), num("bloc_flow")], rk: num("universe_rank"), qv: num("quote_volume_24h"),
+      rd: num("reversal_dir"), rc: num("reversal_conf"), wb, live: num("live"), uc: num("underlying_closed"),
+      rku: opt("universe_rank_full"), rks: strOrNull("rank_source"), rs: num("rs_percentile"), beta: num("btc_beta"), htf: num("htf_trend"),
+      td: num("taker_delta"), mev: num("macro_event_hours"), bp: num("basis_pct"), pin: opt("band_pinned"), spl: opt("split_muted"), earn: opt("earnings_window"),
+      // engine_bars is exported as eb ?? wb: only a value that differs from warm_bars is a real eb.
+      eb: eb !== null && eb !== wb ? eb : undefined,
+      vt: num("vote_vector"), pd: num("pattern_dir"), pc: num("pattern_conf"), fr: num("funding_rate"), oiChg: num("oi_change_pct"),
+    };
+    const row = sanitizeLedgerRow(raw);
+    if (row) rows.push(row); else rejected++;
+  }
+  return { rows, rejected };
 }
 
 /**
@@ -802,6 +1182,11 @@ export function sanitizeLedgerRow(x: unknown): LedgerRow | null {
 export function parseLedgerImport(text: string, maxRows = 500_000, liveOnly = true): { rows: LedgerRow[]; rejected: number } {
   const rows: LedgerRow[] = [];
   let rejected = 0;
+  if (looksLikeLedgerCsv(text)) {
+    const csv = parseLedgerCsv(text, maxRows);
+    const kept = liveOnly ? csv.rows.filter((r) => r.live === 1) : csv.rows;
+    return { rows: kept, rejected: csv.rejected + csv.rows.length - kept.length };
+  }
   const trimmed = text.replace(/^\uFEFF/, "").trim();
   let items: unknown[] = [];
   if (trimmed.startsWith("{") && !trimmed.includes("\n{")) {

@@ -8,11 +8,13 @@
  * ----------------------------------------------------------------------------
  */
 import { normalizeScoringProfile, type ScoringProfile } from "./scoring-profile";
-import { runConfluence, type ConfluenceResult, type Kline } from "./indicators";
+import { runConfluence, VOTING_SLOT_IDS, type ConfluenceResult, type Kline } from "./indicators";
 import { detectReversal, type ReversalResult } from "./reversal";
 import { ENGINE_BARS, MIN_ENGINE_BARS } from "./engine-window";
 import { ENGINE_VERSION, engineConfigId } from "./engine-config";
-import type { AssetClass, LedgerRow } from "./ledger-metrics";
+import { packVotes, VOTE_COUNT, VOTE_MAX, type AssetClass, type LedgerRow, type VoteDigit } from "./ledger-metrics";
+import type { PatternConfidence, PatternDirection } from "./pattern-signal";
+import type { VotingIndicatorId } from "./scoring-profile";
 import { barWhileClosed } from "./asset-classes";
 import { detectSplit } from "./splits";
 
@@ -160,6 +162,34 @@ export interface RowContext {
   /** v2.3: rank in the full unfiltered venue ranking, and where the ranks came from. */
   universeRank?: number;
   rankSource?: "live" | "now" | "none";
+  /** v2.8 (WP19): the series' Pattern output for this bar (absent = not computed → pd/pc null). */
+  pattern?: { direction: PatternDirection; confidence: PatternConfidence } | null;
+  /** v2.8 (WP19): derivative context from a snapshot ≤ 2 h before the bar close (absent = null). */
+  fr?: number | null;
+  oiChg?: number | null;
+}
+
+/**
+ * v2.8 (WP19) vote vector. VOTE_SLOTS[i] = index in `confluence.indicators`
+ * of the i-th voter (the engine's indicator order); VOTE_ORDER = its id.
+ * Digit i of `vt` (least significant first) is that voter's vote.
+ */
+export const VOTE_SLOTS: readonly number[] = VOTING_SLOT_IDS.flatMap((id, i) => (id ? [i] : []));
+export const VOTE_ORDER: readonly VotingIndicatorId[] = VOTING_SLOT_IDS.filter((id): id is VotingIndicatorId => id !== null);
+if (VOTE_SLOTS.length !== VOTE_COUNT) throw new Error(`vote vector expects ${VOTE_COUNT} voters, the engine has ${VOTE_SLOTS.length}`);
+
+/**
+ * 0 bullish, 1 bearish, 2 neutral, 3 not valid. `valid` is read first (an
+ * invalid indicator reports state NEUTRAL); a voter the scoring profile
+ * disabled (`informational`) is also 3. No indicators (suppressed/split) → all 3.
+ */
+export function voteVector(c: ConfluenceResult): number {
+  if (c.indicators.length !== VOTING_SLOT_IDS.length) return VOTE_MAX;
+  return packVotes(VOTE_SLOTS.map((i): VoteDigit => {
+    const ind = c.indicators[i];
+    if (!ind || !ind.valid || ind.informational) return 3;
+    return ind.state === "BULLISH" ? 0 : ind.state === "BEARISH" ? 1 : 2;
+  }));
 }
 
 const BLOC_ORDER = ["trend", "meanReversion", "breakout", "flow"] as const;
@@ -204,5 +234,11 @@ export function toLedgerRow(k: Kline[], s: SeriesScore, ctx: RowContext): Ledger
     ...(ctx.universeRank ? { rku: ctx.universeRank } : {}),
     ...(s.split ? { spl: 1 as const } : {}),
     ...(s.sessionFiltered && s.engineBars !== undefined ? { eb: s.engineBars } : {}),
+    // v2.8 (WP19): logged context, never scored.
+    vt: voteVector(c),
+    pd: ctx.pattern ? (ctx.pattern.direction === "UP" ? 1 : ctx.pattern.direction === "DOWN" ? -1 : 0) : null,
+    pc: ctx.pattern ? (REV_CONF[ctx.pattern.confidence] ?? 0) : null,
+    fr: ctx.fr ?? null,
+    oiChg: ctx.oiChg ?? null,
   };
 }

@@ -48,6 +48,8 @@ export function migrateAccount(raw: PaperAccount, positions: PaperPosition[], ba
     drawdownLocked: raw.drawdownLocked === true,
     lockClearedAt: Number.isFinite(raw.lockClearedAt) ? raw.lockClearedAt : null,
     resets: Array.isArray(raw.resets) ? raw.resets : [],
+    // v2.8 (WP19): rejected proposals and their bracket outcomes (absent on older books).
+    rejected: Array.isArray(raw.rejected) ? raw.rejected.filter((x) => x && typeof x.proposalId === "string") : [],
   };
   const marked = bookEquity({ account, positions, journal: [] });
   account.peakEquity = Number.isFinite(raw.peakEquity) && raw.peakEquity > 0 ? raw.peakEquity : marked;

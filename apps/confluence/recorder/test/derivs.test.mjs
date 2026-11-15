@@ -110,3 +110,36 @@ test("instruments-info failure leaves fi = null; a malformed ticker list fails t
   assert.equal(r2.ok, false);
   assert.ok(existsSync(join(dir, "heartbeat.json")));
 });
+
+test("v2.8 (WP19): rows log fr / oiChg from an earlier snapshot ≤ 2 h before their bar close — never a later one", async (t) => {
+  const dir = tempDir(t);
+  let oi = { value: "50000", ts: T0 + H / 2 };
+  const ex = mockExchange({
+    bybitLinear: LINEAR,
+    bybitInstruments: INSTRUMENTS,
+    openInterest: () => ({ retCode: 0, result: { list: [{ openInterest: oi.value, timestamp: String(oi.ts) }] } }),
+  });
+  const ledger = () => ["2026-10", "2026-11"].flatMap((m) => readJsonl(join(dir, "ledger", `${m}.jsonl`)));
+  // 13:00 — first rows (bar closed 12:00): the only snapshot is taken after that close → null.
+  mock.timers.setTime(T0 + H);
+  assert.equal((await cycle(dir, ex, { oiTop: 2 })).ok, true);
+  const first = ledger();
+  assert.ok(first.length === 3 && first.every((r) => r.fr === null && r.oiChg === null), "a snapshot after the bar close is look-ahead");
+  // 15:00 — mid-bar: another snapshot (new OI reading); no new bar to record.
+  oi = { value: "55000", ts: T0 + 2.5 * H };
+  mock.timers.setTime(T0 + 3 * H);
+  await cycle(dir, ex, { oiTop: 2 });
+  // 16:00 — the 16:00 bar is recorded by a NEW recorder process: snapshots are reloaded from the derivs log.
+  mock.timers.setTime(T0 + 4 * H);
+  await cycle(dir, ex, { oiTop: 2 });
+  const fresh = ledger().filter((r) => r.tc === T0 - 30_000 + 4 * H);
+  const btc = fresh.find((r) => r.pair === "BTCUSDT");
+  const eth = fresh.find((r) => r.pair === "ETHUSDT");
+  const sol = fresh.find((r) => r.pair === "SOLUSDT");
+  assert.ok(btc && eth && sol, JSON.stringify(fresh.map((r) => [r.pair, r.tc])));
+  assert.equal(btc.fr, 0.0001);
+  assert.ok(Math.abs(btc.oiChg - 10) < 1e-9, String(btc.oiChg));
+  assert.equal(eth.fr, -0.00025);
+  assert.equal(sol.fr, null, "no valid funding print for SOL");
+  assert.equal(sol.oiChg, null);
+});

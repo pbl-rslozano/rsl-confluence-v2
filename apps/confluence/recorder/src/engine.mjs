@@ -31,3 +31,6 @@ export { enrich, percentiles, ret20 } from "../../web/src/lib/enrichment.ts";
 export { liveRow, catchUpContext, enrichCatchUp, scanShared } from "../../web/src/lib/scan-record.ts";
 export { BUILD_INFO } from "../../web/src/lib/build-info.ts";
 export { normalizeScoringProfile } from "../../web/src/lib/scoring-profile.ts";
+// v2.8 (WP19): the Pattern output and the derivative context recorded on each row.
+export { detectHistoricalPattern } from "../../web/src/lib/pattern-signal.ts";
+export { derivativeFields, parseDerivativeSnapshots, DERIV_MAX_AGE_MS } from "../../web/src/lib/derivatives-context.ts";

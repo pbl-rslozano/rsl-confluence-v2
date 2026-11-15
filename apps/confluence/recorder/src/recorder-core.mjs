@@ -15,6 +15,8 @@
  *      after this series' own cursor (full ENGINE_BARS windows only; rankSource "now"),
  *      each row enriched on the bars up to it, exactly as the app does
  *   4. append-only ledger (dedupe by row id), rankings log, derivatives log
+ *      (v2.8, WP19: each row also logs the Pattern output — pd/pc — and the funding rate / open-interest
+ *      change of a derivative snapshot ≤ 2 h before its bar close — fr/oiChg — from earlier cycles' snapshots)
  *   5. alerts, heartbeat
  *
  * Series whose fetch failed this cycle are not scored and not recorded (no
@@ -27,10 +29,10 @@
  */
 import { evaluateWorkspaceAlerts } from "./workspace-alerts.mjs";
 import { join } from "node:path";
-import { appendFileSync, renameSync, statSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, fstatSync, openSync, readSync, renameSync, statSync } from "node:fs";
 import {
-  catchUpContext, classifySymbol, contiguousTail, ENGINE_BARS, engineConfigId, enrichCatchUp, fetchMarketData, INTERVAL_MS,
-  liveRow, mergeKlines, packKlines, rateLimitCooldown, RateLimitError, runScanJobSafe, scanShared, scoreSeries, venueTypeOf,
+  catchUpContext, classifySymbol, contiguousTail, DERIV_MAX_AGE_MS, detectHistoricalPattern, ENGINE_BARS, engineConfigId, enrichCatchUp, fetchMarketData, INTERVAL_MS,
+  liveRow, mergeKlines, packKlines, parseDerivativeSnapshots, rateLimitCooldown, RateLimitError, runScanJobSafe, scanShared, scoreSeries, venueTypeOf,
 } from "./engine.mjs";
 import { createGuardedFetch, installGlobalFetch, loadRecorderManifest, makeRedactor } from "./net.mjs";
 import { createCandleCache, createJsonlAppender, createLedger, ensureDir, monthOf, readJson, writeJsonAtomic } from "./store.mjs";
@@ -41,6 +43,26 @@ import { VERSION } from "./config.mjs";
 
 const MAX_ERRORS_KEPT = 20;
 const LOG_ROTATE_BYTES = 5 * 1024 * 1024;
+/** v2.8 (WP19): derivative snapshots kept in memory for fr/oiChg (a previous OI reading is needed, so > 2 h). */
+const DERIV_KEEP_MS = 3 * DERIV_MAX_AGE_MS;
+const DERIV_SEED_BYTES = 4 * 1024 * 1024;
+
+/** Last `bytes` of a JSONL file as complete lines (a torn first line is dropped; unparsable lines are skipped). */
+function tailJsonl(path, bytes) {
+  if (!existsSync(path)) return "";
+  const fd = openSync(path, "r");
+  try {
+    const size = fstatSync(fd).size;
+    const start = Math.max(0, size - bytes);
+    const buf = Buffer.alloc(size - start);
+    readSync(fd, buf, 0, buf.length, start);
+    const lines = buf.toString("utf8").split("\n");
+    if (start > 0) lines.shift();
+    return lines.filter((l) => { if (!l.trim()) return false; try { JSON.parse(l); return true; } catch { return false; } }).join("\n");
+  } finally {
+    closeSync(fd);
+  }
+}
 
 /**
  * @param {object} config  parseConfig() result (plus optional fetchTimeoutMs)
@@ -91,6 +113,19 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
   const alerter = createAlerter({ outDir, config: alertConfig, guard, redact, log, ctx });
   const derivs = createDerivsRecorder({ guard, oiTop: config.oiTop ?? 10, ...(pause ? { sleep: pause } : {}) });
   const derivsOn = config.derivs === "on" || (config.derivs === "auto" && source === "bybit-perp");
+  // v2.8 (WP19): recent snapshots (this month's log tail, then each cycle's) → fr / oiChg on the rows.
+  let derivHistory = [];
+  if (derivsOn) {
+    try {
+      const now = Date.now();
+      derivHistory = [monthOf(now - DERIV_KEEP_MS), monthOf(now)].filter((m, i, a) => a.indexOf(m) === i)
+        .flatMap((m) => parseDerivativeSnapshots(tailJsonl(join(outDir, "derivs", `${m}.jsonl`), DERIV_SEED_BYTES)))
+        .filter((r) => r.t >= now - DERIV_KEEP_MS);
+    } catch (error) {
+      log(`warning: derivative snapshots not reloaded (${error instanceof Error ? error.message : String(error)})`);
+      derivHistory = [];
+    }
+  }
 
   const memory = new Map(); // pair → { len, newest } of the contiguous cached tail
   const hb = {
@@ -214,7 +249,10 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
       // v2.3: rows are assembled by the web lib's scan-record.ts — the same
       // code the app uses — so the two can never drift apart.
       const seriesOf = (t, kl) => ({ symbol: t.symbol, rank: t.rank, quoteVolume: parseFloat(t.quoteVolume) || 0, ac: classOf(t.symbol), kl });
-      const recordCtx = { src: source, tf, intervalMs: data.intervalMs, appVersion, universe: universe ?? undefined, basisBySymbol: data.basisBySymbol, recordedAt: started };
+      const recordCtx = {
+        src: source, tf, intervalMs: data.intervalMs, appVersion, universe: universe ?? undefined, basisBySymbol: data.basisBySymbol, recordedAt: started,
+        ...(derivHistory.length ? { derivatives: derivHistory } : {}),
+      };
       const shared = scanShared(freshList.map((p) => seriesOf(p.t, p.kl)), universe ?? undefined);
 
       // 3 — live rows and catch-up rows.
@@ -229,7 +267,12 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
 
         const score = scoreSeries(kl, { intervalMs: data.intervalMs, volumeAvailable, assetClass: ac, profile: config.profile });
         if (score.usable) {
-          const row = liveRow(seriesOf(t, kl), score, recordCtx, shared);
+          // v2.8 (WP19): the Pattern output, computed as the app's scan job does (memoised per series).
+          const pattern = detectHistoricalPattern(kl, {
+            volumeAvailable, intervalMs: data.intervalMs, currentConfluence: score.confluence, currentReversal: score.reversal,
+            cacheKey: `${source}:${tf}:${t.symbol}${config.profile ? `|${cfg}` : ""}`,
+          });
+          const row = liveRow({ ...seriesOf(t, kl), pattern }, score, recordCtx, shared);
           if (row) {
             live.push({ row, score });
             result.scored++;
@@ -307,6 +350,7 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
       if (derivsOn && !result.rateLimitedUntil && !signal?.aborted) {
         const snap = await derivs.snapshot(data.tickers.map((t) => t.symbol), started, signal);
         if (snap.records.length) appendJsonl(join(outDir, "derivs", `${monthOf(started)}.jsonl`), snap.records);
+        derivHistory = [...derivHistory.filter((r) => r.t >= started - DERIV_KEEP_MS), ...snap.records];
         result.derivs = snap.records.length;
         for (const e of snap.errors.slice(0, 5)) result.warnings.push(e);
         if (snap.rateLimit) {

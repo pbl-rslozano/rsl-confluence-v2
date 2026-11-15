@@ -34,6 +34,7 @@ import { hashId } from "./signal-ledger.ts";
 import { barWhileClosed, classifySymbol } from "./asset-classes.ts";
 import {
   buildReport, costsFor, DEFAULT_COSTS, DEFAULT_HORIZONS, LEDGER_CSV_COLUMNS, ledgerRowValues, measureOutcome, pbo, WARM_MIN_BARS,
+  measureBracket, OUTCOME_MODES, summarizeBrackets,
 } from "./ledger-metrics.ts";
 
 const args = Object.fromEntries(
@@ -56,6 +57,8 @@ if (args.help || args.h) {
   --min-bars 1000                                 primary statistics on full windows (300 = warm)
   --step 1                                        score every Nth bar (speed)
   --profile <file>                               exported scoring profile
+  --outcome horizon|atr-bracket                   v2.8: atr-bracket adds the paper bracket (2×ATR stop, 2R target,
+                                                  stop first, gap at the open) — R per trade, as ADR-0010 gate 3 compares
   --out ./replay-out                              output folder`);
   process.exit(0);
 }
@@ -78,6 +81,8 @@ const costBps = 2 * (costs.feeBps + costs.slipBps);
 const step = Math.max(1, Number(args.step ?? 1));
 const outDir = resolve(args.out ?? "replay-out");
 const minBars = Math.max(WARM_MIN_BARS, Number(args["min-bars"] ?? ENGINE_BARS));
+const outcomeMode = args.outcome ?? "horizon";
+if (!OUTCOME_MODES.includes(outcomeMode)) throw new Error(`Unknown --outcome ${outcomeMode} (${OUTCOME_MODES.join(", ")})`);
 const explicitCosts = args["fee-bps"] !== undefined || args["slip-bps"] !== undefined || args["funding-bps"] !== undefined;
 /** Per-class costs unless the caller fixed them on the command line. */
 const costsOf = (ac) => (explicitCosts ? costs : costsFor(source, ac));
@@ -259,6 +264,18 @@ const reports = {
 };
 const overfit = pboOf(rows);
 
+// v2.8 (WP19): outcome mode "atr-bracket" — the same bracket the paper book uses, in R.
+function bracketsOf(list) {
+  const outs = [];
+  // ATR(14) on the engine window ending at each signal bar (measureBracket's default).
+  for (const r of list.filter((x) => (x.eb ?? x.wb) >= minBars && !x.uc && x.m !== 0)) {
+    const o = measureBracket(r, series.get(r.pair), costsOf(r.ac), intervalMs);
+    if (o) outs.push(o);
+  }
+  return summarizeBrackets(outs);
+}
+const brackets = outcomeMode === "atr-bracket" ? { inSample: bracketsOf(inS), outOfSample: bracketsOf(outS) } : null;
+
 /* ---------------- output ---------------- */
 mkdirSync(outDir, { recursive: true });
 const safe = (v) => {
@@ -270,8 +287,8 @@ const safe = (v) => {
 };
 const csv = [LEDGER_CSV_COLUMNS.join(","), ...rows.map((r) => ledgerRowValues(r).map(safe).join(","))].join("\r\n") + "\r\n";
 writeFileSync(join(outDir, "ledger.csv"), csv);
-const meta = { engineVersion: ENGINE_VERSION, configId: engineConfigId(profile), source, tf, from: new Date(from).toISOString(), to: new Date(to).toISOString(), oos: new Date(oos).toISOString(), costs: explicitCosts ? costs : "per class (costsFor)", trials, trialsFile, minBars, step, symbols: [...series.keys()], rows: rows.length, seconds: Math.round((Date.now() - started) / 1000) };
-writeFileSync(join(outDir, "report.json"), JSON.stringify({ meta, reports, pbo: overfit }, null, 1));
+const meta = { outcomeMode, engineVersion: ENGINE_VERSION, configId: engineConfigId(profile), source, tf, from: new Date(from).toISOString(), to: new Date(to).toISOString(), oos: new Date(oos).toISOString(), costs: explicitCosts ? costs : "per class (costsFor)", trials, trialsFile, minBars, step, symbols: [...series.keys()], rows: rows.length, seconds: Math.round((Date.now() - started) / 1000) };
+writeFileSync(join(outDir, "report.json"), JSON.stringify({ meta, reports, pbo: overfit, ...(brackets ? { brackets } : {}) }, null, 1));
 
 const f = (v, d = 1) => (Number.isFinite(v) ? v.toFixed(d) : "—");
 const lines = [
@@ -296,6 +313,12 @@ for (const [name, pair] of Object.entries(reports)) {
     for (const h of rep.horizons) lines.push(`| ${h.horizon} | ${f(h.ic.mean, 3)} | ${f(h.ic.tStat, 2)} | ${h.ic.periods} | ${f(h.sharpe.sr, 3)} | ${f(h.sharpe.psr, 2)} | ${f(h.sharpe.dsr, 2)} | ${f(h.benchmarks.shuffledP, 3)} | ${h.benchmarks.momentum ? f(h.benchmarks.momentum.edgeBps) : "—"} |`);
     lines.push("");
   }
+}
+if (brackets) {
+  lines.push("## Outcome mode atr-bracket (2×ATR stop, 2R target, stop first, gap at the open; one trade at a time per pair)", "");
+  lines.push("| set | n | mean R | hit (95 % CI) | stops | targets |", "|---|---|---|---|---|---|");
+  for (const [label, b] of Object.entries(brackets)) lines.push(`| ${label} | ${b.n} | ${f(b.meanR, 3)} | ${f(b.hitRate * 100)}% (${f(b.hitCi[0] * 100)}–${f(b.hitCi[1] * 100)}) | ${b.stops} | ${b.targets} |`);
+  lines.push("");
 }
 writeFileSync(join(outDir, "report.md"), lines.join("\n") + "\n");
 console.log(`\n${rows.length} rows → ${outDir}/ledger.csv, report.json, report.md (${meta.seconds}s)`);

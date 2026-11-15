@@ -332,7 +332,9 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
   const reject = (p: Proposal) => {
     const cur = bookRef.current;
     if (!cur) return;
-    const res = rejectProposal(cur, p, p.nonce, Date.now());
+    // v2.8 (WP19): the typed reason/tag is kept with the rejection; its later bracket outcome is measured.
+    const md = metaDraft[p.id];
+    const res = rejectProposal(cur, p, p.nonce, Date.now(), { reason: md?.reason, tag: md?.tag });
     commit(res.book);
     setProposalList(proposalsRef.current.filter((x) => x.id !== p.id));
     if (res.ok) {

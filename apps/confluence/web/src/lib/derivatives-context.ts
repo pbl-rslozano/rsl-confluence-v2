@@ -1,3 +1,10 @@
+/** v2.8 (WP19) bounds shared with the ledger sanitiser (no imports here: this module also runs under plain Node). */
+/** |funding| above 5 % per interval is not a real print (same bound as the recorder). */
+export const FR_MAX = 0.05;
+/** Open-interest change bounds, %: it cannot fall more than 100 %; ×100 in one step is not a real reading. */
+export const OI_CHG_MIN = -100;
+export const OI_CHG_MAX = 10_000;
+
 export interface DerivativeSnapshot {
   pair: string;
   t: number;
@@ -53,4 +60,30 @@ export function summarizeDerivatives(records: DerivativeSnapshot[], pair: string
     changePercent: openInterest !== null && priorInterest !== null && priorInterest > 0
       ? 100 * (openInterest - priorInterest) / priorInterest : null,
   };
+}
+
+/** v2.8 (WP19): a snapshot older than this at the signal bar's close is not recorded. */
+export const DERIV_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * v2.8 (WP19) ledger context for one row: Bybit linear funding rate (fraction
+ * per interval) and open-interest change (%) between the two newest distinct
+ * open-interest readings. Only readings taken AT or BEFORE the signal bar's
+ * close `tc` and at most 2 h before it are used (a later reading would be
+ * look-ahead); otherwise null. Logged, never scored. Pure.
+ */
+export function derivativeFields(records: ReadonlyArray<DerivativeSnapshot>, pair: string, tc: number): { fr: number | null; oiChg: number | null } {
+  if (!Number.isFinite(tc)) return { fr: null, oiChg: null };
+  const fresh = (t: number | null) => t !== null && t <= tc && tc - t <= DERIV_MAX_AGE_MS;
+  let latest: DerivativeSnapshot | undefined;
+  for (const r of records) if (r.pair === pair && r.fr !== null && fresh(r.t) && (!latest || r.t > latest.t)) latest = r;
+  // Newest open-interest reading in the window, and the newest earlier one with a different timestamp.
+  const oi = records.filter((r) => r.pair === pair && r.oi !== null && r.oit !== null && r.t <= tc && r.oit <= tc)
+    .sort((a, b) => (b.oit as number) - (a.oit as number));
+  const cur = oi[0] && fresh(oi[0].oit) ? oi[0] : undefined;
+  const prev = cur ? oi.find((r) => (r.oit as number) < (cur.oit as number)) : undefined;
+  const oiChg = cur && prev && (prev.oi as number) > 0 ? (100 * ((cur.oi as number) - (prev.oi as number))) / (prev.oi as number) : null;
+  // Same bounds as the ledger sanitiser, so a recorded row always re-imports.
+  const fr = latest && latest.fr !== null && Math.abs(latest.fr) <= FR_MAX ? latest.fr : null;
+  return { fr, oiChg: oiChg !== null && Number.isFinite(oiChg) && oiChg >= OI_CHG_MIN && oiChg <= OI_CHG_MAX ? oiChg : null };
 }

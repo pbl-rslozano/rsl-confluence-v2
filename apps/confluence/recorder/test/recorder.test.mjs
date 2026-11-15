@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
-  barWhileClosed, classifySymbol, ENGINE_BARS, enrich, percentiles, resetRateLimitForTests, rateLimitCooldown, ret20, scoreSeries, toLedgerRow,
+  barWhileClosed, classifySymbol, detectHistoricalPattern, ENGINE_BARS, enrich, percentiles, resetRateLimitForTests, rateLimitCooldown, ret20, scoreSeries, toLedgerRow,
 } from "../src/engine.mjs";
 import { createRecorder, readHeartbeatStatus } from "../src/recorder-core.mjs";
 import { nextWake } from "../src/schedule.mjs";
@@ -37,10 +37,12 @@ function expectedLive(klBySym, rec) {
     const ac = classifySymbol("binance", u.symbol);
     const score = scoreSeries(kl, { intervalMs: IV, volumeAvailable: true, assetClass: ac });
     const last = kl[kl.length - 1];
+    // v2.8 (WP19): the Pattern output, as the app's scan job computes it.
+    const p = detectHistoricalPattern(kl, { volumeAvailable: true, intervalMs: IV, currentConfluence: score.confluence, currentReversal: score.reversal });
     const row = toLedgerRow(kl, score, {
       src: "binance", tf: "4h", pair: u.symbol, ac, intervalMs: IV, closeTime: last.time + IV, rank: u.rank, quoteVolume: u.qv,
       appVersion: "recorder-2.5.1", live: true, recordedAt: rec, underlyingClosed: barWhileClosed(ac, last.time, IV),
-      universeRank: FULL_RANK[u.symbol], rankSource: "live",
+      universeRank: FULL_RANK[u.symbol], rankSource: "live", pattern: { direction: p.direction, confidence: p.confidence },
     });
     Object.assign(row, enrich(row, kl, { intervalMs: IV, btc: klBySym.BTCUSDT, basis: undefined, rs: rsMap.get(u.symbol) ?? null, split: "split" in score ? Boolean(score.split) : false }));
     return JSON.parse(JSON.stringify(row));
@@ -70,6 +72,13 @@ test("live rows are identical to scoreSeries + toLedgerRow (+ enrich) on the sam
   assert.equal(got[2].rk, 3, "rank = position in the scanned (class) universe, as in the app");
   assert.equal(got[2].rku, 4, "rku = position in the full unfiltered venue ranking");
   assert.equal(got[0].t, cur - IV, "newest CLOSED bar, never the bar in progress");
+  // v2.8 (WP19): every row logs the vote vector and the Pattern output; no derivatives configured → null.
+  for (const r of got) {
+    assert.ok(Number.isSafeInteger(r.vt) && r.vt >= 0 && r.vt <= 4 ** 18 - 1);
+    assert.ok([-1, 0, 1].includes(r.pd) && [0, 1, 2, 3].includes(r.pc));
+    assert.equal(r.fr, null);
+    assert.equal(r.oiChg, null);
+  }
 });
 
 test("restarts never record a bar twice; the id index is rebuilt from the ledger and a torn line is cut", async (t) => {

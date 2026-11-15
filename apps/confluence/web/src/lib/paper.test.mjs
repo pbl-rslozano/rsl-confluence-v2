@@ -679,5 +679,32 @@ console.log("Journal honesty (WP19): Wilson range, R histogram, MAE/MFE, reason 
   const cols = [...head.matchAll(/\{t\("(paper\.col\.[a-z]+)"\)\}|>(R)</g)].map((m) => m[1] ?? m[2]);
   ok("journal table column list unchanged from v2.7", cols.join() === "paper.col.closed,paper.col.pair,paper.col.side,paper.col.entry,paper.col.exit,paper.col.fees,paper.col.pnl,R,paper.col.reason", cols.join());
 }
+console.log("WP19 — rejected proposals keep their reason and a later bracket outcome");
+{
+  const costs = { feeBps: 10, slipBps: 5, fundingBpsPer8h: 0 };
+  const at = T0 + I; // decided at the signal bar's close → the bracket fills at the next open, like an approval
+  const mk = () => { const b = liveBook(at); return { b, p: createProposal(b, input(), at, "w1") }; };
+  const { b, p } = mk();
+  const rj = rejectProposal(b, p, "w1", at, { reason: "  chasing a spike \u0007 ", tag: "breakout" });
+  const rec = (rj.book.account.rejected ?? [])[0];
+  ok("reject stores { reason, bracketOutcome } (pending) on the account", rj.ok && !!rec && rec.reason === "chasing a spike" && rec.tag === "breakout" && rec.bracketOutcome === null && rec.proposalId === p.id, JSON.stringify(rec));
+  ok("reject without a reason is still recorded (reason absent)", (rejectProposal(mk().b, mk().p, "w1", at).book.account.rejected ?? [])[0]?.reason === undefined && (rejectProposal(mk().b, mk().p, "w1", at).book.account.rejected ?? []).length === 1);
+  ok("a refused reject (bad nonce) records nothing", (rejectProposal(b, p, "bad", at).book.account.rejected ?? []).length === 0);
+  const bars = [bar(T0 + I, 100, 100.6, 99.6, 100.2), bar(T0 + 2 * I, 100.2, 103, 99.8, 102.5), bar(T0 + 3 * I, 102.5, 109, 102, 108.5)];
+  const r1 = processBars(rj.book, "binance", "4h", { SOLUSDT: bars.slice(0, 2) }, T0 + 3 * I, costs);
+  ok("still pending while the bracket is open", (r1.book.account.rejected ?? [])[0]?.bracketOutcome === null && r1.book.positions.length === 0 && r1.closed.length === 0);
+  const r2 = processBars(r1.book, "binance", "4h", { SOLUSDT: bars }, T0 + 4 * I, costs);
+  const out = (r2.book.account.rejected ?? [])[0]?.bracketOutcome;
+  // The same proposal approved at the same instant, on the same bars.
+  const ap = approveProposal(b, p, "w1", at);
+  const j = processBars(processBars(ap.book, "binance", "4h", { SOLUSDT: bars.slice(0, 2) }, T0 + 3 * I, costs).book, "binance", "4h", { SOLUSDT: bars }, T0 + 4 * I, costs).closed[0];
+  ok("resolved later by the same ATR bracket: R equals the approved trade's R", !!out && !!j && near(out.r, j.r) && out.reason === j.reason && out.closedAt === j.closedAt, JSON.stringify({ out, r: j?.r }));
+  ok("a resolved outcome never changes and the realised balance is untouched", JSON.stringify(processBars(r2.book, "binance", "4h", { SOLUSDT: [...bars, bar(T0 + 4 * I, 108, 108, 50, 60)] }, T0 + 5 * I, costs).book.account.rejected?.[0]?.bracketOutcome) === JSON.stringify(out) && r2.book.account.balance === 10_000 && r2.book.journal.length === 0);
+  const store = createPaperStore(memoryPaperPort());
+  await store.save(r2.book);
+  const back = await store.load(T0 + 5 * I);
+  ok("rejected records survive a store round-trip", !!back.account.rejected?.length && JSON.stringify(back.account.rejected) === JSON.stringify(r2.book.account.rejected));
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

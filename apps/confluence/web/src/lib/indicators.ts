@@ -1123,6 +1123,15 @@ const emptyBlocs = (): BlocScore[] =>
   VOTING_BLOCS.map((bloc) => ({ bloc, bull: 0, bear: 0, neutral: 0, valid: 0, score: 0, weight: 1 }));
 
 /**
+ * Voting id of each entry of INDICATORS (null = informational by design: ATR, Std Dev, FVG).
+ * v2.8: module-level so the ledger's vote vector (`vt`) reads the voters in this same order.
+ */
+export const VOTING_SLOT_IDS: readonly (VotingIndicatorId | null)[] = [
+  "sma", "ema", "macd", "adx", "psar", "ichimoku", "supertrend", "rsi", "stochastic",
+  "cci", "williams", "ao", "mfi", "bollinger", null, "keltner", null, "vwap", "obv", "cmf", null,
+];
+
+/**
  * Run all 21 indicators and aggregate the 18 voters by BLOC rather than by headcount.
  *
  *   blocScore = clamp((bull − bear) / validMembers, −1, +1)
@@ -1141,14 +1150,10 @@ export function runConfluence(k: Kline[], options: ConfluenceOptions = {}): Conf
   const volumeAvailable = options.volumeAvailable ?? true;
   const ctx: IndicatorContext = { intervalMs: options.intervalMs ?? DEFAULT_CONTEXT.intervalMs };
 
-  const votingIds: (VotingIndicatorId | null)[] = [
-    "sma", "ema", "macd", "adx", "psar", "ichimoku", "supertrend", "rsi", "stochastic",
-    "cci", "williams", "ao", "mfi", "bollinger", null, "keltner", null, "vwap", "obv", "cmf", null,
-  ];
   const indicators: IndicatorResult[] = INDICATORS.map((fn, index) => {
     try {
       const result = fn(k, ctx);
-      const id = votingIds[index];
+      const id = VOTING_SLOT_IDS[index];
       if (enabled && id && !enabled.has(id)) {
         return { ...result, informational: true, state: "NEUTRAL" as SignalState, detail: "Disabled by scoring profile" };
       }

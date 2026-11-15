@@ -413,6 +413,14 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
   function preregistration(scope: Pick<PreRegistration, "cfg" | "source" | "tf" | "assetClass">): Promise<PreRegistration | null> {
     return enqueue(async (port) => ((await port.get(LEDGER_META, preregKey(scope))) as PreRegistration | null) ?? null);
   }
+  /** v2.8 (WP19): every stored pre-registration (all engines and views) — the confirmatory gate counts the active ones. */
+  function preregistrations(): Promise<PreRegistration[]> {
+    return enqueue(async (port) =>
+      (await port.list(LEDGER_META))
+        .filter(({ id }) => id.startsWith("prereg|"))
+        .map(({ doc }) => doc as PreRegistration)
+        .filter((d) => !!d && typeof d.cfg === "string"));
+  }
   /** Fix the hypothesis once per engine × view; a second call never moves the decision date or the scope. */
   function preregister(p: Omit<PreRegistration, "startedAt" | "decisionDate" | "minDays"> & { minDays?: number }): Promise<PreRegistration> {
     return enqueue(async (port) => {
@@ -471,7 +479,7 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
   return {
     record, all, stats, clear, cursor, setCursor,
     seriesCursors, setSeriesCursors, outcomes, saveOutcomes, universes,
-    registerTrial, trials, preregistration, preregister, lastExport, markExported, slippage, setSlippage,
+    registerTrial, trials, preregistration, preregistrations, preregister, lastExport, markExported, slippage, setSlippage,
     addGap, gaps,
     /** True after a storage-full error that pruning could not resolve (writes are being dropped). */
     isFull: () => full,

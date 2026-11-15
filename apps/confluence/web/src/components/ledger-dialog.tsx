@@ -27,6 +27,7 @@ import type { Kline } from "@/lib/indicators";
 import type { LedgerStore, PreRegistration } from "@/lib/signal-ledger";
 import { buildReportAsync } from "@/lib/report-runner";
 import {
+  confirmatoryTrials,
   costsFor,
   engineBarsOf,
   DEFAULT_HORIZONS,
@@ -84,6 +85,7 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
   /** v2.3: primary = full engine window only; "warm" = ≥ 300 bars (more rows, some warm-up bias). */
   const [windowMode, setWindowMode] = useState<"full" | "warm">("full");
   const [trialCount, setTrialCount] = useState(1);
+  const [confTrialCount, setConfTrialCount] = useState(1);
   const [prereg, setPrereg] = useState<PreRegistration | null>(null);
   const [durable, setDurable] = useState<boolean | null>(null);
   const [lastExport, setLastExport] = useState(0);
@@ -121,10 +123,13 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
       // The window rule uses the bars the engine really saw (stocks: session bars).
       const usable = all.filter((r) => engineBarsOf(r) >= minBars && !r.uc);
       const scopeKey = { cfg, source, tf: timeframe, assetClass };
-      const [trialList, pre, snaps, slip, exported, gapMap] = await Promise.all([
+      const [trialList, pre, snaps, slip, exported, gapMap, preregs] = await Promise.all([
         store.trials(), store.preregistration(scopeKey), store.outcomes(usable), store.slippage(source), store.lastExport(), store.gaps(source, timeframe),
+        store.preregistrations(),
       ]);
       const trials = Math.max(1, trialList.length);
+      // v2.8 (WP19): the confirmatory report deflates by the active pre-registered hypotheses only.
+      const confTrials = confirmatoryTrials(preregs, cfg);
       const byPair = new Map<string, LedgerRow[]>();
       usable.forEach((r) => { const l = byPair.get(r.pair); if (l) l.push(r); else byPair.set(r.pair, [r]); });
       const outcomes = new Map<number, Outcome[]>(DEFAULT_HORIZONS.map((h) => [h, []]));
@@ -197,6 +202,7 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
       try { persisted = (await navigator.storage?.persisted?.()) ?? null; } catch { persisted = null; }
       if (gen !== generation.current) return;
       setTrialCount(trials);
+      setConfTrialCount(confTrials);
       setPrereg(pre);
       setSnapCount(fromSnapshots);
       setMeasuredSlip(Object.keys(slip).length);
@@ -212,7 +218,7 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
         const after = usable.filter((r) => r.rec >= pre.startedAt);
         const ids = new Set(after.map((r) => r.id));
         const confOut = new Map([...outcomes].map(([h, list]) => [h, list.filter((o) => ids.has(o.row.id))]));
-        conf = await buildReportAsync({ rows: after, outcomes: confOut, costBps, trials, intervalMs, momentum: momentumSign });
+        conf = await buildReportAsync({ rows: after, outcomes: confOut, costBps, trials: confTrials, intervalMs, momentum: momentumSign });
       }
       if (gen !== generation.current) return;
       setReport(full);
@@ -255,7 +261,8 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
       { key: "ledger.gateIc", ok: current.ic.tStat >= 2, value: fmtNum(current.ic.tStat) },
       { key: "ledger.gatePsr", ok: current.sharpe.psr >= 0.95, value: fmtNum(current.sharpe.psr) },
       // v2.3: the deflated Sharpe accounts for every variant looked at.
-      { key: "ledger.gateDsr", ok: current.sharpe.dsr >= 0.95, value: `${fmtNum(current.sharpe.dsr)} · ${trialCount}` },
+      // v2.8 (WP19): the confirmatory DSR counts active pre-registrations; the exploratory one every view.
+      { key: "ledger.gateDsr", ok: current.sharpe.dsr >= 0.95, value: `${fmtNum(current.sharpe.dsr)} · ${preregInView && confirm ? confTrialCount : trialCount}` },
       { key: "ledger.gateShuffle", ok: current.benchmarks.shuffledP <= 0.05, value: fmtNum(current.benchmarks.shuffledP, 3) },
       { key: "ledger.gateMomentum", ok: !!mom && Number.isFinite(edge) && edge > mom.edgeBps, value: mom ? fmtBps(mom.edgeBps) : "—" },
       {
@@ -265,7 +272,7 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
       },
     ];
     return { checks, pass: checks.every((c) => c.ok) };
-  }, [gateHorizon, costBps, trialCount, prereg, horizon, preregInView]);
+  }, [gateHorizon, costBps, trialCount, confTrialCount, confirm, prereg, horizon, preregInView]);
 
   const preregister = async () => {
     if (!store) return;
@@ -328,11 +335,11 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
     }
   };
 
-  /** v2.3: import the headless recorder's ledger (JSONL) or a JSON export. Rows are validated; duplicates are ignored. */
+  /** v2.3: import the headless recorder's ledger (JSONL) or a JSON export; v2.8: or a ledger CSV. Rows are validated; duplicates are ignored. */
   const importLedger = async () => {
     if (!store) return;
     try {
-      const f = await platform.openFile({ accept: [".jsonl", ".json"], maxBytes: 200 * 1024 * 1024 });
+      const f = await platform.openFile({ accept: [".jsonl", ".json", ".csv"], maxBytes: 200 * 1024 * 1024 });
       if (!f) return;
       const { rows: incoming, rejected } = parseLedgerImport(new TextDecoder().decode(f.bytes));
       let added = 0;
@@ -484,6 +491,14 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
                   <div className="mt-1 font-mono tabular-nums text-zinc-300">
                     {t("ledger.psr")} {fmtNum(current.sharpe.psr)} · {t("ledger.dsr")} {fmtNum(current.sharpe.dsr)} · SR {fmtNum(current.sharpe.sr, 3)}
                   </div>
+                  {/* v2.8 (WP19) power readout: days needed at the current Sharpe for PSR 0.95. */}
+                  {(current.power.totalDays !== null || current.sharpe.sr <= 0) && (
+                    <div className="mt-1 font-mono tabular-nums text-zinc-400" data-testid="ledger-power">
+                      {current.power.totalDays !== null && current.power.remainingDays !== null
+                        ? t("ledger.power", { days: current.power.totalDays, remaining: current.power.remainingDays })
+                        : t("ledger.powerNever")}
+                    </div>
+                  )}
                   <div className="mt-2 mb-1 font-semibold text-zinc-200">{t("ledger.benchmarks")}</div>
                   <div className="font-mono tabular-nums text-zinc-300">
                     {t("ledger.benchMomentum")} {current.benchmarks.momentum ? `${fmtBps(current.benchmarks.momentum.edgeBps)} bp · n ${current.benchmarks.momentum.n}` : "—"}

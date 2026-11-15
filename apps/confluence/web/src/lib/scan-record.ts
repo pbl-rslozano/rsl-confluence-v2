@@ -17,6 +17,8 @@ import { toLedgerRow } from "./scan-pipeline";
 import { barWhileClosed } from "./asset-classes";
 import { barCloseTime, type UniverseEntry } from "./market-client";
 import { enrich, percentiles, ret20 } from "./enrichment";
+import { derivativeFields, type DerivativeSnapshot } from "./derivatives-context";
+import type { PatternConfidence, PatternDirection } from "./pattern-signal";
 
 export interface ScanSeries {
   symbol: string;
@@ -26,6 +28,8 @@ export interface ScanSeries {
   ac: AssetClass;
   /** Closed, contiguous bars (oldest first). */
   kl: Kline[];
+  /** v2.8 (WP19): the Pattern output computed on these bars (absent = not computed → pd/pc null). */
+  pattern?: { direction: PatternDirection; confidence: PatternConfidence } | null;
 }
 
 export interface ScanRecordContext {
@@ -36,6 +40,8 @@ export interface ScanRecordContext {
   universe?: UniverseEntry[];
   basisBySymbol?: Record<string, number>;
   recordedAt?: number;
+  /** v2.8 (WP19): Bybit linear derivative snapshots (recorder log, or imported in the app) → fr / oiChg. */
+  derivatives?: ReadonlyArray<DerivativeSnapshot>;
 }
 
 /** Scan-wide inputs: relative-strength percentiles, BTC bars, full-ranking positions. */
@@ -58,13 +64,15 @@ export function scanShared(series: ScanSeries[], universe?: UniverseEntry[]): Sc
 export function liveRow(p: ScanSeries, score: SeriesScore, ctx: ScanRecordContext, shared: ScanShared): LedgerRow | null {
   if (!score.usable || !p.kl.length) return null;
   const last = p.kl[p.kl.length - 1];
+  const closeTime = barCloseTime(last.time, ctx.intervalMs);
+  const deriv = ctx.derivatives?.length ? derivativeFields(ctx.derivatives, p.symbol, closeTime) : null;
   const row = toLedgerRow(p.kl, score, {
     src: ctx.src,
     tf: ctx.tf,
     pair: p.symbol,
     ac: p.ac,
     intervalMs: ctx.intervalMs,
-    closeTime: barCloseTime(last.time, ctx.intervalMs),
+    closeTime,
     rank: p.rank,
     quoteVolume: p.quoteVolume,
     appVersion: ctx.appVersion,
@@ -73,6 +81,8 @@ export function liveRow(p: ScanSeries, score: SeriesScore, ctx: ScanRecordContex
     underlyingClosed: barWhileClosed(p.ac, last.time, ctx.intervalMs),
     universeRank: shared.universeRank.get(p.symbol),
     rankSource: "live",
+    ...(p.pattern ? { pattern: p.pattern } : {}),
+    ...(deriv ? deriv : {}),
   });
   if (!row) return null;
   return Object.assign(row, enrich(row, p.kl, {
@@ -100,6 +110,8 @@ export function enrichCatchUp(rows: LedgerRow[], kl: Kline[], ctx: ScanRecordCon
   for (const row of rows) {
     const i = index.get(row.t);
     if (i !== undefined) Object.assign(row, enrich(row, kl.slice(0, i + 1), { intervalMs: ctx.intervalMs, btc: shared.btc, rs: null }));
+    // v2.8 (WP19): derivative context as of each catch-up bar's own close (never a later snapshot).
+    if (ctx.derivatives?.length) Object.assign(row, derivativeFields(ctx.derivatives, row.pair, row.tc));
   }
   return rows;
 }

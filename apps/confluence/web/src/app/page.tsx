@@ -96,6 +96,7 @@ import { ScannerWatchlists, type Watchlist } from "@/components/scanner-watchlis
 import { SavedScans } from "@/components/saved-scans";
 import { OrderFlowPanel } from "@/components/order-flow-panel";
 import { DerivativesPanel } from "@/components/derivatives-panel";
+import type { DerivativeSnapshot } from "@/lib/derivatives-context";
 import { ChartReplay } from "@/components/chart-replay";
 import { PriceChart } from "@/components/price-chart";
 import { BEST, baseOf as pairBase, normalizeQuoteMode, quoteModesFor, stableQuote, type DepegReading } from "@/lib/quotes";
@@ -823,9 +824,16 @@ export default function Home() {
       const seriesOf = (t: (typeof prepared)[number]["t"], kl: Kline[]): ScanSeries => ({
         symbol: t.symbol, rank: t.rank, quoteVolume: parseFloat(t.quoteVolume) || 0, ac: classOf(t.symbol), kl,
       });
+      // v2.8 (WP19): fr / oiChg only from recorder snapshots the owner imported (derivatives panel); otherwise null.
+      let derivatives: DerivativeSnapshot[] = [];
+      try {
+        const saved = await rsl.port.get("preferences", "bybit-derivatives-v1");
+        if (Array.isArray(saved)) derivatives = saved as DerivativeSnapshot[];
+      } catch { /* no imported snapshots */ }
       const recordCtx: ScanRecordContext = {
         src: source, tf, intervalMs: data.intervalMs, appVersion: APP.version,
         universe: data.universe, basisBySymbol: data.basisBySymbol,
+        ...(derivatives.length ? { derivatives } : {}),
       };
       const shared = scanShared(prepared.filter((p) => p.fresh && p.kl.length).map((p) => seriesOf(p.t, p.kl)), data.universe);
       const out: AssetRow[] = prepared.map(({ t, kl, fresh, failure }) => {
@@ -840,7 +848,8 @@ export default function Home() {
         let context: Partial<LedgerRow> | undefined;
         // 3 — forward-test ledger: one row per series per closed bar (idempotent).
         if (fresh && res.score.usable && kl.length) {
-          const row = liveRow(seriesOf(t, kl), res.score as SeriesScore, recordCtx, shared);
+          // v2.8 (WP19): the row logs this scan's Pattern output (pd / pc).
+          const row = liveRow({ ...seriesOf(t, kl), pattern: res.pattern }, res.score as SeriesScore, recordCtx, shared);
           if (row) {
             context = row;
             ledgerRows.push(row);
@@ -1000,7 +1009,7 @@ export default function Home() {
     } finally {
       if (!ac.signal.aborted) setLoading(false);
     }
-  }, [ledgerStore, watchlistScope, scoringProfile, profileReady, activeConfigId]);
+  }, [ledgerStore, watchlistScope, scoringProfile, profileReady, activeConfigId, rsl.port]);
 
   useEffect(() => () => { historyAbortRef.current?.abort(); }, [dataSource, timeframe, scoringProfile]);
 

@@ -24,7 +24,10 @@
  * ----------------------------------------------------------------------------
  */
 import type { Kline } from "./indicators";
-import { costsFor as ledgerCostsFor, wilson, type AssetClass, type CostModel } from "./ledger-metrics";
+import {
+  bracketAdvance, bracketInit, costsFor as ledgerCostsFor, wilson,
+  type AssetClass, type BracketSpec, type BracketState, type CostModel,
+} from "./ledger-metrics";
 import {
   deadManTripped,
   drawdownBreached,
@@ -186,6 +189,36 @@ export interface PaperAccount {
   weekMark: { week: number; equity: number };
   /** v2.8: last instant any lock (daily, weekly, drawdown, kill) was seen active or cleared — no loosening until the next UTC day. */
   lastLockAt: number | null;
+  /** v2.8 (WP19): rejected proposals with the owner's reason and the outcome the same ATR bracket later gave (newest last, bounded). */
+  rejected?: RejectedProposal[];
+}
+
+/** Rejected proposals kept on the account (oldest dropped first). */
+export const MAX_REJECTED = 500;
+
+/**
+ * v2.8 (WP19): a rejected proposal, so discretionary choices can be compared
+ * with the system. `bracketOutcome` stays null until the bracket the approval
+ * would have used (same fill rule, 2 × ATR stop, RR target, stop first, gap at
+ * the open, same costs) is resolved by later closed bars.
+ */
+export interface RejectedProposal {
+  proposalId: string;
+  configId: string;
+  pair: string;
+  src: string;
+  tf: string;
+  assetClass: AssetClass;
+  side: Side;
+  rejectedAt: number;
+  reason?: string;
+  tag?: SetupTag;
+  /** Measured one-side slippage (bp) frozen at the proposal; absent = default costs. */
+  slipBps?: number;
+  /** null when the proposal had no usable ATR stop (nothing to measure). */
+  spec: BracketSpec | null;
+  bracket: BracketState | null;
+  bracketOutcome: { r: number; reason: "stop" | "target"; closedAt: number } | null;
 }
 
 export interface PaperBook {
@@ -230,6 +263,7 @@ export function newBook(now: number, startingEquity = DEFAULT_STARTING_EQUITY, s
       dayMark: { day: utcDayStart(now), equity: eq },
       weekMark: { week: utcWeekStart(now), equity: eq },
       lastLockAt: null,
+      rejected: [],
     },
     positions: [],
     journal: [],
@@ -465,11 +499,59 @@ export function approveProposal(
   };
 }
 
-/** Reject: same nonce, single-use. */
-export function rejectProposal(book: PaperBook, proposal: Proposal, presentedNonce: string, now: number): DecisionResult {
+/**
+ * Reject: same nonce, single-use. v2.8 (WP19): the rejection is recorded with
+ * the optional reason/tag and a pending bracket, resolved later by processBars.
+ */
+export function rejectProposal(
+  book: PaperBook, proposal: Proposal, presentedNonce: string, now: number,
+  meta?: { reason?: string; tag?: string },
+): DecisionResult {
   const bad = checkNonce(book, proposal, presentedNonce);
   if (bad) return { ok: false, book, error: bad };
-  return { ok: true, book: consume(book, proposal, "rejected", now) };
+  const consumed = consume(book, proposal, "rejected", now);
+  const input = proposal.input;
+  const dir = input.side === "long" ? 1 : -1;
+  const v = proposal.verdict;
+  const rt = typeof input.roundTripCost === "number" && Number.isFinite(input.roundTripCost) && input.roundTripCost > 0 ? input.roundTripCost : 0;
+  const usable = v.stopDistance > 0 && Number.isFinite(v.stopDistance) && input.entryRef > 0 && input.intervalMs > 0;
+  const spec: BracketSpec | null = usable
+    ? {
+        dir, refPrice: input.entryRef, stopDistance: v.stopDistance, targetDistance: v.stopDistance * consumed.account.settings.targetRR,
+        riskPerUnit: v.stopDistance + input.entryRef * rt, signalBarTime: input.barTime, fillFrom: now, intervalMs: input.intervalMs,
+      }
+    : null;
+  const record: RejectedProposal = {
+    proposalId: proposal.id, configId: input.configId, pair: input.pair, src: input.src, tf: input.tf, assetClass: input.assetClass,
+    side: input.side, rejectedAt: now,
+    ...(cleanPreReason(meta?.reason) ? { reason: cleanPreReason(meta?.reason) } : {}),
+    ...(cleanTag(meta?.tag) ? { tag: cleanTag(meta?.tag) } : {}),
+    ...(typeof input.measuredSlipBps === "number" ? { slipBps: input.measuredSlipBps } : {}),
+    spec, bracket: spec ? bracketInit(spec) : null, bracketOutcome: null,
+  };
+  const rejected = [...(consumed.account.rejected ?? []), record].slice(-MAX_REJECTED);
+  return { ok: true, book: { ...consumed, account: { ...consumed.account, rejected } } };
+}
+
+/** Advance the pending rejected brackets of `src × tf` over new closed bars (same costs as positions). */
+function advanceRejected(
+  list: RejectedProposal[] | undefined, src: string, tf: string, barsByPair: Record<string, Kline[] | undefined>,
+  costsOverride?: CostModel, slipByPair?: Record<string, number>,
+): RejectedProposal[] | undefined {
+  if (!list?.length) return list;
+  let changed = false;
+  const next = list.map((x) => {
+    if (x.bracketOutcome || !x.spec || !x.bracket || x.src !== src || x.tf !== tf) return x;
+    const k = barsByPair[x.pair];
+    if (!k || !k.length) return x;
+    const costs = costsOverride ?? costsFor(src, x.assetClass, x.slipBps ?? slipByPair?.[x.pair]);
+    const b = bracketAdvance(x.spec, x.bracket, k, costs);
+    if (b === x.bracket || (b.lastBarTime === x.bracket.lastBarTime && b.status === x.bracket.status)) return x;
+    changed = true;
+    const done = b.status === "closed" && b.r !== undefined && b.exitReason && b.closedAt !== undefined;
+    return { ...x, bracket: b, bracketOutcome: done ? { r: b.r as number, reason: b.exitReason as "stop" | "target", closedAt: b.closedAt as number } : null };
+  });
+  return changed ? next : list;
 }
 
 /* ------------------------------------------------------------------ *
@@ -664,7 +746,9 @@ export function processBars(
 
   const anyBars = Object.values(barsByPair).some((k) => k && k.length);
   const heartbeats = anyBars ? { ...book.account.heartbeats, [seriesKey(src, tf)]: now } : book.account.heartbeats;
-  const next: PaperBook = { account: { ...book.account, balance, seq, heartbeats }, positions, journal: [...book.journal, ...closed] };
+  const rejected = advanceRejected(book.account.rejected, src, tf, barsByPair, costsOverride, slipByPair);
+  const account = { ...book.account, balance, seq, heartbeats, ...(rejected ? { rejected } : {}) };
+  const next: PaperBook = { account, positions, journal: [...book.journal, ...closed] };
   return { book: applyMarks(applyDrawdown(next, now), now), filled, closed };
 }
 

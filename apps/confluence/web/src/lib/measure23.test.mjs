@@ -355,5 +355,250 @@ console.log("Import (recorder JSONL / JSON export) and shared row assembly");
   ok("unknown fields are dropped; bad enums rejected", !("evil" in sanitizeLedgerRow({ ...row, evil: "<script>" })) && sanitizeLedgerRow({ ...row, m: 7 }) === null && sanitizeLedgerRow({ ...row, src: "kraken", id: row.id.replace("binance", "kraken") }) === null);
 }
 
+/* ------------------------------------------------------------------ *
+ *  v2.8 (WP19, Task 7): ledger completeness and measurement honesty.
+ *  Namespace imports + `check` so a missing export fails as an assertion.
+ * ------------------------------------------------------------------ */
+const check = (name, fn) => {
+  let res; let note = "";
+  try { res = fn(); } catch (e) { res = false; note = e instanceof Error ? e.message : String(e); }
+  if (Array.isArray(res)) { note = String(res[1] ?? ""); res = res[0]; }
+  ok(name, res === true, note);
+};
+const near = (a, b, eps = 1e-9) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= eps * Math.max(1, Math.abs(a), Math.abs(b));
+const { readFileSync } = await import("node:fs");
+const { join } = await import("node:path");
+const LM = await import("./ledger-metrics.ts");
+const SP = await import("./scan-pipeline.ts");
+const PB = await import("./paper-broker.ts");
+const SR = await import("./scan-record.ts");
+const DC = await import("./derivatives-context.ts");
+const { VOTING_INDICATORS } = await import("./scoring-profile.ts");
+const { atr: atrOf } = await import("./indicators.ts");
+
+console.log("WP19 ledger completeness: vote vector, Pattern, derivatives");
+{
+  const MAX = 4 ** 18 - 1;
+  check("packVotes/unpackVotes round-trip for 4^18−1 and 0", () => {
+    const all3 = LM.packVotes(Array(18).fill(3));
+    const all0 = LM.packVotes(Array(18).fill(0));
+    const u3 = LM.unpackVotes(MAX);
+    const u0 = LM.unpackVotes(0);
+    return [all3 === MAX && all0 === 0 && u3.length === 18 && u3.every((d) => d === 3) && u0.length === 18 && u0.every((d) => d === 0), `${all3} ${all0}`];
+  });
+  check("digit 0 is the first voter (least significant), digit 17 the last (×4 packing beyond 32 bits)", () => {
+    const first = Array(18).fill(0); first[0] = 1;
+    const last = Array(18).fill(0); last[17] = 1;
+    const mixed = [0, 1, 2, 3, 3, 2, 1, 0, 1, 1, 2, 2, 3, 3, 0, 0, 2, 3];
+    return LM.packVotes(first) === 1 && LM.packVotes(last) === 4 ** 17 && JSON.stringify(LM.unpackVotes(LM.packVotes(mixed))) === JSON.stringify(mixed);
+  });
+  check("packVotes refuses a vector that is not 18 digits of 0…3", () => {
+    const bad = (v) => { try { LM.packVotes(v); return false; } catch { return true; } };
+    return bad(Array(17).fill(0)) && bad([...Array(17).fill(0), 4]) && bad([...Array(17).fill(0), 1.5]);
+  });
+
+  const k = walk(1000, Date.UTC(2025, 3, 1), 4 * H);
+  const ctx = { src: "binance", tf: "4h", pair: "XUSDT", ac: "crypto", intervalMs: 4 * H, closeTime: k[999].time + 4 * H, rank: 1, quoteVolume: 1, appVersion: "t", live: true };
+  const s = scoreSeries(k, { intervalMs: 4 * H, volumeAvailable: true, assetClass: "crypto" });
+  const slots = SP.VOTE_SLOTS ?? [];
+  check("vote order = the engine's 18 voters (VOTING_INDICATORS order)", () => [
+    slots.length === 18 && slots.every((i, j) => s.confluence.indicators[i] && !s.confluence.indicators[i].informational) && SP.VOTE_ORDER?.join() === VOTING_INDICATORS.map((v) => v.id).join(),
+    String(SP.VOTE_ORDER),
+  ]);
+  check("vt digits mirror the voters' states (0 bull, 1 bear, 2 neutral)", () => {
+    const row = toLedgerRow(k, s, ctx);
+    const d = LM.unpackVotes(row.vt);
+    const want = slots.map((i) => { const ind = s.confluence.indicators[i]; return !ind.valid || ind.informational ? 3 : ind.state === "BULLISH" ? 0 : ind.state === "BEARISH" ? 1 : 2; });
+    return [Number.isSafeInteger(row.vt) && JSON.stringify(d) === JSON.stringify(want), `${row.vt} ${d.join("")} vs ${want.join("")}`];
+  });
+  check("invalid indicator writes 3 even though state NEUTRAL", () => {
+    const j = 7; // RSI 14
+    const inds = s.confluence.indicators.map((x, i) => (i === slots[j] ? { ...x, valid: false, state: "NEUTRAL" } : { ...x, valid: true, informational: x.informational, state: x.informational ? x.state : "NEUTRAL" }));
+    const row = toLedgerRow(k, { ...s, confluence: { ...s.confluence, indicators: inds } }, ctx);
+    const d = LM.unpackVotes(row.vt);
+    return [d[j] === 3 && d.filter((x, i) => i !== j).every((x) => x === 2), d.join("")];
+  });
+  check("a voter disabled by the scoring profile (informational) writes 3", () => {
+    const profile = { version: 1, enabled: VOTING_INDICATORS.map((v) => v.id).filter((id) => id !== "cmf") };
+    const sp = scoreSeries(k, { intervalMs: 4 * H, volumeAvailable: true, assetClass: "crypto", profile });
+    const d = LM.unpackVotes(toLedgerRow(k, sp, ctx).vt);
+    return [d[17] === 3, d.join("")];
+  });
+  check("a split-muted (indicator-less) row records every voter as not valid", () => {
+    const muted = { ...s, confluence: SP.suppressedConfluence("x") };
+    return toLedgerRow(k, muted, ctx).vt === MAX;
+  });
+  check("Pattern output → pd/pc (UP/MODERATE → 1/2, DOWN/HIGH → −1/3, NONE → 0/0, none computed → null)", () => {
+    const up = toLedgerRow(k, s, { ...ctx, pattern: { direction: "UP", confidence: "MODERATE" } });
+    const dn = toLedgerRow(k, s, { ...ctx, pattern: { direction: "DOWN", confidence: "HIGH" } });
+    const no = toLedgerRow(k, s, { ...ctx, pattern: { direction: "NONE", confidence: "NONE" } });
+    const un = toLedgerRow(k, s, ctx);
+    return up.pd === 1 && up.pc === 2 && dn.pd === -1 && dn.pc === 3 && no.pd === 0 && no.pc === 0 && un.pd === null && un.pc === null && un.fr === null && un.oiChg === null;
+  });
+  check("derivatives (Bybit linear) ≤ 2 h old at the bar close → fr, oiChg; newer (look-ahead) or older → null", () => {
+    const tc = Date.UTC(2025, 5, 1, 12);
+    const snaps = [
+      { pair: "BTCUSDT", t: tc - 90 * 60e3, fr: 0.0001, fi: 480, oi: 1000, oit: tc - 120 * 60e3 + 1 },
+      { pair: "BTCUSDT", t: tc - 30 * 60e3, fr: 0.0002, fi: 480, oi: 1100, oit: tc - 60 * 60e3 },
+      { pair: "BTCUSDT", t: tc + 10 * 60e3, fr: 0.0009, fi: 480, oi: 9999, oit: tc + 5 * 60e3 },
+    ];
+    const f = DC.derivativeFields(snaps, "BTCUSDT", tc);
+    const old = DC.derivativeFields(snaps.slice(0, 1), "BTCUSDT", tc + 3 * H);
+    const none = DC.derivativeFields(snaps, "ETHUSDT", tc);
+    return [f.fr === 0.0002 && near(f.oiChg, 10) && old.fr === null && old.oiChg === null && none.fr === null && none.oiChg === null, JSON.stringify([f, old])];
+  });
+  check("liveRow attaches fr/oiChg from the context's snapshots and pd/pc from the series' pattern", () => {
+    const series = { symbol: "BTCUSDT", rank: 1, quoteVolume: 1, ac: "crypto", kl: k, pattern: { direction: "UP", confidence: "LOW" } };
+    const tc = k[999].time + 4 * H;
+    const derivatives = [{ pair: "BTCUSDT", t: tc - 60e3, fr: -0.0003, fi: 480, oi: 50, oit: tc - 30 * 60e3 }, { pair: "BTCUSDT", t: tc - 61 * 60e3, fr: 0, fi: 480, oi: 40, oit: tc - 90 * 60e3 }];
+    const row = SR.liveRow(series, s, { src: "bybit-perp", tf: "4h", intervalMs: 4 * H, appVersion: "t", derivatives }, SR.scanShared([series]));
+    return [row.fr === -0.0003 && near(row.oiChg, 25) && row.pd === 1 && row.pc === 1, JSON.stringify({ fr: row.fr, oi: row.oiChg, pd: row.pd, pc: row.pc })];
+  });
+}
+
+console.log("WP19 measurement honesty: moments, power readout, confirmatory gate");
+{
+  const x = Array.from({ length: 300 }, () => { const u = r(); return (u - 0.48) * 0.02 + (u > 0.97 ? 0.05 : 0); });
+  check("sharpeStats g3/g4 equal moment(x,3)/moment(x,4)", () => {
+    const st = LM.sharpeStats(x);
+    const m = x.reduce((a, v) => a + v, 0) / x.length;
+    const sd = Math.sqrt(x.reduce((a, v) => a + (v - m) ** 2, 0) / (x.length - 1));
+    const skew = x.reduce((a, v) => a + ((v - m) / sd) ** 3, 0) / x.length;
+    const kurt = x.reduce((a, v) => a + ((v - m) / sd) ** 4, 0) / x.length;
+    return [st.g3 === LM.moment(x, 3) && st.g4 === LM.moment(x, 4) && near(st.g3, skew) && near(st.g4, kurt), `${st.g3} ${st.g4}`];
+  });
+  const closed = (sr, g3, g4) => 1 + ((1.645 * Math.sqrt(Math.max(1e-12, 1 - g3 * sr + ((g4 - 1) / 4) * sr * sr))) / sr) ** 2;
+  check("daysForPsr95 null for sr ≤ 0; positive fixture matches the closed form", () => {
+    const a = LM.daysForPsr95(-0.05, 0, 3, 6);
+    const b = LM.daysForPsr95(0, 0, 3, 6);
+    const c = LM.daysForPsr95(0.1, -0.5, 6, 2);
+    const want = Math.ceil(Math.ceil(closed(0.1, -0.5, 6)) / 2);
+    const floor = LM.daysForPsr95(0.5, 100, 3, 1); // term under the root < 0 → floored at 1e-12
+    return [a === null && b === null && c === want && floor === Math.ceil(Math.ceil(closed(0.5, 100, 3))), `${a} ${b} ${c} vs ${want}; ${floor}`];
+  });
+  check("power readout: total and remaining days; SR ≤ 0 shows no day count", () => {
+    const pos = LM.powerReadout({ sr: 0.1, g3: 0, g4: 3 }, 100, 6);
+    const need = Math.ceil(closed(0.1, 0, 3));
+    const neg = LM.powerReadout({ sr: -0.2, g3: 0, g4: 3 }, 100, 6);
+    const done = LM.powerReadout({ sr: 0.5, g3: 0, g4: 3 }, 400, 6);
+    return [pos.totalDays === Math.ceil(need / 6) && pos.remainingDays === Math.ceil((need - 100) / 6) && neg.totalDays === null && neg.remainingDays === null && done.remainingDays === 0, JSON.stringify([pos, neg, done])];
+  });
+  // Report wiring: buildReport exposes the power readout from the block returns it used for the PSR.
+  const k = walk(700, Date.UTC(2025, 0, 1), 4 * H);
+  const rows = []; const outs = new Map([[1, []]]);
+  for (let i = 30; i < 690; i++) {
+    const row = { ...baseRow, id: `p|${i}`, pair: "AUSDT", t: k[i].time, tc: k[i].time + 4 * H, c: k[i].close, m: k[i + 1].close > k[i + 1].open ? 1 : -1 };
+    rows.push(row);
+    const o = measureOutcome(row, k, 1, DEFAULT_COSTS.binance, 4 * H); if (o) outs.get(1).push(o);
+  }
+  const rep = buildReport(rows, outs, 30, 1, 4 * H);
+  check("buildReport carries power (blocks, blocks/day) next to the Sharpe it came from", () => {
+    const h = rep.horizons[0];
+    const p = h.power;
+    return [p && p.blocks > 600 && near(p.blocksPerDay, 6, 0.01) && p.totalDays === LM.daysForPsr95(h.sharpe.sr, h.sharpe.g3, h.sharpe.g4, p.blocksPerDay), JSON.stringify(p)];
+  });
+  check("confirmatory DSR uses active hypotheses only", () => {
+    const preregs = [{ cfg: "c1" }, { cfg: "c1" }, { cfg: "c1" }, { cfg: "old" }, { cfg: "old" }];
+    const n = LM.confirmatoryTrials(preregs, "c1");
+    const conf = buildReport(rows, outs, 30, n, 4 * H).horizons[0].sharpe;
+    const allViews = buildReport(rows, outs, 30, 40, 4 * H).horizons[0].sharpe;
+    const three = buildReport(rows, outs, 30, 3, 4 * H).horizons[0].sharpe;
+    return [n === 3 && LM.confirmatoryTrials([], "c1") === 1 && conf.dsr === three.dsr && conf.sr0 === three.sr0 && conf.sr0 < allViews.sr0 && conf.dsr >= allViews.dsr, `${n} ${conf.sr0} ${allViews.sr0}`];
+  });
+  check("the ledger dialog deflates the confirmatory report by active pre-registrations, the exploratory one by all views", () => {
+    const src = readFileSync(join(process.cwd(), "src", "components", "ledger-dialog.tsx"), "utf8");
+    const conf = src.slice(src.indexOf("conf = await buildReportAsync"), src.indexOf("conf = await buildReportAsync") + 200);
+    const full = src.slice(src.indexOf("const full = await buildReportAsync"), src.indexOf("const full = await buildReportAsync") + 200);
+    return [src.includes("confirmatoryTrials(") && /trials: confTrials/.test(conf) && /trials,/.test(full) && !/trials: confTrials/.test(full), conf];
+  });
+}
+
+console.log("WP19 ATR-bracket outcome mode (ledger, replay and paper share one bracket)");
+{
+  const I = 4 * H;
+  const T0 = Date.UTC(2026, 9, 26, 0);
+  const k = walk(400, T0 - 20 * I, I, 0.04);
+  const sig = 20;
+  const A = atrOf(k.slice(0, sig + 1), 14).at(-1);
+  const viaPaper = (side, src) => {
+    const now = k[sig + 1].time; // decision at the signal bar's close → fill at the next open
+    const book0 = PB.newBook(T0 - I);
+    const book = { ...book0, account: { ...book0.account, heartbeats: { [`${src}|4h`]: now } } };
+    const input = { pair: "SOLUSDT", src, tf: "4h", assetClass: "crypto", side, entryRef: k[sig].close, atr: A, score: side === "long" ? 72 : -72,
+      strength: "STRONG", master: side === "long" ? "BULLISH" : "BEARISH", suppressed: false, underlyingClosed: false, configId: "cfgtest000000001", barTime: k[sig].time, intervalMs: I };
+    const p = PB.createProposal(book, input, now, "n1");
+    const a = PB.approveProposal(book, p, "n1", now);
+    if (!a.ok) throw new Error("not approved: " + (a.verdict?.reasons ?? a.error));
+    const done = PB.processBars(a.book, src, "4h", { SOLUSDT: k.slice(sig + 1) }, k.at(-1).time + I);
+    return { j: done.closed[0], p, book };
+  };
+  for (const [side, src] of [["long", "binance"], ["short", "bybit-perp"]]) {
+    check(`atr-bracket outcome equals processBars R on the same fixture (${side}, ${src})`, () => {
+      const { j } = viaPaper(side, src);
+      const row = { ...baseRow, src, id: `c1|${src}|4h|SOLUSDT|${k[sig].time}`, pair: "SOLUSDT", t: k[sig].time, tc: k[sig + 1].time, c: k[sig].close, m: side === "long" ? 1 : -1 };
+      const b = LM.measureBracket(row, k, LM.costsFor(src, "crypto"), I, { atr: A });
+      return [!!j && !!b && near(b.r, j.r) && b.reason === j.reason && b.closedAt === j.closedAt, JSON.stringify({ b, r: j?.r, reason: j?.reason, at: j?.closedAt })];
+    });
+  }
+  check("atr-bracket: 2×ATR stop, 2R target, ATR from the engine window by default; NEUTRAL and unresolved rows → null", () => {
+    const row = { ...baseRow, id: "x", pair: "SOLUSDT", t: k[sig].time, tc: k[sig + 1].time, c: k[sig].close, m: 1 };
+    const d = LM.measureBracket(row, k, LM.costsFor("binance", "crypto"), I);
+    const e = LM.measureBracket(row, k, LM.costsFor("binance", "crypto"), I, { atr: A });
+    const neutral = LM.measureBracket({ ...row, m: 0 }, k, LM.costsFor("binance", "crypto"), I, { atr: A });
+    const tooShort = LM.measureBracket(row, k.slice(0, sig + 2), LM.costsFor("binance", "crypto"), I, { atr: A * 50 });
+    return [LM.OUTCOME_MODES?.includes("atr-bracket") && !!d && JSON.stringify(d) === JSON.stringify(e) && near(d.stopDistance, 2 * A) && neutral === null && tooShort === null, JSON.stringify(d)];
+  });
+}
+
+console.log("WP19 CSV: v2.7 import, hostile values, round-trip");
+{
+  const safe = (v) => { // the kit's safeCell + quote, as the app's Export CSV writes cells
+    if (v === null || v === undefined) return "";
+    if (typeof v === "number") return Number.isFinite(v) ? String(v) : "";
+    const s = String(v); const g = /^[=+\-@\u0000-\u001F]/.test(s) ? `'${s}` : s;
+    return /[",\r\n]/.test(g) ? `"${g.replace(/"/g, '""')}"` : g;
+  };
+  const t = Date.UTC(2026, 9, 1, 8);
+  const row = { ...baseRow, id: `c1|binance|4h|BTCUSDT|${t}`, pair: "BTCUSDT", t, tc: t + 4 * H, rec: t + 4 * H + 5000, c: 61234.5, sc: 47.5, m: 1, st: 1, v: 17, bu: 9, be: 3, er: 0.412,
+    bl: [55, -20, 10, 0], rd: -1, rc: 2, uc: 0, rku: 4, rks: "live", rs: 81.2, beta: 1.07, htf: 1, td: -0.12, mev: -6.5, bp: 0.031, pin: 0, spl: 0, earn: 0,
+    vt: LM.packVotes?.([0, 0, 1, 2, 3, 0, 0, 2, 2, 1, 1, 2, 3, 0, 2, 0, 1, 2]) ?? 12345, pd: -1, pc: 2, fr: 0.0001, oiChg: -3.25 };
+  const header = [...LEDGER_CSV_COLUMNS, "net_return_h1"];
+  const csvOf = (cols, lines) => "﻿" + [cols.join(","), ...lines.map((l) => l.map(safe).join(","))].join("\r\n") + "\r\n";
+  const v27Cols = LEDGER_CSV_COLUMNS.slice(0, LEDGER_CSV_COLUMNS.indexOf("engine_bars") + 1);
+  check("CSV appends vote_vector, pattern_dir, pattern_conf, funding_rate, oi_change_pct after the v2.7 columns", () =>
+    [v27Cols.length === 44 && LEDGER_CSV_COLUMNS.slice(44).join() === "vote_vector,pattern_dir,pattern_conf,funding_rate,oi_change_pct" && ledgerRowValues(row).length === LEDGER_CSV_COLUMNS.length, LEDGER_CSV_COLUMNS.slice(44).join()]);
+  check("v2.7 CSV imports with null new fields", () => {
+    const v27 = csvOf([...v27Cols, "net_return_h1"], [[...ledgerRowValues(row).slice(0, 44), 0.0012]]);
+    const imp = parseLedgerImport(v27);
+    const got = imp.rows[0];
+    return [imp.rows.length === 1 && imp.rejected === 0 && got.vt === null && got.pd === null && got.pc === null && got.fr === null && got.oiChg === null && got.sc === 47.5 && got.t === t && got.m === 1 && got.rku === 4 && got.bl.join() === "55,-20,10,0", JSON.stringify(imp)];
+  });
+  check("an old JSON/JSONL row (no new fields) imports with the new fields null too", () => {
+    const { vt, pd, pc, fr, oiChg, ...old } = row;
+    const got = sanitizeLedgerRow(old);
+    return got && got.vt === null && got.pd === null && got.pc === null && got.fr === null && got.oiChg === null;
+  });
+  check("CSV round-trip (export → import) is lossless for every field", () => {
+    const imp = parseLedgerImport(csvOf(header, [[...ledgerRowValues(row), ""]]));
+    const want = sanitizeLedgerRow(row);
+    return [imp.rows.length === 1 && JSON.stringify(imp.rows[0]) === JSON.stringify(want), `${JSON.stringify(imp.rows[0])}\n   want ${JSON.stringify(want)}`];
+  });
+  check("hostile values rejected (vt > 4^18−1, pd 2, fr \"=1+1\")", () => {
+    const vals = ledgerRowValues(row);
+    const at = (col) => LEDGER_CSV_COLUMNS.indexOf(col);
+    const bad = (col, v) => { const l = [...vals, ""]; l[at(col)] = v; return l; };
+    const imp = parseLedgerImport(csvOf(header, [bad("vote_vector", 4 ** 18), bad("pattern_dir", 2), bad("funding_rate", "=1+1"), bad("oi_change_pct", "1e999"), bad("pattern_conf", "-1"), [...vals, ""]]));
+    const json = [{ ...row, vt: 4 ** 18 }, { ...row, vt: -1 }, { ...row, vt: 2.5 }, { ...row, pd: 2 }, { ...row, pc: 4 }, { ...row, fr: "=1+1" }, { ...row, fr: 0.5 }, { ...row, oiChg: Infinity }].map((x) => sanitizeLedgerRow(x));
+    return [imp.rows.length === 1 && imp.rejected === 5 && json.every((x) => x === null), `${imp.rows.length} ${imp.rejected} ${json.map((x) => x === null)}`];
+  });
+  check("CSV with a formula-like string field or a bad timestamp is rejected", () => {
+    const vals = ledgerRowValues(row);
+    const l1 = [...vals, ""]; l1[LEDGER_CSV_COLUMNS.indexOf("pair")] = "=HYPERLINK(1)";
+    const l2 = [...vals, ""]; l2[LEDGER_CSV_COLUMNS.indexOf("bar_open_utc")] = "yesterday";
+    const imp = parseLedgerImport(csvOf(header, [l1, l2]));
+    return [imp.rows.length === 0 && imp.rejected === 2, JSON.stringify(imp)];
+  });
+}
+
 console.log(`\nMeasurement v2.3 suite: ${passed}/${passed + failed} passed`);
 if (failed) process.exit(1);
