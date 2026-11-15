@@ -72,7 +72,7 @@ import {
   type PaperBook,
   type Proposal,
 } from "@/lib/paper-broker";
-import { journalRowValues, PAPER_JOURNAL_COLUMNS, type PaperStore } from "@/lib/paper-store";
+import { annotationNote, journalRowValues, PAPER_JOURNAL_COLUMNS, paperNoteId, type PaperStore } from "@/lib/paper-store";
 
 /** The subset of a scan row the simulator needs (the page's AssetRow satisfies it structurally). */
 export interface PaperScanRow {
@@ -452,7 +452,9 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
     const extra: Record<string, string> = { mae: t("paper.csv.mae"), mfe: t("paper.csv.mfe"), pre_trade_reason: t("paper.csv.reason"), setup_tag: t("paper.csv.tag"), notes: t("paper.csv.notes") };
     const columns = [...PAPER_JOURNAL_COLUMNS];
     const headers = columns.map((c) => extra[c] ?? c);
-    const csv = toCSV(cur.journal.map(journalRowValues), { headers, columns, notice: t("paper.banner") });
+    // Final review (Task 5): the Notes column comes from each trade's saved annotation (tags + notes).
+    const notes = await Promise.all(cur.journal.map((j) => port.get("preferences", paperNoteId(j)).then((saved) => annotationNote(saved), () => "")));
+    const csv = toCSV(cur.journal.map((j, i) => journalRowValues(j, notes[i])), { headers, columns, notice: t("paper.banner") });
     const name = exportFileName({ app: "ConfluenceTerminal", customerCode: id.customer.code, docId: "paper-journal", ext: "csv" });
     const res = await platform.saveOrShare(new TextEncoder().encode(csv), name, "text/csv");
     if (res.ok) {

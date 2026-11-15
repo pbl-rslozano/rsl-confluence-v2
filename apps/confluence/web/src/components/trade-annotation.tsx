@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { JournalEntry } from "@/lib/paper-broker";
+import { paperNoteId } from "@/lib/paper-store";
 
 type Port = {
   get(collection: string, id: string): Promise<unknown>;
@@ -9,7 +10,7 @@ type Port = {
 };
 
 export function TradeAnnotation({ port, trade }: { port: Port; trade: JournalEntry }) {
-  const key = [trade.proposalId, trade.openedAt, trade.closedAt].join(":");
+  const key = paperNoteId(trade); // the journal CSV export reads the same id (Notes column)
   const [tags, setTags] = useState("");
   const [notes, setNotes] = useState("");
   const [ready, setReady] = useState(false);
@@ -18,7 +19,7 @@ export function TradeAnnotation({ port, trade }: { port: Port; trade: JournalEnt
 
   useEffect(() => {
     let active = true;
-    void port.get("preferences", "paper-note:" + key).then((value) => {
+    void port.get("preferences", key).then((value) => {
       if (!active) return;
       const saved = value as { tags?: unknown; notes?: unknown } | null;
       setTags(Array.isArray(saved?.tags) ? saved.tags.filter((tag) => typeof tag === "string").join(", ") : "");
@@ -32,7 +33,7 @@ export function TradeAnnotation({ port, trade }: { port: Port; trade: JournalEnt
     setBusy(true);
     try {
       const normalized = [...new Set(tags.split(",").map((tag) => tag.trim()).filter(Boolean))].slice(0, 12);
-      await port.put("preferences", "paper-note:" + key, { tags: normalized, notes: notes.trim() });
+      await port.put("preferences", key, { tags: normalized, notes: notes.trim() });
       setTags(normalized.join(", "));
       setNotes(notes.trim());
       setMessage("Trade annotation saved.");

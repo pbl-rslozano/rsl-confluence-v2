@@ -149,12 +149,26 @@ const safeText = (v: unknown): string => {
 const optR = (v: unknown): number | string => (typeof v === "number" && Number.isFinite(v) ? Math.round(v * 1000) / 1000 : "");
 
 const iso = (ms: number) => (ms ? new Date(ms).toISOString() : "");
-export function journalRowValues(j: JournalEntry): (string | number)[] {
+
+/** Id of a trade's saved annotation (tags + notes) in the "preferences" collection (components/trade-annotation.tsx). */
+export const paperNoteId = (j: Pick<JournalEntry, "proposalId" | "openedAt" | "closedAt">): string =>
+  "paper-note:" + [j.proposalId, j.openedAt, j.closedAt].join(":");
+
+/** The Notes CSV cell from a saved annotation: "notes [tag, tag]"; anything malformed or missing is "". */
+export function annotationNote(saved: unknown): string {
+  const a = saved && typeof saved === "object" ? (saved as { tags?: unknown; notes?: unknown }) : {};
+  const notes = typeof a.notes === "string" ? a.notes.trim() : "";
+  const tags = Array.isArray(a.tags) ? a.tags.filter((x): x is string => typeof x === "string" && x.trim() !== "").map((x) => x.trim()) : [];
+  return [notes, tags.length ? `[${tags.join(", ")}]` : ""].filter(Boolean).join(" ");
+}
+
+/** One journal CSV row; `note` is the trade's annotation (annotationNote) and fills the Notes column. */
+export function journalRowValues(j: JournalEntry, note?: string): (string | number)[] {
   return [
     j.id, iso(j.openedAt), iso(j.closedAt), j.src, j.tf, j.pair, j.side, j.size, j.entry, j.exit, j.stop, j.target,
     round(j.fees), round(j.funding), round(j.pnl), Math.round(j.r * 1000) / 1000, j.reason, j.configId, j.proposalId,
     iso(j.approvedAt), j.approvedBy, "paper",
-    optR(j.mae), optR(j.mfe), safeText(j.preReason), safeText(j.tag), safeText(j.notes),
+    optR(j.mae), optR(j.mfe), safeText(j.preReason), safeText(j.tag), safeText(note ?? j.notes),
   ];
 }
 const round = (v: number) => Math.round(v * 1e6) / 1e6;

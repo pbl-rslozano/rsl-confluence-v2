@@ -706,5 +706,23 @@ console.log("WP19 — rejected proposals keep their reason and a later bracket o
   ok("rejected records survive a store round-trip", !!back.account.rejected?.length && JSON.stringify(back.account.rejected) === JSON.stringify(r2.book.account.rejected));
 }
 
+// Final review (Task 5 deferred minor): the journal CSV Notes column is filled from the trade's saved annotation.
+{
+  const ps = await import("./paper-store.ts");
+  const J = (extra = {}) => ({ id: "t10", openedAt: 9, closedAt: 10, pair: "X", src: "binance", tf: "4h", side: "long", size: 1, entry: 1, exit: 1, stop: 0.9, target: 1.2, fees: 0, funding: 0, pnl: 1, r: 1, reason: "stop", configId: "c", proposalId: "p", approvedAt: 8, approvedBy: "owner", ...extra });
+  const j = J();
+  ok("notes CSV: annotation id is the key the trade-annotation form saves under", ps.paperNoteId?.(j) === "paper-note:p:9:10", String(ps.paperNoteId?.(j)));
+  const note = ps.annotationNote?.({ tags: ["breakout", "news"], notes: "late entry" });
+  ok("notes CSV: saved notes and tags fill the Notes cell", journalRowValues(j, note)[26] === "late entry [breakout, news]", String(note));
+  ok("notes CSV: tags alone, notes alone", ps.annotationNote?.({ tags: ["range"], notes: "" }) === "[range]" && ps.annotationNote?.({ notes: "  ok  " }) === "ok");
+  ok("notes CSV: a formula-like note is neutralised", journalRowValues(j, ps.annotationNote?.({ notes: "=1+1" }))[26] === "'=1+1");
+  ok("notes CSV: no or malformed annotation → empty cell", ps.annotationNote?.(null) === "" && ps.annotationNote?.({ tags: "x", notes: 5 }) === "" && journalRowValues(j, "")[26] === "" && journalRowValues(j)[26] === "");
+  const dlgSrc = readFileSync(join(process.cwd(), "src", "components", "paper-dialog.tsx"), "utf8");
+  const exportFn = dlgSrc.slice(dlgSrc.indexOf("const exportCsv"), dlgSrc.indexOf("/* --------------------------- render"));
+  ok("notes CSV: the export joins each trade's annotation", /paperNoteId\(/.test(exportFn) && /annotationNote\(/.test(exportFn) && /journalRowValues\(j, /.test(exportFn));
+  const annSrc = readFileSync(join(process.cwd(), "src", "components", "trade-annotation.tsx"), "utf8");
+  ok("notes CSV: the annotation form saves under paperNoteId", /paperNoteId\(trade\)/.test(annSrc));
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
