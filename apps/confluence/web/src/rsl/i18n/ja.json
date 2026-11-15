@@ -438,7 +438,7 @@
   "depeg.warning": "警告",
   "depeg.severe": "重大",
   "ph.usdtPremium": "Coins.ph の USDT は公式ペソレートに対して {dev} です。",
-  "paper.rule.currency": "ペーパー口座は USDT 建てです。米ドル建てステーブルコインで値付けされたペアのみ提案できます。",
+  "paper.rule.currency": "The paper account is in US dollars: only pairs quoted in US dollars or a dollar stablecoin can be proposed.",
   "fx.sources": "レートの出典",
   "fx.choose": "為替レートの出典を選び、更新し、各出典を確認できます。",
   "fx.auto.src": "自動（Frankfurter、その後は代替）",

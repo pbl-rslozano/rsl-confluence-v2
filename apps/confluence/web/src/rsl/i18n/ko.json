@@ -438,7 +438,7 @@
   "depeg.warning": "경고",
   "depeg.severe": "심각",
   "ph.usdtPremium": "Coins.ph의 USDT는 공식 페소 환율 대비 {dev}입니다.",
-  "paper.rule.currency": "모의 계좌는 USDT 기준입니다. USD 스테이블코인으로 호가되는 페어만 제안할 수 있습니다.",
+  "paper.rule.currency": "The paper account is in US dollars: only pairs quoted in US dollars or a dollar stablecoin can be proposed.",
   "fx.sources": "환율 출처",
   "fx.choose": "환율 출처를 선택하고, 업데이트하고, 각 출처를 확인하세요.",
   "fx.auto.src": "자동 (Frankfurter, 그다음 대체 출처)",

@@ -438,7 +438,7 @@
   "depeg.warning": "Avviso",
   "depeg.severe": "Grave",
   "ph.usdtPremium": "L'USDT su Coins.ph è a {dev} dal cambio ufficiale del peso.",
-  "paper.rule.currency": "Il conto paper è in USDT: si possono proporre solo coppie quotate in una stablecoin in USD.",
+  "paper.rule.currency": "The paper account is in US dollars: only pairs quoted in US dollars or a dollar stablecoin can be proposed.",
   "fx.sources": "Fonti dei cambi",
   "fx.choose": "Scegli da dove arrivano i tassi di cambio, aggiornali e verifica ogni fonte.",
   "fx.auto.src": "Automatica (Frankfurter, poi alternative)",

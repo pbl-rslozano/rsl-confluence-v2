@@ -438,7 +438,7 @@
   "depeg.warning": "Alerte",
   "depeg.severe": "Grave",
   "ph.usdtPremium": "L'USDT sur Coins.ph est à {dev} du taux officiel du peso.",
-  "paper.rule.currency": "Le compte papier est en USDT : seules les paires cotées dans un stablecoin en USD peuvent être proposées.",
+  "paper.rule.currency": "The paper account is in US dollars: only pairs quoted in US dollars or a dollar stablecoin can be proposed.",
   "fx.sources": "Sources des taux",
   "fx.choose": "Choisissez l'origine des taux de change, mettez-les à jour et vérifiez chaque source.",
   "fx.auto.src": "Automatique (Frankfurter, puis secours)",

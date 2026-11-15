@@ -438,7 +438,7 @@
   "depeg.warning": "Amaran",
   "depeg.severe": "Teruk",
   "ph.usdtPremium": "USDT di Coins.ph adalah {dev} berbanding kadar rasmi peso.",
-  "paper.rule.currency": "Akaun kertas dalam USDT: hanya pasangan yang disebut harga dalam stablecoin USD boleh dicadangkan.",
+  "paper.rule.currency": "The paper account is in US dollars: only pairs quoted in US dollars or a dollar stablecoin can be proposed.",
   "fx.sources": "Sumber kadar",
   "fx.choose": "Pilih sumber kadar pertukaran, kemas kininya, dan semak setiap sumber.",
   "fx.auto.src": "Automatik (Frankfurter, kemudian sandaran)",

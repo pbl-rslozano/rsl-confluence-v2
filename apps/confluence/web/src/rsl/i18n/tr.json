@@ -438,7 +438,7 @@
   "depeg.warning": "Uyarı",
   "depeg.severe": "Ciddi",
   "ph.usdtPremium": "Coins.ph'teki USDT resmî peso kuruna göre {dev}.",
-  "paper.rule.currency": "Kâğıt hesap USDT cinsindendir: yalnızca USD sabit coiniyle kote edilen pariteler önerilebilir.",
+  "paper.rule.currency": "The paper account is in US dollars: only pairs quoted in US dollars or a dollar stablecoin can be proposed.",
   "fx.sources": "Kur kaynakları",
   "fx.choose": "Kurların nereden geleceğini seçin, güncelleyin ve her kaynağı kontrol edin.",
   "fx.auto.src": "Otomatik (Frankfurter, sonra yedekler)",

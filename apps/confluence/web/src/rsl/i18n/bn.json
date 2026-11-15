@@ -438,7 +438,7 @@
   "depeg.warning": "সতর্কতা",
   "depeg.severe": "গুরুতর",
   "ph.usdtPremium": "Coins.ph-এ USDT সরকারি পেসো হারের তুলনায় {dev}।",
-  "paper.rule.currency": "পেপার অ্যাকাউন্টটি USDT-তে: শুধু USD স্টেবলকয়েনে কোট করা জোড়া প্রস্তাব করা যায়।",
+  "paper.rule.currency": "The paper account is in US dollars: only pairs quoted in US dollars or a dollar stablecoin can be proposed.",
   "fx.sources": "হারের উৎস",
   "fx.choose": "বিনিময় হার কোথা থেকে আসবে বেছে নিন, হালনাগাদ করুন এবং প্রতিটি উৎস যাচাই করুন।",
   "fx.auto.src": "স্বয়ংক্রিয় (Frankfurter, তারপর বিকল্প)",

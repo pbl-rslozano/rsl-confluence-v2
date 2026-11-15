@@ -93,7 +93,8 @@
     "about.thanksTerms",
     "about.uses.exchange",
     "about.uses.archive",
-    "about.uses.rates"
+    "about.uses.rates",
+    "paper.rule.currency"
   ],
   "app.subtitle": "ماسح توافق مؤشرات العملات المشفّرة",
   "ctx.page": "الماسح",
@@ -532,7 +533,7 @@
   "depeg.warning": "تحذير",
   "depeg.severe": "حاد",
   "ph.usdtPremium": "USDT في Coins.ph ينحرف {dev} عن السعر الرسمي للبيزو.",
-  "paper.rule.currency": "حساب التداول الورقي بعملة USDT: لا يمكن اقتراح إلا الأزواج المسعّرة بعملة مستقرة مرتبطة بالدولار.",
+  "paper.rule.currency": "حساب التداول الورقي بالدولار الأمريكي: لا يمكن اقتراح إلا الأزواج المسعّرة بالدولار الأمريكي أو بعملة مستقرة مرتبطة بالدولار.",
   "fx.sources": "مصادر الأسعار",
   "fx.choose": "اختر مصدر أسعار الصرف وحدّثها وتحقق من كل مصدر.",
   "fx.auto.src": "تلقائي (Frankfurter ثم البدائل)",

@@ -438,7 +438,7 @@
   "depeg.warning": "انتباہ",
   "depeg.severe": "شدید",
   "ph.usdtPremium": "Coins.ph پر USDT سرکاری پیسو شرح کے مقابلے میں {dev} ہے۔",
-  "paper.rule.currency": "پیپر اکاؤنٹ USDT میں ہے: صرف USD اسٹیبل کوائن میں کوٹ شدہ جوڑے تجویز کیے جا سکتے ہیں۔",
+  "paper.rule.currency": "The paper account is in US dollars: only pairs quoted in US dollars or a dollar stablecoin can be proposed.",
   "fx.sources": "شرح کے ذرائع",
   "fx.choose": "منتخب کریں کہ شرحِ تبادلہ کہاں سے آئے، انہیں اپ ڈیٹ کریں اور ہر ذریعہ جانچیں۔",
   "fx.auto.src": "خودکار (Frankfurter، پھر متبادل)",

@@ -438,7 +438,7 @@
   "depeg.warning": "Предупреждение",
   "depeg.severe": "Серьёзно",
   "ph.usdtPremium": "USDT на Coins.ph отклоняется на {dev} от официального курса песо.",
-  "paper.rule.currency": "Бумажный счёт ведётся в USDT: предлагать можно только пары, котируемые в долларовом стейблкоине.",
+  "paper.rule.currency": "The paper account is in US dollars: only pairs quoted in US dollars or a dollar stablecoin can be proposed.",
   "fx.sources": "Источники курсов",
   "fx.choose": "Выберите, откуда берутся курсы, обновите их и проверьте каждый источник.",
   "fx.auto.src": "Автоматически (Frankfurter, затем резервные)",

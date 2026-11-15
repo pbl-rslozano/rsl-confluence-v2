@@ -438,7 +438,7 @@
   "depeg.warning": "चेतावनी",
   "depeg.severe": "गंभीर",
   "ph.usdtPremium": "Coins.ph पर USDT आधिकारिक पेसो दर की तुलना में {dev} है।",
-  "paper.rule.currency": "पेपर खाता USDT में है: केवल USD स्टेबलकॉइन में कोट किए गए जोड़े प्रस्तावित किए जा सकते हैं।",
+  "paper.rule.currency": "The paper account is in US dollars: only pairs quoted in US dollars or a dollar stablecoin can be proposed.",
   "fx.sources": "दर के स्रोत",
   "fx.choose": "चुनें कि विनिमय दरें कहाँ से आएँ, उन्हें अपडेट करें और हर स्रोत की जाँच करें।",
   "fx.auto.src": "स्वचालित (Frankfurter, फिर विकल्प)",

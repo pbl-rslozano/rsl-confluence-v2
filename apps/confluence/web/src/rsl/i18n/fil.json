@@ -438,7 +438,7 @@
   "depeg.warning": "Babala",
   "depeg.severe": "Malubha",
   "ph.usdtPremium": "Ang USDT sa Coins.ph ay {dev} laban sa opisyal na rate ng piso.",
-  "paper.rule.currency": "Nasa USDT ang paper account: mga pares lang na naka-quote sa USD stablecoin ang maimumungkahi.",
+  "paper.rule.currency": "The paper account is in US dollars: only pairs quoted in US dollars or a dollar stablecoin can be proposed.",
   "fx.sources": "Mga pinagmulan ng rate",
   "fx.choose": "Piliin kung saan galing ang exchange rate, i-update ito, at suriin ang bawat pinagmulan.",
   "fx.auto.src": "Awtomatiko (Frankfurter, saka mga kapalit)",

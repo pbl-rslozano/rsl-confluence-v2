@@ -835,5 +835,41 @@ console.log("Paper — held-pair fetch: rate limits and stale results");
   ok("dialog: held feed goes through runHeldFeed with the current view and the cooldown", /runHeldFeed\(/.test(dlgSrc) && /currentView:/.test(dlgSrc) && /cooldownMs/.test(dlgSrc));
 }
 
+/* ------------------------------------------------------------------ */
+// v2.8 (WP26 final review I-1): which pairs the US-dollar paper account can book. Coinbase's own USD books are
+// dollars; Upbit KRW/BTC books and fiat or coin quotes elsewhere are refused with paper.rule.currency.
+console.log("Risk engine — paper currency (WP26)");
+{
+  const { rememberPairs, forgetPairsForTests } = await import("./quotes.ts");
+  const { usdQuoted } = await import("./risk-engine.ts");
+  const refusedFor = (pair, src) => evaluateProposal(input({ pair, src }), acct(), S, NOW).reasons.includes("paper.rule.currency");
+  const run = (label) => {
+    ok(`${label}: coinbase BTCUSD (Coinbase's own US-dollar book) is proposable`, !refusedFor("BTCUSD", "coinbase") && usdQuoted("BTCUSD", "coinbase"));
+    ok(`${label}: coinbase BTCUSDT, okx BTCUSDC, okx-perp BTCUSDT are proposable`,
+      !refusedFor("BTCUSDT", "coinbase") && !refusedFor("BTCUSDC", "okx") && !refusedFor("BTCUSDT", "okx-perp"));
+    ok(`${label}: upbit BTCKRW and SOLBTC are refused with paper.rule.currency`, refusedFor("BTCKRW", "upbit") && refusedFor("SOLBTC", "upbit"));
+    ok(`${label}: upbit ETHUSDT is proposable`, !refusedFor("ETHUSDT", "upbit"));
+    ok(`${label}: binance ETHBTC is refused with paper.rule.currency`, refusedFor("ETHBTC", "binance"));
+    // Existing sources unchanged: fiat USD books outside Coinbase stay refused; stablecoin quotes stay proposable.
+    ok(`${label}: fiat USD books elsewhere stay refused (binance, bybit-spot, bitget, okx, okx-perp)`,
+      ["binance", "bybit-spot", "bitget", "okx", "okx-perp"].every((src) => refusedFor("BTCUSD", src)));
+    ok(`${label}: peso and euro pairs stay refused; stablecoin pairs and USDC perps stay proposable`,
+      refusedFor("BTCPHP", "coinsph") && refusedFor("BTCEURI", "binance") && !refusedFor("SOLUSDT", "binance") &&
+      !refusedFor("BTCFDUSD", "binance") && !refusedFor("BTCPERP", "bybit-perp") && !refusedFor("ETHUSDC", "bitget"));
+  };
+  forgetPairsForTests();
+  run("no venue metadata");
+  // Venue metadata remembered as a scan does.
+  rememberPairs("coinbase", [["BTCUSD", { base: "BTC", quote: "USD" }], ["BTCUSDT", { base: "BTC", quote: "USDT" }]]);
+  rememberPairs("upbit", [["BTCKRW", { base: "BTC", quote: "KRW" }], ["SOLBTC", { base: "SOL", quote: "BTC" }], ["ETHUSDT", { base: "ETH", quote: "USDT" }]]);
+  rememberPairs("binance", [["ETHBTC", { base: "ETH", quote: "BTC" }], ["BTCUSD", { base: "BTC", quote: "USD" }], ["BTCEURI", { base: "BTC", quote: "EURI" }],
+    ["SOLUSDT", { base: "SOL", quote: "USDT" }], ["BTCFDUSD", { base: "BTC", quote: "FDUSD" }]]);
+  run("remembered pairs");
+  forgetPairsForTests();
+  const en = JSON.parse(readFileSync(join(process.cwd(), "src/rsl/i18n/en.json"), "utf8"));
+  ok("paper.rule.currency says the account is in US dollars (not USDT only)",
+    /US dollars/.test(en["paper.rule.currency"]) && !/USDT/.test(en["paper.rule.currency"]), en["paper.rule.currency"]);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

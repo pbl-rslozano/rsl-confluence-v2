@@ -216,10 +216,14 @@ export function baseOf(pair: string, src?: string): string {
   return (quote ? base : pair).toUpperCase();
 }
 
-/** v2.7: is the pair quoted in a USD-pegged stablecoin (the paper account's currency family)? */
+/**
+ * v2.7: is the pair quoted in a USD-pegged stablecoin (the paper account's currency family)? v2.8 (WP26 final
+ * review I-1): Coinbase's own plain-USD books are US dollars too. Gated on the source, so fiat or inverse USD books
+ * on other venues stay refused.
+ */
 export function usdQuoted(pair: string, src = ""): boolean {
   const q = splitPair(pair, src || (/PERP$/i.test(pair) ? "bybit-perp" : undefined)).quote;
-  return stableQuote(q)?.peg === "USD";
+  return stableQuote(q)?.peg === "USD" || (src === "coinbase" && q === "USD");
 }
 
 /** Correlation cluster: asset class, with crypto split into majors and alts. */
@@ -366,8 +370,8 @@ export function evaluateProposal(p: ProposalInput, acct: AccountState, s: RiskSe
   if (acct.positions.filter((x) => clusterOf(x.assetClass, x.pair, x.src) === cluster).length >= s.maxPerClusterPositions) reasons.push("paper.rule.cluster");
   // v2.7 (review #3): one position per BASE asset (BTCUSDT and BTCUSDC/BTCPHP are the same exposure).
   if (acct.positions.some((x) => x.pair.toUpperCase() === p.pair.toUpperCase() || baseOf(x.pair, x.src) === baseOf(p.pair, p.src))) reasons.push("paper.rule.duplicate");
-  // The paper account is kept in USDT: only pairs quoted in a USD stablecoin can be sized and booked in it
-  // (v2.6 booked Coins.ph peso amounts as USDT).
+  // The paper account is kept in US dollars: only pairs quoted in a USD stablecoin (or Coinbase's own USD books,
+  // v2.8 WP26) can be sized and booked in it (v2.6 booked Coins.ph peso amounts as USDT).
   if (!usdQuoted(p.pair, p.src)) reasons.push("paper.rule.currency");
   // v2.8: crypto moves together — cap open crypto positions across clusters.
   if (p.assetClass === "crypto" && acct.positions.filter((x) => x.assetClass === "crypto").length >= s.maxCryptoPositions) reasons.push("paper.rule.cryptoCap");

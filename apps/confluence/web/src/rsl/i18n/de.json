@@ -438,7 +438,7 @@
   "depeg.warning": "Warnung",
   "depeg.severe": "Schwer",
   "ph.usdtPremium": "USDT auf Coins.ph liegt {dev} neben dem offiziellen Peso-Kurs.",
-  "paper.rule.currency": "Das Papierkonto läuft in USDT: Nur Paare mit einem USD-Stablecoin als Quote können vorgeschlagen werden.",
+  "paper.rule.currency": "The paper account is in US dollars: only pairs quoted in US dollars or a dollar stablecoin can be proposed.",
   "fx.sources": "Kursquellen",
   "fx.choose": "Wählen Sie, woher die Wechselkurse kommen, aktualisieren Sie sie und prüfen Sie jede Quelle.",
   "fx.auto.src": "Automatisch (Frankfurter, dann Ersatzquellen)",

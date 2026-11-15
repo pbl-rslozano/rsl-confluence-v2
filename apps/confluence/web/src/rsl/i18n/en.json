@@ -438,7 +438,7 @@
   "depeg.warning": "Warning",
   "depeg.severe": "Severe",
   "ph.usdtPremium": "USDT on Coins.ph is {dev} against the official peso rate.",
-  "paper.rule.currency": "The paper account is in USDT: only pairs quoted in a USD stablecoin can be proposed.",
+  "paper.rule.currency": "The paper account is in US dollars: only pairs quoted in US dollars or a dollar stablecoin can be proposed.",
   "fx.sources": "Rate sources",
   "fx.choose": "Choose where exchange rates come from, update them, and check each source.",
   "fx.auto.src": "Automatic (Frankfurter, then fallbacks)",

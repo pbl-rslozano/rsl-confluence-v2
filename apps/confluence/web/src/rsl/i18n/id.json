@@ -438,7 +438,7 @@
   "depeg.warning": "Peringatan",
   "depeg.severe": "Parah",
   "ph.usdtPremium": "USDT di Coins.ph {dev} terhadap kurs resmi peso.",
-  "paper.rule.currency": "Akun paper dalam USDT: hanya pasangan yang dikuotasi dalam stablecoin USD yang dapat diusulkan.",
+  "paper.rule.currency": "The paper account is in US dollars: only pairs quoted in US dollars or a dollar stablecoin can be proposed.",
   "fx.sources": "Sumber kurs",
   "fx.choose": "Pilih asal kurs, perbarui, dan periksa setiap sumber.",
   "fx.auto.src": "Otomatis (Frankfurter, lalu cadangan)",
