@@ -286,3 +286,33 @@ test("recorder profiles use separate ledger identity and cursors", async (t) => 
   const repeated = await runOnce(dir, ex, { profile });
   assert.equal(repeated.result.written, 0);
 });
+
+test("v2.8 (WP19): a crypto pair under the default US$1,000,000 liquidity floor is left out of the recorded score", async (t) => {
+  const dir = tempDir(t);
+  const ex = mockExchange({ binanceTickers: [["BTCUSDT", 9e9], ["THINUSDT", 9e5], ["ETHUSDT", 5e9]] });
+  const { result } = await runOnce(dir, ex);
+  assert.equal(result.ok, true);
+  assert.deepEqual(ledgerRows(dir).map((r) => r.pair).sort(), ["BTCUSDT", "ETHUSDT"]);
+  assert.equal(ex.calls.filter((c) => c.path === "/api/v3/klines" && c.symbol === "THINUSDT").length, 0, "no candle request for a thin pair");
+});
+
+test("v2.8 (WP19): the recorder paces Binance requests on X-MBX-USED-WEIGHT-1M (Node fetch reads it)", async (t) => {
+  const dir = tempDir(t);
+  const tickers = (header) => mockExchange({
+    override: (url) => (url.pathname === "/api/v3/ticker/24hr"
+      ? new Response(JSON.stringify([["BTCUSDT", 9e9], ["ETHUSDT", 5e9], ["SOLUSDT", 2e9]].map(([symbol, qv]) => ({ symbol, openPrice: "100", lastPrice: "101", quoteVolume: String(qv) }))),
+        { status: 200, headers: { "content-type": "application/json", ...(header ? { "x-mbx-used-weight-1m": header } : {}) } })
+      : undefined),
+  });
+  let t0 = performance.now();
+  await runOnce(dir, tickers(null));
+  const fixed = performance.now() - t0;
+  assert.ok(fixed < 1_200, `no header → fixed pacing only (${Math.round(fixed)} ms)`);
+  resetRateLimitForTests();
+  mock.timers.setTime(T0 + IV); // next bar: a fresh cycle with candle requests
+  t0 = performance.now();
+  const { result } = await runOnce(dir, tickers("4830")); // 30 of 1,200 over 80% of 6,000 → 1.5 s
+  const paced = performance.now() - t0;
+  assert.equal(result.ok, true);
+  assert.ok(paced >= 1_400, `candle requests waited for the used-weight pause (${Math.round(paced)} ms)`);
+});

@@ -121,16 +121,34 @@ function months(from, to) {
   return out;
 }
 
+/**
+ * v2.8 (WP19): ms to wait before the next request for a Binance X-MBX-USED-WEIGHT-1M reading
+ * (documented as X-MBX-USED-WEIGHT-(intervalNum)(intervalLetter)): 0 at or below 80% of `limit`,
+ * rising linearly to a full minute at the limit; a missing or unreadable header is 0. Same rule as
+ * paceFromUsedWeight in apps/confluence/web/src/lib/market-client.ts (parity is tested there).
+ * The archive bucket sends no such header; the API mirror (exchangeInfo) does.
+ */
+export function paceFromUsedWeight(header, limit = 6000) {
+  if (header == null || String(header).trim() === "") return 0;
+  const used = Number(header);
+  if (!Number.isFinite(used) || used < 0 || !(limit > 0)) return 0;
+  const start = limit * 0.8;
+  if (used <= start) return 0;
+  return Math.min(60_000, Math.ceil(((used - start) / (limit - start)) * 60_000));
+}
+
 async function get(url) {
   const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
-  if (res.status === 404) return null;
+  const pause = paceFromUsedWeight(res.headers.get("x-mbx-used-weight-1m"));
+  const paced = async (v) => { if (pause > 0) await new Promise((r) => setTimeout(r, pause)); return v; }; // above 80%: wait before the next request
+  if (res.status === 404) return paced(null);
   if (res.status === 429 || res.status === 418) throw new Error(`Rate limited (${res.status}) — stop and retry later.`);
   if (!res.ok) throw new Error(`${url} → HTTP ${res.status}`);
   const len = Number(res.headers.get("content-length"));
   if (Number.isFinite(len) && len > MAX_DOWNLOAD) throw new Error(`${url}: ${len} bytes exceeds the download limit`);
   const buf = Buffer.from(await res.arrayBuffer());
   if (buf.length > MAX_DOWNLOAD) throw new Error(`${url}: exceeds the download limit`);
-  return buf;
+  return paced(buf);
 }
 
 export async function download({ symbols, tf, from, to, out, base = BASE, market = MARKET, log = console.log }) {

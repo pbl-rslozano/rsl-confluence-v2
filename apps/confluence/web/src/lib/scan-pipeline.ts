@@ -242,3 +242,21 @@ export function toLedgerRow(k: Kline[], s: SeriesScore, ctx: RowContext): Ledger
     oiChg: ctx.oiChg ?? null,
   };
 }
+
+/* ------------------------------------------------------------------ *
+ *  v2.8 (WP19) thin-pair note
+ * ------------------------------------------------------------------ */
+/** "$250k", "$1M", "$2.5M": a US$ floor as the scan line shows it. */
+export function floorLabel(usd: number): string {
+  if (usd >= 1_000_000) return `$${Math.round(usd / 100_000) / 10}M`;
+  if (usd >= 1_000) return `$${Math.round(usd / 1_000)}k`;
+  return `$${Math.round(usd)}`;
+}
+/**
+ * The scan line's thin-pair note: pairs left out of the score by Coins.ph's thin rule or the
+ * crypto liquidity floor, with the floor they fell under. Null when there is nothing to say.
+ */
+export function thinNote(thin: string[] | undefined, floorUsd: number | undefined): { n: number; floor: string } | null {
+  if (!thin?.length || !(Number(floorUsd) > 0)) return null;
+  return { n: thin.length, floor: floorLabel(Number(floorUsd)) };
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import { baseFromInput, normalizeQuoteMode } from "./quotes";
-import type { DataSource } from "./market-client";
+import { DEFAULT_LIQUIDITY_FLOOR_USD, normalizeLiquidityFloor, type DataSource } from "./market-client";
 import { ASSET_CLASS_FILTERS, type AssetClassFilter } from "./asset-classes";
 
 export type StoredTimeframe =
@@ -54,6 +54,8 @@ export interface AppPreferences {
   fxAutoUpdate: boolean;
   /** v2.7: the user's own source (name and address) when fxSource is "custom". */
   fxCustom: { name: string; url: string } | null;
+  /** v2.8 (WP19): crypto liquidity floor — US$ of 24 h quote volume (the scan's qvUsd); 0 = off. A scan setting, not a paper rule. */
+  liquidityFloorUsd: number;
 }
 
 export const DEFAULT_APP_PREFERENCES: AppPreferences = {
@@ -74,6 +76,7 @@ export const DEFAULT_APP_PREFERENCES: AppPreferences = {
   fxSource: "auto",
   fxAutoUpdate: true,
   fxCustom: null,
+  liquidityFloorUsd: DEFAULT_LIQUIDITY_FLOOR_USD,
 };
 
 const STORAGE_KEY = "ct-preferences-v1";
@@ -146,6 +149,7 @@ export function normalizePreferences(saved: unknown): AppPreferences | null {
     fxSource: savedOrDefault(saved.fxSource, FX_CHOICES, "auto"),
     fxAutoUpdate: typeof saved.fxAutoUpdate === "boolean" ? saved.fxAutoUpdate : true,
     fxCustom: normalizeCustomSource(saved.fxCustom),
+    liquidityFloorUsd: normalizeLiquidityFloor(saved.liquidityFloorUsd),
   };
 }
 

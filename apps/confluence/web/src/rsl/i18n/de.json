@@ -522,5 +522,9 @@
   "pattern.similarity": "Similarity",
   "pattern.disclaimer": "Based only on earlier closed-bar analogues: it describes what similar past sequences did. A direction is shown only when the 95% lower bound of the hit rate beats the asset's base rate by more than 2 points. Not a forecast or financial advice.",
   "ledger.power": "Days needed at the current Sharpe (PSR 0.95): {days, number} in total · {remaining, number} beyond the blocks already logged",
-  "ledger.powerNever": "Days needed at the current Sharpe: no figure — the current Sharpe never reaches PSR 0.95."
+  "ledger.powerNever": "Days needed at the current Sharpe: no figure — the current Sharpe never reaches PSR 0.95.",
+  "liq.floor": "Liquidity floor (crypto, 24 h volume)",
+  "liq.off": "Off",
+  "liq.help": "Crypto pairs with less 24 h quote volume than this (in US dollars, valued at the quote's own price on the same exchange) are left out of the score. Display currency never changes it. Coins.ph peso pairs keep their own thin-pair rule.",
+  "liq.thin": "{n, number} thin pairs under {floor}/day are not scored"
 }

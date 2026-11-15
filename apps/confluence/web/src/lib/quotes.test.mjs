@@ -8,7 +8,14 @@ import {
 } from "./quotes.ts";
 import { classifySymbol } from "./asset-classes.ts";
 import { baseOf as riskBaseOf, clusterOf } from "./risk-engine.ts";
-import { fetchDirectMarketData, resetRateLimitForTests, bitgetProductOf } from "./market-client.ts";
+import {
+  fetchDirectMarketData, resetRateLimitForTests, bitgetProductOf, fetchHistory, passesLiquidityFloor, paceFromUsedWeight, binancePaceMs,
+  DEFAULT_LIQUIDITY_FLOOR_USD, usedWeightReadable,
+} from "./market-client.ts";
+import { thinNote } from "./scan-pipeline.ts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 let passed = 0, failed = 0;
 const ok = (name, cond, extra = "") => {
@@ -185,6 +192,101 @@ r = await fetchDirectMarketData("1h", "binance", [], 10, undefined, () => 200, "
 ok("v2.7 #8 USDC/USDT at 0.992 → watch reading in a USDT scan", r.depeg?.[0]?.coin === "USDC" && r.depeg?.[0]?.reference === "USDT" && r.depeg?.[0]?.level === "watch", JSON.stringify(r.depeg));
 r = await fetchDirectMarketData("1h", "bitget-perp", [], 10, undefined, () => 200, "crypto", "USDC");
 ok("v2.7 #8 USDC perps are not marked ≈ row by row", !(r.approxVolume ?? []).length);
+
+/* ===== v2.8 (WP19) volume hygiene: Binance quote volume and trade count, crypto liquidity floor, used-weight pacing ===== */
+r = await fetchDirectMarketData("1h", "binance", [], 10, undefined, () => 200, "crypto");
+const k0 = r.klines.BTCUSDT?.[0];
+ok("WP19 binance parse keeps r[7] quote volume as qv and r[8] trade count as trades", k0?.qv === 100000 && k0?.trades === 10 && k0?.takerBuy === 500, JSON.stringify(k0));
+const hist = await fetchHistory("binance", "BTCUSDT", "1h", 200);
+ok("WP19 binance history rows keep r[7]/r[8] too", hist.klines[0]?.qv === 100000 && hist.klines[0]?.trades === 10, JSON.stringify(hist.klines[0]));
+
+ok("WP19 default liquidity floor is US$1,000,000", DEFAULT_LIQUIDITY_FLOOR_USD === 1_000_000);
+ok("WP19 passesLiquidityFloor: 900k under a 1M floor fails, 1M passes", !passesLiquidityFloor(900_000, 1_000_000, "binance") && passesLiquidityFloor(1_000_000, 1_000_000, "binance"));
+ok("WP19 passesLiquidityFloor: floor 0 turns it off", passesLiquidityFloor(1, 0, "binance") && passesLiquidityFloor(NaN, 0, "bybit-spot"));
+ok("WP19 passesLiquidityFloor: unknown USD volume (NaN) never clears an active floor", !passesLiquidityFloor(NaN, 1_000_000, "bitget"));
+ok("WP19 passesLiquidityFloor: Coins.ph peso pairs keep their own thin-pair rule", passesLiquidityFloor(1, 1_000_000, "coinsph"));
+// R21: the floor is measured on qvUsd only — three inputs (volume, floor, source), no rate table, no display currency.
+ok("WP19 floor never reads display FX: passesLiquidityFloor takes exactly (qvUsd, floorUsd, source)", passesLiquidityFloor.length === 3);
+const mcSrc = readFileSync(join(process.cwd(), "src", "lib", "market-client.ts"), "utf8");
+ok("WP19 floor never reads display FX: market-client imports no fx-rates module", !/from\s+["'][^"']*fx-rates/.test(mcSrc));
+
+const thinTickers = [
+  { symbol: "BTCUSDT", openPrice: "100", lastPrice: "101", quoteVolume: "9000000000" },
+  { symbol: "THINUSDT", openPrice: "1", lastPrice: "1", quoteVolume: "900000" },
+  { symbol: "PAXGUSDT", openPrice: "1", lastPrice: "1", quoteVolume: "900000" },
+  { symbol: "ETHUSDC", openPrice: "10", lastPrice: "10", quoteVolume: "1000500" },
+  { symbol: "USDCUSDT", openPrice: "1", lastPrice: "0.9990", quoteVolume: "3000000000" },
+];
+const thinInfo = { symbols: thinTickers.map((t) => ({ symbol: t.symbol, status: "TRADING", baseAsset: splitPair(t.symbol).base, quoteAsset: splitPair(t.symbol).quote })) };
+let weightHeader = null;
+const binanceJson = (body) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json", ...(weightHeader ? { "x-mbx-used-weight-1m": weightHeader } : {}) } });
+globalThis.fetch = async (url) => {
+  const u = String(url);
+  if (u.includes("/api/v3/ticker/24hr")) return binanceJson(thinTickers);
+  if (u.includes("/api/v3/exchangeInfo")) return binanceJson(thinInfo);
+  if (u.includes("/api/v3/klines")) return binanceJson(klineRows());
+  return json({ error: "unexpected " + u }, 404);
+};
+resetRateLimitForTests();
+r = await fetchDirectMarketData("1h", "binance", [], 10, undefined, () => 200, "all", "USDT", 1_000_000);
+let syms2 = r.tickers.map((t) => t.symbol);
+ok("WP19 floor 1,000,000 drops a 900k qvUsd crypto pair", !syms2.includes("THINUSDT") && syms2.includes("BTCUSDT"), syms2.join());
+ok("WP19 the dropped pair is listed with a note (thinSymbols + floor)", r.thinSymbols?.includes("THINUSDT") && r.thinFloorUsd === 1_000_000, JSON.stringify([r.thinSymbols, r.thinFloorUsd]));
+ok("WP19 the floor is for crypto only: a 900k commodity pair keeps the 250k non-crypto floor", syms2.includes("PAXGUSDT"), syms2.join());
+ok("WP19 no candles are fetched for a thin pair", !("THINUSDT" in r.klines));
+const note = thinNote(r.thinSymbols, r.thinFloorUsd);
+ok("WP19 thin note: count and floor label ($1M)", note?.n === 1 && note?.floor === "$1M", JSON.stringify(note));
+ok("WP19 thin note: Coins.ph $250k label, nothing to say without thin pairs", thinNote(["A", "B"], 250_000)?.floor === "$250k" && thinNote([], 1_000_000) === null);
+r = await fetchDirectMarketData("1h", "binance", [], 10, undefined, () => 200, "all", "USDT", 0);
+syms2 = r.tickers.map((t) => t.symbol);
+ok("WP19 floor 0 disables the liquidity floor", syms2.includes("THINUSDT") && !(r.thinSymbols ?? []).length, syms2.join());
+r = await fetchDirectMarketData("1h", "binance", [], 10, undefined, () => 200, "crypto", "USDC", 1_000_000);
+ok("WP19 floor is measured on qvUsd (USDC quote at its own venue price 0.999): 1,000,500 USDC = 999,500 USD < 1M → dropped",
+  !r.tickers.some((t) => t.symbol === "ETHUSDC") && r.thinSymbols?.includes("ETHUSDC"), JSON.stringify([r.tickers.map((t) => t.symbol), r.thinSymbols]));
+r = await fetchDirectMarketData("1h", "binance", [], 10, undefined, () => 200, "crypto", "USDT");
+ok("WP19 fetchDirectMarketData without a floor argument keeps every pair (callers pass the setting)", r.tickers.some((t) => t.symbol === "THINUSDT"));
+
+/* Used-weight pacing — Node paths only. */
+ok("WP19 paceFromUsedWeight('5000') > 0 (above 80% of 6,000)", paceFromUsedWeight("5000") > 0, String(paceFromUsedWeight("5000")));
+ok("WP19 paceFromUsedWeight('100') === 0", paceFromUsedWeight("100") === 0);
+ok("WP19 paceFromUsedWeight(null) === 0 (header not readable)", paceFromUsedWeight(null) === 0);
+ok("WP19 paceFromUsedWeight: 4800 (exactly 80%) = 0; at or over the limit = 60 s; junk = 0",
+  paceFromUsedWeight("4800") === 0 && paceFromUsedWeight("6000") === 60_000 && paceFromUsedWeight("9999") === 60_000 && paceFromUsedWeight("abc") === 0 && paceFromUsedWeight("") === 0);
+ok("WP19 paceFromUsedWeight honours a custom limit", paceFromUsedWeight("900", 1000) > 0 && paceFromUsedWeight("700", 1000) === 0);
+const archive = await import(pathToFileURL(join(process.cwd(), "..", "..", "..", "tools", "fetch-binance-archive.mjs")).href);
+ok("WP19 the archive CLI paces with the same rule", ["100", "4800", "4830", "5000", "6000", null, "x"].every((h) => archive.paceFromUsedWeight(h) === paceFromUsedWeight(h)));
+
+/* CORS probe: in Node (recorder, replay CLI, server route) the header is read; in a page/WebView it is not. */
+ok("WP19 Node path reads the used-weight header", usedWeightReadable() === true);
+resetRateLimitForTests();
+weightHeader = "5900"; // ticker request only (no listed asset matches): nothing waits inside this test
+await fetchDirectMarketData("1h", "binance", ["ZZZ"], 1, undefined, () => 200, "crypto");
+ok("WP19 Node: a 5,900 used-weight reading pauses the next Binance request", binancePaceMs() > 50_000, String(binancePaceMs()));
+resetRateLimitForTests();
+ok("WP19 resetRateLimitForTests clears the pause", binancePaceMs() === 0);
+weightHeader = "4830"; // 30 of 1,200 over the threshold → 1.5 s
+await fetchDirectMarketData("1h", "binance", ["ZZZ"], 1, undefined, () => 200, "crypto");
+weightHeader = null;
+const t0 = Date.now();
+await fetchDirectMarketData("1h", "binance", ["BTC"], 1, undefined, () => 200, "crypto");
+ok("WP19 Node: the next request waits for the pause (≈1.5 s)", Date.now() - t0 >= 1_400, String(Date.now() - t0));
+resetRateLimitForTests();
+// WebView / browser: cross-origin fetch hides X-MBX-USED-WEIGHT-1M (not CORS-safelisted, not exposed) — the stub
+// omits it, as Response.headers does there — so the app keeps its fixed pacing (and the 429/418 halt).
+globalThis.window = { location: { protocol: "https:" } };
+try {
+  ok("WP19 CORS probe: the header is not readable in an app build", usedWeightReadable() === false);
+  weightHeader = null;
+  await fetchDirectMarketData("1h", "binance", ["BTC"], 1, undefined, () => 200, "crypto");
+  ok("WP19 CORS probe: hidden header → fixed pacing (no used-weight pause)", binancePaceMs() === 0);
+  weightHeader = "5900"; // even a stub that exposes it is ignored in the page path
+  await fetchDirectMarketData("1h", "binance", ["BTC"], 1, undefined, () => 200, "crypto");
+  ok("WP19 CORS probe: app builds never pace on the header, fixed pacing stays", binancePaceMs() === 0);
+} finally {
+  delete globalThis.window;
+  weightHeader = null;
+  resetRateLimitForTests();
+}
 globalThis.fetch = realFetch;
 console.log(`\nQuote suite: ${passed}/${passed + failed} passed`);
 if (failed) process.exit(1);

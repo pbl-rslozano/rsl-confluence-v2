@@ -57,7 +57,7 @@ import { runScanJobs, scanMode } from "@/lib/scan-runner";
 import { packKlines, type ScanJob } from "@/lib/scan-jobs";
 import { createLedgerStore } from "@/lib/signal-ledger";
 import { createIndexedDBAdapter } from "@rsl/core-kit/core/rsl-storage.js";
-import { emptyReversal, suppressedConfluence, type SeriesScore } from "@/lib/scan-pipeline";
+import { emptyReversal, floorLabel, suppressedConfluence, thinNote, type SeriesScore } from "@/lib/scan-pipeline";
 import { emptySignal } from "@/lib/pattern-signal";
 import { ENGINE_BARS, engineConfigId } from "@/lib/engine-config";
 import { ASSET_CLASS_FILTERS, barWhileClosed, classifySymbol, hasSessionGaps, type AssetClassFilter } from "@/lib/asset-classes";
@@ -183,6 +183,8 @@ interface ScanMeta {
   currency: "USD" | "EUR" | "PHP";
   premium: Record<string, number>;
   thin: string[];
+  /** v2.8 (WP19): the US$ floor the thin pairs fell under (Coins.ph thin rule or the crypto liquidity floor). */
+  thinFloorUsd?: number;
   /** v2.7: timeframe and quote mode of these rows, the quote of each row, venue quote counts, depeg readings. */
   tf?: string;
   quote?: string;
@@ -544,6 +546,8 @@ export default function Home() {
   const [fxChoice, setFxChoice] = useState<FxChoice>(DEFAULT_APP_PREFERENCES.fxSource as FxChoice);
   const [fxAutoUpdate, setFxAutoUpdate] = useState<boolean>(DEFAULT_APP_PREFERENCES.fxAutoUpdate);
   const [fxCustom, setFxCustom] = useState<{ name: string; url: string } | null>(DEFAULT_APP_PREFERENCES.fxCustom);
+  // v2.8 (WP19): crypto liquidity floor (US$ of 24 h quote volume, the scan's qvUsd; 0 = off). Never display FX (R21).
+  const [liquidityFloorUsd, setLiquidityFloorUsd] = useState<number>(DEFAULT_APP_PREFERENCES.liquidityFloorUsd);
   const [fxDialog, setFxDialog] = useState(false);
   const [fxUpdating, setFxUpdating] = useState(false);
   const displayCurrency = displayPref === "AUTO" ? autoCurrency() : displayPref;
@@ -640,6 +644,7 @@ export default function Home() {
         setFxChoice(saved.fxSource as FxChoice);
         setFxAutoUpdate(saved.fxAutoUpdate);
         setFxCustom(saved.fxCustom);
+        setLiquidityFloorUsd(saved.liquidityFloorUsd);
         applyBackground(saved.background);
       } else {
         let legacy: string | null = null;
@@ -671,9 +676,10 @@ export default function Home() {
       fxSource: fxChoice,
       fxAutoUpdate,
       fxCustom,
+      liquidityFloorUsd,
     };
     saveAppPreferences(preferences);
-  }, [preferencesReady, timeframe, dataSource, universeLimit, background, monitorAssets, sortKey, sortDir, autoRefresh, chartDepth, assetClass, quoteBySource, displayPref, fxChoice, fxAutoUpdate, fxCustom]);
+  }, [preferencesReady, timeframe, dataSource, universeLimit, background, monitorAssets, sortKey, sortDir, autoRefresh, chartDepth, assetClass, quoteBySource, displayPref, fxChoice, fxAutoUpdate, fxCustom, liquidityFloorUsd]);
 
   // v2.7 (WP13): display-currency rates — from the chosen source, cached on the device, refreshed every 6 h
   // while "Update automatically" is on, or on "Update now". Display only: the scan never sees them.
@@ -756,6 +762,7 @@ export default function Home() {
         signal: ac.signal,
         assetClass: watchlistScope ? "all" : cls,
         quote: quoteMode,
+        liquidityFloorUsd,
         // Warm start (v2.1.1): ask for the full engine window only when this
         // session has not yet seen ENGINE_BARS contiguous bars for the series.
         klineLimit: (symbol) => {
@@ -987,7 +994,7 @@ export default function Home() {
       // Currency, premium and thin list change with the rows they describe, never before
       // (otherwise the previous source's rows show ₱ while the new scan is still scoring).
       setScanMeta({
-        source, currency: data.priceCurrency ?? "USD", premium: data.premiumBySymbol ?? {}, thin: data.thinSymbols ?? [],
+        source, currency: data.priceCurrency ?? "USD", premium: data.premiumBySymbol ?? {}, thin: data.thinSymbols ?? [], thinFloorUsd: data.thinFloorUsd,
         tf, quote: data.quote, quoteBySymbol: data.quoteBySymbol, quoteCounts: data.quoteCounts, approx: data.approxVolume,
         depeg: data.depeg, usdPhp: data.usdPhp,
       });
@@ -1009,7 +1016,7 @@ export default function Home() {
     } finally {
       if (!ac.signal.aborted) setLoading(false);
     }
-  }, [ledgerStore, watchlistScope, scoringProfile, profileReady, activeConfigId, rsl.port]);
+  }, [ledgerStore, watchlistScope, scoringProfile, profileReady, activeConfigId, rsl.port, liquidityFloorUsd]);
 
   useEffect(() => () => { historyAbortRef.current?.abort(); }, [dataSource, timeframe, scoringProfile]);
 
@@ -1161,6 +1168,8 @@ export default function Home() {
   const PRIORITY_FIAT = ["USD", "SAR", "PHP", "EUR", "AED", "QAR", "KWD", "BHD", "OMR", "GBP", "JPY", "INR", "CNY", "SGD", "AUD", "CAD", "CHF", "HKD", "KRW", "IDR", "MYR", "THB", "TRY", "NZD"];
   const fiatCodes = [...new Set([...PRIORITY_FIAT, ...fiatList.map((c) => c.code)])];
   const fiatName = new Map(fiatList.map((c) => [c.code, c.name]));
+  // v2.8 (WP19): thin-pair note for the scan line (crypto liquidity floor; Coins.ph keeps its own box).
+  const liquidityNote = scanMeta.source === dataSource && scanMeta.source !== "coinsph" ? thinNote(scanMeta.thin, scanMeta.thinFloorUsd) : null;
   // Backup reminder: after 7 days, or always while storage is not durable (builder skill §3.5).
   const backupDueDays = (() => {
     const last = rsl.lastBackupAt ? Date.parse(rsl.lastBackupAt) : null;
@@ -1363,7 +1372,8 @@ export default function Home() {
                 if (list) setDataSource(list.source);
               }} />
             <ScannerInbox port={rsl.port} list={watchlistScope} timeframe={timeframe} ledger={ledgerStore} />
-            <ScoringProfileEditor profile={scoringProfile} configId={activeConfigId} onApply={applyScoringProfile} disabled={!profileReady} />
+            <ScoringProfileEditor profile={scoringProfile} configId={activeConfigId} onApply={applyScoringProfile} disabled={!profileReady}
+              liquidityFloorUsd={liquidityFloorUsd} onLiquidityFloor={setLiquidityFloorUsd} t={t} />
             <SavedScans port={rsl.port}
               current={{ timeframe, dataSource, universeLimit, assetClass, sortKey, sortDir, search, monitorAssets }}
               onApply={(preset) => {
@@ -1498,6 +1508,13 @@ export default function Home() {
                   <span className="font-semibold text-rose-400">{t("scan.stale", { n: scanStats.stale })}</span>
                 </>
               )}
+              {/* v2.8 (WP19): crypto pairs the liquidity floor left out of the score (Coins.ph shows its own note). */}
+              {liquidityNote && (
+                <>
+                  <span className="mx-1.5 text-zinc-700">·</span>
+                  <span data-testid="liquidity-note" title={scanMeta.thin.join(", ")}>{t("liq.thin", liquidityNote)}</span>
+                </>
+              )}
               <span className="mx-1.5 text-zinc-700">·</span>
               {lastUpdate ? t("scan.updated", { time: rsl.i18n.formatDate(lastUpdate, { timeStyle: "medium", hour12: false }) }) : "—"}
               {scanStats.newestBarTime > 0 && (
@@ -1577,7 +1594,7 @@ export default function Home() {
           {t("ph.localMarket")}
           {scanMeta.thin.length > 0 && (
             <span className="ms-2 text-sky-300/80" title={scanMeta.thin.map((p) => p.replace(/PHP$/, "")).join(", ")}>
-              · {t("ph.thin", { n: scanMeta.thin.length, floor: `$${Math.round(COINSPH_MIN_USD_TURNOVER / 1000)}k` })}
+              · {t("ph.thin", { n: scanMeta.thin.length, floor: floorLabel(scanMeta.thinFloorUsd ?? COINSPH_MIN_USD_TURNOVER) })}
             </span>
           )}
         </div>

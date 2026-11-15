@@ -2,13 +2,22 @@
 
 import { useState } from "react";
 import { VOTING_INDICATORS, normalizeScoringProfile, type ScoringProfile, type VotingIndicatorId } from "@/lib/scoring-profile";
+import { LIQUIDITY_FLOOR_CHOICES } from "@/lib/market-client";
+import { floorLabel } from "@/lib/scan-pipeline";
 
-export function ScoringProfileEditor({ profile, configId, onApply, disabled }: {
+type T = (key: string, vars?: Record<string, string | number>) => string;
+
+export function ScoringProfileEditor({ profile, configId, onApply, disabled, liquidityFloorUsd, onLiquidityFloor, t }: {
   profile: ScoringProfile | null;
   configId: string;
   onApply: (profile: ScoringProfile | null) => Promise<void>;
   disabled: boolean;
+  /** v2.8 (WP19): crypto liquidity floor (US$ of 24 h quote volume; 0 = off) — a scan setting, applied on the next scan. */
+  liquidityFloorUsd: number;
+  onLiquidityFloor: (usd: number) => void;
+  t: T;
 }) {
+  const floorChoices = [...new Set<number>([...LIQUIDITY_FLOOR_CHOICES, liquidityFloorUsd])].sort((a, b) => a - b);
   const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState<VotingIndicatorId[]>([]);
   const [message, setMessage] = useState("");
@@ -51,6 +60,14 @@ export function ScoringProfileEditor({ profile, configId, onApply, disabled }: {
       {open && (
         <section aria-label="Scoring profile editor" className="absolute start-0 top-full z-30 mt-1 grid w-72 gap-2 rounded border border-zinc-700 bg-zinc-900 p-3 text-xs">
           <p>Active engine <code>{configId}</code></p>
+          <label className="grid gap-1" title={t("liq.help")}>
+            <span>{t("liq.floor")}</span>
+            <select data-testid="liquidity-floor" value={String(liquidityFloorUsd)} disabled={disabled}
+              className="h-7 rounded border border-zinc-700 bg-zinc-900 px-1"
+              onChange={(event) => onLiquidityFloor(Number(event.target.value))}>
+              {floorChoices.map((usd) => <option key={usd} value={String(usd)}>{usd > 0 ? floorLabel(usd) : t("liq.off")}</option>)}
+            </select>
+          </label>
           <fieldset disabled={busy} className="grid max-h-64 gap-1 overflow-auto">
             <legend>Indicator votes</legend>
             {VOTING_INDICATORS.map((indicator) => <label key={indicator.id} className="flex items-center gap-2">

@@ -48,6 +48,10 @@ export interface Kline {
   volume: number;
   /** v2.3: taker-buy base volume when the venue reports it (Binance spot). Never scored. */
   takerBuy?: number;
+  /** v2.8 (WP19): quote-asset volume of the bar (Binance kline field 7). Never scored. */
+  qv?: number;
+  /** v2.8 (WP19): number of trades in the bar (Binance kline field 8). Never scored. */
+  trades?: number;
 }
 
 export interface IndicatorResult {

@@ -21,8 +21,10 @@ import { TtlCache } from "@/lib/cache";
 import { guardRoute } from "@/lib/route-guard";
 import {
   DATA_SOURCES,
+  DEFAULT_LIQUIDITY_FLOOR_USD,
   INTERVAL_MS,
   fetchDirectMarketData,
+  normalizeLiquidityFloor,
   type AllResponse,
   type DataSource,
 } from "@/lib/market-client";
@@ -78,14 +80,17 @@ export async function GET(request: Request) {
 
   // v2.7: stablecoin quote mode, validated by normalizeQuoteMode (unknown → USDT).
   const quote = normalizeQuoteMode(source, searchParams.get("quote") ?? undefined);
-  const key = `${source}|${interval}|${limit}|${assetClass}|${quote}|${assets.join(",")}`;
+  // v2.8 (WP19): crypto liquidity floor, US$ of 24 h quote volume (missing = default 1,000,000; 0 = off).
+  const floorParam = searchParams.get("floor");
+  const floor = floorParam === null ? DEFAULT_LIQUIDITY_FLOOR_USD : normalizeLiquidityFloor(floorParam);
+  const key = `${source}|${interval}|${limit}|${assetClass}|${quote}|${floor}|${assets.join(",")}`;
 
   try {
     const data = await marketCache.getOrSet(
       key,
       // The server answers from a shared cache, so it always fetches the full
       // engine window (1,000 bars): no warm-up bias for any client.
-      () => fetchDirectMarketData(interval, source, assets, limit, undefined, () => 1000, assetClass, quote),
+      () => fetchDirectMarketData(interval, source, assets, limit, undefined, () => 1000, assetClass, quote, floor),
       cacheTtlForInterval(interval),
     );
     return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } });

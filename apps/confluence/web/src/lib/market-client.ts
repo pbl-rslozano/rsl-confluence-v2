@@ -97,7 +97,7 @@ import { normalizePublicTrades, type PublicTrade } from "./order-flow";
 import { macdHistogram, type Kline, type MacdHistogramPoint } from "./indicators";
 import { classifySymbol, inClass, type AssetClassFilter } from "./asset-classes";
 import {
-  COINSPH_INTERVALS, COINSPH_MAX_ASSETS, CoinsphError, coinsphCooldown, coinsphGet, coinsphPassesThinRule,
+  COINSPH_INTERVALS, COINSPH_MAX_ASSETS, COINSPH_MIN_USD_TURNOVER, CoinsphError, coinsphCooldown, coinsphGet, coinsphPassesThinRule,
   fetchCoinsphKlineRows, fetchCoinsphUniverse, phPremiumPct, resetCoinsphForTests,
 } from "./coinsph";
 export type { AssetClassFilter } from "./asset-classes";
@@ -175,6 +175,22 @@ export function priceCurrencyOf(source: string, quote: QuoteMode = DEFAULT_QUOTE
 
 /** v2.3: 24 h quote-volume floor (USD) for non-crypto instruments. */
 export const MIN_QUOTE_VOLUME_NONCRYPTO = 250_000;
+/**
+ * v2.8 (WP19): default crypto liquidity floor — 24 h quote volume in US dollars (`qvUsd`), a scan
+ * setting (0 = off). Measured on the scan's own USD volume: non-USD quotes are converted at the
+ * quote's price on the same venue (1 USDT = 1 USD), never at display-currency rates (R21).
+ */
+export const DEFAULT_LIQUIDITY_FLOOR_USD = 1_000_000;
+/** Largest floor a caller may set (keeps stored and query values sane). */
+export const MAX_LIQUIDITY_FLOOR_USD = 1_000_000_000;
+/** Settings choices for the liquidity floor (US$ per 24 h; 0 = off). */
+export const LIQUIDITY_FLOOR_CHOICES = [0, 250_000, 500_000, 1_000_000, 2_000_000, 5_000_000, 10_000_000] as const;
+/** A stored or requested floor value → a whole number of US$ in [0, MAX], or the default. */
+export function normalizeLiquidityFloor(value: unknown): number {
+  const n = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return DEFAULT_LIQUIDITY_FLOOR_USD;
+  return Math.min(MAX_LIQUIDITY_FLOOR_USD, Math.round(n));
+}
 /** v2.3: |basis| at or above this percentage marks a perp as band-pinned. */
 export const PINNED_BASIS_PCT = 1.5;
 export const UNIVERSE_SIZE = 300;
@@ -261,8 +277,10 @@ export interface AllResponse {
   premiumBySymbol?: Record<string, number>;
   /** v2.6 Coins.ph: PHP per USDT used to value volumes, or null. */
   usdPhp?: number | null;
-  /** v2.6 Coins.ph: thin pairs (under the turnover floor) left out of scoring. */
+  /** v2.6 Coins.ph: thin pairs (under the turnover floor) left out of scoring. v2.8: also crypto pairs under the liquidity floor. */
   thinSymbols?: string[];
+  /** v2.8 (WP19): the US$ floor `thinSymbols` fell under (Coins.ph's thin rule or the crypto liquidity floor). */
+  thinFloorUsd?: number;
 }
 
 interface MarketFetchOptions {
@@ -276,6 +294,8 @@ interface MarketFetchOptions {
   assetClass?: AssetClassFilter;
   /** v2.7: stablecoin quote mode (default USDT). */
   quote?: QuoteMode;
+  /** v2.8 (WP19): crypto liquidity floor, US$ of 24 h quote volume (default DEFAULT_LIQUIDITY_FLOOR_USD; 0 = off). */
+  liquidityFloorUsd?: number;
 }
 
 interface RawBinanceTicker {
@@ -309,6 +329,7 @@ interface RawBitgetTicker {
 interface TickerSet {
   tickers: ServerTicker[]; universe: UniverseEntry[]; basis: Record<string, number>; belowFloor: number;
   /** v2.7 */ quoteBySymbol?: Record<string, string>; quoteCounts?: Record<string, number>; approx?: string[]; depeg?: DepegReading[];
+  /** v2.8 (WP19): crypto pairs left out by the liquidity floor. */ thin?: string[];
 }
 
 /* ---------------------------------------------------------------------------
@@ -391,6 +412,81 @@ export function passesTurnoverFloor(source: string, symbol: string, quoteVolume:
   const ac = classifySymbol(source, symbol, venueType);
   return ac === "crypto" || ac === "excluded" || quoteVolume >= MIN_QUOTE_VOLUME_NONCRYPTO;
 }
+/**
+ * v2.8 (WP19): crypto liquidity floor. `qvUsd` is the scan's own USD volume — the function takes
+ * no rate and no display currency (R21). 0 turns the floor off; an unknown volume (NaN) never
+ * clears an active floor. Coins.ph peso pairs keep their own thin-pair rule (coinsphPassesThinRule).
+ */
+export function passesLiquidityFloor(qvUsd: number, floorUsd: number, source: string): boolean {
+  if (source === "coinsph" || !(floorUsd > 0)) return true;
+  return Number.isFinite(qvUsd) && qvUsd >= floorUsd;
+}
+/**
+ * Apply the liquidity floor to crypto rows (other classes keep MIN_QUOTE_VOLUME_NONCRYPTO).
+ * `thin` lists only pairs the floor actually kept out of this scan: those that would otherwise
+ * have been among the `limit` pairs scanned (after the watch-list filter).
+ */
+function splitLiquidity<T>(
+  source: DataSource, rows: Picked<T>[], floorUsd: number, assets: string[] | undefined, limit: number, types?: Map<string, string> | null,
+): { kept: Picked<T>[]; thin: string[] } {
+  if (!(floorUsd > 0)) return { kept: rows, thin: [] };
+  const fails = (r: Picked<T>) => classifySymbol(source, r.symbol, types?.get(r.symbol)) === "crypto" && !passesLiquidityFloor(r.qvUsd, floorUsd, source);
+  const wanted = normalizeAssets(assets);
+  const candidates = (wanted ? rows.filter((r) => wanted.has(baseOf(r.symbol, source))) : rows).slice(0, limit);
+  return { kept: rows.filter((r) => !fails(r)), thin: candidates.filter(fails).map((r) => r.symbol) };
+}
+
+/* ---------------------------------------------------------------------------
+ * v2.8 (WP19): Binance used-weight pacing. Binance reports the request weight
+ * used in the current minute in `X-MBX-USED-WEIGHT-1M` (documented as
+ * X-MBX-USED-WEIGHT-(intervalNum)(intervalLetter)). Node fetch (recorder,
+ * replay CLI, server route) can read it; a page or WebView cannot (cross-origin
+ * response headers are hidden unless exposed — like Retry-After), and Binance
+ * is not on the native-HTTP allowlist, so every app build keeps the fixed
+ * pacing below plus the global 429/418 halt. The pause only ever adds waiting.
+ * ------------------------------------------------------------------------- */
+/** Binance's documented request-weight limit per minute (spot, per IP). */
+export const BINANCE_WEIGHT_LIMIT_1M = 6000;
+/**
+ * Milliseconds to wait before the next Binance request for a used-weight reading:
+ * 0 at or below 80% of `limit`, rising linearly to a full minute at the limit.
+ * A missing or unreadable header (null, "", junk) is 0.
+ */
+export function paceFromUsedWeight(header: string | null, limit = BINANCE_WEIGHT_LIMIT_1M): number {
+  if (header == null || String(header).trim() === "") return 0;
+  const used = Number(header);
+  if (!Number.isFinite(used) || used < 0 || !(limit > 0)) return 0;
+  const start = limit * 0.8;
+  if (used <= start) return 0;
+  return Math.min(60_000, Math.ceil(((used - start) / (limit - start)) * 60_000));
+}
+/** True where the used-weight header can be read: Node (no window). Pages and WebViews: false. */
+export function usedWeightReadable(): boolean {
+  return typeof window === "undefined";
+}
+let binancePaceUntil = 0;
+/** Remaining used-weight pause before the next Binance request, ms (0 = none). */
+export function binancePaceMs(now = Date.now()): number {
+  return Math.max(0, binancePaceUntil - now);
+}
+function noteUsedWeight(res: Response, url: string): void {
+  if (!url.startsWith(BINANCE_BASE) || !usedWeightReadable()) return;
+  const wait = paceFromUsedWeight(res.headers.get("x-mbx-used-weight-1m"));
+  if (wait > 0) binancePaceUntil = Math.max(binancePaceUntil, Date.now() + wait);
+}
+async function awaitBinancePace(url: string, signal?: AbortSignal): Promise<void> {
+  if (!url.startsWith(BINANCE_BASE)) return;
+  const target = binancePaceUntil;
+  const wait = target - Date.now();
+  if (wait <= 0 || signal?.aborted) return;
+  await new Promise<void>((resolve) => {
+    const done = () => { clearTimeout(id); signal?.removeEventListener("abort", done); resolve(); };
+    const id = setTimeout(done, Math.min(wait, 60_000));
+    signal?.addEventListener("abort", done, { once: true });
+  });
+  // Waited it out; clear unless a newer reading raised it meanwhile (also safe on a frozen test clock).
+  if (binancePaceUntil === target) binancePaceUntil = 0;
+}
 function basisPct(mark?: string, index?: string): number | undefined {
   const m = parseFloat(mark ?? "");
   const i = parseFloat(index ?? "");
@@ -445,6 +541,7 @@ function noteRateLimit(err: RateLimitError, venue: Venue): void {
 /** Test hook: clear every rate-limit cooldown. */
 export function resetRateLimitForTests(): void {
   (Object.keys(rateLimitedUntil) as Venue[]).forEach((v) => { rateLimitedUntil[v] = 0; });
+  binancePaceUntil = 0;
   resetCoinsphForTests();
 }
 function assertNotCoolingDown(source: string): void {
@@ -460,7 +557,9 @@ function assertNotCoolingDown(source: string): void {
  * error-envelope response.
  */
 async function fetchJson(url: string, label: string, signal?: AbortSignal): Promise<unknown> {
+  await awaitBinancePace(url, signal);
   const res = await fetch(url, { cache: "no-store", signal });
+  noteUsedWeight(res, url);
   // Bybit signals an IP ban with HTTP 403 ("access too frequent", ~10 min).
   if (res.status === 403 && url.startsWith(BYBIT_BASE)) {
     const err = new RateLimitError(`${label}: IP temporarily banned by Bybit (403).`, 600_000);
@@ -690,6 +789,9 @@ export function aggregateKlines(klines: Kline[], groupSize: number, baseInterval
       low: Math.min(...group.map((c) => c.low)),
       close: group[group.length - 1].close,
       volume: group.reduce((sum, c) => sum + c.volume, 0),
+      // v2.8 (WP19): Binance quote volume and trade count add up, when every bar has them.
+      ...(group.every((c) => c.qv !== undefined) ? { qv: group.reduce((sum, c) => sum + (c.qv as number), 0) } : {}),
+      ...(group.every((c) => c.trades !== undefined) ? { trades: group.reduce((sum, c) => sum + (c.trades as number), 0) } : {}),
     }));
 }
 
@@ -701,9 +803,11 @@ async function fetchViaProxy(
   signal?: AbortSignal,
   assetClass: AssetClassFilter = "crypto",
   quote: QuoteMode = DEFAULT_QUOTE,
+  liquidityFloorUsd = DEFAULT_LIQUIDITY_FLOOR_USD,
 ): Promise<AllResponse> {
   const qs = new URLSearchParams({ interval, source, limit: String(limit), assetClass });
   if (quote !== DEFAULT_QUOTE) qs.set("quote", quote);
+  if (liquidityFloorUsd !== DEFAULT_LIQUIDITY_FLOOR_USD) qs.set("floor", String(liquidityFloorUsd));
   if (assets.length) qs.set("assets", assets.join(","));
   const res = await fetch(`/api/market/all?${qs.toString()}`, { cache: "no-store", signal });
   if (!res.ok) throw new Error(`Proxy failed: ${res.status}`);
@@ -777,7 +881,7 @@ async function loadBitgetPairs(signal?: AbortSignal): Promise<void> {
   }
 }
 
-async function fetchBinanceTickers(assets?: string[], limit = 200, signal?: AbortSignal, assetClass: AssetClassFilter = "crypto", quote: QuoteMode = DEFAULT_QUOTE): Promise<TickerSet> {
+async function fetchBinanceTickers(assets?: string[], limit = 200, signal?: AbortSignal, assetClass: AssetClassFilter = "crypto", quote: QuoteMode = DEFAULT_QUOTE, floorUsd = 0): Promise<TickerSet> {
   if (quote !== "USDT") await loadBinancePairs(signal);
   const all = (await fetchJson(`${BINANCE_BASE}/api/v3/ticker/24hr?type=MINI`, "Binance ticker upstream", signal)) as RawBinanceTicker[];
   const picked = pickQuotes("binance", all.filter((t) => SAFE_SYMBOL.test(t.symbol)), (t) => t.symbol,
@@ -785,7 +889,8 @@ async function fetchBinanceTickers(assets?: string[], limit = 200, signal?: Abor
   const ranked = picked.rows.sort(byUsdDesc);
   const universe = universeOf("binance", ranked.map((r) => ({ symbol: r.symbol, qv: Number.isFinite(r.qvUsd) ? r.qvUsd : 0 })));
   const inCls = ranked.filter((r) => inClass("binance", r.symbol, assetClass));
-  const floored = inCls.filter((r) => passesTurnoverFloor("binance", r.symbol, Number.isFinite(r.qvUsd) ? r.qvUsd : 0));
+  const turnover = inCls.filter((r) => passesTurnoverFloor("binance", r.symbol, Number.isFinite(r.qvUsd) ? r.qvUsd : 0));
+  const { kept: floored, thin } = splitLiquidity("binance", turnover, floorUsd, assets, limit);
   const tickers = floored
     .map(({ t, qvUsd }, i) => {
       const open = parseFloat(t.openPrice);
@@ -800,9 +905,16 @@ async function fetchBinanceTickers(assets?: string[], limit = 200, signal?: Abor
       };
     });
   return {
-    tickers: filterTickers(tickers, assets, limit, "binance"), universe, basis: {}, belowFloor: inCls.length - floored.length,
-    quoteBySymbol: quoteMapOf(floored), quoteCounts: picked.counts, approx: picked.approx, depeg: picked.depeg,
+    tickers: filterTickers(tickers, assets, limit, "binance"), universe, basis: {}, belowFloor: inCls.length - turnover.length,
+    quoteBySymbol: quoteMapOf(floored), quoteCounts: picked.counts, approx: picked.approx, depeg: picked.depeg, thin,
   };
+}
+
+/** v2.8 (WP19): Binance kline fields 7 (quote-asset volume) and 8 (number of trades), when present and numeric. */
+function binanceExtras(r: (string | number)[]): { qv?: number; trades?: number } {
+  const qv = r[7] !== undefined ? Number(r[7]) : NaN;
+  const trades = r[8] !== undefined ? Number(r[8]) : NaN;
+  return { ...(Number.isFinite(qv) ? { qv } : {}), ...(Number.isFinite(trades) ? { trades } : {}) };
 }
 
 async function fetchBinanceKlines(symbol: string, interval: string, signal?: AbortSignal, bars = 200): Promise<Kline[]> {
@@ -823,6 +935,8 @@ async function fetchBinanceKlines(symbol: string, interval: string, signal?: Abo
     volume: parseFloat(r[5] as string),
     // v2.3: taker-buy base volume (Binance kline field 9).
     ...(r[9] !== undefined ? { takerBuy: parseFloat(r[9] as string) } : {}),
+    // v2.8 (WP19): quote-asset volume (field 7) and trade count (field 8). Logged context, never scored.
+    ...binanceExtras(r),
   }));
   const baseMs = INTERVAL_MS[upstreamInterval] ?? INTERVAL_MS["15m"];
   const closed = dropUnclosed(parsed, baseMs);
@@ -859,6 +973,7 @@ async function fetchBybitTickers(
   signal?: AbortSignal,
   assetClass: AssetClassFilter = "crypto",
   quote: QuoteMode = DEFAULT_QUOTE,
+  floorUsd = 0,
 ): Promise<TickerSet> {
   const json = (await fetchJson(`${BYBIT_BASE}/v5/market/tickers?category=${category}`, "Bybit ticker upstream", signal)) as { result?: { list?: RawBybitTicker[] } };
   const src: DataSource = category === "linear" ? "bybit-perp" : "bybit-spot";
@@ -872,7 +987,8 @@ async function fetchBybitTickers(
   const basis: Record<string, number> = {};
   if (category === "linear") for (const { t } of ranked) { const b = basisPct(t.markPrice, t.indexPrice); if (b !== undefined) basis[t.symbol] = b; }
   const inCls = ranked.filter((r) => inClass(src, r.symbol, assetClass, types?.get(r.symbol)));
-  const floored = inCls.filter((r) => passesTurnoverFloor(src, r.symbol, usd(r), types?.get(r.symbol)));
+  const turnover = inCls.filter((r) => passesTurnoverFloor(src, r.symbol, usd(r), types?.get(r.symbol)));
+  const { kept: floored, thin } = splitLiquidity(src, turnover, floorUsd, assets, limit, types);
   const tickers = floored
     .map(({ t, qvUsd }, i) => ({
       rank: i + 1,
@@ -882,8 +998,8 @@ async function fetchBybitTickers(
       quoteVolume: quote === "USDT" ? (t.turnover24h ?? t.volume24h ?? "0") : String(qvUsd),
     }));
   return {
-    tickers: filterTickers(tickers, assets, limit, src), universe, basis, belowFloor: inCls.length - floored.length,
-    quoteBySymbol: quoteMapOf(floored), quoteCounts: picked.counts, approx: picked.approx, depeg: picked.depeg,
+    tickers: filterTickers(tickers, assets, limit, src), universe, basis, belowFloor: inCls.length - turnover.length,
+    quoteBySymbol: quoteMapOf(floored), quoteCounts: picked.counts, approx: picked.approx, depeg: picked.depeg, thin,
   };
 }
 
@@ -949,7 +1065,7 @@ export function bitgetProductOf(symbol: string): string {
   return /PERP$/.test(symbol) ? BITGET_USDC_PRODUCT : BITGET_PERP_PRODUCT;
 }
 
-async function fetchBitgetTickers(assets?: string[], limit = 200, signal?: AbortSignal, assetClass: AssetClassFilter = "crypto", perp = false, quote: QuoteMode = DEFAULT_QUOTE): Promise<TickerSet> {
+async function fetchBitgetTickers(assets?: string[], limit = 200, signal?: AbortSignal, assetClass: AssetClassFilter = "crypto", perp = false, quote: QuoteMode = DEFAULT_QUOTE, floorUsd = 0): Promise<TickerSet> {
   const src: DataSource = perp ? "bitget-perp" : "bitget";
   let list: RawBitgetTicker[];
   if (perp) {
@@ -977,7 +1093,8 @@ async function fetchBitgetTickers(assets?: string[], limit = 200, signal?: Abort
   const basis: Record<string, number> = {};
   if (perp) for (const { t } of ranked) { const b = basisPct(t.markPrice, t.indexPrice); if (b !== undefined) basis[t.symbol] = b; }
   const inCls = ranked.filter((r) => inClass(src, r.symbol, assetClass));
-  const floored = inCls.filter((r) => passesTurnoverFloor(src, r.symbol, usd(r)));
+  const turnover = inCls.filter((r) => passesTurnoverFloor(src, r.symbol, usd(r)));
+  const { kept: floored, thin } = splitLiquidity(src, turnover, floorUsd, assets, limit);
   const tickers = floored
     .map(({ t, qvUsd }, i) => ({
       rank: i + 1,
@@ -987,8 +1104,8 @@ async function fetchBitgetTickers(assets?: string[], limit = 200, signal?: Abort
       quoteVolume: quote === "USDT" ? (t.usdtVolume ?? t.quoteVolume ?? "0") : String(qvUsd),
     }));
   return {
-    tickers: filterTickers(tickers, assets, limit, src), universe, basis, belowFloor: inCls.length - floored.length,
-    quoteBySymbol: quoteMapOf(floored), quoteCounts: picked.counts, approx: picked.approx, depeg: picked.depeg,
+    tickers: filterTickers(tickers, assets, limit, src), universe, basis, belowFloor: inCls.length - turnover.length,
+    quoteBySymbol: quoteMapOf(floored), quoteCounts: picked.counts, approx: picked.approx, depeg: picked.depeg, thin,
   };
 }
 
@@ -1117,8 +1234,11 @@ export async function fetchDirectMarketData(
   klineLimit?: (symbol: string) => number,
   assetClass: AssetClassFilter = "crypto",
   quoteMode: QuoteMode = DEFAULT_QUOTE,
+  /** v2.8 (WP19): crypto liquidity floor, US$ (0 = off — the low-level default; fetchMarketData and the route pass the setting). */
+  liquidityFloorUsd = 0,
 ): Promise<AllResponse> {
   const startedAt = Date.now();
+  const floorUsd = Number.isFinite(liquidityFloorUsd) && liquidityFloorUsd > 0 ? liquidityFloorUsd : 0;
   const quote = normalizeQuoteMode(source, quoteMode);
   if (!VALID_INTERVALS.has(interval)) throw new Error(`Invalid interval: ${interval}`);
   assertNotCoolingDown(source);
@@ -1131,10 +1251,10 @@ export async function fetchDirectMarketData(
   let set: TickerSet;
   let coinsph: CoinsphTickerSet | null = null;
   if (source === "coinsph") set = coinsph = await fetchCoinsphTickers(assets, limit, signal, assetClass);
-  else if (source === "binance") set = await fetchBinanceTickers(assets, limit, signal, assetClass, quote);
-  else if (source === "bybit-spot") set = await fetchBybitTickers("spot", assets, limit, signal, assetClass, quote);
-  else if (source === "bybit-perp") set = await fetchBybitTickers("linear", assets, limit, signal, assetClass, quote);
-  else set = await fetchBitgetTickers(assets, limit, signal, assetClass, source === "bitget-perp", quote);
+  else if (source === "binance") set = await fetchBinanceTickers(assets, limit, signal, assetClass, quote, floorUsd);
+  else if (source === "bybit-spot") set = await fetchBybitTickers("spot", assets, limit, signal, assetClass, quote, floorUsd);
+  else if (source === "bybit-perp") set = await fetchBybitTickers("linear", assets, limit, signal, assetClass, quote, floorUsd);
+  else set = await fetchBitgetTickers(assets, limit, signal, assetClass, source === "bitget-perp", quote, floorUsd);
   const tickers = set.tickers;
 
   let haltedUntil: number | undefined;
@@ -1185,9 +1305,12 @@ export async function fetchDirectMarketData(
   if (set.quoteCounts) response.quoteCounts = set.quoteCounts;
   if (set.approx?.length) response.approxVolume = set.approx;
   if (set.depeg?.length) response.depeg = set.depeg;
+  // v2.8 (WP19): crypto pairs under the liquidity floor, for the thin-pair note in the scan line.
+  if (set.thin?.length) { response.thinSymbols = set.thin; response.thinFloorUsd = floorUsd; }
   if (coinsph) {
     response.usdPhp = coinsph.usdPhp;
     response.thinSymbols = coinsph.thin;
+    response.thinFloorUsd = COINSPH_MIN_USD_TURNOVER;
     response.premiumBySymbol = await coinsphPremiums(tickers, coinsph.usdPhp, signal);
   }
   return response;
@@ -1201,14 +1324,15 @@ export async function fetchMarketData(
   const assets = options.assets ?? [];
   const limit = Math.min(options.limit ?? 100, sourceMeta(source).maxAssets);
   if (!VALID_INTERVALS.has(interval)) throw new Error(`Invalid interval: ${interval}`);
+  const floor = options.liquidityFloorUsd === undefined ? DEFAULT_LIQUIDITY_FLOOR_USD : normalizeLiquidityFloor(options.liquidityFloorUsd);
 
   // Static exports and native shells have no server proxy by design.
   if (usesDirectFetch()) {
-    return fetchDirectMarketData(interval, source, assets, limit, options.signal, options.klineLimit, options.assetClass ?? "crypto", options.quote ?? DEFAULT_QUOTE);
+    return fetchDirectMarketData(interval, source, assets, limit, options.signal, options.klineLimit, options.assetClass ?? "crypto", options.quote ?? DEFAULT_QUOTE, floor);
   }
 
   try {
-    return await fetchViaProxy(interval, source, assets, limit, options.signal, options.assetClass ?? "crypto", options.quote ?? DEFAULT_QUOTE);
+    return await fetchViaProxy(interval, source, assets, limit, options.signal, options.assetClass ?? "crypto", options.quote ?? DEFAULT_QUOTE, floor);
   } catch (err) {
     // Never retry a deliberately superseded scan.
     if (err instanceof DOMException && err.name === "AbortError") throw err;
@@ -1264,10 +1388,11 @@ const parseRow = (r: (string | number)[]): Kline => ({
   time: Number(r[0]), open: Number(r[1]), high: Number(r[2]),
   low: Number(r[3]), close: Number(r[4]), volume: Number(r[5]),
 });
-/** Binance rows also carry taker-buy base volume at index 9. */
+/** Binance rows also carry taker-buy base volume at index 9 (v2.8: quote volume at 7, trade count at 8). */
 const parseBinanceRow = (r: (string | number)[]): Kline => ({
   ...parseRow(r),
   ...(r[9] !== undefined ? { takerBuy: Number(r[9]) } : {}),
+  ...binanceExtras(r),
 });
 
 async function historyPage(
