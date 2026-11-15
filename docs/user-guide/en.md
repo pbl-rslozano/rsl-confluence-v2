@@ -438,7 +438,7 @@ Paper trading practises the discipline the ledger asks for. STRONG score bands b
 - **Dead-man switch**: if no scan has run for the set number of bars, approvals stop and open positions are marked unmanaged. Keep the app scanning while you hold paper positions.
 
 ### Journal
-Closed trades are listed with costs, P&L and exit reason, plus trades, win rate, average win/loss in R, expectancy, net P&L and maximum drawdown. **Export CSV** saves the journal. **Replay trade** replays a closed trade on its saved candles, and **Annotate** adds tags and notes. The journal counts reconciled trades towards **50**, the number needed before anything beyond paper is even considered.
+Closed trades are listed with costs, P&L and exit reason, plus trades, win rate, average win/loss in R, expectancy, net P&L and maximum drawdown. **Export CSV** saves the journal. **Replay trade** replays a closed trade on its saved candles, and **Annotate** adds tags and notes. The journal counts **closed** paper trades towards **50**, the number needed before anything beyond paper is even considered. Matching them to the recorded bars (reconciliation) is a separate step.
 
 ### Risk settings
 ![Risk settings and the kill switch.](images/paper-settings.webp)

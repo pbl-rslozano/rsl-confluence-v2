@@ -47,7 +47,7 @@ export const PAPER_SCHEMA = 2;
 export const DEFAULT_STARTING_EQUITY = 10_000;
 /** The typed word that resets the kill switch. Not translated. */
 export const KILL_RESET_WORD = "RESET";
-/** Reconciled paper/demo trades required before anything beyond paper is considered (ADR-0010). */
+/** Closed paper trades counted towards the gate before anything beyond paper is considered (ADR-0010); reconciling them to the recorded bars is a separate step. */
 export const RECONCILE_GATE_TRADES = 50;
 const MAX_NONCES = 2_000;
 const DECISION_TTL_MS = 14 * 86_400_000;

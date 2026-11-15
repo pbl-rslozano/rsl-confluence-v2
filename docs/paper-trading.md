@@ -81,7 +81,7 @@ Sizes are always rounded **down**, so the risk taken never exceeds the plan. The
 
 ## Loss limits and what can break them
 - **Daily and weekly locks** count open losses as well as closed ones, measured from the first equity mark of the UTC day or week.
-- **Drawdown lock.** When equity, open P&L included, falls the set percentage (10 % by default) below its highest mark, new trades stop and every open trade is closed at the **next open of its own chart**. `RESET` (typed) clears it once every lock close has filled, keeps the loss and starts a fresh limit from current equity.
+- **Drawdown lock.** When equity, open P&L included, falls the set percentage (10 % by default) below its highest mark, new trades stop, every pending (unfilled) position is cancelled (discarded, not journalled), and every open trade is closed at the **next open of its own chart**. `RESET` (typed) clears it once every lock close has filled, keeps the loss and starts a fresh limit from current equity.
 - **The 10 % is not a guaranteed maximum loss.** Gaps, exit costs, and a longer timeframe's wait for its next open (a 1d chart's close fills at the next daily open) can all take a loss past 10 %. The simulation cannot exit faster than the next bar.
 - **No loosening while locked.** Raising a loss limit, the risk per trade, the open-risk cap or the leverage cap is refused while the kill switch or any loss lock is active, and until the next UTC day after it clears. Tightening is always allowed.
 
