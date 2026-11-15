@@ -160,6 +160,10 @@ export const DEFAULT_COSTS: Record<string, CostModel> = {
   // v2.6 (ADR-0013): Coins.ph fee schedule not yet confirmed — deliberately
   // conservative placeholders for a thin peso book (0.30 % fee, 15 bp slippage).
   coinsph: { feeBps: 30, slipBps: 15, fundingBpsPer8h: 0 },
+  // v2.8 (WP26): OKX's fee schedule is not cited in the repo or the probe [not verified] — these mirror the
+  // existing spot default and the more conservative existing perp default (Bitget perpetual).
+  okx: { feeBps: 10, slipBps: 5, fundingBpsPer8h: 0 },
+  "okx-perp": { feeBps: 6, slipBps: 5, fundingBpsPer8h: 1 },
 };
 
 /**

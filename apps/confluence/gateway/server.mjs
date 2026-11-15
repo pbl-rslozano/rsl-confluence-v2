@@ -114,7 +114,8 @@ async function readJson(request) {
 
 function validateRecorderRules(value) {
   if (value?.version !== 1 || !Array.isArray(value.rules) || value.rules.length > 20) throw new Error("Invalid recorder rule file.");
-  const sources = ["binance", "bybit-spot", "bybit-perp", "bitget", "bitget-perp"];
+  // Recorder rules scan public market data only (v2.8 WP26: OKX is keyless; no private profile exists for it).
+  const sources = ["binance", "bybit-spot", "bybit-perp", "bitget", "bitget-perp", "okx", "okx-perp"];
   const timeframes = ["1m", "5m", "15m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "2d", "4d", "1w", "1M"];
   const ids = new Set();
   const rules = value.rules.map((rule) => {

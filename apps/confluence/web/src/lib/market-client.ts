@@ -99,6 +99,12 @@ import { normalizePublicTrades, type PublicTrade } from "./order-flow";
  *     bar again; a revised overlap bar falls back to the full 1,000-bar
  *     window. Aggregated (synthetic) intervals always fetch normally.
  *
+ * v2.8 (WP26):
+ *
+ * 23. OKX SPOT AND PERPETUAL (sources "okx", "okx-perp", okx.ts). Candles are paged 300 at a time (newest
+ *     page /market/candles, then /market/history-candles?after=), bars flagged open are dropped, and a 429
+ *     mid-paging rejects the whole series (no partial series) and halts the scan.
+ *
  * 10. VOLUME IS DETECTED, NOT ASSUMED. `volumeBySymbol` reports whether each
  *     series carries real traded volume (tokenised assets and thin pairs
  *     often do not), so volume indicators are excluded instead of voting on
@@ -112,6 +118,8 @@ import {
   COINSPH_INTERVALS, COINSPH_MAX_ASSETS, COINSPH_MIN_USD_TURNOVER, CoinsphError, coinsphCooldown, coinsphGet, coinsphPassesThinRule,
   fetchCoinsphKlineRows, fetchCoinsphUniverse, phPremiumPct, resetCoinsphForTests,
 } from "./coinsph";
+// v2.8 (WP26): OKX lives in okx.ts, which imports the shared helpers below (an import cycle; see okx.ts).
+import { OKX_CONCURRENCY, OKX_PAUSE_MS, fetchOkxHistoryPage, fetchOkxKlines, fetchOkxOrderBook, fetchOkxTickers, okxBar } from "./okx";
 export type { AssetClassFilter } from "./asset-classes";
 import {
   BEST, DEFAULT_QUOTE, type DepegReading, type PriceCurrency, type QuoteMode, baseFromInput, baseOf, depegLevel, normalizeQuoteMode,
@@ -121,6 +129,8 @@ import {
 const BINANCE_BASE = "https://data-api.binance.vision";
 const BYBIT_BASE = "https://api.bybit.com";
 const BITGET_BASE = "https://api.bitget.com";
+/** v2.8 (WP26): OKX public market data, spot and perpetual (ADR-0003 v2.8; probe wp26-venues-probe-2026-11-15.json). */
+export const OKX_BASE = "https://www.okx.com";
 
 /**
  * Leveraged tokens and USD-pegged pairs are excluded and every other symbol is
@@ -178,6 +188,19 @@ export const DATA_SOURCES = [
     note: "Public Philippine peso (PHP) spot tickers and OHLCV candles. Thin local market: pairs under $250k/day are not scored.",
     maxAssets: COINSPH_MAX_ASSETS,
   },
+  // v2.8 (WP26): public data only — no privateApi, never offered under 🔑 (R20). okx.ts.
+  {
+    value: "okx",
+    label: "OKX Spot",
+    note: "Public spot tickers and OHLCV candles (USDT, USDC).",
+    maxAssets: 200,
+  },
+  {
+    value: "okx-perp",
+    label: "OKX Perpetual",
+    note: "Public USDT-margined perpetual tickers and OHLCV candles.",
+    maxAssets: 200,
+  },
 ] as const;
 
 /** v2.6: price currency per source (volumes are always reported in USD). v2.7: EUR for EUR-stablecoin quotes. */
@@ -228,7 +251,8 @@ export const INTERVAL_MS: Record<string, number> = {
 };
 
 const VALID_INTERVALS = new Set(Object.keys(INTERVAL_MS));
-const SYNTHETIC_DAY_INTERVALS: Record<string, number> = { "2d": 2, "4d": 4 };
+/** Intervals built from daily bars (exported for the venue modules, v2.8 WP26). */
+export const SYNTHETIC_DAY_INTERVALS: Record<string, number> = { "2d": 2, "4d": 4 };
 
 export type FetchErrorReason = "HTTP" | "PARSE" | "STALE" | "EMPTY" | "TIMEOUT" | "RATE_LIMIT" | "UNKNOWN";
 
@@ -358,7 +382,8 @@ interface RawBitgetTicker {
   indexPrice?: string;
 }
 
-interface TickerSet {
+/** One venue's scan list (exported for the venue modules, v2.8 WP26). */
+export interface TickerSet {
   tickers: ServerTicker[]; universe: UniverseEntry[]; basis: Record<string, number>; belowFloor: number;
   /** v2.7 */ quoteBySymbol?: Record<string, string>; quoteCounts?: Record<string, number>; approx?: string[]; depeg?: DepegReading[];
   /** v2.8 (WP19): crypto pairs left out by the liquidity floor. */ thin?: string[];
@@ -369,9 +394,9 @@ interface TickerSet {
  * the rows of the selected quote mode with USD volume. In USDT mode it is the
  * v2.6 filter (`endsWith("USDT")`, volume as reported) so results are identical.
  * ------------------------------------------------------------------------- */
-interface Picked<T> { t: T; symbol: string; base: string; quote: string; qvUsd: number }
+export interface Picked<T> { t: T; symbol: string; base: string; quote: string; qvUsd: number }
 interface PickResult<T> { rows: Picked<T>[]; counts: Record<string, number>; approx: string[]; depeg: DepegReading[] }
-function pickQuotes<T>(
+export function pickQuotes<T>(
   source: DataSource,
   list: readonly T[],
   symOf: (t: T) => string,
@@ -424,12 +449,12 @@ function pickQuotes<T>(
   return { rows: chosen, counts, approx: approx.filter((s) => chosen.some((r) => r.symbol === s)), depeg };
 }
 /** Highest USD volume first; unknown (NaN) volumes last. Stable, like v2.6's sort. */
-const byUsdDesc = (a: { qvUsd: number }, b: { qvUsd: number }) =>
+export const byUsdDesc = (a: { qvUsd: number }, b: { qvUsd: number }) =>
   (Number.isFinite(b.qvUsd) ? b.qvUsd : -1) - (Number.isFinite(a.qvUsd) ? a.qvUsd : -1);
-const quoteMapOf = <T,>(rows: Picked<T>[]) => Object.fromEntries(rows.map((r) => [r.symbol, r.quote]));
+export const quoteMapOf = <T,>(rows: Picked<T>[]) => Object.fromEntries(rows.map((r) => [r.symbol, r.quote]));
 
 /** Full ranking (all classes) for the universe log; leveraged/pegged pairs are left out. */
-function universeOf(source: DataSource, rows: { symbol: string; qv: number }[], types?: Map<string, string> | null): UniverseEntry[] {
+export function universeOf(source: DataSource, rows: { symbol: string; qv: number }[], types?: Map<string, string> | null): UniverseEntry[] {
   const out: UniverseEntry[] = [];
   for (const r of rows) {
     const ac = classifySymbol(source, r.symbol, types?.get(r.symbol));
@@ -458,7 +483,7 @@ export function passesLiquidityFloor(qvUsd: number, floorUsd: number, source: st
  * `thin` lists only pairs the floor actually kept out of this scan: those that would otherwise
  * have been among the `limit` pairs scanned (after the watch-list filter).
  */
-function splitLiquidity<T>(
+export function splitLiquidity<T>(
   source: DataSource, rows: Picked<T>[], floorUsd: number, assets: string[] | undefined, limit: number, types?: Map<string, string> | null,
 ): { kept: Picked<T>[]; thin: string[] } {
   if (!(floorUsd > 0)) return { kept: rows, thin: [] };
@@ -560,7 +585,7 @@ function venueOfUrl(url: string): Venue {
   if (url.startsWith(BYBIT_BASE)) return "bybit";
   if (url.startsWith(BITGET_BASE)) return "bitget";
   // v2.8 (WP26) hosts, fixed by the plan; the fetchers arrive in Tasks 3-5.
-  if (url.startsWith("https://www.okx.com")) return "okx";
+  if (url.startsWith(OKX_BASE)) return "okx";
   if (url.startsWith("https://api.exchange.coinbase.com")) return "coinbase";
   if (url.startsWith("https://api.upbit.com")) return "upbit";
   return "binance";
@@ -583,7 +608,7 @@ export function resetRateLimitForTests(): void {
   binancePaceUntil = 0;
   resetCoinsphForTests();
 }
-function assertNotCoolingDown(source: string): void {
+export function assertNotCoolingDown(source: string): void {
   const wait = rateLimitCooldown(source);
   if (wait > 0) {
     throw new RateLimitError(`Exchange rate limit: paused for ${Math.ceil(wait / 1000)} s to protect your IP.`, wait);
@@ -595,7 +620,7 @@ function assertNotCoolingDown(source: string): void {
  * 429/418 or Bybit/Bitget rate-limit codes, and Error on any other non-OK or
  * error-envelope response.
  */
-async function fetchJson(url: string, label: string, signal?: AbortSignal): Promise<unknown> {
+export async function fetchJson(url: string, label: string, signal?: AbortSignal): Promise<unknown> {
   await awaitBinancePace(url, signal);
   const res = await fetch(url, { cache: "no-store", signal });
   noteUsedWeight(res, url);
@@ -627,8 +652,9 @@ async function fetchJson(url: string, label: string, signal?: AbortSignal): Prom
       throw new Error(`${label} error ${o.retCode}: ${o.retMsg ?? ""}`.trim());
     }
     if (o.code !== undefined && String(o.code) !== "00000" && String(o.code) !== "0") {
-      if (String(o.code) === "429") {
-        const err = new RateLimitError(`${label}: rate limited (Bitget 429).`, 60_000);
+      if (String(o.code) === "429" || (url.startsWith(OKX_BASE) && String(o.code) === "50011")) {
+        // v2.8 (WP26): OKX's "Too Many Requests" code, should it arrive in a 200 envelope [not verified].
+        const err = new RateLimitError(`${label}: rate limited (${url.startsWith(OKX_BASE) ? "OKX 50011" : "Bitget 429"}).`, 60_000);
         noteRateLimit(err, venueOfUrl(url));
         throw err;
       }
@@ -642,7 +668,7 @@ async function fetchJson(url: string, label: string, signal?: AbortSignal): Prom
 const SAFE_SYMBOL = /^[A-Z0-9]{2,30}$/;
 
 /** Bars per request: 100–1,000 (v2.8 WP27: a delta request may ask as few as 2 — overlap + the bar in progress). */
-const clampLimit = (n: number | undefined, delta = false) => Math.max(delta ? 2 : 100, Math.min(1000, Math.round(n ?? 200)));
+export const clampLimit = (n: number | undefined, delta = false) => Math.max(delta ? 2 : 100, Math.min(1000, Math.round(n ?? 200)));
 
 /* ---------------------------------------------------------------------------
  * Venue instrument types (v2.1.1). Bybit V5 instruments-info carries
@@ -650,7 +676,7 @@ const clampLimit = (n: number | undefined, delta = false) => Math.max(delta ? 2 
  * "" or "innovation" for crypto). Read once per 6 h per source; on failure the
  * classifier falls back to symbol patterns and the scan carries on.
  * ------------------------------------------------------------------------- */
-const INSTRUMENT_TTL_MS = 6 * 3_600_000;
+export const INSTRUMENT_TTL_MS = 6 * 3_600_000;
 const instrumentTypes = new Map<DataSource, { at: number; types: Map<string, string> }>();
 
 export async function loadInstrumentTypes(source: DataSource, signal?: AbortSignal): Promise<Map<string, string> | null> {
@@ -721,7 +747,7 @@ function normalizeAssets(assets?: string[]): Set<string> | null {
   return clean.length ? new Set(clean) : null;
 }
 
-function filterTickers(tickers: ServerTicker[], assets?: string[], limit = 200, source?: string): ServerTicker[] {
+export function filterTickers(tickers: ServerTicker[], assets?: string[], limit = 200, source?: string): ServerTicker[] {
   const wanted = normalizeAssets(assets);
   const filtered = wanted
     ? tickers.filter((t) => wanted.has(baseOf(t.symbol, source)))
@@ -1269,11 +1295,12 @@ async function coinsphPremiums(tickers: ServerTicker[], usdPhp: number | null, s
 /**
  * v2.8 (WP27): true when `interval` is served natively by the source's candle
  * endpoint (delta requests apply); false for intervals aggregated from smaller
- * bars (Binance/Coins.ph 2d/4d, Bybit/Bitget 8h/2d/4d), which always fetch normally.
+ * bars (Binance/Coins.ph 2d/4d, Bybit/Bitget/OKX 8h/2d/4d), which always fetch normally.
  */
 export function deltaSupported(source: DataSource, interval: string): boolean {
   if (source === "binance" || source === "coinsph") return !SYNTHETIC_DAY_INTERVALS[interval];
   if (source === "bybit-spot" || source === "bybit-perp") return !bybitInterval(interval).aggregate;
+  if (source === "okx" || source === "okx-perp") { const m = okxBar(interval); return !!m && !m.aggregate; }
   return !(source === "bitget-perp" ? bitgetPerpGranularity(interval) : bitgetGranularity(interval)).aggregate;
 }
 
@@ -1283,6 +1310,7 @@ export function fetchSymbolKlines(source: DataSource, interval: string, symbol: 
   if (source === "binance") return fetchBinanceKlines(symbol, interval, signal, bars, delta);
   if (source === "bybit-spot") return fetchBybitKlines("spot", symbol, interval, signal, bars, delta);
   if (source === "bybit-perp") return fetchBybitKlines("linear", symbol, interval, signal, bars, delta);
+  if (source === "okx" || source === "okx-perp") return fetchOkxKlines(source, symbol, interval, signal, bars, delta);
   return fetchBitgetKlines(symbol, interval, signal, bars, source === "bitget-perp", delta);
 }
 
@@ -1343,8 +1371,8 @@ export async function fetchDirectMarketData(
 
   const klines: Record<string, Kline[]> = {};
   const errors: FetchError[] = [];
-  // Coins.ph: one request at a time; coinsph.ts spaces and budgets them.
-  const concurrency = source === "coinsph" ? 1 : 6;
+  // Coins.ph: one request at a time; coinsph.ts spaces and budgets them. OKX pages each series (okx.ts).
+  const concurrency = source === "coinsph" ? 1 : source === "okx" || source === "okx-perp" ? OKX_CONCURRENCY : 6;
 
   let set: TickerSet;
   let coinsph: CoinsphTickerSet | null = null;
@@ -1352,6 +1380,7 @@ export async function fetchDirectMarketData(
   else if (source === "binance") set = await fetchBinanceTickers(assets, limit, signal, assetClass, quote, floorUsd);
   else if (source === "bybit-spot") set = await fetchBybitTickers("spot", assets, limit, signal, assetClass, quote, floorUsd);
   else if (source === "bybit-perp") set = await fetchBybitTickers("linear", assets, limit, signal, assetClass, quote, floorUsd);
+  else if (source === "okx" || source === "okx-perp") set = await fetchOkxTickers(source, assets, limit, signal, assetClass, quote, floorUsd);
   else set = await fetchBitgetTickers(assets, limit, signal, assetClass, source === "bitget-perp", quote, floorUsd);
   const tickers = set.tickers;
   // Everything the scan line and banners need that is known once the list is chosen (PH premium comes at the end).
@@ -1384,7 +1413,7 @@ export async function fetchDirectMarketData(
     concurrency,
     signal,
     // Bitget allows ~20 public requests/s per IP; pace it harder (review S1). Coins.ph paces itself.
-    pauseMs: source === "coinsph" ? 0 : source === "bitget" || source === "bitget-perp" ? 350 : 120,
+    pauseMs: source === "coinsph" ? 0 : source === "bitget" || source === "bitget-perp" ? 350 : source === "okx" || source === "okx-perp" ? OKX_PAUSE_MS : 120,
     isHalt: (e) => e instanceof RateLimitError,
     onResult: (symbol, value) => {
       klines[symbol] = value;
@@ -1467,15 +1496,17 @@ function historyMapping(source: DataSource, interval: string) {
   // Binance and Coins.ph serve 8h natively.
   const special = (source === "binance" || source === "coinsph") && interval === "8h" ? undefined : HISTORY_SYNTHETIC[interval];
   const base = special?.base ?? interval;
+  const okx = source === "okx" || source === "okx-perp";
   return {
     upstream: source.startsWith("bybit")
       ? HISTORY_BYBIT[base]
       : source === "bitget" ? HISTORY_BITGET[base]
       : source === "bitget-perp" ? bitgetPerpGranularity(base).granularity
+      : okx ? okxBar(base)?.bar ?? base
       : base,
     baseMs: INTERVAL_MS[base],
     group: special?.group ?? 1,
-    pageSize: source === "bitget" || source === "bitget-perp" ? 200 : 1000,
+    pageSize: source === "bitget" || source === "bitget-perp" ? 200 : okx ? 300 : 1000,
   };
 }
 
@@ -1490,16 +1521,20 @@ const parseBinanceRow = (r: (string | number)[]): Kline => ({
   ...binanceExtras(r),
 });
 
+/** One backfill page: closed-or-open bars at or before `endTime`, and the venue's raw row count (v2.8 WP26). */
 async function historyPage(
   source: DataSource,
   symbol: string,
   upstream: string,
   endTime: number,
   signal?: AbortSignal,
-): Promise<Kline[]> {
+): Promise<{ bars: Kline[]; rows: number }> {
+  const all = (bars: Kline[]) => ({ bars, rows: bars.length });
   if (source === "coinsph") {
-    return viaCoinsph(() => fetchCoinsphKlineRows(symbol, upstream, 1000, signal, endTime));
+    return all(await viaCoinsph(() => fetchCoinsphKlineRows(symbol, upstream, 1000, signal, endTime)));
   }
+  // OKX drops rows flagged open (confirm "0"); `rows` keeps the raw count for the end-of-history test.
+  if (source === "okx" || source === "okx-perp") return fetchOkxHistoryPage(source, symbol, upstream, endTime, signal);
   let url: string;
   if (source === "binance") {
     url = `${BINANCE_BASE}/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${upstream}&endTime=${endTime}&limit=1000`;
@@ -1512,12 +1547,12 @@ async function historyPage(
     url = `${BITGET_BASE}/api/v2/spot/market/history-candles?symbol=${encodeURIComponent(symbol)}&granularity=${upstream}&endTime=${endTime}&limit=200`;
   }
   const json = await fetchJson(url, `${source} history`, signal);
-  if (Array.isArray(json)) return (json as (string | number)[][]).map(source === "binance" ? parseBinanceRow : parseRow);
+  if (Array.isArray(json)) return all((json as (string | number)[][]).map(source === "binance" ? parseBinanceRow : parseRow));
   const rows =
     (json as { result?: { list?: string[][] } }).result?.list ??
     (json as { data?: string[][] }).data ??
     [];
-  return rows.map(parseRow);
+  return all(rows.map(parseRow));
 }
 
 export interface HistoryResult {
@@ -1547,13 +1582,13 @@ export async function fetchHistory(
   let exhausted = false;
   while (all.size < target) {
     if (signal?.aborted) throw new DOMException("Backfill cancelled", "AbortError");
-    const values = await historyPage(source, symbol, mapped.upstream, cursor, signal);
+    const { bars: values, rows } = await historyPage(source, symbol, mapped.upstream, cursor, signal);
     if (!values.length) { exhausted = true; break; }
     values.forEach((bar) => { if (Number.isFinite(bar.time)) all.set(bar.time, bar); });
     const oldest = Math.min(...values.map((bar) => bar.time));
     if (!Number.isFinite(oldest) || oldest >= cursor) { exhausted = true; break; }
     cursor = oldest - 1;
-    if (values.length < mapped.pageSize) { exhausted = true; break; }
+    if (rows < mapped.pageSize) { exhausted = true; break; }
     await sleep(120);
   }
   const closed = dropUnclosed([...all.values()], mapped.baseMs);
@@ -1582,13 +1617,13 @@ export async function fetchHistoryRange(
   let cursor = toMs;
   for (let guard = 0; guard < 2000; guard++) {
     if (signal?.aborted) throw new DOMException("Replay cancelled", "AbortError");
-    const values = await historyPage(source, symbol, mapped.upstream, cursor, signal);
+    const { bars: values, rows } = await historyPage(source, symbol, mapped.upstream, cursor, signal);
     if (!values.length) break;
     values.forEach((bar) => { if (Number.isFinite(bar.time)) all.set(bar.time, bar); });
     const oldest = Math.min(...values.map((bar) => bar.time));
     if (!Number.isFinite(oldest) || oldest >= cursor || oldest <= fromMs) break;
     cursor = oldest - 1;
-    if (values.length < mapped.pageSize) break;
+    if (rows < mapped.pageSize) break;
     await sleep(pauseMs);
   }
   const closed = dropUnclosed([...all.values()], mapped.baseMs).filter((b) => b.time <= toMs);
@@ -1648,6 +1683,7 @@ export async function fetchOrderBook(source: DataSource, symbol: string, signal?
     const j = (await fetchJson(`${BINANCE_BASE}/api/v3/depth?symbol=${s}&limit=100`, `Binance depth ${symbol}`, signal)) as { bids?: unknown; asks?: unknown };
     return { bids: toLevels(j.bids), asks: toLevels(j.asks) };
   }
+  if (source === "okx" || source === "okx-perp") return fetchOkxOrderBook(source, symbol, signal);
   if (source === "bybit-spot" || source === "bybit-perp") {
     const cat = source === "bybit-perp" ? "linear" : "spot";
     const j = (await fetchJson(`${BYBIT_BASE}/v5/market/orderbook?category=${cat}&symbol=${s}&limit=50`, `Bybit depth ${symbol}`, signal)) as { result?: { b?: unknown; a?: unknown } };

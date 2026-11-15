@@ -31,7 +31,8 @@
  *   R22 no organisation details (v2.8, KIT-002): no employer/company names, departments, people or sites in the
  *       source tree or the built web output (tools/checks/no-org-ids.mjs; salted word hashes)
  *   R21 display only (v2.7, ADR-0015): fx-rates.ts is imported by display code only, and fetches only table hosts
- *   R20 keyless public sources (v2.6): no keys/signatures in public sources, Coins.ph paths only from the read allowlist, no private profile
+ *   R20 keyless public sources (v2.6; v2.8 WP26 Upbit paths, OKX): no keys/signatures in public sources, Coins.ph and Upbit
+ *       paths only from their read allowlists, no private profile on any public source
  *   R24 licence policy (v2.8 WP20, licence audit): every shipped npm package and Rust crate under an allowed licence
  *       (tools/licence-policy.json; MPL-2.0 only with a notice entry), third-party notices complete
  *       (tools/third-party-notices.mjs --check), private workspace packages UNLICENSED, no Binance Vision archive
@@ -176,22 +177,14 @@ if (process.argv.includes("--with-tests")) {
   check("R11", "Recorder / MCP / tools egress limited to tools/egress-manifest.json", eg.ok, formatEgressFindings(eg));
 }
 
-/* R12 — no order path anywhere (ADR-0009, ADR-0010; v2.3 review S2): no source file
+/* R12 — no order path anywhere (ADR-0009, ADR-0010; v2.3 review S2; v2.8 WP26 venues): no source file
  * outside tests references an exchange order / position-changing endpoint, the
  * paper modules make no network calls, and paper + MCP import no exchange client. */
 {
-  const ORDER = /\/api\/v3\/order|\/sapi\/v\d\/margin\/order|\/(fapi|dapi)\/v\d\/order|\/papi\/v\d\/\w+\/order|\/v5\/order\/|\/v5\/position\/(set|switch|trading-stop|add-margin)|place-?order|\/api\/v2\/(spot|mix)\/(trade|order)\/|\/api\/(spot|mix)\/v1\/(trade|order)/i;
-  const isTest = (p) => /(^|\/)(test|tests|__tests__|test-support)\//.test(p) || /\.test\.[cm]?[jt]sx?$/.test(p);
-  const bad = [];
-  let scanned = 0;
-  for (const root of ["apps", "packages", "tools"]) {
-    for (const f of walk(join(ROOT, root))) {
-      const r = rel(f);
-      if (!/\.(m?[jt]sx?|cjs)$/.test(r) || isTest(r) || r === "tools/release-check.mjs") continue;
-      scanned++;
-      if (ORDER.test(readFileSync(f, "utf8"))) bad.push(`${r}: order endpoint`);
-    }
-  }
+  // v2.8 (WP26): the endpoint patterns (now also OKX, Coinbase, Upbit) and the scan live in checks/order-paths.mjs,
+  // with fixture tests in tools/order-paths.test.mjs.
+  const { scanOrderEndpoints } = await import("./checks/order-paths.mjs");
+  const { bad, scanned } = scanOrderEndpoints(ROOT);
   const paper = ["apps/confluence/web/src/lib/risk-engine.ts", "apps/confluence/web/src/lib/paper-broker.ts", "apps/confluence/web/src/lib/paper-store.ts", "apps/confluence/web/src/lib/paper-feed.ts", "apps/confluence/web/src/components/paper-dialog.tsx"];
   const boundary = [...paper];
   const mcpDir = join(ROOT, "apps/confluence/mcp/src");
@@ -202,6 +195,8 @@ if (process.argv.includes("--with-tests")) {
     const src = readFileSync(p, "utf8");
     if (paper.includes(f) && /\bfetch\s*\(|XMLHttpRequest|WebSocket\s*\(|EventSource\s*\(/.test(src)) bad.push(`${f}: network call`);
     if (/from\s+["'][^"']*(private-api|exchange-auth)["']/.test(src)) bad.push(`${f}: imports a private exchange client`);
+    // v2.8 (WP26): the venue modules are exchange clients too.
+    if (/from\s+["'][^"']*\/(okx|coinbase|upbit|coinsph|native-relay)(\.[cm]?[jt]s)?["']/.test(src)) bad.push(`${f}: imports a venue client`);
     // market-client: only the bar-length table (a constant) may be imported, never a fetch function.
     for (const m of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*["'][^"']*market-client["']/g)) {
       const names = m[1].split(",").map((x) => x.trim()).filter((x) => x && !x.startsWith("type "));
@@ -293,7 +288,7 @@ if (process.argv.includes("--with-tests")) {
 {
   const { checkKeylessSources } = await import("./checks/keyless-sources.mjs");
   const r = checkKeylessSources(ROOT);
-  check("R20", "Public sources keyless; Coins.ph paths only from the read allowlist; no private profile", r.ok, r.ok ? "coinsph, public-hosts, native-relay, adapters" : r.findings.join("; "));
+  check("R20", "Public sources keyless; Coins.ph and Upbit paths only from their read allowlists; no private profile", r.ok, r.ok ? "coinsph, public-hosts, native-relay, okx, adapters; okx/okx-perp keyless" : r.findings.join("; "));
 }
 
 /* R21 — display currency is display only (v2.7, plan WP13.2) */

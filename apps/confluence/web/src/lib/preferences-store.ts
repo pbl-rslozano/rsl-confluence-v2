@@ -81,7 +81,7 @@ export const DEFAULT_APP_PREFERENCES: AppPreferences = {
 
 const STORAGE_KEY = "ct-preferences-v1";
 const TIMEFRAMES = new Set<StoredTimeframe>(["1M", "1w", "1d", "4d", "2d", "12h", "8h", "6h", "4h", "1h", "15m", "5m", "1m"]);
-const DATA_SOURCES = new Set<DataSource>(["binance", "bybit-spot", "bybit-perp", "bitget", "bitget-perp", "coinsph"]);
+const DATA_SOURCES = new Set<DataSource>(["binance", "bybit-spot", "bybit-perp", "bitget", "bitget-perp", "coinsph", "okx", "okx-perp"]);
 const UNIVERSE_LIMITS = new Set([25, 50, 100, 200]);
 const BACKGROUNDS = new Set<StoredBackground>(["dark", "white", "system"]);
 const SORT_KEYS = new Set<StoredSortKey>(["rank", "symbol", "price", "change24h", "quoteVolume", "bull", "bear", "score"]);
