@@ -533,5 +533,9 @@
   "about.licences": "Open-source licences",
   "about.licencesNote": "This app includes open-source software. Each component's licence and copyright notice is in the third-party notices.",
   "about.licencesOpen": "Third-party notices (THIRD-PARTY-NOTICES.txt)",
-  "about.trademarks": "Bollinger Bands® is a registered trademark of John Bollinger. Exchange and token names and logos belong to their owners and only identify the market; no affiliation or endorsement."
+  "about.trademarks": "Bollinger Bands® is a registered trademark of John Bollinger. Exchange and token names and logos belong to their owners and only identify the market; no affiliation or endorsement.",
+  "row.updating": "updating · {time}",
+  "row.notUpdated": "not updated · {time}",
+  "row.updatingHint": "Shown from the history on this device while its fresh data loads. Display only: not recorded, not proposed to the paper simulator, no alerts.",
+  "row.notUpdatedHint": "This scan could not refresh this row; it shows the history on this device. Display only: not recorded, not proposed to the paper simulator, no alerts."
 }

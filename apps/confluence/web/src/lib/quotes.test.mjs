@@ -10,9 +10,11 @@ import { classifySymbol } from "./asset-classes.ts";
 import { baseOf as riskBaseOf, clusterOf } from "./risk-engine.ts";
 import {
   fetchDirectMarketData, resetRateLimitForTests, bitgetProductOf, fetchHistory, passesLiquidityFloor, paceFromUsedWeight, binancePaceMs,
-  DEFAULT_LIQUIDITY_FLOOR_USD, usedWeightReadable,
+  DEFAULT_LIQUIDITY_FLOOR_USD, usedWeightReadable, rateLimitCooldown,
 } from "./market-client.ts";
-import { thinNote } from "./scan-pipeline.ts";
+import { thinNote, scoreSeries } from "./scan-pipeline.ts";
+import { deltaPlan, mergeDelta } from "./history-store.ts";
+import { isDeepStrictEqual } from "node:util";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -287,6 +289,132 @@ try {
   weightHeader = null;
   resetRateLimitForTests();
 }
+
+/* ===== v2.8 (WP27) smooth loading: delta fetch, priority tiers, cancel, 429 halt across tiers ===== */
+const DH = 3_600_000;
+const dNow = Date.now();
+const inProgress = Math.floor(dNow / DH) * DH;
+// Binance rows, oldest first, the last one still building (as the venue returns them).
+const fixtureRows = (count) => Array.from({ length: count }, (_, i) => {
+  const t = inProgress - (count - 1 - i) * DH;
+  const p = 50 + Math.cos(i / 9) * 4 + i * 0.02;
+  return [t, String(p), String(p + 1.5), String(p - 1.5), String(p + 0.3), String(500 + (i % 17)), t + DH - 1, String(1000 + i), 7, "250", "0"];
+});
+const FULL = fixtureRows(1004); // 1,003 closed bars + the one in progress
+// Parsed the way fetchBinanceKlines parses a row.
+const parseRow = (r) => ({ time: Number(r[0]), open: parseFloat(r[1]), high: parseFloat(r[2]), low: parseFloat(r[3]), close: parseFloat(r[4]), volume: parseFloat(r[5]), takerBuy: parseFloat(r[9]), qv: Number(r[7]), trades: Number(r[8]) });
+const EXPECTED = FULL.slice(0, -1).map(parseRow); // the full closed series
+const STORED = EXPECTED.slice(0, 1000);            // on-device history: 1,000 bars, 3 behind
+const scoreOf = (k) => scoreSeries(k, { intervalMs: DH, volumeAvailable: true, assetClass: "crypto" });
+const sameScore = (a, b) => isDeepStrictEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)));
+
+let dTickers = [{ symbol: "BTCUSDT", openPrice: "50", lastPrice: "51", quoteVolume: "9000000000" }];
+let revise = null; // (row) => row, applied to kline rows served
+const klineReqs = [];
+let fail429 = null;
+globalThis.fetch = async (url) => {
+  const u = new URL(String(url));
+  if (u.pathname.endsWith("/ticker/24hr")) return json(dTickers);
+  if (u.pathname.endsWith("/klines")) {
+    const sym = u.searchParams.get("symbol");
+    const limit = Number(u.searchParams.get("limit"));
+    klineReqs.push({ sym, limit });
+    if (fail429 === sym) return new Response(JSON.stringify({ code: -1003 }), { status: 429, headers: { "retry-after": "45" } });
+    const rows = FULL.slice(-limit);
+    return json(revise ? rows.map(revise) : rows);
+  }
+  return json({ error: "unexpected " + u }, 404);
+};
+resetRateLimitForTests();
+
+/* deltaPlan */
+const plan = deltaPlan(STORED, DH, dNow);
+ok("WP27 deltaPlan: 3 bars missing → limit 4 (3 + one overlap bar), overlap = newest stored bar",
+  plan?.limit === 4 && plan?.overlapOpenTime === STORED.at(-1).time, JSON.stringify(plan));
+ok("WP27 deltaPlan: up to date → limit 1 (overlap only)", deltaPlan(EXPECTED, DH, dNow)?.limit === 1, JSON.stringify(deltaPlan(EXPECTED, DH, dNow)));
+const gapped = [...STORED.slice(0, 500), ...STORED.slice(501)];
+ok("WP27 gap in stored history → deltaPlan null", deltaPlan([...EXPECTED.slice(0, 600), ...EXPECTED.slice(601)], DH, dNow) === null && deltaPlan(gapped, DH, dNow) === null);
+ok("WP27 shorter than ENGINE_BARS → deltaPlan null", deltaPlan(STORED.slice(1), DH, dNow) === null && deltaPlan([], DH, dNow) === null);
+ok("WP27 an old gap before the newest 1,000 contiguous bars does not block the delta",
+  deltaPlan([...EXPECTED.slice(0, 2), ...EXPECTED.slice(3)], DH, dNow)?.limit === 1);
+ok("WP27 stored history more than 998 bars behind → full window (deltaPlan null)", deltaPlan(STORED, DH, dNow + 1_000 * DH) === null);
+
+/* mergeDelta (pure) */
+const freshTail = FULL.slice(-5).slice(0, -1).map(parseRow); // overlap + 3 new (closed)
+const merged = mergeDelta(STORED, freshTail, plan.overlapOpenTime);
+ok("WP27 delta-fetched series equal full-fetched series (mergeDelta)", isDeepStrictEqual(merged, EXPECTED), `${merged?.length} vs ${EXPECTED.length}`);
+ok("WP27 delta-fetched series equal full-fetched series (scoreSeries outputs identical)", sameScore(scoreOf(merged), scoreOf(EXPECTED)));
+const revisedTail = freshTail.map((b) => (b.time === plan.overlapOpenTime ? { ...b, close: b.close + 0.5 } : b));
+ok("WP27 mergeDelta: overlap bar differs → null", mergeDelta(STORED, revisedTail, plan.overlapOpenTime) === null);
+ok("WP27 mergeDelta: overlap bar missing from the fresh bars → null", mergeDelta(STORED, freshTail.slice(1), plan.overlapOpenTime) === null);
+
+/* The fetch layer: delta request, merge, fallback. */
+let discarded = [];
+const hooks = (stored) => ({
+  delta: (s) => deltaPlan(stored, DH, Date.now()),
+  mergeDelta: (s, fresh, ov) => { const m = mergeDelta(stored, fresh, ov); if (!m) discarded.push(s); return m; },
+});
+klineReqs.length = 0;
+const seen = [];
+let tickersFirst = -2;
+r = await fetchDirectMarketData("1h", "binance", [], 10, undefined, () => 1000, "crypto", "USDT", 0, {
+  ...hooks(STORED), onSeries: (s, k) => seen.push([s, k.length]), onTickers: (list) => { tickersFirst = list.length === 1 ? klineReqs.length : -1; },
+});
+ok("WP27 delta request asks only the missing bars + overlap + the bar in progress (limit=5)", klineReqs.length === 1 && klineReqs[0].limit === 5, JSON.stringify(klineReqs));
+ok("WP27 delta-fetched series equal full-fetched series (fetch layer)", isDeepStrictEqual(r.klines.BTCUSDT, EXPECTED), String(r.klines.BTCUSDT?.length));
+ok("WP27 onTickers hands the chosen list over before any candle request", tickersFirst === 0, String(tickersFirst));
+ok("WP27 onSeries hands each series over as soon as it is fetched", seen.length === 1 && seen[0][0] === "BTCUSDT" && seen[0][1] === EXPECTED.length, JSON.stringify(seen));
+klineReqs.length = 0;
+r = await fetchDirectMarketData("1h", "binance", [], 10, undefined, () => 1000, "crypto", "USDT", 0, { ...hooks(EXPECTED) });
+ok("WP27 up-to-date history: delta request limit=2 (clampLimit minimum 2 with delta)", klineReqs[0]?.limit === 2, JSON.stringify(klineReqs));
+
+// Review focus 3: the exchange revised the overlap bar → stored series discarded, full window fetched.
+const fullOnly = await fetchDirectMarketData("1h", "binance", [], 10, undefined, () => 1000, "crypto", "USDT", 0);
+const revisedStored = STORED.map((b, i) => (i === STORED.length - 1 ? { ...b, close: b.close + 0.5 } : b));
+klineReqs.length = 0; discarded = [];
+r = await fetchDirectMarketData("1h", "binance", [], 10, undefined, () => 200, "crypto", "USDT", 0, { ...hooks(revisedStored) });
+ok("WP27 delta overlap mismatch falls back to full window (second request limit=1000, not the 200-bar warm start)",
+  JSON.stringify(klineReqs.map((x) => x.limit)) === "[5,1000]", JSON.stringify(klineReqs));
+ok("WP27 delta overlap mismatch falls back to full window (series = a plain full fetch)", isDeepStrictEqual(r.klines.BTCUSDT, fullOnly.klines.BTCUSDT));
+ok("WP27 delta overlap mismatch falls back to full window (scores equal a full fetch)", sameScore(scoreOf(r.klines.BTCUSDT), scoreOf(fullOnly.klines.BTCUSDT)));
+ok("WP27 delta overlap mismatch: the caller is told to discard the stored series", JSON.stringify(discarded) === '["BTCUSDT"]');
+klineReqs.length = 0; discarded = [];
+r = await fetchDirectMarketData("1h", "binance", [], 10, undefined, () => 200, "crypto", "USDT", 0, { ...hooks(gapped) });
+ok("WP27 gap in stored history → no delta request (warm-start/full path only)", JSON.stringify(klineReqs.map((x) => x.limit)) === "[200]", JSON.stringify(klineReqs));
+klineReqs.length = 0;
+await fetchDirectMarketData("2d", "binance", [], 10, undefined, () => 200, "crypto", "USDT", 0, { delta: () => ({ limit: 3, overlapOpenTime: 0 }), mergeDelta: () => null });
+ok("WP27 synthetic (aggregated) intervals never use delta requests", klineReqs.length === 1 && klineReqs[0].limit === 1000, JSON.stringify(klineReqs));
+
+/* Priority tiers, cancel, 429 halt. */
+const many = Array.from({ length: 40 }, (_, i) => `C${String(i).padStart(2, "0")}USDT`);
+dTickers = many.map((symbol, i) => ({ symbol, openPrice: "50", lastPrice: "51", quoteVolume: String(9e9 - i * 1e6) }));
+klineReqs.length = 0;
+await fetchDirectMarketData("1h", "binance", [], 40, undefined, () => 200, "crypto", "USDT", 0, { priority: ["C33USDT", "C07USDT"] });
+ok("WP27 priority: the watched pairs are fetched first", klineReqs[0]?.sym === "C33USDT" && klineReqs[1]?.sym === "C07USDT", klineReqs.slice(0, 3).map((x) => x.sym).join());
+ok("WP27 priority: then the rest by volume, every pair once", klineReqs[2]?.sym === "C00USDT" && new Set(klineReqs.map((x) => x.sym)).size === 40 && klineReqs.length === 40);
+
+const ac = new AbortController();
+let after = 0;
+klineReqs.length = 0;
+const aborted = await fetchDirectMarketData("1h", "binance", [], 40, ac.signal, () => 200, "crypto", "USDT", 0, {
+  onSeries: () => { after++; if (after === 2) ac.abort(); },
+}).then(() => "resolved", (e) => e?.name);
+ok("WP27 switching source cancels: the old scan rejects with AbortError", aborted === "AbortError", String(aborted));
+ok("WP27 switching source cancels: no onSeries after the abort, no further requests", after === 2 && klineReqs.length === 6, `${after} series, ${klineReqs.length} requests`);
+
+resetRateLimitForTests();
+klineReqs.length = 0;
+fail429 = "C12USDT"; // tier 2 (top 10, then 20 per tier)
+r = await fetchDirectMarketData("1h", "binance", [], 40, undefined, () => 200, "crypto", "USDT", 0, { onSeries: () => {} });
+const reqSyms = klineReqs.map((x) => x.sym);
+ok("WP27 429 halts all tiers: no request for tier 3+ after a 429 in tier 2", !reqSyms.some((s) => many.indexOf(s) >= 30) && !reqSyms.includes("C16USDT"), reqSyms.join());
+ok("WP27 429 halts all tiers: cooldown set, scan flagged rate-limited", rateLimitCooldown("binance") > 40_000 && (r.rateLimitedUntil ?? 0) > Date.now(), String(rateLimitCooldown("binance")));
+ok("WP27 429 halts all tiers: skipped pairs reported, fetched ones kept",
+  r.errors.filter((e) => e.reason === "RATE_LIMIT").length === 40 - 16 + 1 && Object.keys(r.klines).length === 15, `${r.errors.length} errors, ${Object.keys(r.klines).length} series`);
+const blocked = await fetchDirectMarketData("1h", "binance", [], 40, undefined, () => 200, "crypto", "USDT", 0).then(() => "ran", (e) => e?.name);
+ok("WP27 429 halts all tiers: the next scan is refused while cooling down", blocked === "RateLimitError", String(blocked));
+fail429 = null;
+resetRateLimitForTests();
 globalThis.fetch = realFetch;
 console.log(`\nQuote suite: ${passed}/${passed + failed} passed`);
 if (failed) process.exit(1);

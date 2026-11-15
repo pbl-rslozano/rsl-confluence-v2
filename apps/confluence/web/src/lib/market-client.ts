@@ -88,6 +88,17 @@ import { normalizePublicTrades, type PublicTrade } from "./order-flow";
  * 20. DEPEG READINGS. The selected quote (and USDT on Coins.ph) is checked
  *     against its peg every scan; information only, never scored.
  *
+ * v2.8 (WP27):
+ *
+ * 21. PRIORITY TIERS. Candles are fetched tier by tier (progressive-scan.ts):
+ *     the watch list, or the top 10 by volume, then chunks of 20; the 429/418
+ *     halt stops every remaining tier. `onSeries` hands each series to the
+ *     page as soon as it is fetched (rows appear while the scan runs).
+ * 22. DELTA FETCH. With `delta`/`mergeDelta` a series whose stored history is
+ *     contiguous asks only for the bars after the newest stored bar plus that
+ *     bar again; a revised overlap bar falls back to the full 1,000-bar
+ *     window. Aggregated (synthetic) intervals always fetch normally.
+ *
  * 10. VOLUME IS DETECTED, NOT ASSUMED. `volumeBySymbol` reports whether each
  *     series carries real traded volume (tokenised assets and thin pairs
  *     often do not), so volume indicators are excluded instead of voting on
@@ -95,6 +106,7 @@ import { normalizePublicTrades, type PublicTrade } from "./order-flow";
  * ----------------------------------------------------------------------------
  */
 import { macdHistogram, type Kline, type MacdHistogramPoint } from "./indicators";
+import { priorityOrder, runTiers } from "./progressive-scan";
 import { classifySymbol, inClass, type AssetClassFilter } from "./asset-classes";
 import {
   COINSPH_INTERVALS, COINSPH_MAX_ASSETS, COINSPH_MIN_USD_TURNOVER, CoinsphError, coinsphCooldown, coinsphGet, coinsphPassesThinRule,
@@ -283,7 +295,27 @@ export interface AllResponse {
   thinFloorUsd?: number;
 }
 
-interface MarketFetchOptions {
+/** v2.8 (WP27): what a scan knows once its list is chosen (the same fields its final response carries). */
+export type ListMeta = Pick<AllResponse, "universe" | "basisBySymbol" | "belowFloor" | "priceCurrency" | "quote" | "quoteBySymbol"
+  | "quoteCounts" | "approxVolume" | "depeg" | "thinSymbols" | "thinFloorUsd" | "usdPhp">;
+
+/** v2.8 (WP27): progressive-scan hooks (direct-fetch builds only). */
+export interface ProgressiveFetch {
+  /** The chosen list (rank, price, change, volume) and its metadata, before any candle request. */
+  onTickers?: (tickers: ServerTicker[], meta: ListMeta) => void;
+  /** Called once per fetched series, in fetch order, while the scan runs. */
+  onSeries?: (symbol: string, klines: Kline[]) => void;
+  /** Symbols settled so far / total, after every batch. */
+  onProgress?: (done: number, total: number) => void;
+  /** Delta request for a symbol (history-store `deltaPlan`), or null for the normal request. */
+  delta?: (symbol: string) => { limit: number; overlapOpenTime: number } | null;
+  /** Stored + fresh bars (history-store `mergeDelta`), or null → the full window is fetched instead. */
+  mergeDelta?: (symbol: string, fresh: Kline[], overlapOpenTime: number) => Kline[] | null;
+  /** The user's watchlist/selection: fetched first (otherwise the top 10 by volume). */
+  priority?: string[];
+}
+
+interface MarketFetchOptions extends ProgressiveFetch {
   source?: DataSource;
   assets?: string[];
   limit?: number;
@@ -602,7 +634,8 @@ async function fetchJson(url: string, label: string, signal?: AbortSignal): Prom
 /** Exchange symbols are untrusted input: accept only plain upper-case alphanumerics. */
 const SAFE_SYMBOL = /^[A-Z0-9]{2,30}$/;
 
-const clampLimit = (n: number | undefined) => Math.max(100, Math.min(1000, Math.round(n ?? 200)));
+/** Bars per request: 100–1,000 (v2.8 WP27: a delta request may ask as few as 2 — overlap + the bar in progress). */
+const clampLimit = (n: number | undefined, delta = false) => Math.max(delta ? 2 : 100, Math.min(1000, Math.round(n ?? 200)));
 
 /* ---------------------------------------------------------------------------
  * Venue instrument types (v2.1.1). Bybit V5 instruments-info carries
@@ -917,10 +950,10 @@ function binanceExtras(r: (string | number)[]): { qv?: number; trades?: number }
   return { ...(Number.isFinite(qv) ? { qv } : {}), ...(Number.isFinite(trades) ? { trades } : {}) };
 }
 
-async function fetchBinanceKlines(symbol: string, interval: string, signal?: AbortSignal, bars = 200): Promise<Kline[]> {
+async function fetchBinanceKlines(symbol: string, interval: string, signal?: AbortSignal, bars = 200, delta = false): Promise<Kline[]> {
   const syntheticDays = SYNTHETIC_DAY_INTERVALS[interval];
   const upstreamInterval = syntheticDays ? "1d" : interval;
-  const requestLimit = syntheticDays ? 1000 : clampLimit(bars);
+  const requestLimit = syntheticDays ? 1000 : clampLimit(bars, delta);
   const raw = (await fetchJson(
     `${BINANCE_BASE}/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${upstreamInterval}&limit=${requestLimit}`,
     `Binance klines ${symbol}`,
@@ -1009,9 +1042,10 @@ async function fetchBybitKlines(
   interval: string,
   signal?: AbortSignal,
   bars = 200,
+  delta = false,
 ): Promise<Kline[]> {
   const mapped = bybitInterval(interval);
-  const requestLimit = mapped.aggregate ? 1000 : clampLimit(bars);
+  const requestLimit = mapped.aggregate ? 1000 : clampLimit(bars, delta);
   const json = (await fetchJson(
     `${BYBIT_BASE}/v5/market/kline?category=${category}&symbol=${encodeURIComponent(symbol)}&interval=${mapped.interval}&limit=${requestLimit}`,
     `Bybit klines ${symbol}`,
@@ -1121,10 +1155,10 @@ function bitgetPerpGranularity(interval: string): { granularity: string; aggrega
   return { granularity: map[interval] ?? "15m", baseMs: INTERVAL_MS[interval] ?? INTERVAL_MS["15m"] };
 }
 
-async function fetchBitgetKlines(symbol: string, interval: string, signal?: AbortSignal, bars = 200, perp = false): Promise<Kline[]> {
+async function fetchBitgetKlines(symbol: string, interval: string, signal?: AbortSignal, bars = 200, perp = false, delta = false): Promise<Kline[]> {
   const mapped = perp ? bitgetPerpGranularity(interval) : bitgetGranularity(interval);
   const end = Date.now();
-  const requestLimit = mapped.aggregate ? 1000 : clampLimit(bars);
+  const requestLimit = mapped.aggregate ? 1000 : clampLimit(bars, delta);
   const json = (await fetchJson(
     perp
       ? `${BITGET_BASE}/api/v2/mix/market/candles?symbol=${encodeURIComponent(symbol)}&productType=${bitgetProductOf(symbol)}&granularity=${mapped.granularity}&endTime=${end}&limit=${requestLimit}`
@@ -1191,11 +1225,11 @@ async function fetchCoinsphTickers(assets?: string[], limit = COINSPH_MAX_ASSETS
   };
 }
 
-async function fetchCoinsphKlines(symbol: string, interval: string, signal?: AbortSignal, bars = 200): Promise<Kline[]> {
+async function fetchCoinsphKlines(symbol: string, interval: string, signal?: AbortSignal, bars = 200, delta = false): Promise<Kline[]> {
   const syntheticDays = SYNTHETIC_DAY_INTERVALS[interval];
   const upstreamInterval = syntheticDays ? "1d" : interval;
   if (!COINSPH_INTERVALS.has(upstreamInterval)) throw new Error(`Coins.ph has no ${interval} candles`);
-  const requestLimit = syntheticDays ? 1000 : clampLimit(bars);
+  const requestLimit = syntheticDays ? 1000 : clampLimit(bars, delta);
   const parsed: Kline[] = await viaCoinsph(() => fetchCoinsphKlineRows(symbol, upstreamInterval, requestLimit, signal));
   const baseMs = INTERVAL_MS[upstreamInterval] ?? INTERVAL_MS["15m"];
   const closed = dropUnclosed(parsed, baseMs);
@@ -1225,6 +1259,51 @@ async function coinsphPremiums(tickers: ServerTicker[], usdPhp: number | null, s
   return out;
 }
 
+/**
+ * v2.8 (WP27): true when `interval` is served natively by the source's candle
+ * endpoint (delta requests apply); false for intervals aggregated from smaller
+ * bars (Binance/Coins.ph 2d/4d, Bybit/Bitget 8h/2d/4d), which always fetch normally.
+ */
+export function deltaSupported(source: DataSource, interval: string): boolean {
+  if (source === "binance" || source === "coinsph") return !SYNTHETIC_DAY_INTERVALS[interval];
+  if (source === "bybit-spot" || source === "bybit-perp") return !bybitInterval(interval).aggregate;
+  return !(source === "bitget-perp" ? bitgetPerpGranularity(interval) : bitgetGranularity(interval)).aggregate;
+}
+
+/** Closed bars of one series from the source's candle endpoint (`bars` requested; `delta` allows fewer than 100). */
+export function fetchSymbolKlines(source: DataSource, interval: string, symbol: string, bars: number, signal?: AbortSignal, delta = false): Promise<Kline[]> {
+  if (source === "coinsph") return fetchCoinsphKlines(symbol, interval, signal, bars, delta);
+  if (source === "binance") return fetchBinanceKlines(symbol, interval, signal, bars, delta);
+  if (source === "bybit-spot") return fetchBybitKlines("spot", symbol, interval, signal, bars, delta);
+  if (source === "bybit-perp") return fetchBybitKlines("linear", symbol, interval, signal, bars, delta);
+  return fetchBitgetKlines(symbol, interval, signal, bars, source === "bitget-perp", delta);
+}
+
+/**
+ * v2.8 (WP27): one series with the delta rule. With a plan, ask `limit + 1`
+ * bars (the extra one is the bar still building, dropped as unclosed) and
+ * merge; when the overlap bar is missing or revised, fetch the full 1,000-bar
+ * window instead (the caller discards its stored series). Without a plan,
+ * `bars` as before (warm start 200, or 1,000).
+ */
+export async function fetchSeries(
+  source: DataSource,
+  interval: string,
+  symbol: string,
+  bars: number,
+  signal?: AbortSignal,
+  plan?: { limit: number; overlapOpenTime: number } | null,
+  merge?: (fresh: Kline[], overlapOpenTime: number) => Kline[] | null,
+): Promise<Kline[]> {
+  if (plan && merge && deltaSupported(source, interval) && plan.limit >= 1) {
+    const fresh = await fetchSymbolKlines(source, interval, symbol, plan.limit + 1, signal, true);
+    const merged = merge(fresh, plan.overlapOpenTime);
+    if (merged) return merged;
+    return fetchSymbolKlines(source, interval, symbol, 1000, signal);
+  }
+  return fetchSymbolKlines(source, interval, symbol, bars, signal);
+}
+
 export async function fetchDirectMarketData(
   interval: string,
   source: DataSource = "binance",
@@ -1236,6 +1315,8 @@ export async function fetchDirectMarketData(
   quoteMode: QuoteMode = DEFAULT_QUOTE,
   /** v2.8 (WP19): crypto liquidity floor, US$ (0 = off — the low-level default; fetchMarketData and the route pass the setting). */
   liquidityFloorUsd = 0,
+  /** v2.8 (WP27): progressive-scan hooks (onSeries, delta, priority). */
+  progressive: ProgressiveFetch = {},
 ): Promise<AllResponse> {
   const startedAt = Date.now();
   const floorUsd = Number.isFinite(liquidityFloorUsd) && liquidityFloorUsd > 0 ? liquidityFloorUsd : 0;
@@ -1256,63 +1337,58 @@ export async function fetchDirectMarketData(
   else if (source === "bybit-perp") set = await fetchBybitTickers("linear", assets, limit, signal, assetClass, quote, floorUsd);
   else set = await fetchBitgetTickers(assets, limit, signal, assetClass, source === "bitget-perp", quote, floorUsd);
   const tickers = set.tickers;
+  // Everything the scan line and banners need that is known once the list is chosen (PH premium comes at the end).
+  const listMeta: ListMeta = {
+    universe: set.universe,
+    basisBySymbol: set.basis,
+    belowFloor: set.belowFloor,
+    priceCurrency: priceCurrencyOf(source, quote),
+    quote,
+    quoteBySymbol: set.quoteBySymbol ?? Object.fromEntries(tickers.map((t) => [t.symbol, source === "coinsph" ? "PHP" : "USDT"])),
+    ...(set.quoteCounts ? { quoteCounts: set.quoteCounts } : {}),
+    ...(set.approx?.length ? { approxVolume: set.approx } : {}),
+    ...(set.depeg?.length ? { depeg: set.depeg } : {}),
+    // v2.8 (WP19): crypto pairs under the liquidity floor, for the thin-pair note in the scan line.
+    ...(set.thin?.length ? { thinSymbols: set.thin, thinFloorUsd: floorUsd } : {}),
+    ...(coinsph ? { usdPhp: coinsph.usdPhp, thinSymbols: coinsph.thin, thinFloorUsd: COINSPH_MIN_USD_TURNOVER } : {}),
+  };
+  progressive.onTickers?.(tickers, listMeta);
 
   let haltedUntil: number | undefined;
-  for (let i = 0; i < tickers.length; i += concurrency) {
-    if (signal?.aborted) throw new DOMException("Scan superseded", "AbortError");
-    const slice = tickers.slice(i, i + concurrency);
-    const results = await Promise.allSettled(
-      slice.map((t) => {
-        const bars = klineLimit ? klineLimit(t.symbol) : 200;
-        if (source === "coinsph") return fetchCoinsphKlines(t.symbol, interval, signal, bars);
-        if (source === "binance") return fetchBinanceKlines(t.symbol, interval, signal, bars);
-        if (source === "bybit-spot") return fetchBybitKlines("spot", t.symbol, interval, signal, bars);
-        if (source === "bybit-perp") return fetchBybitKlines("linear", t.symbol, interval, signal, bars);
-        return fetchBitgetKlines(t.symbol, interval, signal, bars, source === "bitget-perp");
-      }),
-    );
-    results.forEach((r, j) => {
-      const symbol = slice[j].symbol;
-      if (r.status === "fulfilled") {
-        klines[symbol] = r.value;
-      } else {
-        errors.push({
-          symbol,
-          reason: classify(r.reason),
-          message: r.reason instanceof Error ? r.reason.message : String(r.reason),
-        });
-      }
-    });
-    // Stop at the first rate-limit response: every further request would
-    // only extend the ban. Symbols not fetched are reported, not retried.
-    if (results.some((r) => r.status === "rejected" && r.reason instanceof RateLimitError)) {
-      haltedUntil = Date.now() + rateLimitCooldown(source);
-      tickers.slice(i + concurrency).forEach((t) => errors.push({ symbol: t.symbol, reason: "RATE_LIMIT", message: "Skipped: scan halted by exchange rate limit." }));
-      break;
-    }
-    // Bitget allows ~20 public requests/s per IP; pace it harder (review S1).
-    if (i + concurrency < tickers.length && source !== "coinsph") await sleep(source === "bitget" || source === "bitget-perp" ? 350 : 120);
+  // v2.8 (WP27): priority tiers — watch list (or top 10 by volume), then chunks of 20.
+  const byVolume = [...tickers].sort((a, b) => (parseFloat(b.quoteVolume) || 0) - (parseFloat(a.quoteVolume) || 0)).map((t) => t.symbol);
+  const tiers = priorityOrder(tickers.map((t) => t.symbol), progressive.priority?.length ? progressive.priority : null, byVolume);
+  const run = await runTiers(tiers, (symbol) => {
+    const plan = progressive.delta?.(symbol) ?? null;
+    const merge = progressive.mergeDelta;
+    return fetchSeries(source, interval, symbol, klineLimit ? klineLimit(symbol) : 200, signal, plan,
+      merge ? (fresh, ov) => merge(symbol, fresh, ov) : undefined);
+  }, {
+    concurrency,
+    signal,
+    // Bitget allows ~20 public requests/s per IP; pace it harder (review S1). Coins.ph paces itself.
+    pauseMs: source === "coinsph" ? 0 : source === "bitget" || source === "bitget-perp" ? 350 : 120,
+    isHalt: (e) => e instanceof RateLimitError,
+    onResult: (symbol, value) => {
+      klines[symbol] = value;
+      progressive.onSeries?.(symbol, value);
+    },
+    onError: (symbol, reason) => {
+      errors.push({ symbol, reason: classify(reason), message: reason instanceof Error ? reason.message : String(reason) });
+    },
+    onBatch: progressive.onProgress,
+  });
+  // Stop at the first rate-limit response: every further request would only
+  // extend the ban. Symbols not fetched (in any tier) are reported, not retried.
+  if (run.halted) {
+    haltedUntil = Date.now() + rateLimitCooldown(source);
+    run.skipped.forEach((symbol) => errors.push({ symbol, reason: "RATE_LIMIT", message: "Skipped: scan halted by exchange rate limit." }));
   }
 
   const response = withHistograms(source, tickers, klines, errors, interval, startedAt);
   if (haltedUntil) response.rateLimitedUntil = haltedUntil;
-  response.universe = set.universe;
-  response.basisBySymbol = set.basis;
-  response.belowFloor = set.belowFloor;
-  response.priceCurrency = priceCurrencyOf(source, quote);
-  response.quote = quote;
-  response.quoteBySymbol = set.quoteBySymbol ?? Object.fromEntries(tickers.map((t) => [t.symbol, source === "coinsph" ? "PHP" : "USDT"]));
-  if (set.quoteCounts) response.quoteCounts = set.quoteCounts;
-  if (set.approx?.length) response.approxVolume = set.approx;
-  if (set.depeg?.length) response.depeg = set.depeg;
-  // v2.8 (WP19): crypto pairs under the liquidity floor, for the thin-pair note in the scan line.
-  if (set.thin?.length) { response.thinSymbols = set.thin; response.thinFloorUsd = floorUsd; }
-  if (coinsph) {
-    response.usdPhp = coinsph.usdPhp;
-    response.thinSymbols = coinsph.thin;
-    response.thinFloorUsd = COINSPH_MIN_USD_TURNOVER;
-    response.premiumBySymbol = await coinsphPremiums(tickers, coinsph.usdPhp, signal);
-  }
+  Object.assign(response, listMeta);
+  if (coinsph) response.premiumBySymbol = await coinsphPremiums(tickers, coinsph.usdPhp, signal);
   return response;
 }
 
@@ -1328,7 +1404,9 @@ export async function fetchMarketData(
 
   // Static exports and native shells have no server proxy by design.
   if (usesDirectFetch()) {
-    return fetchDirectMarketData(interval, source, assets, limit, options.signal, options.klineLimit, options.assetClass ?? "crypto", options.quote ?? DEFAULT_QUOTE, floor);
+    const { onTickers, onSeries, onProgress, delta, mergeDelta, priority } = options;
+    return fetchDirectMarketData(interval, source, assets, limit, options.signal, options.klineLimit, options.assetClass ?? "crypto", options.quote ?? DEFAULT_QUOTE, floor,
+      { onTickers, onSeries, onProgress, delta, mergeDelta, priority });
   }
 
   try {

@@ -54,7 +54,7 @@ import {
 import type { ReversalResult } from "@/lib/reversal";
 import type { PatternSignal } from "@/lib/pattern-signal";
 import { runScanJobs, scanMode } from "@/lib/scan-runner";
-import { packKlines, type ScanJob } from "@/lib/scan-jobs";
+import { packKlines, type ScanJob, type ScanJobResult } from "@/lib/scan-jobs";
 import { createLedgerStore } from "@/lib/signal-ledger";
 import { createIndexedDBAdapter } from "@rsl/core-kit/core/rsl-storage.js";
 import { emptyReversal, floorLabel, suppressedConfluence, thinNote, type SeriesScore } from "@/lib/scan-pipeline";
@@ -66,7 +66,12 @@ import { LedgerDialog } from "@/components/ledger-dialog";
 import { PaperDialog } from "@/components/paper-dialog";
 import { createPaperStore, memoryPaperPort, PAPER_COLLECTIONS, PAPER_DB_NAME } from "@/lib/paper-store";
 import { coverageUntil, coverageWarnings, eventsNear } from "@/lib/macro-calendar";
-import { loadHistoricalSeries, MAX_STORED_BARS, mergeKlines, saveHistoricalSeries } from "@/lib/history-store";
+import { deltaPlan, loadHistoricalSeries, MAX_STORED_BARS, mergeDelta, mergeKlines, saveHistoricalSeries } from "@/lib/history-store";
+import {
+  createBatcher, initialRows, liveOnly, priorityOrder, PRIORITY_TOP, ProgressiveRows, recordable, rememberedTickers, rememberTickers,
+  UI_BATCH_MS, type Freshness,
+} from "@/lib/progressive-scan";
+import { displaySeries, loadStoredSeries, prefetchOtherTimeframes, type SeriesCache } from "@/lib/progressive-load";
 import {
   barCloseTime,
   contiguousTail,
@@ -76,6 +81,8 @@ import {
   INTERVAL_MS,
   fetchOrderBook,
   MAX_HISTORY_BARS,
+  priceCurrencyOf,
+  type ListMeta,
   slippageBps,
   usesDirectFetch,
   venueTypeOf,
@@ -221,6 +228,11 @@ interface AssetRow {
   underlyingClosed: boolean;
   /** v2.3: context fields logged with the ledger row (never scored). */
   context?: Partial<LedgerRow>;
+  /**
+   * v2.8 (WP27): "live" = refreshed by a fresh fetch this scan; "updating" = drawn from on-device history while
+   * its fetch is queued; "stale" = its fetch failed ("not updated"). Only live rows are recorded, proposed or alerted.
+   */
+  freshness: Freshness;
 }
 
 type SortKey =
@@ -522,6 +534,8 @@ export default function Home() {
   const [watchlistScope, setWatchlistScope] = useState<Watchlist | null>(null);
   const [unavailableMembers, setUnavailableMembers] = useState<string[]>([]);
   const [rows, setRows] = useState<AssetRow[]>([]);
+  /** v2.8 (WP27): the paper simulator's scan heartbeat — set when a scan completes, live rows only. */
+  const [paperRows, setPaperRows] = useState<AssetRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
@@ -608,6 +622,10 @@ export default function Home() {
   /** v2.3: last order-book depth sample per source (once per 24 h, top 10 pairs). */
   const depthSampledRef = useRef<Map<string, number>>(new Map());
   const abortRef = useRef<AbortController | null>(null);
+  /** v2.8 (WP27): view (source|tf|class|quote) of the rows on screen, and those rows, for in-place rescans. */
+  const shownRef = useRef<{ key: string | null; rows: AssetRow[] }>({ key: null, rows: [] });
+  /** v2.8 (WP27): other-timeframe series of the priority rows (`src:tf:symbol`, display only). */
+  const seriesCacheRef = useRef<SeriesCache>(new Map());
   const historyAbortRef = useRef<AbortController | null>(null);
   const alertedReversalRef = useRef<Map<string, number>>(new Map());
 
@@ -737,6 +755,8 @@ export default function Home() {
     abortRef.current?.abort();
     setDetailAsset(null);
     setRows([]);
+    setPaperRows([]);
+    shownRef.current = { key: null, rows: [] };
     setScoringProfile(profile);
     setProfileFailure("");
     setProfileReady(true);
@@ -751,14 +771,135 @@ export default function Home() {
     setError(null);
     setProgress({ done: 0, total: 1 });
     setUnavailableMembers([]);
+    // v2.8 (WP27): a view is source × timeframe × class × quote. A rescan of the same view keeps its rows
+    // and refreshes them in place; a new view starts empty, so no row of the old one is ever mixed in.
+    const view = `${source}|${tf}|${cls}|${normalizeQuoteMode(source, quoteMode)}`;
+    const listKey = `${source}|${cls}|${normalizeQuoteMode(source, quoteMode)}|${limit}|${assets.join(",")}|${watchlistScope?.symbols.join(",") ?? ""}`;
+    const newView = shownRef.current.key !== view;
+    const session = new ProgressiveRows<AssetRow>(view, initialRows(shownRef.current, view));
+    shownRef.current = { key: view, rows: session.rows() };
+    if (newView) setRows([]);
+    const scanProgress = { done: 0, total: 1 };
+    let listMeta: ListMeta | null = null;
+    let metaStage = 0; // new view: 0 = previous view's meta, 1 = currency only, 2 = list metadata
+    let completed = false;
+    const flush = () => {
+      if (ac.signal.aborted) return;
+      const shown = session.rows();
+      shownRef.current = { key: view, rows: shown };
+      setRows(shown);
+      setProgress({ ...scanProgress });
+      // Currency etc. change with the rows they describe: a new view's first rows bring its own currency.
+      // History rows before the list arrives get the view's currency; the list's own metadata follows
+      // (premium, which needs one more request, when the scan completes).
+      const lm = listMeta;
+      if (newView && shown.length && lm && metaStage < 2) {
+        metaStage = 2;
+        setScanMeta({
+          source, currency: lm.priceCurrency ?? "USD", premium: {}, thin: lm.thinSymbols ?? [], thinFloorUsd: lm.thinFloorUsd,
+          tf, quote: lm.quote, quoteBySymbol: lm.quoteBySymbol, quoteCounts: lm.quoteCounts, approx: lm.approxVolume, depeg: lm.depeg, usdPhp: lm.usdPhp,
+        });
+      } else if (newView && shown.length && !lm && metaStage < 1) {
+        metaStage = 1;
+        const q = normalizeQuoteMode(source, quoteMode);
+        setScanMeta({ source, currency: priceCurrencyOf(source, q), premium: {}, thin: [], tf, quote: q });
+      }
+      setDetailAsset((current) => (current ? session.get(current.pair) ?? current : null));
+    };
+    const batcher = createBatcher(flush, UI_BATCH_MS);
+    ac.signal.addEventListener("abort", () => batcher.cancel(), { once: true });
     try {
       if (watchlistScope && (!watchlistScope.symbols.length || watchlistScope.source !== source)) {
         setRows([]);
+        shownRef.current = { key: view, rows: [] };
         setDetailAsset(null);
         setUnavailableMembers(watchlistScope.symbols);
         return;
       }
       const intervalMs = INTERVAL_MS[tf];
+      const inScope = (symbol: string) => !watchlistScope || watchlistScope.symbols.includes(symbol);
+      const classOf = (symbol: string): AssetClass => {
+        const c = classifySymbol(source, symbol, venueTypeOf(source, symbol));
+        return c === "excluded" ? "crypto" : c;
+      };
+      type Ticker = { rank: number; symbol: string; lastPrice: string; priceChangePercent: string; quoteVolume: string };
+      const rowOf = (t: Ticker, kl: Kline[], res: { score: { confluence: ConfluenceResult; reversal: ReversalResult }; pattern: PatternSignal }, freshness: Freshness, priceFromBars = false): AssetRow => {
+        const assetCls = classOf(t.symbol);
+        return {
+          rank: t.rank,
+          symbol: pairBase(t.symbol, source), // v2.7: any quote (BTCUSDC → BTC)
+          pair: t.symbol,
+          src: source,
+          tf,
+          price: priceFromBars && kl.length ? kl[kl.length - 1].close : parseFloat(t.lastPrice),
+          change24h: parseFloat(t.priceChangePercent),
+          quoteVolume: parseFloat(t.quoteVolume),
+          confluence: res.score.confluence,
+          reversal: res.score.reversal,
+          pattern: res.pattern,
+          klines: kl,
+          assetClass: assetCls,
+          underlyingClosed: kl.length > 0 && barWhileClosed(assetCls, kl[kl.length - 1].time, intervalMs),
+          freshness,
+        };
+      };
+      const jobOf = (symbol: string, kl: Kline[]): ScanJob => ({
+        key: `${source}:${tf}:${symbol}`,
+        packed: packKlines(kl),
+        intervalMs,
+        // v2.3 (review C11): volume usability is decided by scoreSeries on the
+        // scored window itself (as replay and the recorder do), not by a flag
+        // computed on today's fetch — identical rows for the same bar everywhere.
+        volumeAvailable: true,
+        assetClass: classOf(symbol),
+        profile: scoringProfile,
+      });
+
+      // 0 — instant start (WP27): rows from on-device history, marked "updating" (display only), for a new view.
+      const remembered = rememberedTickers(listKey).filter((t) => inScope(t.symbol));
+      const stored = await loadStoredSeries(source, tf, remembered.map((t) => t.symbol));
+      if (ac.signal.aborted) return;
+      if (newView && remembered.length) {
+        void (async () => {
+          const todo = remembered.map((t) => ({ t, kl: contiguousTail(displaySeries(seriesCacheRef.current, source, tf, t.symbol, stored), intervalMs) }))
+            .filter((x) => x.kl.length > 1 && !session.get(x.t.symbol));
+          for (let i = 0; i < todo.length && !ac.signal.aborted && !completed; i += 10) {
+            const chunk = todo.slice(i, i + 10);
+            const results = await runScanJobs(chunk.map((x) => ({ ...jobOf(x.t.symbol, x.kl), displayOnly: true })));
+            if (ac.signal.aborted || completed) return;
+            chunk.forEach((x, j) => { const r = results[j]; if (r && !r.error) session.put(rowOf(x.t, x.kl, r, "updating", true)); });
+            batcher.schedule();
+          }
+        })().catch(() => undefined);
+      }
+
+      // 1 — fetch tier by tier; each fresh series is merged with stored bars and scored as it arrives.
+      const tickerOf = new Map<string, Ticker>();
+      const preparedLive = new Map<string, Kline[]>();
+      const scoredLive = new Map<string, ScanJobResult>();
+      const discarded = new Set<string>();
+      const pendingWork: Promise<void>[] = [];
+      const onSeries = (symbol: string, recent: Kline[]) => {
+        if (ac.signal.aborted || !inScope(symbol)) return;
+        pendingWork.push((async () => {
+          const discard = discarded.has(symbol);
+          let saved: Kline[] = stored.get(symbol) ?? [];
+          if (!discard && !stored.has(symbol)) {
+            try { saved = await loadHistoricalSeries(source, tf, symbol); } catch { /* blocked store: fresh bars only */ }
+          }
+          // Build 2.02: keep only the newest gap-free run, so stored and fresh
+          // bars are never scored as one series across a hole. A revised delta overlap discards the stored series.
+          const kl = contiguousTail(discard ? recent : mergeKlines(saved, recent), intervalMs);
+          void saveHistoricalSeries(source, tf, symbol, recent, discard).catch(() => undefined);
+          if (kl.length) historyLenRef.current.set(`${source}:${tf}:${symbol}`, { len: kl.length, newest: kl[kl.length - 1].time });
+          preparedLive.set(symbol, kl);
+          const [res] = await runScanJobs([jobOf(symbol, kl)]);
+          if (ac.signal.aborted || !res) return;
+          scoredLive.set(symbol, res);
+          const ticker = tickerOf.get(symbol);
+          if (ticker && !res.error) { session.put(rowOf(ticker, kl, res, "live")); batcher.schedule(); }
+        })().catch(() => undefined));
+      };
       const data = await fetchMarketData(tf, {
         source,
         assets: watchlistScope?.symbols ?? assets,
@@ -773,12 +914,26 @@ export default function Home() {
           const h = historyLenRef.current.get(`${source}:${tf}:${symbol}`);
           return h && h.len >= ENGINE_BARS && Date.now() - h.newest < intervalMs * 150 ? 200 : 1000;
         },
+        // v2.8 (WP27): delta fetch from the stored history; priority: the watch list, else the top 10 by volume.
+        delta: (symbol) => { const st = stored.get(symbol); return st ? deltaPlan(st, intervalMs, Date.now()) : null; },
+        mergeDelta: (symbol, fresh, ov) => {
+          const m = mergeDelta(stored.get(symbol) ?? [], fresh, ov);
+          if (!m) discarded.add(symbol);
+          return m;
+        },
+        priority: watchlistScope?.symbols,
+        onTickers: (list, meta) => { for (const t of list) tickerOf.set(t.symbol, t); listMeta = meta; },
+        onProgress: (done, total) => { scanProgress.done = done; scanProgress.total = Math.max(1, total); batcher.schedule(); },
+        onSeries,
       });
+      await Promise.all(pendingWork);
+      completed = true;
       if (ac.signal.aborted) return;
+      batcher.cancel();
       setRateLimitUntil(data.rateLimitedUntil ?? null);
       setHealth({ source, ...healthFromScan(source, data) });
 
-      // 1 — merge stored + fresh bars per series (main thread: IndexedDB access).
+      // 2 — the chosen list is complete: assemble it exactly as a full scan (stored + fresh bars per series).
       const scopedTickers = watchlistScope
         ? data.tickers.filter((ticker) => watchlistScope.symbols.includes(ticker.symbol))
         : data.tickers;
@@ -787,15 +942,18 @@ export default function Home() {
         setUnavailableMembers(watchlistScope.symbols.filter((symbol) => !available.has(symbol)));
       }
       const prepared = await Promise.all(scopedTickers.map(async (t) => {
+        const live = preparedLive.get(t.symbol);
+        if (live) return { t, kl: live, fresh: true, failure: "no fresh candles" };
+        // Server-proxy builds (no onSeries) and series whose fetch failed this scan.
         const recent = data.klines[t.symbol] ?? [];
-        let saved: Kline[] = [];
-        try {
-          saved = await loadHistoricalSeries(source, tf, t.symbol);
-        } catch {
-          // A blocked/private browser store must not break live scanning.
+        let saved: Kline[] = stored.get(t.symbol) ?? [];
+        if (!stored.has(t.symbol)) {
+          try {
+            saved = await loadHistoricalSeries(source, tf, t.symbol);
+          } catch {
+            // A blocked/private browser store must not break live scanning.
+          }
         }
-        // Build 2.02: keep only the newest gap-free run, so stored and fresh
-        // bars are never scored as one series across a hole.
         const kl = contiguousTail(mergeKlines(saved, recent), data.intervalMs);
         if (recent.length) {
           void saveHistoricalSeries(source, tf, t.symbol, recent).catch(() => undefined);
@@ -809,27 +967,13 @@ export default function Home() {
       }));
       if (ac.signal.aborted) return;
 
-      // 2 — score off the main thread (worker), same fixed window as the ledger and replay.
-      const classOf = (symbol: string): AssetClass => {
-        const c = classifySymbol(source, symbol, venueTypeOf(source, symbol));
-        return c === "excluded" ? "crypto" : c;
-      };
-      const jobs: ScanJob[] = prepared.filter((p) => p.fresh).map(({ t, kl }) => ({
-        key: `${source}:${tf}:${t.symbol}`,
-        packed: packKlines(kl),
-        intervalMs: data.intervalMs,
-        // v2.3 (review C11): volume usability is decided by scoreSeries on the
-        // scored window itself (as replay and the recorder do), not by a flag
-        // computed on today's fetch — identical rows for the same bar everywhere.
-        volumeAvailable: true,
-        assetClass: classOf(t.symbol),
-        profile: scoringProfile,
-      }));
+      // 3 — score what was not scored progressively (off the main thread, same fixed window as the ledger and replay).
+      const jobs: ScanJob[] = prepared.filter((p) => p.fresh && !scoredLive.has(p.t.symbol)).map(({ t, kl }) => jobOf(t.symbol, kl));
       const results = await runScanJobs(jobs);
       if (ac.signal.aborted) return;
       const byKey = new Map(results.map((res) => [res.key, res]));
+      for (const [symbol, res] of scoredLive) byKey.set(`${source}:${tf}:${symbol}`, res);
 
-      const ledgerRows: LedgerRow[] = [];
       // v2.3: rows are assembled by lib/scan-record.ts — the same code the
       // headless recorder uses — with the logged context fields (never scored).
       const seriesOf = (t: (typeof prepared)[number]["t"], kl: Kline[]): ScanSeries => ({
@@ -846,7 +990,9 @@ export default function Home() {
         universe: data.universe, basisBySymbol: data.basisBySymbol,
         ...(derivatives.length ? { derivatives } : {}),
       };
+      // Cross-sectional fields (RS percentile, BTC beta, universe rank) once the chosen list is complete, as in a full scan.
       const shared = scanShared(prepared.filter((p) => p.fresh && p.kl.length).map((p) => seriesOf(p.t, p.kl)), data.universe);
+      const scoredOf = new Map<string, { t: (typeof prepared)[number]["t"]; res: Pick<ScanJobResult, "score" | "pattern"> }>();
       const out: AssetRow[] = prepared.map(({ t, kl, fresh, failure }) => {
         const scored = byKey.get(`${source}:${tf}:${t.symbol}`);
         const res = scored && !scored.error
@@ -855,34 +1001,18 @@ export default function Home() {
               score: { usable: false, warmBars: 0, confluence: suppressedConfluence(`Feed unavailable this scan (${scored?.error ?? failure}) — not scored, not recorded.`), reversal: emptyReversal() },
               pattern: emptySignal("Feed unavailable"),
             };
-        const assetCls = classOf(t.symbol);
-        let context: Partial<LedgerRow> | undefined;
-        // 3 — forward-test ledger: one row per series per closed bar (idempotent).
-        if (fresh && res.score.usable && kl.length) {
-          // v2.8 (WP19): the row logs this scan's Pattern output (pd / pc).
-          const row = liveRow({ ...seriesOf(t, kl), pattern: res.pattern }, res.score as SeriesScore, recordCtx, shared);
-          if (row) {
-            context = row;
-            ledgerRows.push(row);
-          }
-        }
-        return {
-          rank: t.rank,
-          symbol: pairBase(t.symbol, source), // v2.7: any quote (BTCUSDC → BTC)
-          pair: t.symbol,
-          src: source,
-          tf,
-          price: parseFloat(t.lastPrice),
-          change24h: parseFloat(t.priceChangePercent),
-          quoteVolume: parseFloat(t.quoteVolume),
-          confluence: res.score.confluence,
-          reversal: res.score.reversal,
-          pattern: res.pattern,
-          klines: kl,
-          assetClass: assetCls,
-          underlyingClosed: kl.length > 0 && barWhileClosed(assetCls, kl[kl.length - 1].time, data.intervalMs),
-          context,
-        };
+        scoredOf.set(t.symbol, { t, res: res as Pick<ScanJobResult, "score" | "pattern"> });
+        // A row whose fetch failed this scan is display-only: "not updated" with its bar time.
+        return rowOf(t, kl, res, fresh ? "live" : "stale");
+      });
+      // 4 — forward-test ledger: one row per live series per closed bar (idempotent).
+      const ledgerRows: LedgerRow[] = recordable(out, (row) => {
+        const x = scoredOf.get(row.pair);
+        if (!x || !x.res.score.usable || !row.klines.length) return null;
+        // v2.8 (WP19): the row logs this scan's Pattern output (pd / pc).
+        const lr = liveRow({ ...seriesOf(x.t, row.klines), pattern: x.res.pattern }, x.res.score as SeriesScore, recordCtx, shared);
+        if (lr) row.context = lr;
+        return lr;
       });
       const newestClosed = prepared.reduce((m, p) => (p.fresh && p.kl.length ? Math.max(m, p.kl[p.kl.length - 1].time) : m), 0);
       const liveWrite = ledgerRows.length
@@ -962,7 +1092,8 @@ export default function Home() {
       }
 
       if (ac.signal.aborted) return;
-      const activeReversals = out.filter(
+      // Reversal alerts from live rows only (cached history never alerts).
+      const activeReversals = liveOnly(out).filter(
         (r) =>
           r.reversal.isReversal &&
           r.reversal.direction !== "NONE" &&
@@ -994,7 +1125,10 @@ export default function Home() {
       // v2.8: stored order-book slippage readings for the paper simulator (read before the rows publish, so the scan sees them).
       try { setPaperSlippage({ source, readings: await ledgerStore.slippage(source) }); } catch { setPaperSlippage({ source, readings: {} }); }
       if (ac.signal.aborted) return;
+      shownRef.current = { key: view, rows: out };
       setRows(out);
+      // The paper simulator's heartbeat: completed scans only, live rows only (WP27).
+      setPaperRows(liveOnly(out));
       // Currency, premium and thin list change with the rows they describe, never before
       // (otherwise the previous source's rows show ₱ while the new scan is still scoring).
       setScanMeta({
@@ -1011,11 +1145,25 @@ export default function Home() {
       });
       setProgress({ done: 1, total: 1 });
       setLastUpdate(new Date());
+      // WP27: remember this list for the next instant start, then cache the top-10 tier's other timeframes.
+      rememberTickers(listKey, scopedTickers);
+      if (usesDirectFetch() && source !== "coinsph" && !data.rateLimitedUntil) {
+        const byVolume = [...scopedTickers].sort((a, b) => (parseFloat(b.quoteVolume) || 0) - (parseFloat(a.quoteVolume) || 0)).map((x) => x.symbol);
+        const top = priorityOrder(scopedTickers.map((x) => x.symbol), watchlistScope?.symbols ?? null, byVolume)[0] ?? [];
+        void prefetchOtherTimeframes({
+          source, symbols: top.slice(0, PRIORITY_TOP), timeframes: TIMEFRAMES.map((x) => x.value).filter((x) => x !== tf),
+          cache: seriesCacheRef.current, signal: ac.signal,
+        });
+      }
     } catch (e) {
       if (!ac.signal.aborted) {
+        batcher.cancel();
         setError(e instanceof Error ? e.message : "Failed to load market data");
         const h = healthFromError(e, inNativeShell());
         if (h) setHealth({ source, ...h });
+        // Rows still waiting for their fetch say "not updated" with their bar time.
+        const shown = session.rows().map((r) => (r.freshness === "updating" ? { ...r, freshness: "stale" as const } : r));
+        if (shown.length) { shownRef.current = { key: view, rows: shown }; setRows(shown); }
       }
     } finally {
       if (!ac.signal.aborted) setLoading(false);
@@ -1071,6 +1219,8 @@ export default function Home() {
       historyLenRef.current.set(seriesKey, { len: klines.length, newest: klines.at(-1)?.time ?? 0 });
       const updated = { ...asset, klines, confluence: res.score.confluence, reversal: res.score.reversal, pattern: res.pattern };
       setRows((current) => current.map((row) => row.pair === asset.pair ? updated : row));
+      if (shownRef.current.rows.some((row) => row.pair === asset.pair)) shownRef.current = { ...shownRef.current, rows: shownRef.current.rows.map((row) => row.pair === asset.pair ? updated : row) };
+      if (updated.freshness === "live") setPaperRows((current) => current.map((row) => row.pair === asset.pair ? updated : row));
       setDetailAsset(updated);
     } catch (error) {
       if (controller.signal.aborted) return;
@@ -1152,7 +1302,7 @@ export default function Home() {
   // The ledger view reads current candles on demand, so a refresh does not re-run its measurement.
   const rowsRef = useRef(rows);
   useEffect(() => { rowsRef.current = rows; }, [rows]);
-  const getLiveKlines = useCallback(() => Object.fromEntries(rowsRef.current.map((row) => [row.pair, row.klines])), []);
+  const getLiveKlines = useCallback(() => Object.fromEntries(liveOnly(rowsRef.current).map((row) => [row.pair, row.klines])), []);
   // Scheduled macro releases within the next 24 h (or the last 2 h), measured from the last scan.
   const macroEvents = useMemo(() => (lastUpdate ? eventsNear(lastUpdate.getTime()) : []), [lastUpdate]);
   // Kinds whose verified dates run out within 30 days (text-only addition to the macro banner).
@@ -1540,7 +1690,7 @@ export default function Home() {
 
           {loading && progress.total > 0 && (
             <div className="h-0.5 w-full overflow-hidden rounded bg-zinc-800">
-              <div className="h-full bg-gradient-to-r from-cyan-400 to-emerald-400 transition-all duration-300" style={{ width: `${(progress.done / progress.total) * 100}%` }} />
+              <div data-testid="scan-progress" data-done={progress.done} data-total={progress.total} className="h-full bg-gradient-to-r from-cyan-400 to-emerald-400 transition-all duration-300" style={{ width: `${(progress.done / progress.total) * 100}%` }} />
             </div>
           )}
         </div>
@@ -1764,6 +1914,7 @@ export default function Home() {
                             {r.underlyingClosed && (
                               <span className="ms-1 rounded border border-amber-500/40 px-1 align-middle text-[9px] font-normal text-amber-300" title={t("ac.sessionNote")}>{t("ac.closed")}</span>
                             )}
+                            {r.freshness !== "live" && <FreshnessBadge row={r} t={t} formatDate={rsl.i18n.formatDate} />}
                           </span>
                           <span className="block text-[10px] text-zinc-500 leading-tight">{r.pair}</span>
                           <span className="sr-only">{t("row.openDetails")}</span>
@@ -1854,7 +2005,7 @@ export default function Home() {
         open={paperOpen}
         onOpenChange={setPaperOpen}
         store={paperStore}
-        rows={rows}
+        rows={paperRows}
         source={dataSource}
         timeframe={timeframe}
         engineConfigId={activeConfigId}
@@ -1879,6 +2030,7 @@ export default function Home() {
                 <Badge variant="outline" className="text-zinc-500 border-zinc-700 font-normal">
                   {timeframe}
                 </Badge>
+                {detailAsset && detailAsset.freshness !== "live" && <FreshnessBadge row={detailAsset} t={t} formatDate={rsl.i18n.formatDate} />}
               </span>
               {detailAsset && !chartReplay && <MasterBadge c={detailAsset.confluence} />}
             </DialogTitle>
@@ -2519,6 +2671,30 @@ function KeyLevels({ klines, price, fmt: fmtShown }: { klines: Kline[]; price: n
         })}
       </div>
     </div>
+  );
+}
+
+/**
+ * v2.8 (WP27): badge text for a display-only row — "updating · bar time" (on-device history while its fetch is
+ * queued) or "not updated · bar time" (its fetch failed this scan). Live rows show nothing (layout at rest unchanged).
+ */
+function FreshnessBadge({ row, t, formatDate }: {
+  row: Pick<AssetRow, "freshness" | "klines">;
+  t: (key: string, vars?: Record<string, string | number>) => string;
+  formatDate: (d: Date | number, opt?: Intl.DateTimeFormatOptions) => string;
+}) {
+  const bar = row.klines.at(-1)?.time;
+  const time = bar ? formatDate(bar, { dateStyle: "short", timeStyle: "short", hour12: false }) : "—";
+  const updating = row.freshness === "updating";
+  return (
+    <span
+      data-testid="row-freshness"
+      data-state={row.freshness}
+      title={t(updating ? "row.updatingHint" : "row.notUpdatedHint")}
+      className={`ms-1 whitespace-nowrap rounded border px-1 align-middle text-[9px] font-normal ${updating ? "border-sky-500/40 text-sky-300" : "border-amber-500/40 text-amber-300"}`}
+    >
+      {t(updating ? "row.updating" : "row.notUpdated", { time })}
+    </span>
   );
 }
 
