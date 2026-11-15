@@ -24,7 +24,7 @@
  * ----------------------------------------------------------------------------
  */
 import type { Kline } from "./indicators";
-import { costsFor as ledgerCostsFor, type AssetClass, type CostModel } from "./ledger-metrics";
+import { costsFor as ledgerCostsFor, wilson, type AssetClass, type CostModel } from "./ledger-metrics";
 import {
   deadManTripped,
   drawdownBreached,
@@ -60,6 +60,21 @@ export const EXIT_REASON_KEYS: Record<ExitReason, string> = {
   "drawdown lock": "paper.reason.drawdownLock",
   time: "paper.reason.time",
 };
+
+/** v2.8: setup tags offered at approval. */
+export const SETUP_TAGS = ["breakout", "trend", "reversal", "range", "other"] as const;
+export type SetupTag = (typeof SETUP_TAGS)[number];
+export const PRE_REASON_MAX = 280;
+
+/** Clean a free-text pre-trade reason: control characters out, trimmed, at most 280 characters; empty = none. */
+export function cleanPreReason(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const s = v.replace(/[\u0000-\u001F\u007F]+/g, " ").trim().slice(0, PRE_REASON_MAX).trim();
+  return s ? s : undefined;
+}
+export function cleanTag(v: unknown): SetupTag | undefined {
+  return typeof v === "string" && (SETUP_TAGS as readonly string[]).includes(v) ? (v as SetupTag) : undefined;
+}
 
 export interface PaperPosition {
   id: string;
@@ -100,6 +115,12 @@ export interface PaperPosition {
   closeReason?: ExitReason;
   /** v2.8: measured one-side slippage (bp) frozen at approval from the sizing reading; absent = default costs (older positions). */
   slipBps?: number;
+  /** v2.8: worst / best excursion since the fill in R (mae ≤ 0 ≤ mfe), from bar lows and highs; absent = unknown (older positions). */
+  mae?: number;
+  mfe?: number;
+  /** v2.8: owner's pre-trade reason (≤ 280 chars) and setup tag, typed at approval. */
+  preReason?: string;
+  tag?: SetupTag;
 }
 
 export interface JournalEntry {
@@ -128,6 +149,12 @@ export interface JournalEntry {
   proposalId: string;
   approvedAt: number;
   approvedBy: "owner";
+  /** v2.8: excursions in R, pre-trade reason, setup tag, free notes; absent on older entries = unknown. */
+  mae?: number;
+  mfe?: number;
+  preReason?: string;
+  tag?: SetupTag;
+  notes?: string;
 }
 
 export interface PaperAccount {
@@ -380,7 +407,14 @@ function checkNonce(book: PaperBook, proposal: Proposal, presented: string): Dec
 }
 
 /** Approve: same nonce, single-use, not expired, and the risk engine must pass again NOW. */
-export function approveProposal(book: PaperBook, proposal: Proposal, presentedNonce: string, now: number): DecisionResult {
+export function approveProposal(
+  book: PaperBook,
+  proposal: Proposal,
+  presentedNonce: string,
+  now: number,
+  /** v2.8: optional pre-trade reason (≤ 280 chars) and setup tag. */
+  meta?: { reason?: string; tag?: string },
+): DecisionResult {
   const bad = checkNonce(book, proposal, presentedNonce);
   if (bad) return { ok: false, book, error: bad };
   if (now > proposal.expiresAt) return { ok: false, book: consume(book, proposal, "expired", now), error: "expired" };
@@ -417,6 +451,10 @@ export function approveProposal(book: PaperBook, proposal: Proposal, presentedNo
     markTime: input.barTime,
     lastBarTime: input.barTime,
     closeRequestedAt: null,
+    mae: 0,
+    mfe: 0,
+    ...(cleanPreReason(meta?.reason) ? { preReason: cleanPreReason(meta?.reason) } : {}),
+    ...(cleanTag(meta?.tag) ? { tag: cleanTag(meta?.tag) } : {}),
     ...(typeof input.measuredSlipBps === "number" ? { slipBps: input.measuredSlipBps } : {}),
   };
   return {
@@ -564,6 +602,14 @@ export function processBars(
         else if (bar.high >= p.stop) exit = { px: p.stop, reason: "stop", at: barClose };
         else if (bar.low <= p.target) exit = { px: p.target, reason: "target", at: barClose };
       }
+      // v2.8: excursions in R from this bar's extremes (1 R per unit = plannedRisk ÷ size).
+      if (p.entry != null && p.plannedRisk > 0 && p.size > 0) {
+        const oneR = p.plannedRisk / p.size;
+        const adverse = dir === 1 ? bar.low : bar.high;
+        const favourable = dir === 1 ? bar.high : bar.low;
+        p.mae = Math.min(p.mae ?? 0, (dir * (adverse - p.entry)) / oneR);
+        p.mfe = Math.max(p.mfe ?? 0, (dir * (favourable - p.entry)) / oneR);
+      }
       p.mark = bar.close;
       p.markTime = bar.time;
       p.lastBarTime = bar.time;
@@ -604,6 +650,10 @@ export function processBars(
         proposalId: p.proposalId,
         approvedAt: p.approvedAt,
         approvedBy: "owner",
+        ...(typeof p.mae === "number" ? { mae: p.mae } : {}),
+        ...(typeof p.mfe === "number" ? { mfe: p.mfe } : {}),
+        ...(p.preReason ? { preReason: p.preReason } : {}),
+        ...(p.tag ? { tag: p.tag } : {}),
       };
       balance += pnl;
       closed.push(entry);
@@ -703,7 +753,32 @@ export interface JournalStats {
   /** Peak-to-trough fall of the realised equity curve, quote and fraction of the peak. */
   maxDrawdown: number;
   maxDrawdownPct: number;
+  /** v2.8: Wilson 95% range on the win rate ([NaN, NaN] with no trades). */
+  winRateCI: [number, number];
+  /** v2.8: R histogram, bins of 0.5 R from −3 to +5; the end bins hold everything beyond (edge = lower bound). */
+  rHistogram: { edge: number; count: number }[];
+  /** v2.8: fewer than 30 trades — too few to judge. */
+  tooFewTrades: boolean;
+  /** v2.8: mean MAE / MFE in R over entries that carry them (NaN when none do). */
+  avgMae: number;
+  avgMfe: number;
   curve: { t: number; equity: number }[];
+}
+
+export const TOO_FEW_TRADES = 30;
+const R_HIST_MIN = -3;
+const R_HIST_MAX = 5;
+const R_HIST_STEP = 0.5;
+
+export function rHistogram(rs: number[]): { edge: number; count: number }[] {
+  const bins = Math.round((R_HIST_MAX - R_HIST_MIN) / R_HIST_STEP);
+  const out = Array.from({ length: bins }, (_, i) => ({ edge: R_HIST_MIN + i * R_HIST_STEP, count: 0 }));
+  for (const r of rs) {
+    if (!Number.isFinite(r)) continue;
+    const i = Math.min(bins - 1, Math.max(0, Math.floor((r - R_HIST_MIN) / R_HIST_STEP)));
+    out[i].count++;
+  }
+  return out;
 }
 
 const avg = (x: number[]) => (x.length ? x.reduce((a, b) => a + b, 0) / x.length : NaN);
@@ -751,6 +826,11 @@ export function journalStats(journal: JournalEntry[], startingEquity: number, st
     profitFactor: grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : NaN,
     maxDrawdown: mdd,
     maxDrawdownPct: mddPct,
+    winRateCI: wilson(winsR.length, n),
+    rHistogram: rHistogram(rs),
+    tooFewTrades: n < TOO_FEW_TRADES,
+    avgMae: avg(journal.map((j) => j.mae).filter((v): v is number => typeof v === "number" && Number.isFinite(v))),
+    avgMfe: avg(journal.map((j) => j.mfe).filter((v): v is number => typeof v === "number" && Number.isFinite(v))),
     curve,
   };
 }

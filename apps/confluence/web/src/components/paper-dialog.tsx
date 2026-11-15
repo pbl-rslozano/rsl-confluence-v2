@@ -42,6 +42,8 @@ import {
 import {
   accountSnapshot,
   approveProposal,
+  SETUP_TAGS,
+  PRE_REASON_MAX,
   bookEquity,
   costsFor,
   createProposal,
@@ -152,6 +154,7 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
   const [draftFlags, setDraftFlags] = useState<Record<BoolKey, boolean>>(() => flagsOf(DEFAULT_RISK_SETTINGS));
   const [equityDraft, setEquityDraft] = useState("");
   const [settingErrors, setSettingErrors] = useState<string[]>([]);
+  const [metaDraft, setMetaDraft] = useState<Record<string, { reason: string; tag: string }>>({});
   const [killText, setKillText] = useState("");
   const [killError, setKillError] = useState(false);
   const [ddText, setDdText] = useState("");
@@ -307,7 +310,8 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
     const cur = bookRef.current;
     if (!cur) return;
     const at = Date.now();
-    const res = approveProposal(cur, p, p.nonce, at);
+    const md = metaDraft[p.id];
+    const res = approveProposal(cur, p, p.nonce, at, { reason: md?.reason, tag: md?.tag });
     commit(res.book);
     setProposalList(proposalsRef.current.filter((x) => x.id !== p.id));
     setNow(at);
@@ -429,8 +433,10 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
   const exportCsv = async () => {
     const cur = bookRef.current;
     if (!cur?.journal.length) return;
-    const headers = [...PAPER_JOURNAL_COLUMNS];
-    const csv = toCSV(cur.journal.map(journalRowValues), { headers, columns: headers, notice: t("paper.banner") });
+    const extra: Record<string, string> = { mae: t("paper.csv.mae"), mfe: t("paper.csv.mfe"), pre_trade_reason: t("paper.csv.reason"), setup_tag: t("paper.csv.tag"), notes: t("paper.csv.notes") };
+    const columns = [...PAPER_JOURNAL_COLUMNS];
+    const headers = columns.map((c) => extra[c] ?? c);
+    const csv = toCSV(cur.journal.map(journalRowValues), { headers, columns, notice: t("paper.banner") });
     const name = exportFileName({ app: "ConfluenceTerminal", customerCode: id.customer.code, docId: "paper-journal", ext: "csv" });
     const res = await platform.saveOrShare(new TextEncoder().encode(csv), name, "text/csv");
     if (res.ok) {
@@ -538,6 +544,33 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                       <div><dt className="font-sans text-zinc-400">{t("paper.target")}</dt><dd>{fmtPx(v.target)}</dd></div>
                       <div><dt className="font-sans text-zinc-400">{t("paper.risk")}</dt><dd>{fmtMoney(v.riskAmount)}</dd></div>
                     </dl>
+                    {v.approved && !expired && (
+                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        <label className="flex flex-col gap-1 text-zinc-300 sm:col-span-2" htmlFor={`paper-reason-${p.id}`}>
+                          {t("paper.preReason")}
+                          <input
+                            id={`paper-reason-${p.id}`}
+                            type="text"
+                            maxLength={PRE_REASON_MAX}
+                            value={metaDraft[p.id]?.reason ?? ""}
+                            onChange={(e) => setMetaDraft((m) => ({ ...m, [p.id]: { reason: e.target.value, tag: m[p.id]?.tag ?? "" } }))}
+                            className="h-8 rounded border border-zinc-700 bg-zinc-950 px-2 text-zinc-100"
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1 text-zinc-300" htmlFor={`paper-tag-${p.id}`}>
+                          {t("paper.setupTag")}
+                          <select
+                            id={`paper-tag-${p.id}`}
+                            value={metaDraft[p.id]?.tag ?? ""}
+                            onChange={(e) => setMetaDraft((m) => ({ ...m, [p.id]: { reason: m[p.id]?.reason ?? "", tag: e.target.value } }))}
+                            className="h-8 rounded border border-zinc-700 bg-zinc-950 px-2 text-zinc-100"
+                          >
+                            <option value="">—</option>
+                            {SETUP_TAGS.map((g) => <option key={g} value={g}>{t(`paper.tag.${g}`)}</option>)}
+                          </select>
+                        </label>
+                      </div>
+                    )}
                     <div className={`mt-2 ${v.approved && !expired ? "text-emerald-300" : "text-amber-300"}`}>
                       {expired ? t("paper.err.expired") : v.approved ? t("paper.verdictPass") : t("paper.verdictBlocked")}
                       {v.capped && <span className="ms-2 text-zinc-400">{t("paper.capped")}</span>}
@@ -629,6 +662,30 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                 <div><dt className="text-zinc-400">{t("paper.netPnl")}</dt><dd className={`font-mono tabular-nums ${pnlClass(view.stats.netPnl)}`}>{fmtSigned(view.stats.netPnl)}</dd></div>
                 <div><dt className="text-zinc-400">{t("paper.maxDd")}</dt><dd className="font-mono tabular-nums">{fmtMoney(view.stats.maxDrawdown)} · {fmtPct(view.stats.maxDrawdownPct)}</dd></div>
               </dl>
+              <details className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3 text-xs">
+                <summary className="cursor-pointer font-semibold text-zinc-200">{t("paper.moreStats")}</summary>
+                <dl className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <div><dt className="text-zinc-400">{t("paper.profitFactor")}</dt><dd className="font-mono tabular-nums">{view.stats.profitFactor === Infinity ? "∞" : fmtNum(view.stats.profitFactor)}</dd></div>
+                  <div><dt className="text-zinc-400">{t("paper.winRateRange")}</dt><dd className="font-mono tabular-nums">{fmtPct(view.stats.winRateCI[0])} – {fmtPct(view.stats.winRateCI[1])}</dd></div>
+                  <div><dt className="text-zinc-400">{t("paper.avgMae")}</dt><dd className="font-mono tabular-nums">{fmtNum(view.stats.avgMae)}</dd></div>
+                  <div><dt className="text-zinc-400">{t("paper.avgMfe")}</dt><dd className="font-mono tabular-nums">{fmtNum(view.stats.avgMfe)}</dd></div>
+                </dl>
+                {view.stats.tooFewTrades && <p className="mt-2 text-amber-300">{t("paper.tooFewTrades", { n: view.stats.trades })}</p>}
+                <h4 className="mt-3 text-zinc-300">{t("paper.rHistogram")}</h4>
+                <ul className="mt-1 space-y-0.5 font-mono tabular-nums" aria-label={t("paper.rHistogram")}>
+                  {view.stats.rHistogram.map((b, i, all) => {
+                    const peak = Math.max(1, ...all.map((x) => x.count));
+                    const label = i === 0 ? `< ${(b.edge + 0.5).toFixed(1)}` : i === all.length - 1 ? `≥ ${b.edge.toFixed(1)}` : `${b.edge.toFixed(1)}`;
+                    return (
+                      <li key={b.edge} className="flex items-center gap-2">
+                        <span className="w-12 text-end text-zinc-400">{label}</span>
+                        <span className="h-2 rounded bg-cyan-700" style={{ width: `${(b.count / peak) * 60}%`, minWidth: b.count ? 2 : 0 }} aria-hidden="true" />
+                        <span>{b.count}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </details>
               <p className="text-[11px] text-zinc-400">{t("paper.gateProgress", { n: view.stats.trades, total: RECONCILE_GATE_TRADES })}</p>
               {annotating && (
                 <div className="space-y-2 rounded border border-zinc-800 p-2">

@@ -136,7 +136,15 @@ export function memoryPaperPort(): PaperPort {
 export const PAPER_JOURNAL_COLUMNS = [
   "id", "opened_utc", "closed_utc", "source", "timeframe", "pair", "side", "size", "entry", "exit", "stop", "target",
   "fees", "funding", "pnl", "r_multiple", "reason", "config_id", "proposal_id", "approved_utc", "approved_by", "simulated",
+  "mae", "mfe", "pre_trade_reason", "setup_tag", "notes",
 ] as const;
+
+/** Same rule as the kit's safeCell (cells starting with = + - @ or a control character get a leading apostrophe); lib code cannot import the kit. */
+const safeText = (v: unknown): string => {
+  const s = typeof v === "string" ? v : "";
+  return /^[=+\-@\u0000-\u001F]/.test(s) ? `'${s}` : s;
+};
+const optR = (v: unknown): number | string => (typeof v === "number" && Number.isFinite(v) ? Math.round(v * 1000) / 1000 : "");
 
 const iso = (ms: number) => (ms ? new Date(ms).toISOString() : "");
 export function journalRowValues(j: JournalEntry): (string | number)[] {
@@ -144,6 +152,7 @@ export function journalRowValues(j: JournalEntry): (string | number)[] {
     j.id, iso(j.openedAt), iso(j.closedAt), j.src, j.tf, j.pair, j.side, j.size, j.entry, j.exit, j.stop, j.target,
     round(j.fees), round(j.funding), round(j.pnl), Math.round(j.r * 1000) / 1000, j.reason, j.configId, j.proposalId,
     iso(j.approvedAt), j.approvedBy, "paper",
+    optR(j.mae), optR(j.mfe), safeText(j.preReason), safeText(j.tag), safeText(j.notes),
   ];
 }
 const round = (v: number) => Math.round(v * 1e6) / 1e6;

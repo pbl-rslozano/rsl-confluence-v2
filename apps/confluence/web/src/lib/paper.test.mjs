@@ -12,10 +12,10 @@ import {
 import {
   newBook, createProposal, approveProposal, rejectProposal, processBars, requestClose, engageKill, resetKill,
   journalStats, accountSnapshot, isUnmanaged, lockState, bookEquity, updateSettings, setStartingEquity, randomNonce,
-  utcWeekStart, utcDayStart, KILL_RESET_WORD, slippageFor, depegFor,
+  utcWeekStart, utcDayStart, KILL_RESET_WORD, slippageFor, depegFor, SETUP_TAGS,
 } from "./paper-broker.ts";
 import { createPaperStore, memoryPaperPort, PAPER_JOURNAL_COLUMNS, journalRowValues } from "./paper-store.ts";
-import { DEFAULT_COSTS } from "./ledger-metrics.ts";
+import { DEFAULT_COSTS, wilson } from "./ledger-metrics.ts";
 import { atr } from "./indicators.ts";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -621,6 +621,63 @@ console.log("v2.8 WP19 — cost-inclusive sizing, open-loss locks, no loosening,
   // Warnings and leverage.
   ok("risk per trade > 1% warns", ev({}, {}, { riskPerTradePct: 1.5 }).warnings.includes("paper.warn.riskAbove1") && !ev().warnings.length);
   ok("leverage capped at 1 until liquidation is modelled", validateSettings({ ...S, maxLeverage: 2 }).includes("maxLeverage"));
+}
+
+console.log("Journal honesty (WP19): Wilson range, R histogram, MAE/MFE, reason and tag");
+{
+  const J = (pnl, r, t, extra = {}) => ({ id: `t${t}`, openedAt: t - 1, closedAt: t, pair: "X", src: "binance", tf: "4h", side: "long", size: 1, entry: 1, exit: 1, stop: 0.9, target: 1.2, fees: 0, funding: 0, pnl, r, reason: "stop", configId: "c", proposalId: "p", approvedAt: t - 2, approvedBy: "owner", ...extra });
+  const mkJ = (n, wins) => Array.from({ length: n }, (_, i) => (i < wins ? J(10, 1.5, i + 1) : J(-10, -1, i + 1)));
+  const s7 = journalStats(mkJ(10, 7), 10_000);
+  const w = wilson(7, 10);
+  ok("winRateCI equals wilson(wins, n)", near(s7.winRateCI[0], w[0]) && near(s7.winRateCI[1], w[1]) && s7.winRateCI[0] < 0.7 && s7.winRateCI[1] > 0.7);
+  ok("empty journal: CI is NaN, no NaN leaks into histogram", Number.isNaN(journalStats([], 1).winRateCI[0]) && journalStats([], 1).rHistogram.every((b) => b.count === 0));
+  ok("29 trades → tooFewTrades true", journalStats(mkJ(29, 15), 10_000).tooFewTrades === true);
+  ok("30 trades → tooFewTrades false", journalStats(mkJ(30, 15), 10_000).tooFewTrades === false);
+  const h = journalStats([J(1, -7, 1), J(1, -3, 2), J(1, -0.2, 3), J(1, 0, 4), J(1, 0.49, 5), J(1, 0.5, 6), J(1, 4.9, 7), J(1, 9, 8)], 10_000).rHistogram;
+  ok("histogram: 16 bins of 0.5 R from -3, edges -3 … 4.5", h.length === 16 && h[0].edge === -3 && h[15].edge === 4.5 && h.every((b, i) => near(b.edge, -3 + i * 0.5)));
+  const at = (e) => h.find((b) => b.edge === e).count;
+  ok("histogram: ends clamp, bins are [edge, edge+0.5)", at(-3) === 2 && at(-0.5) === 1 && at(0) === 2 && at(0.5) === 1 && at(4.5) === 2 && h.reduce((a, b) => a + b.count, 0) === 8);
+  const old = journalStats([J(10, 1, 1), J(-10, -1, 2, { mae: -0.5, mfe: 0.2 })], 10_000);
+  ok("old entries without mae/mfe: averages use only known values, never NaN from missing", near(old.avgMae, -0.5) && near(old.avgMfe, 0.2) && Number.isNaN(journalStats([J(10, 1, 1)], 1).avgMae));
+
+  // MAE / MFE follow bar extremes in R (SOLUSDT long, entry 100 + slippage; zero costs for clean numbers).
+  const zero = { feeBps: 0, slipBps: 0, fundingBpsPer8h: 0 };
+  const b0 = liveBook();
+  const p = createProposal(b0, input(), NOW, "m1");
+  const appr = approveProposal(b0, p, "m1", NOW, { reason: "retest of the 4h range high", tag: "breakout" });
+  const pos0 = appr.book.positions[0];
+  ok("new position starts at mae 0 / mfe 0 and carries reason and tag", pos0.mae === 0 && pos0.mfe === 0 && pos0.preReason === "retest of the 4h range high" && pos0.tag === "breakout");
+  const oneR = pos0.plannedRisk / pos0.size;
+  const m1 = processBars(appr.book, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 101, 99.2, 100.5)] }, T0 + 3 * I, zero).book.positions[0];
+  ok("fill bar: mae = (low − entry) ÷ 1R, mfe = (high − entry) ÷ 1R", near(m1.mae, (99.2 - 100) / oneR) && near(m1.mfe, 1 / oneR), `${m1.mae} ${m1.mfe} ${oneR}`);
+  const m2 = processBars({ ...appr.book, positions: [m1] }, "binance", "4h", { SOLUSDT: [bar(T0 + 3 * I, 100.5, 100.9, 99.9, 100.3)] }, T0 + 4 * I, zero).book.positions[0];
+  ok("excursions only ever widen (a calmer bar changes nothing)", m2.mae === m1.mae && m2.mfe === m1.mfe);
+  const m3 = processBars({ ...appr.book, positions: [m2] }, "binance", "4h", { SOLUSDT: [bar(T0 + 4 * I, 100.3, 100.4, 95, 96)] }, T0 + 5 * I, zero);
+  const je = m3.closed[0];
+  ok("journal entry carries mfe from earlier bars and preReason/tag", je && near(je.mfe, m1.mfe) && je.preReason === "retest of the 4h range high" && je.tag === "breakout" && je.mae <= m1.mae);
+
+  // Reason / tag validation at approval.
+  const long = approveProposal(liveBook(), createProposal(liveBook(), input(), NOW, "m2"), "m2", NOW, { reason: "x".repeat(400), tag: "yolo" }).book.positions[0];
+  ok("reason capped at 280 chars; unknown tag dropped", long.preReason.length === 280 && long.tag === undefined);
+  const none = approveProposal(liveBook(), createProposal(liveBook(), input(), NOW, "m3"), "m3", NOW).book.positions[0];
+  ok("reason and tag are optional", none.preReason === undefined && none.tag === undefined);
+  ok("tag enum", SETUP_TAGS.join() === "breakout,trend,reversal,range,other");
+
+  // CSV.
+  const base = PAPER_JOURNAL_COLUMNS.slice(0, 22).join();
+  ok("v2.7 CSV columns unchanged, five appended", base === "id,opened_utc,closed_utc,source,timeframe,pair,side,size,entry,exit,stop,target,fees,funding,pnl,r_multiple,reason,config_id,proposal_id,approved_utc,approved_by,simulated" && PAPER_JOURNAL_COLUMNS.slice(22).join() === "mae,mfe,pre_trade_reason,setup_tag,notes");
+  const row = journalRowValues(J(10, 1, 1, { mae: -0.4321, mfe: 1.5, preReason: "range break, volume up", tag: "range", notes: "ok" }));
+  ok("CSV round-trip keeps mae, mfe, reason, tag, notes", row.length === PAPER_JOURNAL_COLUMNS.length && row[22] === -0.432 && row[23] === 1.5 && row[24] === "range break, volume up" && row[25] === "range" && row[26] === "ok");
+  const evil = journalRowValues(J(10, 1, 1, { preReason: "=cmd|' /C calc'!A0", notes: "@SUM(1)" }));
+  ok('"=cmd" reason and "@" notes are neutralised', evil[24] === "'=cmd|' /C calc'!A0" && evil[26] === "'@SUM(1)");
+  const oldRow = journalRowValues(J(10, 1, 1));
+  ok("old entry: mae/mfe/reason/tag/notes cells are empty, never NaN", oldRow.slice(22).every((v) => v === ""));
+  // Journal TABLE columns stay as v2.7 (read from the dialog source).
+  const dlg = readFileSync(join(process.cwd(), "src", "components", "paper-dialog.tsx"), "utf8");
+  const t0 = dlg.indexOf('<table className="w-full min-w-[44rem]', dlg.indexOf('id="paper-journal"'));
+  const head = dlg.slice(t0, dlg.indexOf("</thead>", t0));
+  const cols = [...head.matchAll(/\{t\("(paper\.col\.[a-z]+)"\)\}|>(R)</g)].map((m) => m[1] ?? m[2]);
+  ok("journal table column list unchanged from v2.7", cols.join() === "paper.col.closed,paper.col.pair,paper.col.side,paper.col.entry,paper.col.exit,paper.col.fees,paper.col.pnl,R,paper.col.reason", cols.join());
 }
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
