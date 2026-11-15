@@ -6,6 +6,7 @@
  * contact, credit at the end. Builder skill §3.5, §7; identity skill §2.3–2.4, §3.3, §6.2.
  * v2.8 (WP20, licence audit): a collapsed "Open-source licences" section just above the credit — the third-party notices
  * (out/THIRD-PARTY-NOTICES.txt, tools/third-party-notices.mjs) and the trademark line.
+ * v2.8 (owner request, 15 Nov 2026): a collapsed, optional rsL Coffee Kit tip card (CoffeeSection) just above it.
  */
 import { useEffect, useState, type MouseEvent } from "react";
 import { LANGUAGES } from "@rsl/core-kit/core/rsl-i18n.js";
@@ -20,6 +21,7 @@ import { SCHEMA_VERSION } from "../boot";
 import { useRsl } from "../RslContext";
 import { useUpdate } from "../UpdateContext";
 import { BrandBlock } from "./BrandBlock";
+import { CoffeeSection } from "./CoffeeSection";
 import { Flag } from "./Flags";
 import { IdentityForm } from "./IdentityForm";
 import { Monogram3D } from "./Monogram3D";
@@ -195,6 +197,8 @@ function AboutBody() {
             ))}
           </ul>
         </section>
+
+        <CoffeeSection />
 
         <LicencesSection />
 

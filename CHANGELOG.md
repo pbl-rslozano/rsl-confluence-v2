@@ -26,6 +26,10 @@ and smooth loading. Engine 2.4.0 (`5c30b5c39f5ba3f2`); ledger rows of engine 2.3
   dialog, ledger dialog) compare the layout at rest with text masked against baselines captured from the v2.7.0-web build.
 - **Languages:** the new and changed v2.8 strings are Arabic drafts awaiting native-speaker review (About shows the count;
   release check **R25** blocks a release until they are reviewed); the other 16 languages show them in English for now.
+- **Coffee tip card (owner addition, no WP):** About → *☕ Treat the developer to a coffee*, collapsed above Open-source
+  licences — the rsL Coffee Kit v1.1 2026 (build 20261115) card images for GCash, PayPal and Bitcoin, copied unchanged
+  into `src/rsl/coffee-kit.json` and shown verbatim; optional and never a fee (nothing gated, never opens by itself); only
+  Bitcoin has **Copy address**. Unit tests pin the six image hashes and scan for contact details; acceptance **CK-1**.
 - **Docs:** user guide chapters for WP19, WP20 and WP27; R19 accepts this "in progress" entry above the released v2.7.0.
 - **Before going back to v2.7, export the paper journal** (Paper → Export CSV) and note your open positions: v2.7 cannot
   read the v2.8 paper account format and starts a fresh 10,000 USDT account over it on its first scan.
