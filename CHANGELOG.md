@@ -43,10 +43,10 @@ ledger rows of engine 2.3.0 stay and are reported separately.
   their API docs and terms, as names in text. Venue terms and link patterns are to be checked by the owner before
   release (ADR-0018). Acceptance **EX-1**…**EX-6** and **ID-2.6**.
 - **Fund trend (WP21):** a second opinion from closed daily bars, adapted from the published time-series-momentum research
-  (Moskowitz–Ooi–Pedersen 2012; Hurst–Ooi–Pedersen 2017), not any fund's positions: −100…+100 from 30, 91 and 365-day
+  (Moskowitz–Ooi–Pedersen 2012; Hurst–Ooi–Pedersen 2017, *Journal of Portfolio Management*), not any fund's positions: −100…+100 from 30, 91 and 365-day
   returns scaled by EWMA volatility, plus **Fund size** (40 % volatility target, at most 200 %). Crypto only, at least 366
   daily bars, else "not enough history" or n/a; daily bars are fetched once per coin per UTC day behind the scan, on builds
-  that fetch directly (the hosted web version shows n/a). Off by default: **Fund trend ribbon** and **panel** (Confluence
+  that fetch directly (the hosted web version shows no Fund trend values). Off by default: **Fund trend ribbon** and **panel** (Confluence
   score, Fund trend, Fund size, Fund rank) at the end of the chart's Indicators menu; disagreement hatching and ◆ (score
   at least 55 against Fund trend of the opposite sign at 25 or more; list ◆ only with the ribbon on); **Disagreement
   pulse** (3 pulses, Off, Keep pulsing) and an optional **Fund rank** column in Scoring profile. The ledger records `ft`
@@ -60,7 +60,7 @@ ledger rows of engine 2.3.0 stay and are reported separately.
   licences — the rsL Coffee Kit v1.1 2026 (build 20261115) card images for GCash, PayPal and Bitcoin, copied unchanged
   into `src/rsl/coffee-kit.json` and shown verbatim; optional and never a fee (nothing gated, never opens by itself); only
   Bitcoin has **Copy address**. Unit tests pin the six image hashes and scan for contact details; acceptance **CK-1**.
-- **Docs:** user guide chapters for WP19, WP20, WP26 and WP27; ADR-0018 (new venues); R19 accepts this "in progress" entry above the released v2.7.0.
+- **Docs:** user guide chapters for WP19, WP20, WP21, WP26 and WP27; ADR-0018 (new venues); R19 accepts this "in progress" entry above the released v2.7.0.
 - **Before going back to v2.7, export the paper journal** (Paper → Export CSV) and note your open positions: v2.7 cannot
   read the v2.8 paper account format and starts a fresh 10,000 USDT account over it on its first scan.
 
