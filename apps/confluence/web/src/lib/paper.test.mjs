@@ -171,8 +171,8 @@ console.log("Broker — next-open fill, no look-ahead");
   ok("fills at the open of the first bar opening after approval", q.status === "open" && q.openedAt === T0 + 2 * I);
   ok("entry includes slippage against the position", near(q.entry, 101 * 1.0005), String(q.entry));
   ok("stop/target re-anchored to the fill (same distances)", near(q.stop, q.entry - 4) && near(q.target, q.entry + 8));
-  ok("entry fee charged on notional", near(q.entryFee, q.entry * 12.5 * 0.001));
-  ok("mark-to-market at the bar close", q.mark === 101.5 && near(bookEquity(r2.book), 10_000 + (101.5 - q.entry) * 12.5 - q.entryFee));
+  ok("entry fee charged on notional", near(q.entryFee, q.entry * q.size * 0.001) && q.size === 11.62);
+  ok("mark-to-market at the bar close", q.mark === 101.5 && near(bookEquity(r2.book), 10_000 + (101.5 - q.entry) * q.size - q.entryFee));
   ok("reprocessing the same bars is idempotent", JSON.stringify(processBars(r2.book, "binance", "4h", { SOLUSDT: k2 }, T0 + 3 * I, costs).book.positions) === JSON.stringify(r2.book.positions));
   ok("other source/timeframe bars are ignored", processBars(b1, "binance", "1h", { SOLUSDT: k2 }, T0 + 3 * I, costs).book.positions[0].status === "pending");
   ok("heartbeat recorded for the processed series", r2.book.account.heartbeats["binance|4h"] === T0 + 3 * I);
@@ -198,15 +198,16 @@ console.log("Broker — exits");
   ok("bar touching stop and target → stop assumed first", both.closed.length === 1 && both.closed[0].reason === "stop");
   const j = both.closed[0];
   ok("stop exit at stop with slippage", near(j.exit, (e - 4) * (1 - 0.0005)));
-  ok("fees = entry + exit taker fees", near(j.fees, e * 12.5 * 0.001 + j.exit * 12.5 * 0.001));
-  ok("pnl = gross − fees − funding", near(j.pnl, (j.exit - e) * 12.5 - j.fees));
-  ok("R multiple = pnl ÷ planned risk (≈ −1R after costs)", near(j.r, j.pnl / 50) && j.r < -1 && j.r > -1.2, String(j.r));
+  ok("fees = entry + exit taker fees", near(j.fees, e * j.size * 0.001 + j.exit * j.size * 0.001));
+  ok("pnl = gross − fees − funding", near(j.pnl, (j.exit - e) * j.size - j.fees));
+  // v2.8: the round-trip cost is inside the 1 R budget, so a clean stop-out is ≈ −1 R (was −1.06 R).
+  ok("R multiple = pnl ÷ planned risk (≈ −1R, costs inside the budget)", near(j.r, j.pnl / b.positions[0].plannedRisk) && j.r <= -0.95 && j.r >= -1, String(j.r));
   ok("journal entry is approvedBy owner with ids", j.approvedBy === "owner" && j.proposalId && j.configId === "cfgtest000000001");
   ok("balance updated by realised pnl", near(both.book.account.balance, 10_000 + j.pnl) && both.book.positions.length === 0);
   ok("closedAt = close of the exit bar", j.closedAt === T0 + 4 * I);
   const tgt = processBars(b, "binance", "4h", { SOLUSDT: [bar(T0 + 3 * I, 100.2, e + 8.5, 100, 107)] }, T0 + 4 * I, costs);
   ok("target-only bar exits at target", tgt.closed[0].reason === "target" && near(tgt.closed[0].exit, (e + 8) * (1 - 0.0005)));
-  ok("target trade ≈ +2R minus costs", tgt.closed[0].r > 1.8 && tgt.closed[0].r < 2);
+  ok("target trade ≈ +2R minus costs", tgt.closed[0].r > 1.7 && tgt.closed[0].r < 1.9, String(tgt.closed[0].r));
   const gap = processBars(b, "binance", "4h", { SOLUSDT: [bar(T0 + 3 * I, 90, 91, 89, 90.5)] }, T0 + 4 * I, costs);
   ok("gap through the stop exits at the open (worse than stop)", gap.closed[0].reason === "stop" && near(gap.closed[0].exit, 90 * (1 - 0.0005)));
   const hold = processBars(b, "binance", "4h", { SOLUSDT: [bar(T0 + 3 * I, 100, 101, 99, 100.7)] }, T0 + 4 * I, costs);
@@ -421,6 +422,92 @@ console.log("v2.8 WP19 — drawdown lock (10%) and RESET");
   const migrated = await createPaperStore(Promise.resolve(port)).load(T0);
   ok("migrates v1 book with open positions", migrated.account.schema === 2 && migrated.account.balance === 9_500 && migrated.positions.length === 1
     && migrated.account.drawdownLocked === false && near(migrated.account.peakEquity, bookEquity(migrated)), JSON.stringify({ s: migrated.account.schema, b: migrated.account.balance, p: migrated.account.peakEquity }));
+}
+
+console.log("v2.8 WP19 — cost-inclusive sizing, open-loss locks, no loosening, caps and gates");
+{
+  const has = (v, key) => v.reasons.includes(key);
+  const ev = (i = {}, a = {}, st = {}, now = NOW) => evaluateProposal(input(i), acct(a), { ...S, ...st }, now);
+  const binRt = 2 * (10 + 5) / 1e4;
+  const v = ev({ roundTripCost: binRt });
+  ok("size = budget ÷ (stop distance + entry × round-trip cost)", v.size === roundToStep(50 / (4 + 100 * binRt), 0.01), String(v.size));
+  ok("1 R includes the round-trip cost", near(v.riskAmount, v.size * (4 + 100 * binRt)));
+  ok("no round-trip cost given → old sizing", ev().size === 12.5);
+  // End to end: a clean stop-out through the broker is ≈ −1 R (stop 2% from entry).
+  const cleanStopR = (src) => {
+    const c = DEFAULT_COSTS[src];
+    const b0 = { ...newBook(T0), account: { ...newBook(T0).account, heartbeats: { [`${src}|4h`]: NOW } } };
+    const pr = createProposal(b0, input({ src, pair: src === "coinsph" ? "SOLUSDT" : "SOLUSDT" }), NOW, "c" + src);
+    const b1 = approveProposal(b0, pr, "c" + src, NOW).book;
+    const o = processBars(b1, src, "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 100.5, 99.5, 100)] }, T0 + 3 * I, c).book;
+    const e = o.positions[0].entry;
+    return processBars(o, src, "4h", { SOLUSDT: [bar(T0 + 3 * I, e, e, e - 4.5, e - 4.2)] }, T0 + 4 * I, c).closed[0].r;
+  };
+  const rb = cleanStopR("binance");
+  ok("clean stop-out ≈ −1 R on Binance (in [−1.00, −0.97])", rb >= -1.0 - 1e-9 && rb <= -0.97, String(rb));
+  const rc = cleanStopR("bitget");
+  ok("clean stop-out ≈ −1 R on another venue", rc >= -1.0 - 1e-9 && rc <= -0.94, String(rc));
+
+  ok("open losses count toward the daily lock", has(ev({}, { equity: 9_790, realisedToday: 0, dayStartEquity: 10_000 }), "paper.rule.dailyLock"));
+  ok("daily lock not tripped at 1.9% open loss", !has(ev({}, { equity: 9_810, realisedToday: 0, dayStartEquity: 10_000 }), "paper.rule.dailyLock"));
+  ok("open losses count toward the weekly lock", has(ev({}, { equity: 9_500, weekStartEquity: 10_000, dayStartEquity: 9_500 }), "paper.rule.weeklyLock"));
+
+  // Start-of-day mark: the first mark at or after 00:00 UTC.
+  const bk = liveBook();
+  ok("new book carries day/week start marks", bk.account.dayMark.equity === 10_000 && bk.account.dayMark.day === utcDayStart(T0) && bk.account.weekMark.week === utcWeekStart(T0));
+  const nextDay = processBars(bk, "binance", "4h", { SOLUSDT: [bar(T0 + 6 * I, 1, 1, 1, 1)] }, T0 + 7 * I).book;
+  ok("first mark of a new UTC day resets the day start", nextDay.account.dayMark.day === utcDayStart(T0 + 7 * I));
+  ok("snapshot passes the start-of-day equity", accountSnapshot(nextDay, "binance", "4h", T0 + 7 * I).dayStartEquity === nextDay.account.dayMark.equity);
+
+  // No loosening while locked.
+  const killed = engageKill(liveBook(), NOW);
+  const loosen = updateSettings(killed, { ...killed.account.settings, riskPerTradePct: 1 }, NOW);
+  ok("locks can't be loosened while active (kill switch)", !loosen.ok && loosen.invalid.join() === "locked");
+  ok("tightening is allowed while locked", updateSettings(killed, { ...killed.account.settings, riskPerTradePct: 0.25 }, NOW).ok);
+  ok("non-risk settings can change while locked", updateSettings(killed, { ...killed.account.settings, stopAtrMult: 3 }, NOW).ok);
+  const unlocked = resetKill(killed, "RESET", NOW + 1).book;
+  ok("still refused later the same UTC day after the lock cleared", !updateSettings(unlocked, { ...S, riskPerTradePct: 1 }, NOW + 2).ok);
+  ok("allowed again from the next UTC day", updateSettings(unlocked, { ...S, riskPerTradePct: 1 }, utcDayStart(NOW) + 86_400_000).ok);
+  const lostDay = { ...liveBook(), account: { ...liveBook().account, balance: 9_790 } };
+  ok("daily lock (open or realised) also blocks loosening", !updateSettings(lostDay, { ...S, dailyLossLockPct: 3 }, NOW).ok);
+  const dmOnly = { ...newBook(T0) }; // no heartbeat → dead-man badge only
+  ok("the dead-man badge alone does not block loosening", updateSettings(dmOnly, { ...S, riskPerTradePct: 1 }, NOW).ok);
+
+  // Max drawdown % is tracked separately from the amount.
+  const jr = (id, t, pnl) => ({ id, openedAt: t - 1, closedAt: t, pnl, r: pnl / 50 });
+  const st = journalStats([jr("a", 1, -50), jr("b", 2, 950), jr("c", 3, -300)], 100);
+  ok("max drawdown % is the largest % drawdown", st.maxDrawdown === 300 && near(st.maxDrawdownPct, 0.5), `${st.maxDrawdown} ${st.maxDrawdownPct}`);
+
+  // Correlated crypto cap.
+  const three = [pos({ pair: "BTCUSDT" }), pos({ pair: "XRPUSDT" }), pos({ pair: "ETHUSDT" })];
+  ok("crypto cap default 3", S.maxCryptoPositions === 3);
+  ok("a 4th crypto position is blocked", has(ev({}, { positions: three }, { maxPerClusterPositions: 5 }), "paper.rule.cryptoCap"));
+  ok("a stock is not counted against the crypto cap", !has(ev({ assetClass: "stock", pair: "AAPLUSDT" }, { positions: three }, { maxPerClusterPositions: 5 }), "paper.rule.cryptoCap"));
+
+  // Depeg gate.
+  ok("quote depeg ≥ 1% blocks", has(ev({ depegPct: 1.0 }), "paper.rule.depeg") && has(ev({ depegPct: -2.4 }), "paper.rule.depeg"));
+  ok("quote depeg 0.99% passes", !has(ev({ depegPct: 0.99 }), "paper.rule.depeg"));
+  ok("USDT (reference, null reading) is never gated", !has(ev({ depegPct: null }), "paper.rule.depeg"));
+
+  // Intraday as context.
+  const M15 = 15 * 60e3;
+  ok("1m–15m proposals blocked by default", has(ev({ tf: "15m", intervalMs: M15, barTime: NOW - 2 * M15 + 1 }), "paper.rule.intradayContext"));
+  ok("1h passes the intraday rule", !has(ev({ tf: "1h", intervalMs: H, barTime: NOW - 2 * H + 1 }), "paper.rule.intradayContext"));
+  ok("intraday allowed by the setting", !has(ev({ tf: "15m", intervalMs: M15, barTime: NOW - 2 * M15 + 1 }, {}, { allowIntradayProposals: true }), "paper.rule.intradayContext"));
+
+  // Time stop.
+  ok("time stop off by default", S.timeStopBars === 0);
+  const zero = { feeBps: 0, slipBps: 0, fundingBpsPer8h: 0 };
+  const tb0 = { ...liveBook(), account: { ...liveBook().account, settings: { ...S, timeStopBars: 2 } } };
+  const tpr = createProposal(tb0, input(), NOW, "ts");
+  let tb = approveProposal(tb0, tpr, "ts", NOW).book;
+  tb = processBars(tb, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 100.5, 99.5, 100)] }, T0 + 3 * I, zero).book;
+  const tr = processBars(tb, "binance", "4h", { SOLUSDT: [bar(T0 + 3 * I, 100, 101, 99, 100.5), bar(T0 + 4 * I, 100.7, 101, 100, 100.9)] }, T0 + 5 * I, zero);
+  ok("time stop closes at the next open with reason 'time'", tr.closed.length === 1 && tr.closed[0].reason === "time" && near(tr.closed[0].exit, 100.7), tr.closed.map((c) => c.reason + "@" + c.exit).join());
+
+  // Warnings and leverage.
+  ok("risk per trade > 1% warns", ev({}, {}, { riskPerTradePct: 1.5 }).warnings.includes("paper.warn.riskAbove1") && !ev().warnings.length);
+  ok("leverage capped at 1 until liquidation is modelled", validateSettings({ ...S, maxLeverage: 2 }).includes("maxLeverage"));
 }
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

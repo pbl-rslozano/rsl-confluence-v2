@@ -31,6 +31,7 @@ import {
   DEFAULT_RISK_SETTINGS,
   evaluateProposal,
   RISK_SETTING_LIMITS,
+  BOOLEAN_SETTINGS,
   validateSettings,
   type Master,
   type ProposalInput,
@@ -97,6 +98,8 @@ interface Props {
 
 type NumericKey = keyof typeof RISK_SETTING_LIMITS;
 const NUMERIC_KEYS = Object.keys(RISK_SETTING_LIMITS) as NumericKey[];
+type BoolKey = (typeof BOOLEAN_SETTINGS)[number];
+const flagsOf = (s: RiskSettings) => Object.fromEntries(BOOLEAN_SETTINGS.map((k) => [k, s[k]])) as Record<BoolKey, boolean>;
 
 const fmtMoney = (v: number) => (Number.isFinite(v) ? v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—");
 const fmtSigned = (v: number) => (Number.isFinite(v) ? `${v >= 0 ? "+" : ""}${fmtMoney(v)}` : "—");
@@ -137,7 +140,7 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
   const [message, setMessage] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>(() => draftOf(DEFAULT_RISK_SETTINGS));
-  const [draftFlags, setDraftFlags] = useState({ allowShortsOnSpot: DEFAULT_RISK_SETTINGS.allowShortsOnSpot, requireFreshSignal: DEFAULT_RISK_SETTINGS.requireFreshSignal });
+  const [draftFlags, setDraftFlags] = useState<Record<BoolKey, boolean>>(() => flagsOf(DEFAULT_RISK_SETTINGS));
   const [equityDraft, setEquityDraft] = useState("");
   const [settingErrors, setSettingErrors] = useState<string[]>([]);
   const [killText, setKillText] = useState("");
@@ -167,7 +170,7 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
 
   const syncDraft = (b: PaperBook) => {
     setDraft(draftOf(b.account.settings));
-    setDraftFlags({ allowShortsOnSpot: b.account.settings.allowShortsOnSpot, requireFreshSignal: b.account.settings.requireFreshSignal });
+    setDraftFlags(flagsOf(b.account.settings));
     setEquityDraft(String(b.account.startingEquity));
   };
 
@@ -524,6 +527,7 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                       {expired ? t("paper.err.expired") : v.approved ? t("paper.verdictPass") : t("paper.verdictBlocked")}
                       {v.capped && <span className="ms-2 text-zinc-400">{t("paper.capped")}</span>}
                     </div>
+                    {(v.warnings ?? []).map((w) => <p key={w} className="mt-1 text-amber-300">{t(w)}</p>)}
                     {!v.approved && (
                       <ul className="mt-1 list-disc space-y-0.5 ps-5 text-zinc-300">
                         {v.reasons.map((r) => <li key={r}>{t(r)}</li>)}
@@ -710,14 +714,12 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                   ))}
                 </div>
                 <div className="flex flex-wrap gap-4 text-xs text-zinc-300">
-                  <label className="flex items-center gap-2" htmlFor="paper-allowShortsOnSpot">
-                    <input id="paper-allowShortsOnSpot" type="checkbox" checked={draftFlags.allowShortsOnSpot} onChange={(e) => setDraftFlags((f) => ({ ...f, allowShortsOnSpot: e.target.checked }))} />
-                    {t("paper.set.allowShortsOnSpot")}
-                  </label>
-                  <label className="flex items-center gap-2" htmlFor="paper-requireFreshSignal">
-                    <input id="paper-requireFreshSignal" type="checkbox" checked={draftFlags.requireFreshSignal} onChange={(e) => setDraftFlags((f) => ({ ...f, requireFreshSignal: e.target.checked }))} />
-                    {t("paper.set.requireFreshSignal")}
-                  </label>
+                  {BOOLEAN_SETTINGS.map((k) => (
+                    <label key={k} className="flex items-center gap-2" htmlFor={`paper-${k}`}>
+                      <input id={`paper-${k}`} type="checkbox" checked={draftFlags[k]} onChange={(e) => setDraftFlags((f) => ({ ...f, [k]: e.target.checked }))} />
+                      {t(`paper.set.${k}`)}
+                    </label>
+                  ))}
                 </div>
                 {settingErrors.length > 0 && <p role="alert" className="text-xs text-rose-300">{t("paper.invalid", { list: settingErrors.map((k) => t(`paper.set.${k}`)).join(", ") })}</p>}
                 <div className="flex flex-wrap justify-end gap-2">

@@ -51,6 +51,9 @@ export function migrateAccount(raw: PaperAccount, positions: PaperPosition[], ba
   };
   const marked = bookEquity({ account, positions, journal: [] });
   account.peakEquity = Number.isFinite(raw.peakEquity) && raw.peakEquity > 0 ? raw.peakEquity : marked;
+  if (!raw.dayMark || !Number.isFinite(raw.dayMark.equity)) account.dayMark = { ...base.dayMark, equity: marked };
+  if (!raw.weekMark || !Number.isFinite(raw.weekMark.equity)) account.weekMark = { ...base.weekMark, equity: marked };
+  account.lastLockAt = Number.isFinite(raw.lastLockAt) ? raw.lastLockAt : null;
   return account;
 }
 

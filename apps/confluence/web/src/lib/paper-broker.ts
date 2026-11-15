@@ -28,6 +28,8 @@ import { costsFor as ledgerCostsFor, type AssetClass, type CostModel } from "./l
 import {
   deadManTripped,
   evaluateProposal,
+  LOOSENING_KEYS,
+  lossLocks,
   normaliseSettings,
   validateSettings,
   type AccountState,
@@ -141,6 +143,11 @@ export interface PaperAccount {
   lockClearedAt: number | null;
   /** v2.8: journal of drawdown RESETs. */
   resets: { at: number; equity: number; peakBefore: number }[];
+  /** v2.8: equity at the first mark at or after 00:00 UTC (day) and Monday 00:00 UTC (week). */
+  dayMark: { day: number; equity: number };
+  weekMark: { week: number; equity: number };
+  /** v2.8: last instant any lock (daily, weekly, drawdown, kill) was seen active or cleared — no loosening until the next UTC day. */
+  lastLockAt: number | null;
 }
 
 export interface PaperBook {
@@ -182,6 +189,9 @@ export function newBook(now: number, startingEquity = DEFAULT_STARTING_EQUITY, s
       drawdownLocked: false,
       lockClearedAt: null,
       resets: [],
+      dayMark: { day: utcDayStart(now), equity: eq },
+      weekMark: { week: utcWeekStart(now), equity: eq },
+      lastLockAt: null,
     },
     positions: [],
     journal: [],
@@ -238,6 +248,9 @@ export function accountSnapshot(book: PaperBook, src: string, tf: string, now: n
     lastHeartbeat: book.account.heartbeats[seriesKey(src, tf)] ?? 0,
     peakEquity: book.account.peakEquity,
     drawdownLocked: book.account.drawdownLocked,
+    // v2.8: open losses count — no mark yet this period means nothing has moved since it began.
+    dayStartEquity: book.account.dayMark?.day === utcDayStart(now) ? book.account.dayMark.equity : undefined,
+    weekStartEquity: book.account.weekMark?.week === utcWeekStart(now) ? book.account.weekMark.equity : undefined,
   };
 }
 
@@ -250,11 +263,10 @@ export function isUnmanaged(book: PaperBook, p: PaperPosition, now: number): boo
 export function lockState(book: PaperBook, src: string, tf: string, intervalMs: number, now: number) {
   const s = book.account.settings;
   const snap = accountSnapshot(book, src, tf, now);
-  const dayBase = snap.equity - snap.realisedToday;
-  const weekBase = snap.equity - snap.realisedWeek;
+  const loss = lossLocks(snap, s);
   return {
-    daily: snap.realisedToday < 0 && dayBase > 0 && -snap.realisedToday >= (s.dailyLossLockPct / 100) * dayBase,
-    weekly: snap.realisedWeek < 0 && weekBase > 0 && -snap.realisedWeek >= (s.weeklyLossLockPct / 100) * weekBase,
+    daily: loss.daily,
+    weekly: loss.weekly,
     kill: book.account.killSwitch,
     deadMan: deadManTripped(snap.lastHeartbeat, intervalMs, now, s.deadManBars),
     realisedToday: snap.realisedToday,
@@ -288,7 +300,15 @@ export function proposalExpiry(p: ProposalInput): number {
  * Build a proposal for a signal, or null when it was already decided or has
  * expired. `nonce` is injected so the function stays pure (use `randomNonce()`).
  */
-export function createProposal(book: PaperBook, input: ProposalInput, now: number, nonce: string): Proposal | null {
+/** v2.8: the proposal with its round-trip cost (2 × (taker fee + slippage)) filled in from the cost model. */
+export function withCosts(input: ProposalInput, measuredSlipBps?: number): ProposalInput {
+  if (typeof input.roundTripCost === "number") return input;
+  const c = ledgerCostsFor(input.src, input.assetClass, measuredSlipBps);
+  return { ...input, roundTripCost: (2 * (c.feeBps + c.slipBps)) / 1e4 };
+}
+
+export function createProposal(book: PaperBook, rawInput: ProposalInput, now: number, nonce: string): Proposal | null {
+  const input = withCosts(rawInput);
   const id = proposalId(input);
   if (book.account.decisions[id]) return null;
   const expiresAt = proposalExpiry(input);
@@ -401,12 +421,23 @@ export function engageKill(book: PaperBook, now: number): PaperBook {
 export function resetKill(book: PaperBook, typed: string, now: number): { ok: boolean; book: PaperBook } {
   if (!book.account.killSwitch) return { ok: true, book };
   if (String(typed ?? "").trim() !== KILL_RESET_WORD) return { ok: false, book };
-  return { ok: true, book: { ...book, account: { ...book.account, killSwitch: false, killChangedAt: now } } };
+  return { ok: true, book: { ...book, account: { ...book.account, killSwitch: false, killChangedAt: now, lastLockAt: now } } };
 }
 
-export function updateSettings(book: PaperBook, next: RiskSettings): { ok: boolean; book: PaperBook; invalid: string[] } {
+/** v2.8: a lock that forbids loosening is active now (kill, drawdown, daily or weekly — not the dead-man badge). */
+export function lockActive(book: PaperBook, now: number): boolean {
+  if (book.account.killSwitch || book.account.drawdownLocked) return true;
+  const l = lossLocks(accountSnapshot(book, "", "", now), book.account.settings);
+  return l.daily || l.weekly;
+}
+
+export function updateSettings(book: PaperBook, next: RiskSettings, now = Date.now()): { ok: boolean; book: PaperBook; invalid: string[] } {
   const invalid = validateSettings(next);
   if (invalid.length) return { ok: false, book, invalid };
+  const cur = book.account.settings;
+  const loosens = LOOSENING_KEYS.some((k) => next[k] > cur[k]);
+  const last = book.account.lastLockAt;
+  if (loosens && (lockActive(book, now) || (last != null && utcDayStart(now) <= utcDayStart(last)))) return { ok: false, book, invalid: ["locked"] };
   return { ok: true, invalid, book: { ...book, account: { ...book.account, settings: { ...next } } } };
 }
 
@@ -497,6 +528,12 @@ export function processBars(
       p.markTime = bar.time;
       p.lastBarTime = bar.time;
       if (exit) break;
+      // v2.8 time stop: after `timeStopBars` bars held, exit at the next open (reason "time").
+      const ts = book.account.settings.timeStopBars;
+      if (ts > 0 && p.closeRequestedAt == null && p.openedAt != null && (bar.time - p.openedAt) / p.intervalMs + 1 >= ts) {
+        p.closeRequestedAt = barClose;
+        p.closeReason = "time";
+      }
     }
 
     if (exit && p.entry != null && p.openedAt != null) {
@@ -538,7 +575,19 @@ export function processBars(
   const anyBars = Object.values(barsByPair).some((k) => k && k.length);
   const heartbeats = anyBars ? { ...book.account.heartbeats, [seriesKey(src, tf)]: now } : book.account.heartbeats;
   const next: PaperBook = { account: { ...book.account, balance, seq, heartbeats }, positions, journal: [...book.journal, ...closed] };
-  return { book: applyDrawdown(next, now), filled, closed };
+  return { book: applyMarks(applyDrawdown(next, now), now), filled, closed };
+}
+
+/** v2.8: start-of-day/week marks (first mark at or after 00:00 UTC / Monday) and the lock memory for the no-loosening rule. */
+function applyMarks(book: PaperBook, now: number): PaperBook {
+  const a = book.account;
+  const equity = bookEquity(book);
+  const day = utcDayStart(now);
+  const week = utcWeekStart(now);
+  const dayMark = a.dayMark?.day === day ? a.dayMark : { day, equity };
+  const weekMark = a.weekMark?.week === week ? a.weekMark : { week, equity };
+  const next: PaperBook = { ...book, account: { ...a, dayMark, weekMark } };
+  return lockActive(next, now) ? { ...next, account: { ...next.account, lastLockAt: now } } : next;
 }
 
 /**
@@ -586,6 +635,7 @@ export function resetDrawdown(book: PaperBook, typed: string, now: number): { ok
         drawdownLocked: false,
         peakEquity: equity,
         lockClearedAt: now,
+        lastLockAt: now,
         resets: [...a.resets, { at: now, equity, peakBefore: a.peakEquity }].slice(-100),
       },
     },
@@ -642,7 +692,9 @@ export function journalStats(journal: JournalEntry[], startingEquity: number, st
   for (const pt of curve) {
     if (pt.equity > peak) peak = pt.equity;
     const dd = peak - pt.equity;
-    if (dd > mdd) { mdd = dd; mddPct = peak > 0 ? dd / peak : 0; }
+    if (dd > mdd) mdd = dd;
+    // v2.8: the largest % drawdown is tracked on its own (it need not be the largest amount).
+    if (peak > 0 && dd / peak > mddPct) mddPct = dd / peak;
   }
   return {
     trades: n,

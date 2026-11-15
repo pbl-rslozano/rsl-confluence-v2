@@ -475,5 +475,15 @@
   "paper.drawdownMismatch": "Type {name} exactly, after every lock close has filled.",
   "paper.drawdownResetDone": "Drawdown lock reset — a fresh limit starts from current equity.",
   "paper.drawdownNow": "From peak",
-  "paper.set.maxDrawdownLockPct": "Drawdown lock (% below highest equity)"
+  "paper.set.maxDrawdownLockPct": "Drawdown lock (% below highest equity)",
+  "paper.set.maxCryptoPositions": "Max open crypto positions",
+  "paper.set.timeStopBars": "Time stop (bars held; 0 = off, try 24)",
+  "paper.set.eventBlackout": "Pause around FOMC, CPI and jobs reports",
+  "paper.set.allowIntradayProposals": "Allow 1m–15m proposals (context only by default)",
+  "paper.set.locked": "A loss lock or the kill switch is active — risk can't be loosened until the next UTC day after it clears",
+  "paper.rule.cryptoCap": "Too many open crypto positions (crypto moves together).",
+  "paper.rule.depeg": "The quote stablecoin is 1% or more off its peg against USDT.",
+  "paper.rule.intradayContext": "1m–15m signals are context only (allow them in risk settings).",
+  "paper.rule.event": "Inside a macro event window (2 h before to 1 h after FOMC, CPI or jobs report).",
+  "paper.warn.riskAbove1": "Risk per trade above 1% of equity — losing streaks compound fast."
 }
