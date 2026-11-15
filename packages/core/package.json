@@ -1,7 +1,7 @@
 {
   "name": "@rsl/core-kit",
   "version": "1.1.2026",
-  "description": "rsL Core Kit v1.0 2026 — copied unchanged from the kit artifact (see KIT-MANIFEST.sha256). Do not edit here; change the kit and bump its version.",
+  "description": "rsL Core Kit v1.1 2026 — personal edition (KIT-002). Change only by an owner decision recorded in docs/kit-issues, then bump the version and regenerate KIT-MANIFEST.sha256.",
   "private": true,
   "type": "module",
   "exports": {
