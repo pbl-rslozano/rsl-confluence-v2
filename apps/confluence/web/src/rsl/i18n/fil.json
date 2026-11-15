@@ -438,7 +438,7 @@
   "depeg.warning": "Babala",
   "depeg.severe": "Malubha",
   "ph.usdtPremium": "Ang USDT sa Coins.ph ay {dev} laban sa opisyal na rate ng piso.",
-  "paper.rule.currency": "Nasa USDT ang paper account: mga pares lang na naka-quote sa USD stablecoin ang maimumungkahi.",
+  "paper.rule.currency": "The paper account is in US dollars: only pairs quoted in US dollars or a dollar stablecoin can be proposed.",
   "fx.sources": "Mga pinagmulan ng rate",
   "fx.choose": "Piliin kung saan galing ang exchange rate, i-update ito, at suriin ang bawat pinagmulan.",
   "fx.auto.src": "Awtomatiko (Frankfurter, saka mga kapalit)",
@@ -541,5 +541,15 @@
   "paper.moreLimits": "More limits",
   "paper.addNote": "Add a note",
   "paper.heldFeedFailed": "Bars could not be loaded for {list}. Their stops, targets and lock closes wait for those bars; the next scan tries again.",
-  "about.catalogApprovedPending": "approved — {n, number} new strings await native-speaker review"
+  "about.catalogApprovedPending": "approved — {n, number} new strings await native-speaker review",
+  "scan.pricesInBtc": "Prices in BTC — not converted to your display currency.",
+  "detail.viewOn": "View on {exchange}",
+  "about.thanks": "Data sources & thanks",
+  "about.thanksNote": "Public data only, no accounts. Names are credits, not endorsements. Every link opens in your browser; the app never fetches it.",
+  "about.thanksApi": "API docs",
+  "about.thanksTerms": "Terms",
+  "about.uses.exchange": "Public market data: prices and candles",
+  "about.uses.archive": "Historical candle archive for backtesting (personal use)",
+  "about.uses.rates": "Currency exchange rates for display currencies",
+  "liq.unknown": "{n, number} pairs with unknown US$ volume are not scored"
 }

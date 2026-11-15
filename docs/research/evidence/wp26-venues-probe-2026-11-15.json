@@ -1,0 +1,73 @@
+{
+  "id": "EX-PROBE-1",
+  "date": "2026-11-15T11:45Z/11:50Z",
+  "method": "Claude desktop built-in browser (Chromium), owner's computer; page origin https://example.com (no CSP); fetch() with default mode 'cors'; CORS failures read from the console ('No Access-Control-Allow-Origin header')",
+  "purpose": "WP26 build-time check (spec §6): CORS behaviour, candle limits, ordering, open-bar flag, timeframe support of OKX, Coinbase Exchange and Upbit public market data",
+  "results": {
+    "okx": {
+      "host": "https://www.okx.com",
+      "cors": "ALLOWED — every request (tickers SPOT/SWAP, public/instruments, market/candles, market/history-candles, market/books) returned 200 to a cross-origin page",
+      "fetch_path_chosen": "direct fetch, CSP connect-src",
+      "candles": {
+        "paths": ["/api/v5/market/candles", "/api/v5/market/history-candles"],
+        "limit_max_observed": "300 on both (limit=500 is capped to 300)",
+        "order": "newest first",
+        "row": "[ts, o, h, l, c, vol(base), volCcy, volCcyQuote, confirm] — confirm '0' = bar still open, '1' = closed",
+        "paging": "after=<ts> returns bars strictly older than ts",
+        "bars_seen": "1H, 4H accepted; 8H rejected (code 51000 'Parameter bar error'); 1D is aligned to UTC+8 (16:00 UTC), 1Dutc is aligned to 00:00 UTC — use the *utc variants (6Hutc, 12Hutc, 1Dutc, 1Wutc, 1Mutc) for UTC bars"
+      },
+      "tickers": "/api/v5/market/tickers?instType=SPOT (1236 rows) or SWAP; fields instId,last,open24h,high24h,low24h,vol24h,volCcy24h,ts. SPOT volCcy24h is quote volume; SWAP volCcy24h is in base coin (BTC-USDT-SWAP 207733.5 BTC-equivalent ≈ vol24h 20773353.93 contracts × ctVal 0.01)",
+      "swap_instrument": "BTC-USDT-SWAP: ctType linear, ctVal 0.01, ctValCcy BTC, settleCcy USDT, state live",
+      "samples": {
+        "ticker_spot_BTC-USDT": {"instId": "BTC-USDT", "last": "65507.2", "open24h": "67284", "vol24h": "20013.62938282", "volCcy24h": "1292695447.166809873", "ts": "1794743384165"},
+        "ticker_swap_BTC-USDT-SWAP": {"instId": "BTC-USDT-SWAP", "last": "65468.7", "vol24h": "20773353.93", "volCcy24h": "207733.5393", "ts": "1794743384362"},
+        "candles_4H_BTC-USDT": [["1794729600000", "64019.7", "66134.2", "63881.6", "65507.2", "2147.83906651", "139905333.726389542", "139905333.726389542", "0"], ["1794715200000", "64820.5", "65170.7", "63773.7", "64023", "2182.03909335", "140704512.896905697", "140704512.896905697", "1"]],
+        "history_1Dutc_BTC-USDT-SWAP": [["1794700800000", "64124.7", "66122.7", "61931.1", "65468.7", "9901360.08", "99013.6008", "6359856726.84656", "0"], ["1794614400000", "68286.7", "68420.7", "63272.2", "64124.8", "15612387.96", "156123.8796", "10272363144.4924", "1"]]
+      }
+    },
+    "coinbase": {
+      "host": "https://api.exchange.coinbase.com",
+      "cors": "ALLOWED — /products, /products/volume-summary, /products/stats, /products/{id}/stats, /products/{id}/ticker, /products/{id}/candles all returned 200 cross-origin. The Advanced Trade public host https://api.coinbase.com/api/v3/brokerage/market/... was REFUSED (no CORS) and is not used",
+      "fetch_path_chosen": "direct fetch, CSP connect-src",
+      "candles": {
+        "path": "/products/{id}/candles?granularity=<s>&start=<ISO>&end=<ISO>",
+        "granularities": "60, 300, 900, 3600, 21600, 86400 only (docs: other values rejected)",
+        "limit_max": "300 per request with start/end (docs); without start/end 350 rows were returned",
+        "order": "newest first",
+        "row": "[time(s), low, high, open, close, volume(base)] — note LOW before HIGH, then open, close",
+        "gaps": "no candle is published for an interval with no trades (docs)",
+        "open_bar": "the newest row may be the open bar — drop by close time"
+      },
+      "products": "847 products; quotes USDT, USD, EUR, GBP, BTC, USDC, ETH, BRL, INR, AUD, DAI, SGD, CAD. BTC-USDC and ETH-USDC are status 'delisted', trading_disabled true (USDC books are served as USD) — use status 'online' and trading_disabled false only",
+      "volume": "/products/stats returns every product's stats_24hour {open, high, low, last, volume(base)} in one call (516 keys) — USD volume = volume × last",
+      "samples": {
+        "stats_BTC-USD": {"stats_24hour": {"open": "67214.93", "high": "67265.39", "low": "61946.17", "last": "65456.32", "volume": "21563.57459366"}},
+        "candles_1h_BTC-USD": [[1794625200, 66550, 67698.05, 67623.54, 66689.32, 791.52715948], [1794621600, 66789, 68250, 68222.6, 67623.53, 1300.73086088]]
+      }
+    },
+    "upbit": {
+      "host": "https://api.upbit.com",
+      "cors": "UNRELIABLE — /v1/market/all and /v1/candles/minutes/240 sometimes returned 200 cross-origin; /v1/ticker, /v1/ticker/all, /v1/candles/days, /v1/candles/weeks and a repeat of /v1/market/all were refused ('No Access-Control-Allow-Origin header') in the same minute, including after 1.2 s spacing",
+      "fetch_path_chosen": "rewrite-and-native, like Coins.ph (ADR-0013 pattern): web /x/upbit/... same-origin rewrite, native nativeGet() with a path-scoped allowlist, Node plain fetch",
+      "candles": {
+        "paths": ["/v1/candles/minutes/{unit}", "/v1/candles/days", "/v1/candles/weeks", "/v1/candles/months"],
+        "minute_units": "1, 3, 5, 10, 15, 30, 60, 240 (docs)",
+        "count_max": "200 (docs)",
+        "paging": "to=<ISO UTC>, exclusive (docs)",
+        "order": "newest first",
+        "row": "{market, candle_date_time_utc, opening_price, high_price, low_price, trade_price (close), timestamp (last trade ms), candle_acc_trade_price (quote volume), candle_acc_trade_volume (base volume), unit}",
+        "open_bar": "the newest row is the open bar (its timestamp is the latest trade) — drop by close time",
+        "day_alignment": "days candles start 00:00 UTC (09:00 KST)"
+      },
+      "markets": "/v1/market/all — 884 markets, quotes KRW, USDT, BTC; ids QUOTE-BASE (KRW-BTC, USDT-BTC, BTC-ETH); KRW-USDT exists (used to convert KRW volume to USD)",
+      "samples": {
+        "candles_240_KRW-BTC": [{"market": "KRW-BTC", "candle_date_time_utc": "2026-11-15T08:00:00", "opening_price": 88245000, "high_price": 91119000, "low_price": 88033000, "trade_price": 90101000, "timestamp": 1794743402636, "candle_acc_trade_price": 29909626267.25633, "candle_acc_trade_volume": 332.31393571, "unit": 240}, {"market": "KRW-BTC", "candle_date_time_utc": "2026-11-15T04:00:00", "opening_price": 89441000, "high_price": 89825000, "low_price": 88000000, "trade_price": 88236000, "timestamp": 1794729599353, "candle_acc_trade_price": 30002222487.18378, "candle_acc_trade_volume": 336.95088041, "unit": 240}]
+      }
+    }
+  },
+  "not_verified": [
+    "rate limits: not readable from a browser (headers not exposed to cross-origin pages) and not confirmed at each venue's own documentation in this session",
+    "terms of use for each venue (ADR-0018 records them before release)",
+    "the Upbit ticker response shape (no CORS response obtained) — take it from Upbit's documentation or a native/Node probe"
+  ]
+}

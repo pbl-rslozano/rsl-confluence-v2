@@ -108,8 +108,9 @@ import { DerivativesPanel } from "@/components/derivatives-panel";
 import type { DerivativeSnapshot } from "@/lib/derivatives-context";
 import { ChartReplay } from "@/components/chart-replay";
 import { PriceChart } from "@/components/price-chart";
-import { BEST, baseOf as pairBase, normalizeQuoteMode, quoteModesFor, stableQuote, type DepegReading } from "@/lib/quotes";
-import { autoCurrency, BANDS, cachedCurrencies, cachedTable, canConvert, convert, impliedUsdtPremiumPct, isStale, loadCurrencies, PEGS, rateKind, refreshRates, usdtDeviationPct, type FiatCurrency, type FxTable } from "@/lib/fx-rates";
+import { exchangeUrl } from "@/lib/exchange-links";
+import { BEST, baseOf as pairBase, normalizeQuoteMode, quoteModesFor, stableQuote, type DepegReading, type PriceCurrency } from "@/lib/quotes";
+import { autoCurrency, BANDS, cachedCurrencies, cachedTable, canConvert, convert, impliedUsdtPremiumPct, isStale, loadCurrencies, PEGS, priceDisplay, rateKind, refreshRates, usdtDeviationPct, type FiatCurrency, type FxTable } from "@/lib/fx-rates";
 import { formatMoney, formatMoneyCompact } from "@/lib/money";
 import { FxSourcesDialog } from "@/components/fx-sources-dialog";
 import { fxCredit, fxSourceInfo, type FxChoice } from "@/lib/fx-rates";
@@ -189,11 +190,13 @@ const inNativeShell = () => {
 /** v2.6: what the last scan of a source carried besides rows (price currency, Coins.ph extras). */
 interface ScanMeta {
   source: string;
-  currency: "USD" | "EUR" | "PHP";
+  currency: PriceCurrency;
   premium: Record<string, number>;
   thin: string[];
   /** v2.8 (WP19): the US$ floor the thin pairs fell under (Coins.ph thin rule or the crypto liquidity floor). */
   thinFloorUsd?: number;
+  /** v2.8 (WP26 final wave): pairs the liquidity floor left out because their US$ volume is unknown. */
+  unknownVolume?: string[];
   /** v2.7: timeframe and quote mode of these rows, the quote of each row, venue quote counts, depeg readings. */
   tf?: string;
   quote?: string;
@@ -803,6 +806,7 @@ export default function Home() {
         setScanMeta({
           source, currency: lm.priceCurrency ?? "USD", premium: {}, thin: lm.thinSymbols ?? [], thinFloorUsd: lm.thinFloorUsd,
           tf, quote: lm.quote, quoteBySymbol: lm.quoteBySymbol, quoteCounts: lm.quoteCounts, approx: lm.approxVolume, depeg: lm.depeg, usdPhp: lm.usdPhp,
+          unknownVolume: lm.unknownVolumeSymbols,
         });
       } else if (newView && shown.length && !lm && metaStage < 1) {
         metaStage = 1;
@@ -936,7 +940,7 @@ export default function Home() {
       if (ac.signal.aborted) return;
       batcher.cancel();
       setRateLimitUntil(data.rateLimitedUntil ?? null);
-      setHealth({ source, ...healthFromScan(source, data) });
+      setHealth({ source, ...healthFromScan(source, data, Date.now(), inNativeShell()) });
 
       // 2 — the chosen list is complete: assemble it exactly as a full scan (stored + fresh bars per series).
       const scopedTickers = watchlistScope
@@ -1139,7 +1143,7 @@ export default function Home() {
       setScanMeta({
         source, currency: data.priceCurrency ?? "USD", premium: data.premiumBySymbol ?? {}, thin: data.thinSymbols ?? [], thinFloorUsd: data.thinFloorUsd,
         tf, quote: data.quote, quoteBySymbol: data.quoteBySymbol, quoteCounts: data.quoteCounts, approx: data.approxVolume,
-        depeg: data.depeg, usdPhp: data.usdPhp,
+        depeg: data.depeg, usdPhp: data.usdPhp, unknownVolume: data.unknownVolumeSymbols,
       });
       setDetailAsset((current) => current ? out.find((row) => row.pair === current.pair) ?? null : null);
       setScanStats({
@@ -1324,14 +1328,17 @@ export default function Home() {
 
   /* ---- v2.7 (WP13): display currency — formatting only, rows stay in their native currency ---- */
   const nativeCurrency = scanMeta.currency;
-  const priceCurrency = canConvert(nativeCurrency, displayCurrency, fx) ? displayCurrency : nativeCurrency;
+  // v2.8 (WP26): BTC-quoted prices (Upbit BTC market) never pass through fiat FX; KRW converts like PHP.
+  const shownPrices = priceDisplay(nativeCurrency, displayCurrency, fx);
+  const priceCurrency = shownPrices.currency;
+  const pricesInBtc = shownPrices.pricesInBtc && scanMeta.source === dataSource;
   const volumeCurrency = canConvert("USD", displayCurrency, fx) ? displayCurrency : "USD";
   // v2.8 WP20: a rate source's required credit wherever its rates convert values on screen — prices or volumes
   // (review round 1) — and none for the default source.
   const rateCredit = fxCredit(fx, nativeCurrency, priceCurrency, volumeCurrency);
-  const showPrice = useCallback((v: number) => formatMoney(convert(v, nativeCurrency, priceCurrency, fx), priceCurrency), [nativeCurrency, priceCurrency, fx]);
+  const showPrice = useCallback((v: number) => formatMoney(priceDisplay(nativeCurrency, priceCurrency, fx).convert(v), priceCurrency), [nativeCurrency, priceCurrency, fx]);
   const showVolume = (usd: number) => formatMoneyCompact(convert(usd, "USD", volumeCurrency, fx), volumeCurrency);
-  const chartConvert = useCallback((v: number) => convert(v, nativeCurrency, priceCurrency, fx), [nativeCurrency, priceCurrency, fx]);
+  const chartConvert = useCallback((v: number) => priceDisplay(nativeCurrency, priceCurrency, fx).convert(v), [nativeCurrency, priceCurrency, fx]);
   const liveQuotes = scanMeta.source === dataSource && scanMeta.quoteCounts ? Object.keys(scanMeta.quoteCounts) : undefined;
   const quoteModes = quoteModesFor(dataSource, liveQuotes);
   const setQuote = (mode: string) => { setDetailAsset(null); setQuoteBySource((cur) => ({ ...cur, [dataSource]: mode })); };
@@ -1685,6 +1692,13 @@ export default function Home() {
                   <span data-testid="liquidity-note" title={scanMeta.thin.join(", ")}>{t("liq.thin", liquidityNote)}</span>
                 </>
               )}
+              {/* v2.8 (WP26 final wave): pairs left out because their US$ volume is unknown (not "thin"). */}
+              {scanMeta.source === dataSource && (scanMeta.unknownVolume?.length ?? 0) > 0 && (
+                <>
+                  <span className="mx-1.5 text-zinc-700">·</span>
+                  <span data-testid="unknown-volume-note" title={scanMeta.unknownVolume?.join(", ")}>{t("liq.unknown", { n: scanMeta.unknownVolume?.length ?? 0 })}</span>
+                </>
+              )}
               <span className="mx-1.5 text-zinc-700">·</span>
               {lastUpdate ? t("scan.updated", { time: rsl.i18n.formatDate(lastUpdate, { timeStyle: "medium", hour12: false }) }) : "—"}
               {scanStats.newestBarTime > 0 && (
@@ -1696,6 +1710,8 @@ export default function Home() {
                 </>
               )}
             </span>
+            {/* v2.8 (WP26): Upbit BTC market — prices stay in BTC (never converted through fiat FX). */}
+            {pricesInBtc && <span data-testid="prices-in-btc" className="text-amber-300/80">{t("scan.pricesInBtc")}</span>}
             {monitorAssets.length > 0 && (
               <span className="text-emerald-400/80">{t("scan.watching", { list: monitorAssets.join(", ") })}</span>
             )}
@@ -1770,7 +1786,7 @@ export default function Home() {
         </div>
       )}
 
-      {!listExpanded && <FxInfoLine t={t} native={nativeCurrency} display={displayCurrency} shown={priceCurrency} fx={fx}
+      {!listExpanded && !shownPrices.pricesInBtc && <FxInfoLine t={t} native={nativeCurrency} display={displayCurrency} shown={priceCurrency} fx={fx}
         usdtPhp={scanMeta.source === "coinsph" && dataSource === "coinsph" ? scanMeta.usdPhp ?? null : null}
         onSources={() => setFxDialog(true)} />}
       <FxSourcesDialog open={fxDialog} onOpenChange={setFxDialog} t={t} choice={fxChoice}
@@ -2163,6 +2179,17 @@ export default function Home() {
                   <a href={rateCredit.url} target="_blank" rel="noopener noreferrer" className="text-cyan-300/90 hover:underline">{rateCredit.text}</a>
                 </p>
               )}
+              {/* v2.8 WP26 (§3.8): plain link to the pair on the venue's own site — the very last thing in the sheet. */}
+              {(() => {
+                const href = exchangeUrl(detailAsset.src, detailAsset.pair);
+                return href ? (
+                  <p data-testid="view-on-exchange" className="text-xs">
+                    <a href={href} target="_blank" rel="noopener noreferrer" className="text-cyan-300/90 hover:underline">
+                      {t("detail.viewOn", { exchange: SOURCE_LABELS[detailAsset.src] ?? detailAsset.src })}
+                    </a>
+                  </p>
+                ) : null;
+              })()}
             </div>
           )}
         </DialogContent>

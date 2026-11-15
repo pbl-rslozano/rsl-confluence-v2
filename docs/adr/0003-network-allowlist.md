@@ -76,3 +76,28 @@ keeps this WebSocket host separate from its HTTPS allowlist.
   egress manifest, R11) calls an exchange's account endpoint only when the user connects an API key and asks it to check the
   key's permissions: `api.binance.com`, `testnet.binance.vision`, `api.bybit.com`, `api-testnet.bybit.com`, `api.bitget.com`.
   It listens on loopback, never runs inside the app, and refuses keys that can trade or withdraw (ADR-0009, WP19).
+
+## Amendment — v2.8 (15 Nov 2026, WP26: new exchanges)
+Evidence: probe EX-PROBE-1, `docs/research/evidence/wp26-venues-probe-2026-11-15.json` (cross-origin `fetch()` from a
+Chromium page, 15 Nov 2026). All three venues are public market data only: GET, no key, no credentials, no account and no
+order endpoint (paper trading only; release checks R12 and R20).
+- **App, `connect-src` (+2):** `https://www.okx.com` (OKX spot and perpetual: tickers, instruments, candles,
+  history-candles, books) and `https://api.exchange.coinbase.com` (Coinbase Exchange: products, stats, candles). Both
+  answered every cross-origin request in the probe (`cors: ALLOWED`), so they are fetched directly; they are in `CSP_HOSTS`
+  (`apps/confluence/web/src/lib/public-hosts.ts`), the desktop CSP and `tools/egress-manifest.json` `web.hosts` (R8, R11).
+  The Coinbase Advanced Trade host was refused cross-origin in the probe and is **not** used.
+- **App, outside the CSP (+1):** `https://api.upbit.com`. The probe found its CORS **unreliable** (the same paths were
+  answered and refused within one minute), so `connect-src` does not list it. It follows the Coins.ph pattern (v2.6
+  amendment, ADR-0013) through the generic relay `src/lib/native-relay.ts`: web through the same-origin rewrite
+  `/x/upbit/...` (Netlify `public/_redirects`, the local launcher proxy), native shells through `nativeGet()` (Tauri
+  `plugin-http` with a path-scoped capability; Capacitor), Node with plain fetch. A browser page never fetches it directly.
+- **Read paths only (Upbit):** `/v1/market/all`, `/v1/ticker/all`, `/v1/ticker`, `/v1/orderbook` and `/v1/candles/*`
+  (`UPBIT_READ_PATHS`, one `NATIVE_HOSTS` entry). Upbit serves its private account, order, deposit and withdrawal
+  endpoints on the same host, so the host is never allowed whole: the relay, the adapters, the rewrites, the launcher and
+  the Tauri scope each allow only these paths. Release check **R16** now checks every `NATIVE_HOSTS` entry (Coins.ph and
+  Upbit) against the rewrites, the launcher, the Tauri scope, the egress manifest and this ADR.
+- **Node processes:** the recorder (`recorder.hosts`) gains `www.okx.com`, `api.exchange.coinbase.com` and
+  `api.upbit.com`; the launcher (`launcher.hosts`) gains `api.upbit.com`; `web.nativeHosts` gains `api.upbit.com` (R11, R16).
+  The app's server route and the replay CLI use the same three hosts.
+- **Not verified in the probe:** rate limits (headers are not exposed cross-origin) and each venue's terms; the venue
+  modules record their limits as constants marked `[not verified]` where no source confirms them.

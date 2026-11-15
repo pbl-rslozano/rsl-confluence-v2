@@ -438,7 +438,7 @@
   "depeg.warning": "चेतावनी",
   "depeg.severe": "गंभीर",
   "ph.usdtPremium": "Coins.ph पर USDT आधिकारिक पेसो दर की तुलना में {dev} है।",
-  "paper.rule.currency": "पेपर खाता USDT में है: केवल USD स्टेबलकॉइन में कोट किए गए जोड़े प्रस्तावित किए जा सकते हैं।",
+  "paper.rule.currency": "The paper account is in US dollars: only pairs quoted in US dollars or a dollar stablecoin can be proposed.",
   "fx.sources": "दर के स्रोत",
   "fx.choose": "चुनें कि विनिमय दरें कहाँ से आएँ, उन्हें अपडेट करें और हर स्रोत की जाँच करें।",
   "fx.auto.src": "स्वचालित (Frankfurter, फिर विकल्प)",
@@ -541,5 +541,15 @@
   "paper.moreLimits": "More limits",
   "paper.addNote": "Add a note",
   "paper.heldFeedFailed": "Bars could not be loaded for {list}. Their stops, targets and lock closes wait for those bars; the next scan tries again.",
-  "about.catalogApprovedPending": "approved — {n, number} new strings await native-speaker review"
+  "about.catalogApprovedPending": "approved — {n, number} new strings await native-speaker review",
+  "scan.pricesInBtc": "Prices in BTC — not converted to your display currency.",
+  "detail.viewOn": "View on {exchange}",
+  "about.thanks": "Data sources & thanks",
+  "about.thanksNote": "Public data only, no accounts. Names are credits, not endorsements. Every link opens in your browser; the app never fetches it.",
+  "about.thanksApi": "API docs",
+  "about.thanksTerms": "Terms",
+  "about.uses.exchange": "Public market data: prices and candles",
+  "about.uses.archive": "Historical candle archive for backtesting (personal use)",
+  "about.uses.rates": "Currency exchange rates for display currencies",
+  "liq.unknown": "{n, number} pairs with unknown US$ volume are not scored"
 }

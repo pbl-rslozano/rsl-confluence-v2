@@ -438,7 +438,7 @@
   "depeg.warning": "Предупреждение",
   "depeg.severe": "Серьёзно",
   "ph.usdtPremium": "USDT на Coins.ph отклоняется на {dev} от официального курса песо.",
-  "paper.rule.currency": "Бумажный счёт ведётся в USDT: предлагать можно только пары, котируемые в долларовом стейблкоине.",
+  "paper.rule.currency": "The paper account is in US dollars: only pairs quoted in US dollars or a dollar stablecoin can be proposed.",
   "fx.sources": "Источники курсов",
   "fx.choose": "Выберите, откуда берутся курсы, обновите их и проверьте каждый источник.",
   "fx.auto.src": "Автоматически (Frankfurter, затем резервные)",
@@ -541,5 +541,15 @@
   "paper.moreLimits": "More limits",
   "paper.addNote": "Add a note",
   "paper.heldFeedFailed": "Bars could not be loaded for {list}. Their stops, targets and lock closes wait for those bars; the next scan tries again.",
-  "about.catalogApprovedPending": "approved — {n, number} new strings await native-speaker review"
+  "about.catalogApprovedPending": "approved — {n, number} new strings await native-speaker review",
+  "scan.pricesInBtc": "Prices in BTC — not converted to your display currency.",
+  "detail.viewOn": "View on {exchange}",
+  "about.thanks": "Data sources & thanks",
+  "about.thanksNote": "Public data only, no accounts. Names are credits, not endorsements. Every link opens in your browser; the app never fetches it.",
+  "about.thanksApi": "API docs",
+  "about.thanksTerms": "Terms",
+  "about.uses.exchange": "Public market data: prices and candles",
+  "about.uses.archive": "Historical candle archive for backtesting (personal use)",
+  "about.uses.rates": "Currency exchange rates for display currencies",
+  "liq.unknown": "{n, number} pairs with unknown US$ volume are not scored"
 }

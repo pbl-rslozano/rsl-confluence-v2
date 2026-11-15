@@ -438,7 +438,7 @@
   "depeg.warning": "Avviso",
   "depeg.severe": "Grave",
   "ph.usdtPremium": "L'USDT su Coins.ph è a {dev} dal cambio ufficiale del peso.",
-  "paper.rule.currency": "Il conto paper è in USDT: si possono proporre solo coppie quotate in una stablecoin in USD.",
+  "paper.rule.currency": "The paper account is in US dollars: only pairs quoted in US dollars or a dollar stablecoin can be proposed.",
   "fx.sources": "Fonti dei cambi",
   "fx.choose": "Scegli da dove arrivano i tassi di cambio, aggiornali e verifica ogni fonte.",
   "fx.auto.src": "Automatica (Frankfurter, poi alternative)",
@@ -541,5 +541,15 @@
   "paper.moreLimits": "More limits",
   "paper.addNote": "Add a note",
   "paper.heldFeedFailed": "Bars could not be loaded for {list}. Their stops, targets and lock closes wait for those bars; the next scan tries again.",
-  "about.catalogApprovedPending": "approved — {n, number} new strings await native-speaker review"
+  "about.catalogApprovedPending": "approved — {n, number} new strings await native-speaker review",
+  "scan.pricesInBtc": "Prices in BTC — not converted to your display currency.",
+  "detail.viewOn": "View on {exchange}",
+  "about.thanks": "Data sources & thanks",
+  "about.thanksNote": "Public data only, no accounts. Names are credits, not endorsements. Every link opens in your browser; the app never fetches it.",
+  "about.thanksApi": "API docs",
+  "about.thanksTerms": "Terms",
+  "about.uses.exchange": "Public market data: prices and candles",
+  "about.uses.archive": "Historical candle archive for backtesting (personal use)",
+  "about.uses.rates": "Currency exchange rates for display currencies",
+  "liq.unknown": "{n, number} pairs with unknown US$ volume are not scored"
 }

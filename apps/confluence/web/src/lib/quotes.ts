@@ -12,6 +12,8 @@
  */
 
 export type Peg = "USD" | "EUR";
+/** v2.8 (WP26): currency a scan's prices are quoted in. KRW (Upbit) converts through FX like PHP; BTC never does. */
+export type PriceCurrency = "USD" | "EUR" | "PHP" | "KRW" | "BTC";
 export interface StableQuote { code: string; peg: Peg; name: string; /** safe to recognise by symbol suffix alone */ suffix: boolean }
 
 /** Ordered by how often venues list them (menu order). */
@@ -62,28 +64,46 @@ export const VENUE_QUOTES: Record<string, readonly string[]> = {
   bitget: ["USDT", "USDC", "USD1", "USDE", "RLUSD", "U"],
   "bitget-perp": ["USDT", "USDC"],
   coinsph: ["PHP"],
+  // v2.8 (WP26): probe 15 Nov 2026 (docs/research/evidence/wp26-venues-probe-2026-11-15.json); Coinbase USDC is not offered.
+  okx: ["USDT", "USDC"],
+  "okx-perp": ["USDT"],
+  coinbase: ["USD", "USDT"],
+  upbit: ["KRW", "USDT", "BTC"],
 };
 export function isPerpSource(source: string): boolean {
-  return source === "bybit-perp" || source === "bitget-perp";
+  return source === "bybit-perp" || source === "bitget-perp" || source === "okx-perp";
+}
+/** Non-stablecoin quotes a menu may offer: PHP (Coins.ph), USD (Coinbase), KRW and BTC (Upbit). */
+const PLAIN_QUOTES = new Set(["PHP", "USD", "KRW", "BTC"]);
+/** The quote a source opens on. */
+function defaultQuoteOf(source: string): QuoteMode {
+  if (source === "coinsph") return "PHP";
+  if (source === "coinbase") return "USD";
+  if (source === "upbit") return "KRW";
+  return DEFAULT_QUOTE;
 }
 /** Modes the Quote menu offers for a source: its quotes, plus Best when it has ≥ 2 USD-pegged ones. */
 export function quoteModesFor(source: string, live?: readonly string[]): QuoteMode[] {
-  const base = (live && live.length ? live : VENUE_QUOTES[source] ?? ["USDT"]).filter((q) => q === "PHP" || isStableQuote(q));
-  const ordered = [...new Set(["USDT", ...base])].filter((q) => (VENUE_QUOTES[source] ?? []).includes(q) || (live ?? []).includes(q));
+  const base = (live && live.length ? live : VENUE_QUOTES[source] ?? ["USDT"]).filter((q) => PLAIN_QUOTES.has(q) || isStableQuote(q));
+  const ordered = [...new Set([defaultQuoteOf(source), ...base])].filter((q) => (VENUE_QUOTES[source] ?? []).includes(q) || (live ?? []).includes(q));
   const usd = ordered.filter((q) => stableQuote(q)?.peg === "USD");
   return usd.length >= 2 ? [...ordered, BEST] : ordered;
 }
 /** A saved / stored mode that this source cannot serve falls back to its default. */
 export function normalizeQuoteMode(source: string, mode: string | undefined): QuoteMode {
   if (source === "coinsph") return "PHP";
-  const m = (mode ?? DEFAULT_QUOTE).toUpperCase();
+  const m = (mode ?? defaultQuoteOf(source)).toUpperCase();
+  if (source === "okx-perp") return "USDT";
+  if (source === "coinbase") return m === "USDT" ? "USDT" : "USD";
+  if (source === "upbit") return m === "USDT" || m === "BTC" ? m : "KRW";
   if (m === BEST) return BEST;
   if (isPerpSource(source)) return m === "USDC" ? "USDC" : "USDT";
   return isStableQuote(m) ? m : DEFAULT_QUOTE;
 }
 /** Price currency of a scan in this mode (Best only picks USD-pegged quotes). */
-export function priceCurrencyOfQuote(source: string, mode: QuoteMode): "USD" | "EUR" | "PHP" {
+export function priceCurrencyOfQuote(source: string, mode: QuoteMode): PriceCurrency {
   if (source === "coinsph") return "PHP";
+  if (source === "upbit") return mode === "KRW" ? "KRW" : mode === "BTC" ? "BTC" : "USD";
   return stableQuote(mode)?.peg === "EUR" ? "EUR" : "USD";
 }
 
@@ -113,9 +133,12 @@ export function splitPair(symbol: string, source?: string): PairParts {
   const s = symbol.toUpperCase();
   const meta = source ? known.get(source)?.get(s) : undefined;
   if (meta) return meta;
-  if (/PERP$/.test(s) && s.length > 4 && (!source || isPerpSource(source))) return { base: s.slice(0, -4), quote: "USDC" };
+  if (/PERP$/.test(s) && s.length > 4 && (!source || (isPerpSource(source) && source !== "okx-perp"))) return { base: s.slice(0, -4), quote: "USDC" };
   for (const q of SUFFIXES) if (s.length > q.length && s.endsWith(q)) return { base: s.slice(0, -q.length), quote: q };
   if (s.length > 3 && s.endsWith("PHP")) return { base: s.slice(0, -3), quote: "PHP" };
+  if (source === "upbit" && s.length > 3 && s.endsWith("KRW")) return { base: s.slice(0, -3), quote: "KRW" };
+  // Upbit-only: KRW and BTC-quoted markets (SOLBTC); on other venues these suffixes stay unrecognised.
+  if (source === "upbit" && s.length > 3 && s.endsWith("BTC")) return { base: s.slice(0, -3), quote: "BTC" };
   if (s.length > 3 && s.endsWith("USD")) return { base: s.slice(0, -3), quote: "USD" };
   return { base: s, quote: "" };
 }

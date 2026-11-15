@@ -27,6 +27,7 @@ import { IdentityForm } from "./IdentityForm";
 import { Monogram3D } from "./Monogram3D";
 
 import { BUILD_COMMIT } from "@/lib/build-info";
+import { PROVIDERS } from "@/lib/providers";
 
 const STAMP_APP = { name: APP.name, version: APP.version, year: APP.year, build: APP.build };
 
@@ -201,6 +202,7 @@ function AboutBody() {
         <CoffeeSection />
 
         <LicencesSection />
+        <ThanksSection />
 
         <footer className="mt-4 space-y-1 border-t border-zinc-800 pt-3 text-xs text-zinc-400">
           <p>
@@ -253,6 +255,34 @@ function LicencesSection() {
       )}
       {err && <p role="status" className="mt-2 text-rose-300">{err}</p>}
       <p data-testid="about-trademarks" className="mt-2">{t("about.trademarks")}</p>
+    </details>
+  );
+}
+
+/**
+ * v2.8 (WP26): "Data sources & thanks" — collapsed by default; names in text only. Links open in the browser and are
+ * never fetched. The required rate credit appears verbatim where a provider has one.
+ */
+function ThanksSection() {
+  const { t } = useRsl();
+  const link = "text-cyan-300 underline-offset-2 hover:underline";
+  return (
+    <details data-testid="about-thanks" className="mt-3 rounded-md border border-zinc-800 px-3 py-2 text-xs text-zinc-400">
+      <summary className="cursor-pointer select-none text-sm font-semibold text-zinc-200">{t("about.thanks")}</summary>
+      <p className="mt-2">{t("about.thanksNote")}</p>
+      <ul className="mt-2 space-y-2">
+        {PROVIDERS.map((p) => (
+          <li key={p.id} data-testid="about-provider" className="border-t border-zinc-800 pt-2">
+            <span className="font-semibold text-zinc-200" dir="ltr">{p.name}</span>
+            <span className="ms-2">{t(p.uses)}</span>
+            <span className="mt-0.5 flex flex-wrap gap-x-3">
+              <a className={link} href={p.apiDocs} target="_blank" rel="noopener noreferrer">{t("about.thanksApi")}</a>
+              <a className={link} href={p.terms} target="_blank" rel="noopener noreferrer">{t("about.thanksTerms")}</a>
+              {p.credit && <span dir="ltr" className="text-zinc-300">{p.credit}</span>}
+            </span>
+          </li>
+        ))}
+      </ul>
     </details>
   );
 }

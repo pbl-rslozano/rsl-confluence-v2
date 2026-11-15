@@ -20,6 +20,20 @@ test("every CSP_HOSTS host is in the manifest's web.hosts (six FX hosts included
   assert.deepEqual(r.webHostDrift, []);
 });
 
+test("v2.8 WP26: every CSP_HOSTS origin is in web.hosts and web.csp; Upbit only as a native host; Node processes get all three", () => {
+  const web = manifest.processes.web;
+  for (const o of ["https://www.okx.com", "https://api.exchange.coinbase.com"]) {
+    assert.ok(CSP.includes(o.replace(/^https:\/\//, "")), `${o} in CSP_HOSTS`);
+    assert.ok(web.hosts.includes(o.replace(/^https:\/\//, "")), `${o} in web.hosts`);
+    assert.ok(web.csp.includes(o), `${o} in web.csp`);
+  }
+  for (const h of CSP) assert.ok(web.hosts.includes(h), `${h} in web.hosts`);
+  assert.ok(!CSP.includes("api.upbit.com") && !web.hosts.includes("api.upbit.com") && !web.csp.some((h) => h.includes("api.upbit.com")), "Upbit never in the CSP");
+  assert.deepEqual(web.nativeHosts, ["api.pro.coins.ph", "api.upbit.com"]);
+  assert.ok(manifest.processes.launcher.hosts.includes("api.upbit.com"));
+  for (const h of ["www.okx.com", "api.exchange.coinbase.com", "api.upbit.com"]) assert.ok(manifest.processes.recorder.hosts.includes(h), `recorder: ${h}`);
+});
+
 test("a CSP host missing from web.hosts is a finding", () => {
   const dir = mkdtempSync(join(tmpdir(), "egress-"));
   try {

@@ -438,7 +438,7 @@
   "depeg.warning": "সতর্কতা",
   "depeg.severe": "গুরুতর",
   "ph.usdtPremium": "Coins.ph-এ USDT সরকারি পেসো হারের তুলনায় {dev}।",
-  "paper.rule.currency": "পেপার অ্যাকাউন্টটি USDT-তে: শুধু USD স্টেবলকয়েনে কোট করা জোড়া প্রস্তাব করা যায়।",
+  "paper.rule.currency": "The paper account is in US dollars: only pairs quoted in US dollars or a dollar stablecoin can be proposed.",
   "fx.sources": "হারের উৎস",
   "fx.choose": "বিনিময় হার কোথা থেকে আসবে বেছে নিন, হালনাগাদ করুন এবং প্রতিটি উৎস যাচাই করুন।",
   "fx.auto.src": "স্বয়ংক্রিয় (Frankfurter, তারপর বিকল্প)",
@@ -541,5 +541,15 @@
   "paper.moreLimits": "More limits",
   "paper.addNote": "Add a note",
   "paper.heldFeedFailed": "Bars could not be loaded for {list}. Their stops, targets and lock closes wait for those bars; the next scan tries again.",
-  "about.catalogApprovedPending": "approved — {n, number} new strings await native-speaker review"
+  "about.catalogApprovedPending": "approved — {n, number} new strings await native-speaker review",
+  "scan.pricesInBtc": "Prices in BTC — not converted to your display currency.",
+  "detail.viewOn": "View on {exchange}",
+  "about.thanks": "Data sources & thanks",
+  "about.thanksNote": "Public data only, no accounts. Names are credits, not endorsements. Every link opens in your browser; the app never fetches it.",
+  "about.thanksApi": "API docs",
+  "about.thanksTerms": "Terms",
+  "about.uses.exchange": "Public market data: prices and candles",
+  "about.uses.archive": "Historical candle archive for backtesting (personal use)",
+  "about.uses.rates": "Currency exchange rates for display currencies",
+  "liq.unknown": "{n, number} pairs with unknown US$ volume are not scored"
 }

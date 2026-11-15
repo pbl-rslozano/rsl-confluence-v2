@@ -12,6 +12,8 @@
  *   - desktop: `nativeGet()` in @rsl/adapter-tauri (@tauri-apps/plugin-http, path-scoped capability);
  *   - Node (replay CLI, server route, recorder): plain fetch, listed in tools/egress-manifest.json.
  *
+ * v2.8 (WP26): Upbit is reached the same way (`/x/upbit/...`, `native-relay.ts`).
+ *
  * Native HTTP is not subject to the CSP, so THIS table is the allowlist for it:
  * the adapters refuse any URL it does not allow, and R16 fails the release if the
  * rewrite rules, the launcher proxy, the Tauri scope or the egress manifest
@@ -38,6 +40,8 @@ export const CSP_HOSTS = [
   { origin: "https://data-api.ecb.europa.eu", purpose: "display-currency rates, ECB reference rates — user-selectable (ADR-0015)" },
   { origin: "https://open.er-api.com", purpose: "display-currency rates, ExchangeRate-API open access — user-selectable (ADR-0015)" },
   { origin: "https://www.floatrates.com", purpose: "display-currency rates, FloatRates — user-selectable (ADR-0015)" },
+  { origin: "https://www.okx.com", purpose: "OKX public market data, spot and perpetual (ADR-0003 v2.8, WP26)" },
+  { origin: "https://api.exchange.coinbase.com", purpose: "Coinbase Exchange public market data (ADR-0003 v2.8, WP26)" },
 ] as const;
 
 export const COINSPH_ORIGIN = "https://api.pro.coins.ph";
@@ -55,15 +59,35 @@ export const COINSPH_READ_PATHS: readonly string[] = [
   "/openapi/quote/v1/",
 ];
 
+/**
+ * v2.8 (WP26, ADR-0003 amendment v2.8). Upbit's CORS is unreliable (probe EX-PROBE-1,
+ * docs/research/evidence/wp26-venues-probe-2026-11-15.json: the same paths were answered and
+ * refused within one minute), so it is reached like Coins.ph, through `native-relay.ts`.
+ * Upbit serves its private account, order, deposit and withdrawal endpoints on this host:
+ * only the public quotation paths below are ever allowed.
+ */
+export const UPBIT_ORIGIN = "https://api.upbit.com";
+
+/** Same-origin prefix of the Upbit rewrite on the web (Netlify and the local launcher). */
+export const UPBIT_PROXY_PREFIX = "/x/upbit";
+
+/** Upbit public quotation read paths (same matching rules as COINSPH_READ_PATHS). */
+export const UPBIT_READ_PATHS: readonly string[] = ["/v1/market/all", "/v1/ticker/all", "/v1/ticker", "/v1/orderbook", "/v1/candles/"];
+
 export interface NativeHostRule {
   origin: string;
   paths: readonly string[];
   purpose: string;
 }
 
-/** Every host the app reaches outside the CSP. One entry per host. */
+/**
+ * Every host the app reaches outside the CSP. One entry per host. Each entry names its
+ * constants as `<NAME>_ORIGIN` / `<NAME>_READ_PATHS`, with a matching `<NAME>_PROXY_PREFIX`:
+ * release check R16 parses them statically and checks every entry.
+ */
 export const NATIVE_HOSTS: readonly NativeHostRule[] = [
   { origin: COINSPH_ORIGIN, paths: COINSPH_READ_PATHS, purpose: "Coins.ph public market data (ADR-0013)" },
+  { origin: UPBIT_ORIGIN, paths: UPBIT_READ_PATHS, purpose: "Upbit public market data (ADR-0003 v2.8, WP26)" },
 ];
 
 /** True when `path` (no query) is allowed by `paths`. Rejects traversal and encoded slashes. */

@@ -18,7 +18,7 @@
  * See docs/asset-classes.md for sources and dates.
  * ----------------------------------------------------------------------------
  */
-import { splitPair, stableQuote, USD_STABLE_ASSETS } from "./quotes";
+import { isPerpSource, splitPair, stableQuote, USD_STABLE_ASSETS } from "./quotes";
 import type { AssetClass } from "./ledger-metrics";
 
 export type AssetClassFilter = AssetClass | "all";
@@ -138,20 +138,32 @@ export function classifySymbol(source: string, symbol: string, venueType?: strin
     if (PHP_USD_STABLES.has(m[1])) return "fx";
     return classifySymbol("binance", `${m[1]}USDT`, venueType);
   }
+  // v2.8 (WP26): Upbit KRW and BTC markets are classified as their USDT twin; a USD stablecoin in won is the
+  // won against the dollar (FX, like Coins.ph's peso pairs) and in bitcoin it is excluded.
+  if (source === "upbit") {
+    const { base, quote } = splitPair(s, source);
+    if ((quote === "KRW" || quote === "BTC") && base) {
+      if (PHP_USD_STABLES.has(base)) return quote === "KRW" ? "fx" : "excluded";
+      return classifySymbol("binance", `${base}USDT`, venueType);
+    }
+  }
   // v2.7 (WP12.4): a pair on another stablecoin (BTCUSDC, ETHFDUSD, SOLEURI, BTCPERP USDC perps)
   // is classified as its USDT twin; a USD stablecoin against a USD-pegged quote is flat → excluded.
   if (!s.endsWith("USDT")) {
     const { base, quote } = splitPair(s, source);
     const q = stableQuote(quote);
-    if (q && base) {
-      if (q.peg === "USD" && USD_STABLE_ASSETS.has(base)) return "excluded";
+    // v2.8 (WP26): Coinbase's plain USD books are treated like a USD-pegged quote (PAXG-USD is a commodity,
+    // USDT-USD is a flat stablecoin pair).
+    const usdBook = source === "coinbase" && quote === "USD";
+    if ((q || usdBook) && base) {
+      if ((usdBook || q?.peg === "USD") && USD_STABLE_ASSETS.has(base)) return "excluded";
       return classifySymbol(source, `${base}USDT`, venueType);
     }
   }
   if (LEVERAGED.test(s) || USD_PEGS.has(s)) return "excluded";
   const venue = fromVenueType(venueType);
   if (venue) return venue;
-  const perp = source === "bybit-perp" || source === "bitget-perp";
+  const perp = isPerpSource(source);
   if (FX.has(s) || (perp && FX_PERP.test(s))) return "fx";
   if (COMMODITY.has(s) || (perp && BYBIT_PERP_COMMODITY.has(s))) return "commodity";
   if (equityTicker(s)) return "stock";

@@ -313,6 +313,16 @@ export function convert(value: number, from: string, to: string, table: FxTable 
 export function canConvert(from: string, to: string, table: FxTable | null): boolean {
   return Number.isFinite(convert(1, from, to, table));
 }
+/**
+ * v2.8 (WP26): how a scan's prices are shown. Fiat prices (USD, EUR, PHP, KRW) convert to the display currency
+ * when the table can; BTC-quoted prices (Upbit's BTC market) never pass through fiat FX, even when a rate
+ * source lists BTC — they stay in BTC and `pricesInBtc` asks the scan line to say so.
+ */
+export function priceDisplay(native: string, display: string, table: FxTable | null): { currency: string; pricesInBtc: boolean; convert: (v: number) => number } {
+  if (native === "BTC") return { currency: "BTC", pricesInBtc: true, convert: (v) => v };
+  const currency = canConvert(native, display, table) ? display : native;
+  return { currency, pricesInBtc: false, convert: (v) => convert(v, native, currency, table) };
+}
 export function isStale(table: FxTable | null, now = Date.now()): boolean {
   if (!table || table.source === "peg") return false;
   const ref = table.asOf ? Date.parse(table.asOf + "T23:59:59Z") : table.fetchedAt;

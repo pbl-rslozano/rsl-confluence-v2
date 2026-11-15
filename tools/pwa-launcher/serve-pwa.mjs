@@ -6,7 +6,8 @@
 // Serves the unzipped PWA on http://127.0.0.1:<port>/ ONLY (never on the
 // network), with correct MIME types so the module workers and the offline
 // service worker load. No dependencies; Node 18 or later.
-// v2.6: also proxies Coins.ph public market data (see COINSPH_* below).
+// v2.6: also proxies Coins.ph public market data (see COINSPH_* below);
+// v2.8: and Upbit public market data (UPBIT_* below).
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
@@ -51,33 +52,53 @@ function fileFor(urlPath) {
 const COINSPH_ORIGIN = "https://api.pro.coins.ph";
 const COINSPH_PROXY_PREFIX = "/x/coinsph";
 const COINSPH_READ_PATHS = ["/openapi/v1/time", "/openapi/v1/exchangeInfo", "/openapi/quote/v1/"];
-function coinsphTarget(url) {
-  if (!url.startsWith(COINSPH_PROXY_PREFIX + "/")) return null;
-  const rest = url.slice(COINSPH_PROXY_PREFIX.length);
+// v2.8 (WP26, ADR-0003 amendment v2.8): Upbit's CORS is unreliable, so it is proxied the
+// same way. Its account and order endpoints share the host: only these read paths pass.
+const UPBIT_ORIGIN = "https://api.upbit.com";
+const UPBIT_PROXY_PREFIX = "/x/upbit";
+const UPBIT_READ_PATHS = ["/v1/market/all", "/v1/ticker/all", "/v1/ticker", "/v1/orderbook", "/v1/candles/"];
+// `strict` (v2.8 relays): never follow an upstream redirect. Coins.ph keeps its v2.6 fetch options.
+const RELAYS = [
+  { name: "Coins.ph", origin: COINSPH_ORIGIN, prefix: COINSPH_PROXY_PREFIX, paths: COINSPH_READ_PATHS, strict: false },
+  { name: "Upbit", origin: UPBIT_ORIGIN, prefix: UPBIT_PROXY_PREFIX, paths: UPBIT_READ_PATHS, strict: true },
+];
+const pathOk = (paths, path) => paths.some((p) => (p.endsWith("/") ? path.startsWith(p) && path.length > p.length : path === p));
+/** null = not a relay URL; undefined = a relay URL whose path is refused; otherwise { target, name, strict }. */
+function relayTarget(url) {
+  const relay = RELAYS.find((r) => url.startsWith(r.prefix + "/"));
+  if (!relay) return null;
+  const rest = url.slice(relay.prefix.length);
   const q = rest.indexOf("?");
   const path = q >= 0 ? rest.slice(0, q) : rest;
-  if (path.includes("..") || /%2f|%5c|\\/i.test(path)) return undefined;
-  const ok = COINSPH_READ_PATHS.some((p) => (p.endsWith("/") ? path.startsWith(p) && path.length > p.length : path === p));
-  return ok ? COINSPH_ORIGIN + rest : undefined;
+  // Raw text: no "..", no encoded dot, slash, backslash or percent (no read path contains any of them).
+  if (path.includes("..") || /%2e|%2f|%5c|%25|\\/i.test(path) || !pathOk(relay.paths, path)) return undefined;
+  // v2.8 (review fix): re-check what fetch() will actually request. The URL parser resolves dot
+  // segments ("%2e%2e" included), so the parsed path must still be an allowed read path on the origin.
+  const target = relay.origin + rest;
+  let u;
+  try { u = new URL(target); } catch { return undefined; }
+  if (u.origin !== relay.origin || u.username || u.password || u.hash || !pathOk(relay.paths, u.pathname)) return undefined;
+  return { target, name: relay.name, strict: relay.strict };
 }
-async function proxyCoinsph(target, res) {
+async function proxyRelay({ target, name, strict }, res) {
   try {
-    const up = await fetch(target, { signal: AbortSignal.timeout(20_000), headers: { accept: "application/json" } });
+    const opts = { signal: AbortSignal.timeout(20_000), headers: { accept: "application/json" } };
+    const up = await fetch(target, strict ? { ...opts, redirect: "error" } : opts);
     const body = Buffer.from(await up.arrayBuffer());
     const headers = { "content-type": up.headers.get("content-type") ?? "application/json", "cache-control": "no-store", "x-content-type-options": "nosniff" };
     const ra = up.headers.get("retry-after");
     if (ra) headers["retry-after"] = ra;
     res.writeHead(up.status, headers).end(body);
   } catch {
-    res.writeHead(502, { "content-type": "text/plain" }).end("Coins.ph unreachable");
+    res.writeHead(502, { "content-type": "text/plain" }).end(`${name} unreachable`);
   }
 }
 
 const server = createServer((req, res) => {
   if (req.method !== "GET" && req.method !== "HEAD") { res.writeHead(405).end(); return; }
-  const coins = coinsphTarget(req.url ?? "/");
-  if (coins === undefined) { res.writeHead(403, { "content-type": "text/plain" }).end("Path not allowed"); return; }
-  if (coins) { void proxyCoinsph(coins, res); return; }
+  const relay = relayTarget(req.url ?? "/");
+  if (relay === undefined) { res.writeHead(403, { "content-type": "text/plain" }).end("Path not allowed"); return; }
+  if (relay) { void proxyRelay(relay, res); return; }
   const file = fileFor(req.url ?? "/");
   const target = file ?? join(root, "404.html");
   const status = file ? 200 : 404;

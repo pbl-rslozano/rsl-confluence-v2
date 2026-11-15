@@ -15,7 +15,7 @@ export const USAGE = `rsL Confluence recorder ${VERSION} — records the forward
   node --experimental-strip-types --import ./ts-resolve.mjs recorder.mjs [options]
 
 Options (env in brackets):
-  --source binance|bybit-spot|bybit-perp|bitget|bitget-perp  [RECORDER_SOURCE]  default binance
+  --source binance|bybit-spot|bybit-perp|bitget|bitget-perp|okx|okx-perp|coinbase|upbit  [RECORDER_SOURCE]  default binance
   --tf 4h                                         [RECORDER_TF]              default 4h
   --limit 30                                      [RECORDER_LIMIT]           universe size 1–200
   --asset-class crypto|rwa|stock|fx|commodity|all [RECORDER_ASSET_CLASS]     default crypto

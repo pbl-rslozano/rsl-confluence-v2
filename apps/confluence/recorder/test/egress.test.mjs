@@ -35,7 +35,7 @@ test("check-egress fails on an unlisted host and on a runtime-built host", (t) =
 
 test("runtime guard: only https to manifest hosts; the base fetch is never reached otherwise", async () => {
   const manifest = loadRecorderManifest();
-  assert.deepEqual(manifest.hosts, ["data-api.binance.vision", "api.bybit.com", "api.bitget.com"]);
+  assert.deepEqual(manifest.hosts, ["data-api.binance.vision", "api.bybit.com", "api.bitget.com", "www.okx.com", "api.exchange.coinbase.com", "api.upbit.com"]);
   assert.ok(manifest.conditionalHosts.includes("api.telegram.org"));
   let reached = 0;
   const guard = createGuardedFetch({ baseFetch: async () => { reached++; return new Response("[]"); }, hosts: manifest.hosts });
