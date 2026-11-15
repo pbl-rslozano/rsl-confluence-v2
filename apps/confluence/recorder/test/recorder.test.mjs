@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   barWhileClosed, classifySymbol, detectHistoricalPattern, ENGINE_BARS, enrich, percentiles, resetFundTrendFeedForTests, resetRateLimitForTests, rateLimitCooldown, ret20, scoreSeries, toLedgerRow,
 } from "../src/engine.mjs";
+import { sanitizeLedgerRow } from "../../web/src/lib/ledger-metrics.ts";
 import { createRecorder, readHeartbeatStatus } from "../src/recorder-core.mjs";
 import { nextWake } from "../src/schedule.mjs";
 import { baseConfig, bars, currentOpen, mockExchange, quiet, STEP_4H, T0, tempDir } from "./fixtures.mjs";
@@ -360,6 +361,13 @@ test("v2.8 (WP21): crypto rows log ft from the pair's own daily bars, once per p
   assert.equal(rows.length, 3);
   assert.ok(rows.every((r) => typeof r.ft === "number" && r.ft > 0 && r.ft <= 100), JSON.stringify(rows.map((r) => r.ft)));
   assert.equal(ex.calls.filter((c) => dailyUrl(new URL(c.url))).length, 3, "one daily request per pair");
+  // The app's import sanitiser accepts every recorder row and keeps its ft (one decimal, as the app writes it).
+  for (const r of rows) {
+    const clean = sanitizeLedgerRow(r);
+    assert.ok(clean, `row ${r.id} rejected by the sanitiser`);
+    assert.equal(clean.ft, r.ft);
+    assert.equal(Math.round(r.ft * 10) / 10, r.ft);
+  }
 
   // Same UTC day, next 4h bar: the in-memory marker means no new daily request (same process memory).
   const before = ex.calls.filter((c) => dailyUrl(new URL(c.url))).length;

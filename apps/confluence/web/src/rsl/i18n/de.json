@@ -551,5 +551,6 @@
   "about.uses.exchange": "Public market data: prices and candles",
   "about.uses.archive": "Historical candle archive for backtesting (personal use)",
   "about.uses.rates": "Currency exchange rates for display currencies",
-  "liq.unknown": "{n, number} pairs with unknown US$ volume are not scored"
+  "liq.unknown": "{n, number} pairs with unknown US$ volume are not scored",
+  "ledger.bench.fundTrend": "Fund trend sign"
 }

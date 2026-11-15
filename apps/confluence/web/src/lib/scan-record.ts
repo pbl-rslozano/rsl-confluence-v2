@@ -12,6 +12,8 @@
 import { baseOf } from "./quotes";
 import type { Kline } from "./indicators";
 import type { AssetClass, LedgerRow } from "./ledger-metrics";
+import { roundFt } from "./ledger-metrics";
+import { fundTrendSeries } from "./fund-trend";
 import type { SeriesScore, RowContext } from "./scan-pipeline";
 import { toLedgerRow } from "./scan-pipeline";
 import { barWhileClosed } from "./asset-classes";
@@ -42,6 +44,10 @@ export interface ScanRecordContext {
   recordedAt?: number;
   /** v2.8 (WP19): Bybit linear derivative snapshots (recorder log, or imported in the app) → fr / oiChg. */
   derivatives?: ReadonlyArray<DerivativeSnapshot>;
+  /** v2.8 (WP21): Fund trend value now, per pair (live rows). A FundTrend value only; anything else (loading, no history) → null. */
+  fundTrendOf?: (symbol: string) => number | null;
+  /** v2.8 (WP21): closed daily bars per pair (catch-up rows). Each row uses only the daily bars closed at or before its own bar close. */
+  dailyOf?: (symbol: string) => Kline[];
 }
 
 /** Scan-wide inputs: relative-strength percentiles, BTC bars, full-ranking positions. */
@@ -85,6 +91,7 @@ export function liveRow(p: ScanSeries, score: SeriesScore, ctx: ScanRecordContex
     ...(deriv ? deriv : {}),
   });
   if (!row) return null;
+  if (ctx.fundTrendOf && p.ac === "crypto") { const v = ctx.fundTrendOf(p.symbol); row.ft = typeof v === "number" && Number.isFinite(v) ? roundFt(v) : null; }
   return Object.assign(row, enrich(row, p.kl, {
     intervalMs: ctx.intervalMs,
     btc: shared.btc,
@@ -112,6 +119,26 @@ export function enrichCatchUp(rows: LedgerRow[], kl: Kline[], ctx: ScanRecordCon
     if (i !== undefined) Object.assign(row, enrich(row, kl.slice(0, i + 1), { intervalMs: ctx.intervalMs, btc: shared.btc, rs: null }));
     // v2.8 (WP19): derivative context as of each catch-up bar's own close (never a later snapshot).
     if (ctx.derivatives?.length) Object.assign(row, derivativeFields(ctx.derivatives, row.pair, row.tc));
+  }
+  if (ctx.dailyOf) applyFundTrend(rows, ctx.dailyOf);
+  return rows;
+}
+
+/**
+ * v2.8 (WP21): ft of catch-up rows (crypto only) from daily bars closed at or before each row's own bar close
+ * (no look-ahead; fundTrendSeries). A pair with too little history, or no daily bars, gets null.
+ */
+export function applyFundTrend(rows: LedgerRow[], dailyOf: (symbol: string) => Kline[]): LedgerRow[] {
+  const byPair = new Map<string, LedgerRow[]>();
+  for (const row of rows) {
+    if (row.ac !== "crypto") continue;
+    const list = byPair.get(row.pair);
+    if (list) list.push(row); else byPair.set(row.pair, [row]);
+  }
+  for (const [pair, list] of byPair) {
+    const daily = dailyOf(pair);
+    const values = fundTrendSeries(daily, list.map((r) => ({ time: r.t, closeTime: r.tc })));
+    list.forEach((row, i) => { const v = values[i]; row.ft = typeof v === "number" ? roundFt(v) : null; });
   }
   return rows;
 }

@@ -10,6 +10,7 @@
     "about.trademarks",
     "fvg.label",
     "fx.src.ecb",
+    "ledger.bench.fundTrend",
     "ledger.longAvoided",
     "ledger.power",
     "ledger.powerNever",
@@ -647,5 +648,6 @@
   "about.uses.exchange": "بيانات السوق العامة: الأسعار والشموع",
   "about.uses.archive": "أرشيف الشموع التاريخي للاختبار الرجعي (للاستخدام الشخصي)",
   "about.uses.rates": "أسعار صرف العملات لعملات العرض",
-  "liq.unknown": "{n, number} من الأزواج حجم تداولها بالدولار الأمريكي غير معروف، فلا تُقيَّم"
+  "liq.unknown": "{n, number} من الأزواج حجم تداولها بالدولار الأمريكي غير معروف، فلا تُقيَّم",
+  "ledger.bench.fundTrend": "إشارة اتجاه الصندوق"
 }

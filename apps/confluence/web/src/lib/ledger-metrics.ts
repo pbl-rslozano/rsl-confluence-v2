@@ -96,7 +96,16 @@ export interface LedgerRow {
   /** Bybit linear funding rate per interval (fraction) and open-interest change (%) from a derivative snapshot ≤ 2 h before the bar close. */
   fr?: number | null;
   oiChg?: number | null;
+  /* ---- v2.8 (WP21): a benchmark beside momentum, never scored ---- */
+  /** Fund trend −100…+100 (1 decimal) from closed daily bars at or before this bar's close; null = not available then (history, class, halt). */
+  ft?: number | null;
 }
+
+/** Fund trend as stored on a row: one decimal, so web and recorder rows match. */
+export const roundFt = (v: number): number => Math.round(v * 10) / 10;
+
+/** Sign of a row's Fund trend for the benchmark: ft null or 0 → 0 (excluded from n). */
+export const ftSign = (row: Pick<LedgerRow, "ft">): -1 | 0 | 1 => (typeof row.ft === "number" && row.ft > 0 ? 1 : typeof row.ft === "number" && row.ft < 0 ? -1 : 0);
 
 /* ------------------------------------------------------------------ *
  *  v2.8 (WP19) vote vector: 18 base-4 digits in one integer
@@ -801,6 +810,8 @@ export interface HorizonReport {
   benchmarks: {
     /** 20-bar momentum sign on the same bars (needs momentumOf). */
     momentum: { n: number; meanNetBps: number; edgeBps: number } | null;
+    /** v2.8 (WP21): the sign of the row's Fund trend, same bars, same costs (needs fundTrendOf; rows with ft null are excluded). */
+    fundTrend: { n: number; meanNetBps: number; edgeBps: number } | null;
     /** Share of label-shuffled replicas whose mean net ≥ the observed one (one-sided p). */
     shuffledP: number;
   };
@@ -809,6 +820,8 @@ export interface HorizonReport {
 export interface ReportOptions {
   /** Sign of the 20-bar return at the row's bar (−1/0/1), for the momentum benchmark. */
   momentumOf?: (row: LedgerRow) => -1 | 0 | 1;
+  /** v2.8 (WP21): sign of the row's Fund trend (−1/0/1; 0 = excluded), for the Fund trend benchmark. */
+  fundTrendOf?: (row: LedgerRow) => -1 | 0 | 1;
   /** Shuffle replicas for the label-permutation test (default 200). */
   shuffles?: number;
 }
@@ -933,12 +946,13 @@ export function buildReport(
     const directional = [...buys, ...sells];
     const baseG = mean(baseOuts.map((o) => o.gross));
     const baseF = mean(baseOuts.map((o) => o.fundingLong));
-    let momentum: HorizonReport["benchmarks"]["momentum"] = null;
-    if (options.momentumOf) {
-      const mOuts = thinNonOverlapping(
+    // One direction-follows-sign benchmark, charged the same costs for every sign source.
+    const signBenchmark = (signOf: ((row: LedgerRow) => -1 | 0 | 1) | undefined): { n: number; meanNetBps: number; edgeBps: number } | null => {
+      if (!signOf) return null;
+      const sOuts = thinNonOverlapping(
         scored
           .map((o) => {
-            const d = options.momentumOf!(o.row);
+            const d = signOf(o.row);
             if (!d) return null;
             const net = d * o.gross - costOf(o, costBps) - d * o.fundingLong;
             return { ...o, net, row: { ...o.row, m: d } } as Outcome;
@@ -947,10 +961,12 @@ export function buildReport(
         h,
         intervalMs,
       );
-      const mNet = mOuts.map((o) => o.net);
-      const mEdge = mOuts.map((o) => { const d = o.row.m as 1 | -1; return o.net - (d * baseG - costOf(o, costBps) - d * baseF); });
-      momentum = { n: mOuts.length, meanNetBps: mean(mNet) * 1e4, edgeBps: mean(mEdge) * 1e4 };
-    }
+      const sNet = sOuts.map((o) => o.net);
+      const sEdge = sOuts.map((o) => { const d = o.row.m as 1 | -1; return o.net - (d * baseG - costOf(o, costBps) - d * baseF); });
+      return { n: sOuts.length, meanNetBps: mean(sNet) * 1e4, edgeBps: mean(sEdge) * 1e4 };
+    };
+    const momentum = signBenchmark(options.momentumOf);
+    const fundTrendBench = signBenchmark(options.fundTrendOf);
     let shuffledP = NaN;
     if (directional.length >= 10) {
       const sec = new Map<number, { g: number[]; f: number[] }>();
@@ -991,7 +1007,7 @@ export function buildReport(
       ic: { mean: mean(ics), tStat: icSd > 0 ? (mean(ics) / icSd) * Math.sqrt(ics.length) : NaN, periods: ics.length },
       sharpe,
       power: powerReadout(sharpe, blocks.returns.length, blocks.blocksPerDay),
-      benchmarks: { momentum, shuffledP },
+      benchmarks: { momentum, fundTrend: fundTrendBench, shuffledP },
     });
   }
   // Loops, not Math.min(...xs): spreading >125k arguments throws a RangeError.
@@ -1022,6 +1038,8 @@ export const LEDGER_CSV_COLUMNS = [
   "macro_event_hours", "basis_pct", "band_pinned", "split_muted", "earnings_window", "engine_bars",
   // v2.8 (WP19) — appended, so v2.7 column positions are unchanged.
   "vote_vector", "pattern_dir", "pattern_conf", "funding_rate", "oi_change_pct",
+  // v2.8 (WP21) — appended last, so a v2.7 or earlier v2.8 CSV (no such column) imports with ft null.
+  "fund_trend",
 ] as const;
 
 const iso = (ms: number) => (ms ? new Date(ms).toISOString() : "");
@@ -1033,7 +1051,7 @@ export function ledgerRowValues(r: LedgerRow): (string | number)[] {
     r.rd, r.rc, r.wb, r.live, r.uc ?? 0,
     r.rku ?? "", r.rks ?? "", r.rs ?? "", r.beta ?? "", r.htf ?? "", r.td ?? "",
     r.mev ?? "", r.bp ?? "", r.pin ?? "", r.spl ?? "", r.earn ?? "", engineBarsOf(r),
-    r.vt ?? "", r.pd ?? "", r.pc ?? "", r.fr ?? "", r.oiChg ?? "",
+    r.vt ?? "", r.pd ?? "", r.pc ?? "", r.fr ?? "", r.oiChg ?? "", r.ft ?? "",
   ];
 }
 
@@ -1053,17 +1071,18 @@ const INVALID = Symbol("invalid");
  * of the wrong type or out of range rejects the WHOLE row (a hostile or
  * corrupted file must not import half a row).
  */
-function strictNew(r: Record<string, unknown>): Pick<LedgerRow, "vt" | "pd" | "pc" | "fr" | "oiChg"> | typeof INVALID {
+function strictNew(r: Record<string, unknown>): Pick<LedgerRow, "vt" | "pd" | "pc" | "fr" | "oiChg" | "ft"> | typeof INVALID {
   const nil = (v: unknown) => v === null || v === undefined;
-  const { vt, pd, pc, fr, oiChg } = r;
+  const { vt, pd, pc, fr, oiChg, ft } = r;
   if (!nil(vt) && !(Number.isSafeInteger(vt) && (vt as number) >= 0 && (vt as number) <= VOTE_MAX)) return INVALID;
   if (!nil(pd) && pd !== -1 && pd !== 0 && pd !== 1) return INVALID;
   if (!nil(pc) && pc !== 0 && pc !== 1 && pc !== 2 && pc !== 3) return INVALID;
   if (!nil(fr) && !(finite(fr) && Math.abs(fr) <= FR_MAX)) return INVALID;
   if (!nil(oiChg) && !(finite(oiChg) && oiChg >= OI_CHG_MIN && oiChg <= OI_CHG_MAX)) return INVALID;
+  if (!nil(ft) && !(finite(ft) && Math.abs(ft) <= 100)) return INVALID;
   return {
     vt: nil(vt) ? null : (vt as number), pd: nil(pd) ? null : (pd as -1 | 0 | 1), pc: nil(pc) ? null : (pc as 0 | 1 | 2 | 3),
-    fr: nil(fr) ? null : (fr as number), oiChg: nil(oiChg) ? null : (oiChg as number),
+    fr: nil(fr) ? null : (fr as number), oiChg: nil(oiChg) ? null : (oiChg as number), ft: nil(ft) ? null : (ft as number),
   };
 }
 
@@ -1193,7 +1212,7 @@ export function parseLedgerCsv(text: string, maxRows = 500_000): { rows: LedgerR
       td: num("taker_delta"), mev: num("macro_event_hours"), bp: num("basis_pct"), pin: opt("band_pinned"), spl: opt("split_muted"), earn: opt("earnings_window"),
       // engine_bars is exported as eb ?? wb: only a value that differs from warm_bars is a real eb.
       eb: eb !== null && eb !== wb ? eb : undefined,
-      vt: num("vote_vector"), pd: num("pattern_dir"), pc: num("pattern_conf"), fr: num("funding_rate"), oiChg: num("oi_change_pct"),
+      vt: num("vote_vector"), pd: num("pattern_dir"), pc: num("pattern_conf"), fr: num("funding_rate"), oiChg: num("oi_change_pct"), ft: num("fund_trend"),
     };
     const row = sanitizeLedgerRow(raw);
     if (row) rows.push(row); else rejected++;

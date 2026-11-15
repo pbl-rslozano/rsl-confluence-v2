@@ -5,7 +5,9 @@ import {
   DEFAULT_COSTS, CLASS_EXTRA_SLIP_BPS, LEDGER_CSV_COLUMNS, ledgerRowValues, PRIMARY_WARM_BARS,
   parseLedgerImport, sanitizeLedgerRow, isSpotSellGroup,
 } from "./ledger-metrics.ts";
-import { liveRow, scanShared } from "./scan-record.ts";
+import { liveRow, scanShared, applyFundTrend } from "./scan-record.ts";
+import { fundTrend } from "./fund-trend.ts";
+import { engineConfigId } from "./engine-config.ts";
 import { runCatchUp, packKlines } from "./scan-jobs.ts";
 import { engineBarsOf } from "./ledger-metrics.ts";
 import { createLedgerStore, PREREG_MIN_DAYS } from "./signal-ledger.ts";
@@ -566,7 +568,7 @@ console.log("WP19 CSV: v2.7 import, hostile values, round-trip");
   const csvOf = (cols, lines) => "﻿" + [cols.join(","), ...lines.map((l) => l.map(safe).join(","))].join("\r\n") + "\r\n";
   const v27Cols = LEDGER_CSV_COLUMNS.slice(0, LEDGER_CSV_COLUMNS.indexOf("engine_bars") + 1);
   check("CSV appends vote_vector, pattern_dir, pattern_conf, funding_rate, oi_change_pct after the v2.7 columns", () =>
-    [v27Cols.length === 44 && LEDGER_CSV_COLUMNS.slice(44).join() === "vote_vector,pattern_dir,pattern_conf,funding_rate,oi_change_pct" && ledgerRowValues(row).length === LEDGER_CSV_COLUMNS.length, LEDGER_CSV_COLUMNS.slice(44).join()]);
+    [v27Cols.length === 44 && LEDGER_CSV_COLUMNS.slice(44, 49).join() === "vote_vector,pattern_dir,pattern_conf,funding_rate,oi_change_pct" && ledgerRowValues(row).length === LEDGER_CSV_COLUMNS.length, LEDGER_CSV_COLUMNS.slice(44).join()]);
   check("v2.7 CSV imports with null new fields", () => {
     const v27 = csvOf([...v27Cols, "net_return_h1"], [[...ledgerRowValues(row).slice(0, 44), 0.0012]]);
     const imp = parseLedgerImport(v27);
@@ -609,6 +611,93 @@ console.log("WP19 CSV: v2.7 import, hostile values, round-trip");
     const imp = parseLedgerImport(csvOf(header, [l1, l2]));
     return [imp.rows.length === 0 && imp.rejected === 2, JSON.stringify(imp)];
   });
+}
+
+console.log("WP21 ft: ledger field, CSV, catch-up no-look-ahead, benchmark");
+{
+  const DAY = 86_400_000;
+  const t = Date.UTC(2026, 9, 1, 8);
+  const safe = (v) => { if (v === null || v === undefined) return ""; if (typeof v === "number") return Number.isFinite(v) ? String(v) : ""; const g = /^[=+\-@\u0000-\u001F]/.test(String(v)) ? `'${v}` : String(v); return /[",\r\n]/.test(g) ? `"${g.replace(/"/g, '""')}"` : g; };
+  const csvOf = (cols, lines) => "\uFEFF" + [cols.join(","), ...lines.map((l) => l.map(safe).join(","))].join("\r\n") + "\r\n";
+  const row = { ...baseRow, id: `c1|binance|4h|BTCUSDT|${t}`, pair: "BTCUSDT", t, tc: t + 4 * H, rec: t + 4 * H, c: 61234.5, sc: 47.5, m: 1, st: 1, v: 17, bu: 9, be: 3, er: 0.4, bl: [55, -20, 10, 0], rd: 0, rc: 0, uc: 0, rku: 4, rks: "live", rs: 81.2, beta: 1.07, htf: 1, td: -0.12, mev: -6.5, bp: 0.031, pin: 0, spl: 0, earn: 0, vt: 12345, pd: -1, pc: 2, fr: 0.0001, oiChg: -3.25, ft: -37.3 };
+  const header = [...LEDGER_CSV_COLUMNS, "net_return_h1"];
+  const at = (col) => LEDGER_CSV_COLUMNS.indexOf(col);
+
+  ok("fund_trend is the last CSV column and ft is exported", LEDGER_CSV_COLUMNS[LEDGER_CSV_COLUMNS.length - 1] === "fund_trend" && ledgerRowValues(row)[at("fund_trend")] === -37.3);
+  {
+    const imp = parseLedgerImport(csvOf(header, [[...ledgerRowValues(row), ""]]));
+    ok("v2.8 CSV round-trips ft", imp.rows.length === 1 && imp.rows[0].ft === -37.3 && JSON.stringify(imp.rows[0]) === JSON.stringify(sanitizeLedgerRow(row)), JSON.stringify(imp));
+    const nullFt = parseLedgerImport(csvOf(header, [[...ledgerRowValues({ ...row, ft: null }), ""]]));
+    ok("an empty ft cell imports as null", nullFt.rows.length === 1 && nullFt.rows[0].ft === null);
+  }
+  {
+    const v27Cols = LEDGER_CSV_COLUMNS.slice(0, at("engine_bars") + 1);
+    const imp = parseLedgerImport(csvOf([...v27Cols, "net_return_h1"], [[...ledgerRowValues(row).slice(0, v27Cols.length), 0.0012]]));
+    ok("a v2.7 CSV (no ft column) imports with ft null", imp.rows.length === 1 && imp.rejected === 0 && imp.rows[0].ft === null, JSON.stringify(imp));
+    const v28Cols = LEDGER_CSV_COLUMNS.slice(0, at("fund_trend"));
+    const imp2 = parseLedgerImport(csvOf(v28Cols, [ledgerRowValues(row).slice(0, v28Cols.length)]));
+    ok("an earlier v2.8 CSV (no fund_trend column) imports with ft null", imp2.rows.length === 1 && imp2.rows[0].ft === null);
+  }
+  {
+    const bad = (v) => { const l = [...ledgerRowValues(row), ""]; l[at("fund_trend")] = v; return l; };
+    const imp = parseLedgerImport(csvOf(header, [bad(100.5), bad(-101), bad("=1+1"), bad("@SUM(1)"), bad("+5"), bad("\t5"), bad("abc"), bad("1e999"), bad(100), bad(-100), bad(0)]));
+    ok("CSV ft outside -100..100 or formula-like is rejected (100, -100 and 0 kept)", imp.rows.length === 3 && imp.rejected === 8 && imp.rows.map((x) => x.ft).join() === "100,-100,0", `${imp.rows.length} ${imp.rejected}`);
+    const json = [{ ...row, ft: 100.1 }, { ...row, ft: -100.1 }, { ...row, ft: "5" }, { ...row, ft: "=1+1" }, { ...row, ft: Infinity }, { ...row, ft: NaN }].map(sanitizeLedgerRow);
+    ok("JSON ft out of range or not a number is rejected", json.every((x) => x === null));
+    const { ft, ...old } = row;
+    ok("a row without ft (v2.7 JSON) imports with ft null; a recorder row with ft 12.3 or null passes", sanitizeLedgerRow(old).ft === null && sanitizeLedgerRow({ ...row, ft: 12.3 }).ft === 12.3 && sanitizeLedgerRow({ ...row, ft: null }).ft === null);
+  }
+
+  // Catch-up: ft from the daily bars closed at or before each bar's own close.
+  const D0 = Date.UTC(2025, 0, 1);
+  const daily = []; { let c = 100; const rr = rng(77); for (let i = 0; i < 700; i++) { c *= Math.exp(0.0008 + (rr() - 0.5) * 0.06); daily.push({ time: D0 + i * DAY, open: c, high: c, low: c, close: c, volume: 1 }); } }
+  const dayN = (i) => D0 + i * DAY;
+  const mk = (pair, tOpen, ac = "crypto") => ({ ...baseRow, id: `c|binance|4h|${pair}|${tOpen}`, pair, ac, t: tOpen, tc: tOpen + 4 * H });
+  {
+    const rows = [mk("BTCUSDT", dayN(500) + 4 * H), mk("BTCUSDT", dayN(500) + 8 * H), mk("BTCUSDT", dayN(520) + 12 * H), mk("BTCUSDT", dayN(100)), mk("BTCUSDT", dayN(690) + 20 * H), mk("AAPLUSDT", dayN(520), "stock")];
+    applyFundTrend(rows, (p) => (p === "BTCUSDT" ? daily : []));
+    const want = (r) => { const v = fundTrend(daily, r.tc)?.value; return v === undefined ? null : Math.round(v * 10) / 10; };
+    ok("catch-up rows carry ft from daily bars closed before each bar", rows.slice(0, 3).concat(rows[4]).every((r) => typeof r.ft === "number" && r.ft === want(r)), rows.map((r) => r.ft).join());
+    ok("a catch-up row inside the first 366 days has ft null; non-crypto rows are not given one", rows[3].ft === null && rows[5].ft === undefined);
+    ok("ft is rounded to 1 decimal", rows.every((r) => r.ft === null || r.ft === undefined || Math.abs(r.ft * 10 - Math.round(r.ft * 10)) < 1e-9));
+    const early = rows.slice(0, 3).map((r) => r.ft);
+    const rows2 = [mk("BTCUSDT", dayN(500) + 4 * H), mk("BTCUSDT", dayN(500) + 8 * H), mk("BTCUSDT", dayN(520) + 12 * H)];
+    const last = daily[daily.length - 1];
+    const bigLater = [...daily, { ...last, time: last.time + DAY, close: last.close * 9 }];
+    applyFundTrend(rows2, () => bigLater);
+    ok("a later daily bar does not change earlier catch-up rows (no look-ahead)", rows2.map((r) => r.ft).join() === early.join());
+    const same = [mk("BTCUSDT", dayN(500) + 4 * H), mk("BTCUSDT", dayN(500) + 8 * H)];
+    applyFundTrend(same, () => daily);
+    ok("two bars of the same day share one ft (daily bar of that day is not closed yet)", same[0].ft === same[1].ft);
+  }
+
+  // Benchmark: the sign of ft, same costs as momentum.
+  {
+    const kl = (() => { let c = 100; const rr = rng(5); return Array.from({ length: 1500 }, (_, i) => { const o = c; c *= Math.exp((rr() - 0.5) * 0.02); return { time: Date.UTC(2026, 0, 1) + i * 4 * H, open: o, high: Math.max(o, c) * 1.002, low: Math.min(o, c) * 0.998, close: c, volume: 1 }; }); })();
+    const rows = []; const outs = new Map([[3, []]]);
+    for (let i = 1020; i < 1380; i++) {
+      const ftv = i % 7 === 0 ? null : i % 5 === 0 ? 0 : (i % 2 ? 30 : -30);
+      const rw = { ...baseRow, pair: "ETHUSDT", id: `E${i}`, t: kl[i].time, tc: kl[i].time + 4 * H, c: kl[i].close, m: 0, sc: 0, st: 0, ft: ftv };
+      rows.push(rw);
+      const o = measureOutcome(rw, kl, 3, DEFAULT_COSTS.binance, 4 * H);
+      if (o) outs.get(3).push(o);
+    }
+    const sgn = (rw) => (rw.ft ? (rw.ft > 0 ? 1 : -1) : 0);
+    const rep = buildReport(rows, outs, 30, 1, 4 * H, { momentumOf: sgn, fundTrendOf: sgn, shuffles: 20 });
+    const b = rep.horizons[0].benchmarks;
+    ok("report fund-trend benchmark uses the sign of ft, charged the same costs as momentum", !!b.fundTrend && JSON.stringify(b.fundTrend) === JSON.stringify(b.momentum) && b.fundTrend.n > 0, JSON.stringify(b));
+    const sparse = rows.map((x, i) => ({ ...x, ft: i % 60 === 0 ? 30 : i % 2 ? null : 0 }));
+    const withRows = (rs) => { const byId = new Map(rs.map((x) => [x.id, x])); return new Map([[3, outs.get(3).map((o) => ({ ...o, row: byId.get(o.row.id) }))]]); };
+    const excluded = buildReport(sparse, withRows(sparse), 30, 1, 4 * H, { fundTrendOf: sgn, shuffles: 20 }).horizons[0].benchmarks;
+    const dense = rows.map((x) => ({ ...x, ft: 30 }));
+    const allIn = buildReport(dense, withRows(dense), 30, 1, 4 * H, { fundTrendOf: sgn, shuffles: 20 }).horizons[0].benchmarks;
+    ok("rows with ft null or 0 are excluded from n", excluded.fundTrend.n < allIn.fundTrend.n && excluded.momentum === null);
+    ok("no fundTrendOf option gives a null fund-trend benchmark", buildReport(rows, outs, 30, 1, 4 * H, { shuffles: 20 }).horizons[0].benchmarks.fundTrend === null);
+    const flip = buildReport(rows, outs, 30, 1, 4 * H, { fundTrendOf: (rw) => -sgn(rw), shuffles: 20 }).horizons[0].benchmarks.fundTrend;
+    const plain = buildReport(rows, outs, 30, 1, 4 * H, { fundTrendOf: sgn, shuffles: 20 }).horizons[0].benchmarks.fundTrend;
+    ok("the benchmark follows the sign: flipping it changes the result", flip.meanNetBps !== plain.meanNetBps);
+  }
+  ok("engine config id unchanged", engineConfigId() === "5c30b5c39f5ba3f2", engineConfigId());
 }
 
 console.log("\n== WP19 wording: spot SELL is 'long avoided' ==");

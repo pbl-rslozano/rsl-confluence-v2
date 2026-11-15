@@ -66,7 +66,7 @@ import { LedgerDialog } from "@/components/ledger-dialog";
 import { PaperDialog } from "@/components/paper-dialog";
 import { createPaperStore, memoryPaperPort, PAPER_COLLECTIONS, PAPER_DB_NAME } from "@/lib/paper-store";
 import { coverageUntil, coverageWarnings, eventsNear } from "@/lib/macro-calendar";
-import { loadFundTrends } from "@/lib/fund-trend-feed";
+import { cachedDailyBars, loadFundTrends } from "@/lib/fund-trend-feed";
 import type { FundTrendState } from "@/lib/fund-trend";
 import { deltaPlan, loadHistoricalSeries, MAX_STORED_BARS, mergeDelta, mergeKlines, saveHistoricalSeries } from "@/lib/history-store";
 import {
@@ -640,6 +640,8 @@ export default function Home() {
   /** v2.8 (WP21): Fund trend per `source|symbol`, filled by the daily-bar feed that runs behind a finished scan (no display yet). */
   const [, setFundTrends] = useState<Map<string, FundTrendState>>(new Map());
   const fundPendingRef = useRef<Map<string, FundTrendState>>(new Map());
+  /** v2.8 (WP21): the latest Fund trend state per `source|symbol`, readable from the scan (live ledger rows log `ft` from it). */
+  const fundStateRef = useRef<Map<string, FundTrendState>>(new Map());
   const fundAbortRef = useRef<AbortController | null>(null);
   const alertedReversalRef = useRef<Map<string, number>>(new Map());
 
@@ -1005,6 +1007,8 @@ export default function Home() {
         src: source, tf, intervalMs: data.intervalMs, appVersion: APP.version,
         universe: data.universe, basisBySymbol: data.basisBySymbol,
         ...(derivatives.length ? { derivatives } : {}),
+        // v2.8 (WP21): ft of a live row = the Fund trend already known for that pair (null while it is loading or unavailable).
+        fundTrendOf: (symbol) => { const st = fundStateRef.current.get(`${source}|${symbol}`); return st && !("na" in st) ? st.value : null; },
       };
       // Cross-sectional fields (RS percentile, BTC beta, universe rank) once the chosen list is complete, as in a full scan.
       const shared = scanShared(prepared.filter((p) => p.fresh && p.kl.length).map((p) => seriesOf(p.t, p.kl)), data.universe);
@@ -1067,10 +1071,18 @@ export default function Home() {
             const res = await runScanJobs(pending.map((j) => j.job), { allowMainThread: false });
             const byKey = new Map(res.map((x) => [x.key, x]));
             const rowsToAdd: LedgerRow[] = [];
+            // v2.8 (WP21): catch-up rows log ft from the daily bars closed before each bar (same feed: one request per pair per UTC day, venue gates, 429 halt; a halt leaves ft null).
+            let catchUpCtx = recordCtx;
+            if (usesDirectFetch()) {
+              try {
+                await loadFundTrends(source, pending.filter((j) => classOf(j.pair) === "crypto").map((j) => ({ symbol: j.pair, ac: "crypto" as const })), Date.now());
+              } catch { /* feed unavailable: those rows log ft null */ }
+              catchUpCtx = { ...recordCtx, dailyOf: (symbol) => cachedDailyBars(source, symbol) };
+            }
             for (const j of pending) {
               const r = byKey.get(j.job.key);
               if (!r || r.error) continue; // cursor not advanced: retried next scan (review C5)
-              rowsToAdd.push(...enrichCatchUp(r.catchUpRows ?? [], j.kl, recordCtx, shared));
+              rowsToAdd.push(...enrichCatchUp(r.catchUpRows ?? [], j.kl, catchUpCtx, shared));
               if (r.gap) void ledgerStore.addGap(source, tf, j.pair, r.gap);
               done[j.pair] = j.kl[j.kl.length - 1].time;
             }
@@ -1189,7 +1201,7 @@ export default function Home() {
           const fundBatcher = createBatcher(flushFund);
           void loadFundTrends(source, feedRows, Date.now(), {
             signal: feed.signal,
-            onValue: (symbol, state) => { fundPendingRef.current.set(`${source}|${symbol}`, state); fundBatcher.schedule(); },
+            onValue: (symbol, state) => { fundPendingRef.current.set(`${source}|${symbol}`, state); fundStateRef.current.set(`${source}|${symbol}`, state); fundBatcher.schedule(); },
           }).then(() => fundBatcher.flushNow(), () => fundBatcher.cancel()); // a rejection = aborted by a newer scan or a source switch
         }
       }
