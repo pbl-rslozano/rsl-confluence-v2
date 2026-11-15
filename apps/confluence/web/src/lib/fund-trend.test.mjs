@@ -149,5 +149,38 @@ test("fundRank", () => {
 
 test("isFundTrendClass", () => {
   assert.equal(isFundTrendClass("crypto"), true);
-  for (const c of ["stock", "fx", "commodity"]) assert.equal(isFundTrendClass(c), false);
+  for (const c of ["stock", "fx", "commodity", "rwa"]) assert.equal(isFundTrendClass(c), false);
+});
+
+test("non-positive or non-finite closes give null (fundTrend and fundTrendSeries)", () => {
+  for (const bad of [0, -1, NaN, Infinity]) {
+    const b = bars(altRets(0.0005, 0.03, 420));
+    b[300] = { ...b[300], close: bad };
+    assert.equal(fundTrend(b, endOf(b)), null, `fundTrend close=${bad}`);
+    const D = b[410].time;
+    const out = fundTrendSeries(b, [{ time: D, closeTime: D + DAY }]);
+    assert.equal(out[0], null, `series close=${bad}`);
+  }
+});
+
+test("a duplicated daily bar fails closed", () => {
+  const b = bars(altRets(0.0005, 0.03, 420));
+  const dup = [...b.slice(0, 300), b[299], ...b.slice(300)];
+  assert.equal(fundTrend(dup, endOf(dup)), null);
+});
+
+test("reversed daily input fails closed", () => {
+  const b = bars(altRets(0.0005, 0.03, 420));
+  const rev = [...b].reverse();
+  assert.equal(fundTrend(rev, endOf(b)), null);
+});
+
+test("fundTrendSeries for earlier bars is unchanged by a later large daily bar", () => {
+  const b = bars(altRets(0.0005, 0.03, 420));
+  const picks = [380, 395, 410].map((i) => ({ time: b[i].time, closeTime: b[i].time + DAY }));
+  const before = fundTrendSeries(b, picks);
+  const last = b[b.length - 1];
+  const big = [...b, { ...last, time: last.time + DAY, close: last.close * 5 }];
+  assert.deepEqual(fundTrendSeries(big, picks), before);
+  assert.ok(before.every((v) => typeof v === "number"));
 });

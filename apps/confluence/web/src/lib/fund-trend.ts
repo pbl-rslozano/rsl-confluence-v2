@@ -40,11 +40,20 @@ export interface FundTrend {
 
 export type FundTrendState = FundTrend | { na: "history" | "class" | "loading" | "error" };
 
-/** Newest run of daily bars with no missing day (same rule as contiguousTail: gap > 1.5 bars ends the run). */
+/**
+ * Newest run of strictly ascending daily bars with no missing day. Mirrors contiguousTail in
+ * market-client.ts (gap > 1.5 bars ends the run; not imported because that module pulls in venue
+ * and browser code), plus a step <= 0 (duplicate or out-of-order bar) also ends the run, so
+ * unsorted or duplicated input fails closed to null.
+ */
 function dailyTail(bars: Kline[]): Kline[] {
   let start = bars.length - 1;
   if (start < 1) return bars;
-  while (start > 0 && bars[start].time - bars[start - 1].time <= DAY_MS * 1.5) start--;
+  while (start > 0) {
+    const step = bars[start].time - bars[start - 1].time;
+    if (step <= 0 || step > DAY_MS * 1.5) break;
+    start--;
+  }
   return start === 0 ? bars : bars.slice(start);
 }
 
@@ -55,6 +64,7 @@ export function fundTrend(daily: Kline[], asOfClose: number): FundTrend | null {
   const bars = dailyTail(end === daily.length ? daily : daily.slice(0, end));
   const n = bars.length;
   if (n < FT_MIN_BARS) return null;
+  for (const b of bars) if (!(b.close > 0) || !Number.isFinite(b.close)) return null; // zero, negative, NaN, Infinity
 
   const ret = new Array<number>(n); // ret[i] = ln(C_i / C_{i-1}), i >= 1
   ret[0] = 0;
@@ -92,10 +102,8 @@ export function fundTrendSeries(daily: Kline[], bars: { time: number; closeTime:
     if (b.closeTime < prevClose) hi = 0;
     prevClose = b.closeTime;
     while (hi < daily.length && daily[hi].time + DAY_MS <= b.closeTime) hi++;
-    let h = hi;
-    if (h > 0 && daily[h - 1].time + DAY_MS > b.closeTime) h = 0; // defensive for unsorted input
-    if (h === 0) return null;
-    const key = daily[h - 1].time;
+    if (hi === 0) return null;
+    const key = daily[hi - 1].time;
     if (!memo.has(key)) memo.set(key, fundTrend(daily, key + DAY_MS)?.value ?? null);
     return memo.get(key) ?? null;
   });
