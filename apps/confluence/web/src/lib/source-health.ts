@@ -29,12 +29,20 @@ export function slowAfterMs(source: string): number {
   return source === "coinsph" ? 90_000 : source === "okx" || source === "okx-perp" ? 60_000 : source === "coinbase" || source === "upbit" ? 90_000 : 20_000;
 }
 
+/**
+ * v2.8 (WP26 final review): a scan whose list loaded but whose every series failed "UNAVAILABLE" (the Upbit relay
+ * refused or missing for candles) says "blocked or unreachable" (native: "network blocked"), as healthFromError does
+ * for a feed error on the list — never "ok".
+ */
 export function healthFromScan(
   source: string,
-  res: { durationMs: number; rateLimitedUntil?: number; staleCount: number; tickers: unknown[] },
+  res: { durationMs: number; rateLimitedUntil?: number; staleCount: number; tickers: unknown[]; errors?: readonly { reason: string }[] },
   now = Date.now(),
+  native = false,
 ): SourceHealth {
   if (res.rateLimitedUntil && res.rateLimitedUntil > now) return { state: "rate-limited", until: res.rateLimitedUntil };
+  const unavailable = res.errors?.filter((e) => e.reason === "UNAVAILABLE").length ?? 0;
+  if (res.tickers.length > 0 && unavailable >= res.tickers.length) return { state: native ? "network-blocked" : "blocked" };
   if (res.tickers.length > 0 && res.staleCount >= res.tickers.length) return { state: "stale" };
   if (res.durationMs > slowAfterMs(source)) return { state: "slow" };
   return { state: "ok" };

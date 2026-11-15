@@ -937,7 +937,7 @@ export default function Home() {
       if (ac.signal.aborted) return;
       batcher.cancel();
       setRateLimitUntil(data.rateLimitedUntil ?? null);
-      setHealth({ source, ...healthFromScan(source, data) });
+      setHealth({ source, ...healthFromScan(source, data, Date.now(), inNativeShell()) });
 
       // 2 — the chosen list is complete: assemble it exactly as a full scan (stored + fresh bars per series).
       const scopedTickers = watchlistScope

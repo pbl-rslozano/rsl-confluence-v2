@@ -16,7 +16,7 @@ import {
 import { DEFAULT_COSTS } from "./ledger-metrics.ts";
 import { forgetPairsForTests, normalizeQuoteMode, priceCurrencyOfQuote, quoteModesFor } from "./quotes.ts";
 import { classifySymbol } from "./asset-classes.ts";
-import { healthFromError, slowAfterMs } from "./source-health.ts";
+import { healthFromError, healthFromScan, slowAfterMs } from "./source-health.ts";
 import { convert, priceDisplay } from "./fx-rates.ts";
 
 let passed = 0;
@@ -397,6 +397,19 @@ console.log("relay failure");
       ok(`relay failure is a feed error, not a direct fetch — ${name}: no call to https://api.upbit.com, only /x/upbit/`,
         calls.length > 0 && calls.every((c) => c.s.startsWith("/x/upbit/v1/")) && !calls.some((c) => c.s.includes("api.upbit.com")), calls.map((c) => c.s).join(" "));
       ok(`${name}: not a rate limit (no cooldown, the scan is not halted)`, !r.rateLimitedUntil && rateLimitCooldown("upbit") === 0);
+      // WP26 final review: every series "UNAVAILABLE" must not read "ok" — the badge says what the guide/ADR promise.
+      ok(`${name}: health "blocked" (Blocked or unreachable) when every series is unavailable; native → "network-blocked"`,
+        healthFromScan("upbit", r).state === "blocked" && healthFromScan("upbit", r, Date.now(), true).state === "network-blocked", JSON.stringify(healthFromScan("upbit", r)));
+    }
+    {
+      // Only some series unavailable: the scan is partial, not blocked.
+      fresh();
+      const uni = universeRoute();
+      const good = candleServer();
+      route = (u) => (u.pathname.startsWith("/x/upbit/v1/candles/") ? (u.searchParams.get("market") === "KRW-BTC" ? good(u) : new Response("x", { status: 404 })) : uni(u));
+      const r = await fetchDirectMarketData("1h", "upbit", [], 10, undefined, () => 200, "crypto", "KRW", 0);
+      ok("some series unavailable: health is not \"blocked\"", r.errors.length === 2 && Object.keys(r.klines).join() === "BTCKRW" && healthFromScan("upbit", r).state === "ok",
+        JSON.stringify([r.errors.length, Object.keys(r.klines), healthFromScan("upbit", r)]));
     }
     // The list itself unreachable: the scan fails with a feed error; the health badge says blocked/unreachable.
     fresh();

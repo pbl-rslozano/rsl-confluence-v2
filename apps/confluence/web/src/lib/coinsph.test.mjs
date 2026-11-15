@@ -225,6 +225,10 @@ console.log("Source health line (US-1)");
   ok("Coins.ph pacing is not 'slow' at 40 s; Binance is", healthFromScan("coinsph", { durationMs: 40_000, staleCount: 0, tickers: [1] }, now).state === "ok" && healthFromScan("binance", { durationMs: 40_000, staleCount: 0, tickers: [1] }, now).state === "slow");
   ok("rate-limited result carries the resume time", healthFromScan("coinsph", { durationMs: 1, rateLimitedUntil: now + 5000, staleCount: 0, tickers: [] }, now).until === now + 5000);
   ok("all series stale → Stale", healthFromScan("binance", { durationMs: 1, staleCount: 2, tickers: [1, 2] }, now).state === "stale");
+  ok("all series UNAVAILABLE → blocked (web) / network blocked (native); rate limit still wins", healthFromScan("upbit", { durationMs: 1, staleCount: 0, tickers: [1, 2], errors: [{ reason: "UNAVAILABLE" }, { reason: "UNAVAILABLE" }] }, now).state === "blocked" &&
+    healthFromScan("upbit", { durationMs: 1, staleCount: 0, tickers: [1, 2], errors: [{ reason: "UNAVAILABLE" }, { reason: "UNAVAILABLE" }] }, now, true).state === "network-blocked" &&
+    healthFromScan("upbit", { durationMs: 1, rateLimitedUntil: now + 5000, staleCount: 0, tickers: [1], errors: [{ reason: "UNAVAILABLE" }] }, now).state === "rate-limited" &&
+    healthFromScan("upbit", { durationMs: 1, staleCount: 0, tickers: [1, 2], errors: [{ reason: "UNAVAILABLE" }] }, now).state === "ok");
   ok("web TypeError → blocked or unreachable; native → network blocked", healthFromError(new TypeError("Failed to fetch"), false).state === "blocked" && healthFromError(new TypeError("x"), true).state === "network-blocked");
   ok("Coins.ph kinds map one-to-one", healthFromError(new CoinsphError("BLOCKED", "x"), false).state === "blocked" && healthFromError(new CoinsphError("NETWORK_BLOCKED", "x"), true).state === "network-blocked");
   ok("RateLimitError → rate-limited", healthFromError(new RateLimitError("x", 60_000), false, now).until === now + 60_000);
