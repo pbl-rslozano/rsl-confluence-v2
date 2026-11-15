@@ -542,5 +542,13 @@
   "paper.addNote": "Add a note",
   "paper.heldFeedFailed": "Bars could not be loaded for {list}. Their stops, targets and lock closes wait for those bars; the next scan tries again.",
   "about.catalogApprovedPending": "approved — {n, number} new strings await native-speaker review",
-  "scan.pricesInBtc": "Prices in BTC — not converted to your display currency."
+  "scan.pricesInBtc": "Prices in BTC — not converted to your display currency.",
+  "detail.viewOn": "View on {exchange}",
+  "about.thanks": "Data sources & thanks",
+  "about.thanksNote": "Public data only, no accounts. Names are credits, not endorsements. Every link opens in your browser; the app never fetches it.",
+  "about.thanksApi": "API docs",
+  "about.thanksTerms": "Terms",
+  "about.uses.exchange": "Public market data: prices and candles",
+  "about.uses.archive": "Historical candle archive for backtesting (personal use)",
+  "about.uses.rates": "Currency exchange rates for display currencies"
 }

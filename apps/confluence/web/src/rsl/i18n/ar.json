@@ -85,7 +85,15 @@
     "row.notUpdatedHint",
     "row.updating",
     "row.updatingHint",
-    "scan.pricesInBtc"
+    "scan.pricesInBtc",
+    "detail.viewOn",
+    "about.thanks",
+    "about.thanksNote",
+    "about.thanksApi",
+    "about.thanksTerms",
+    "about.uses.exchange",
+    "about.uses.archive",
+    "about.uses.rates"
   ],
   "app.subtitle": "ماسح توافق مؤشرات العملات المشفّرة",
   "ctx.page": "الماسح",
@@ -628,5 +636,13 @@
   "paper.addNote": "إضافة ملاحظة",
   "paper.heldFeedFailed": "تعذّر تحميل الشموع لـ {list}. إيقافات الخسارة والأهداف وإغلاقات القفل لهذه المراكز تنتظر تلك الشموع؛ وسيحاول المسح التالي مجددًا.",
   "about.catalogApprovedPending": "معتمدة — {n, number} من النصوص الجديدة بانتظار مراجعة متحدث أصلي",
-  "scan.pricesInBtc": "الأسعار بعملة BTC — لا تُحوَّل إلى عملة العرض لديك."
+  "scan.pricesInBtc": "الأسعار بعملة BTC — لا تُحوَّل إلى عملة العرض لديك.",
+  "detail.viewOn": "عرض على {exchange}",
+  "about.thanks": "مصادر البيانات وشكر",
+  "about.thanksNote": "بيانات عامة فقط ودون حسابات. الأسماء للإشادة بالمصدر وليست تزكية. كل رابط يُفتح في المتصفح ولا يجلبه التطبيق.",
+  "about.thanksApi": "وثائق الواجهة البرمجية",
+  "about.thanksTerms": "الشروط",
+  "about.uses.exchange": "بيانات السوق العامة: الأسعار والشموع",
+  "about.uses.archive": "أرشيف الشموع التاريخي للاختبار الرجعي (للاستخدام الشخصي)",
+  "about.uses.rates": "أسعار صرف العملات لعملات العرض"
 }

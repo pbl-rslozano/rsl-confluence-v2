@@ -217,12 +217,13 @@ async function ds1Snapshot(browser) {
 //          §3.6  "Add a note" (collapsed, per proposal)                           [data-testid=paper-add-note]
 //          §3.6  drawdown badge and RESET — only while that lock is active        [data-testid=paper-lock-drawdown], [data-testid=paper-drawdown]
 //          §3.7  the risk > 1 % warning (text inside the proposal box)            [data-testid=paper-warning]
-//   detail §3.1  Scenarios (WP22) and §3.8 "View on [exchange]" (WP26): not built yet — add their selectors with those WPs.
+//   detail §3.8  "View on [exchange]" (WP26, end of the sheet, below the compared region)   [data-testid=view-on-exchange]
+//          §3.1  Scenarios (WP22): not built yet — add its selector with WP22.
 //   ledger §3.4  collapsed Scenario check at the end (WP22): not built yet — add its selector with WP22.
 // §3.5 block reasons and §3.7 text inside existing boxes need no exclusion (text is masked). Never add a selector for
 // anything that is not on the §3 list.
 const DS2_ALLOWED = {
-  detail: [],
+  detail: ['[data-testid="view-on-exchange"]'],
   paper: ['[data-testid="paper-more-limits"]', '[data-testid="paper-more-stats"]', '[data-testid="paper-add-note"]', '[data-testid="paper-lock-drawdown"]', '[data-testid="paper-drawdown"]', '[data-testid="paper-warning"]'],
   ledger: [],
 };
@@ -371,6 +372,22 @@ function dsCompare(base, now, prefix = "") {
     record("ID-2.5", "About → Open-source licences (collapsed): link opens the third-party notices (200, not empty); trademark line inside the section",
       closedAtRest && !!got && got.status === 200 && got.len > 10000 && /third-party notices/.test(shown) && /react@/.test(shown) && /Bollinger Bands®/.test(tm) && tmInside === 1,
       { closedAtRest, href, ...got, shown: shown.length });
+  }
+  // v2.8 WP26 — About → Data sources & thanks (collapsed, above the credit): at least 13 providers once opened, each with
+  // https API docs and terms links; the required ExchangeRate-API credit appears verbatim; no logos (text only).
+  {
+    const sec = page.getByTestId("about-thanks");
+    const closedAtRest = (await sec.getAttribute("open")) === null;
+    await sec.locator("summary").click();
+    const items = page.getByTestId("about-provider");
+    const n = await items.count();
+    const hrefs = await sec.locator("li a").evaluateAll((as) => as.map((a) => ({ h: a.getAttribute("href"), t: a.target, r: a.rel })));
+    const text = (await sec.textContent()) ?? "";
+    const linksOk = hrefs.length >= 26 && hrefs.every((x) => /^https:\/\//.test(x.h ?? "") && x.t === "_blank" && /noopener/.test(x.r ?? ""));
+    const images = await sec.locator("img, svg").count();
+    record("ID-2.6", "About → Data sources & thanks (collapsed): lists at least 13 providers once opened, https links open in a new tab, the rate credit is verbatim, no logos",
+      closedAtRest && n >= 13 && linksOk && /Rates By Exchange Rate API/.test(text) && images === 0, { closedAtRest, n, links: hrefs.length });
+    await sec.locator("summary").click();
   }
 
   // Backup export → restore round trip + tamper refusal (builder §9.4-5)
@@ -1023,6 +1040,17 @@ function dsCompare(base, now, prefix = "") {
     const detail = await p.locator('[role="dialog"]').textContent();
     const structureTab = await p.getByRole("tab", { name: /Structure/ }).count();
     record("M-7", "Detail shows bloc scores, regime, FVG panel and a Structure tab", /Bloc scores/.test(detail) && /Fair-value gaps/.test(detail) && structureTab === 1);
+    // v2.8 WP26 — the detail sheet ends with a plain "View on [exchange]" link to the venue's own site (no referral parameters).
+    {
+      const links = p.locator('[role="dialog"]').first().locator("a");
+      const last = links.last();
+      const text = ((await last.textContent().catch(() => "")) ?? "").trim();
+      const href = await last.getAttribute("href").catch(() => null);
+      const target = await last.getAttribute("target").catch(() => null);
+      const rel = await last.getAttribute("rel").catch(() => null);
+      record("EX-5", "Detail sheet's last link is \"View on Binance Spot\" to the pair on binance.com, opening in a new tab",
+        text === "View on Binance Spot" && href === "https://www.binance.com/en/trade/BTC_USDT?type=spot" && target === "_blank" && /noopener/.test(rel ?? ""), { text, href, target, rel });
+    }
     await p.keyboard.press("Escape");
     // Chart preferences must stay separate from the scored fixture and ledger.
     const rankedBefore = await p.locator("tbody").innerText();

@@ -108,6 +108,7 @@ import { DerivativesPanel } from "@/components/derivatives-panel";
 import type { DerivativeSnapshot } from "@/lib/derivatives-context";
 import { ChartReplay } from "@/components/chart-replay";
 import { PriceChart } from "@/components/price-chart";
+import { exchangeUrl } from "@/lib/exchange-links";
 import { BEST, baseOf as pairBase, normalizeQuoteMode, quoteModesFor, stableQuote, type DepegReading, type PriceCurrency } from "@/lib/quotes";
 import { autoCurrency, BANDS, cachedCurrencies, cachedTable, canConvert, convert, impliedUsdtPremiumPct, isStale, loadCurrencies, PEGS, priceDisplay, rateKind, refreshRates, usdtDeviationPct, type FiatCurrency, type FxTable } from "@/lib/fx-rates";
 import { formatMoney, formatMoneyCompact } from "@/lib/money";
@@ -2168,6 +2169,17 @@ export default function Home() {
                   <a href={rateCredit.url} target="_blank" rel="noopener noreferrer" className="text-cyan-300/90 hover:underline">{rateCredit.text}</a>
                 </p>
               )}
+              {/* v2.8 WP26 (§3.8): plain link to the pair on the venue's own site — the very last thing in the sheet. */}
+              {(() => {
+                const href = exchangeUrl(detailAsset.src, detailAsset.pair);
+                return href ? (
+                  <p data-testid="view-on-exchange" className="text-xs">
+                    <a href={href} target="_blank" rel="noopener noreferrer" className="text-cyan-300/90 hover:underline">
+                      {t("detail.viewOn", { exchange: SOURCE_LABELS[detailAsset.src] ?? detailAsset.src })}
+                    </a>
+                  </p>
+                ) : null;
+              })()}
             </div>
           )}
         </DialogContent>
