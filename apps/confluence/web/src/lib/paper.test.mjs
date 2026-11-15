@@ -768,8 +768,71 @@ console.log("Paper — held pairs below the liquidity floor");
   // Wiring: the dialog fetches missing held pairs on every scan and shows labelled text; the page passes the fetcher.
   const dlgSrc = readFileSync(join(process.cwd(), "src", "components", "paper-dialog.tsx"), "utf8");
   const pageSrc = readFileSync(join(process.cwd(), "src", "app", "page.tsx"), "utf8");
-  ok("dialog feeds missing held pairs and labels the waiting text", /missingHeldPairs\(/.test(dlgSrc) && /fetchHeldBars\(/.test(dlgSrc) && /waitingText\(/.test(dlgSrc) && !/waitingSeries\(book\)\.join/.test(dlgSrc));
+  ok("dialog feeds missing held pairs and labels the waiting text", /runHeldFeed\(/.test(dlgSrc) && /waitingText\(/.test(dlgSrc) && !/waitingSeries\(book\)\.join/.test(dlgSrc));
   ok("page passes a kline fetcher for held pairs", /fetchKlines=\{/.test(pageSrc.slice(pageSrc.indexOf("<PaperDialog"), pageSrc.indexOf("/>", pageSrc.indexOf("<PaperDialog")))));
+}
+
+// Fix-wave re-review N-1 / N-4: the paper-only held-pair fetch respects the 429/418 halt and cooldown, stops on a
+// rate-limit error, and drops a result whose view (source|tf) changed or whose scan was aborted.
+console.log("Paper — held-pair fetch: rate limits and stale results");
+{
+  const feed = await import("./paper-feed.ts");
+  const mc = await import("./market-client.ts");
+  const zero = { feeBps: 0, slipBps: 0, fundingBpsPer8h: 0 };
+  const b0 = liveBook();
+  let b = processBars(approveProposal(b0, createProposal(b0, input({ pair: "THINUSDT" }), NOW, "rl1"), "rl1", NOW).book, "binance", "4h", { THINUSDT: [bar(T0 + 2 * I, 100, 100.5, 99.5, 100)] }, T0 + 3 * I, zero).book;
+  const thin = b.positions[0];
+  b = { ...b, positions: [thin, { ...thin, id: "pos-low", proposalId: "low", pair: "LOWUSDT" }] };
+  const label = (src, tf) => `${{ binance: "Binance" }[src] ?? src} · ${{ "4h": "4 hours" }[tf] ?? tf}`;
+  const stopBars = [bar(T0 + 3 * I, 99, 99.5, 95, 95.5)];
+  const rateLimit = () => Object.assign(new Error("Exchange rate limit"), { name: "RateLimitError", reason: "RATE_LIMIT", retryAfterMs: 60_000 });
+
+  // Cooldown active: zero requests, every held pair reported as not loaded.
+  let calls = 0;
+  const cooled = await feed.fetchHeldBars(["LOWUSDT", "THINUSDT"], async () => { calls++; return stopBars; }, undefined, { cooldownMs: () => 30_000 });
+  ok("cooldown: fetchHeldBars makes zero requests while the source is cooling down", calls === 0, String(calls));
+  ok("cooldown: every held pair is reported as not loaded (halted)", cooled.failed?.join() === "LOWUSDT,THINUSDT" && Object.keys(cooled.bars ?? {}).length === 0 && cooled.halted === true, JSON.stringify(cooled));
+  ok("cooldown: the RESET / feed-failed text names those pairs with labels", feed.pairsText(cooled.failed ?? [], "binance", "4h", label) === "Binance · 4 hours: LOWUSDT, THINUSDT");
+
+  // RateLimitError on the first pair stops the loop.
+  calls = 0;
+  const limited = await feed.fetchHeldBars(["LOWUSDT", "THINUSDT"], async () => { calls++; throw rateLimit(); });
+  ok("rate limit: a RateLimitError on the first held pair stops the loop (no second request)", calls === 1, String(calls));
+  ok("rate limit: the remaining held pairs are reported as not loaded", limited.failed?.join() === "LOWUSDT,THINUSDT" && limited.halted === true, JSON.stringify(limited));
+
+  // The market-client entry point used for held pairs honours the venue cooldown (reviewer's 418 probe).
+  const realFetch = globalThis.fetch;
+  let net = 0;
+  globalThis.fetch = async () => { net++; return new Response("banned", { status: 418, headers: { "retry-after": "600" } }); };
+  try {
+    mc.resetRateLimitForTests();
+    await mc.fetchSymbolKlines("binance", "4h", "THINUSDT", 200).catch(() => undefined);
+    ok("probe: a 418 starts the Binance cooldown", mc.rateLimitCooldown("binance") > 0 && net === 1, `${mc.rateLimitCooldown("binance")} ${net}`);
+    const guarded = mc.fetchPaperHeldKlines;
+    let err = null;
+    await (guarded ? guarded("binance", "4h", "THINUSDT", 200) : Promise.reject(new Error("fetchPaperHeldKlines missing"))).catch((e) => { err = e; });
+    ok("guarded held fetch: no network request during the cooldown, RateLimitError thrown", net === 1 && err?.name === "RateLimitError", `${net} ${err?.name} ${err?.message}`);
+  } finally { globalThis.fetch = realFetch; mc.resetRateLimitForTests(); }
+  const pageSrc = readFileSync(join(process.cwd(), "src", "app", "page.tsx"), "utf8");
+  ok("page: held pairs use the guarded fetch and pass the cooldown", /fetchPaperHeldKlines\(dataSource, timeframe, pair, 200, signal\)/.test(pageSrc) && /rateLimitCooldown\(dataSource\)/.test(pageSrc) && !/fetchSymbolKlines\(dataSource/.test(pageSrc));
+
+  // Stale results: view changed or scan aborted before the fetch returned → nothing is applied.
+  let view = "binance|4h";
+  let ingested = 0;
+  const base = { book: b, src: "binance", tf: "4h", scanned: [], currentView: () => view, ingest: () => { ingested++; } };
+  const r1 = await feed.runHeldFeed?.({ ...base, fetcher: async () => { view = "bybit-spot|4h"; return stopBars; } });
+  ok("stale: a result whose view changed while fetching is dropped", r1?.stale === true && ingested === 0, JSON.stringify(r1));
+  view = "binance|4h";
+  const ac = new AbortController();
+  const r2 = await feed.runHeldFeed?.({ ...base, signal: ac.signal, fetcher: async () => { ac.abort(); return stopBars; } });
+  ok("stale: a result whose scan was aborted is dropped", r2?.stale === true && ingested === 0, JSON.stringify(r2));
+  let got = null;
+  const r3 = await feed.runHeldFeed?.({ ...base, ingest: (bars) => { got = bars; }, fetcher: async (pair) => { if (pair === "LOWUSDT") throw new Error("HTTP 500"); return stopBars; } });
+  ok("current: a fresh result is applied and the failed pair reported", r3?.stale === false && got && Object.keys(got).join() === "THINUSDT" && r3.failed.join() === "LOWUSDT", JSON.stringify(r3));
+  const r4 = await feed.runHeldFeed?.({ ...base, cooldownMs: () => 1000, fetcher: async () => { throw new Error("must not be called"); } });
+  ok("cooldown through runHeldFeed: nothing fetched, both pairs not loaded", r4?.stale === false && r4.failed.join() === "LOWUSDT,THINUSDT" && r4.halted === true, JSON.stringify(r4));
+  const dlgSrc = readFileSync(join(process.cwd(), "src", "components", "paper-dialog.tsx"), "utf8");
+  ok("dialog: held feed goes through runHeldFeed with the current view and the cooldown", /runHeldFeed\(/.test(dlgSrc) && /currentView:/.test(dlgSrc) && /cooldownMs/.test(dlgSrc));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

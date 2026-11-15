@@ -24,7 +24,7 @@ import { TradeAnnotation } from "@/components/trade-annotation";
 import { ChartReplay } from "@/components/chart-replay";
 import { loadHistoricalSeries } from "@/lib/history-store";
 import { INTERVAL_MS, type DataSource } from "@/lib/market-client";
-import { fetchHeldBars, missingHeldPairs, pairsText, waitingText } from "@/lib/paper-feed";
+import { pairsText, runHeldFeed, waitingText } from "@/lib/paper-feed";
 import { atr, type Kline } from "@/lib/indicators";
 import type { AssetClass } from "@/lib/ledger-metrics";
 
@@ -110,6 +110,8 @@ interface Props {
    * position that the scan left out (liquidity floor, list cut) are fetched through it for the paper book only.
    */
   fetchKlines?: (pair: string, signal?: AbortSignal) => Promise<Kline[]>;
+  /** Re-review N-1: remaining 429/418 cooldown of the current source (ms); > 0 → no held-pair request. */
+  cooldownMs?: () => number;
   /** Source id → display label (the page's DATA_SOURCES), so series are named, not shown as `binance|4h` (M-5). */
   sourceLabels?: Record<string, string>;
 }
@@ -155,7 +157,7 @@ function draftOf(s: RiskSettings): Record<string, string> {
   return Object.fromEntries(NUMERIC_KEYS.map((k) => [k, String(s[k])]));
 }
 
-export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe, engineConfigId, onBar, slippage, depeg, quoteBySymbol, fetchKlines, sourceLabels }: Props) {
+export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe, engineConfigId, onBar, slippage, depeg, quoteBySymbol, fetchKlines, sourceLabels, cooldownMs }: Props) {
   const { t, id, platform, audit, announce, port } = useRsl();
   const [annotating, setAnnotating] = useState<JournalEntry | null>(null);
   const [review, setReview] = useState<{ trade: JournalEntry; candles: Kline[] } | null>(null);
@@ -286,8 +288,8 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
 
   // Latest handlers for the scan effect and the external feed, so a re-created
   // callback (e.g. after a language change) never re-runs ingestion by itself.
-  const handlersRef = useRef({ ingestBars, refreshProposals, fetchKlines, source, timeframe });
-  useEffect(() => { handlersRef.current = { ingestBars, refreshProposals, fetchKlines, source, timeframe }; }, [ingestBars, refreshProposals, fetchKlines, source, timeframe]);
+  const handlersRef = useRef({ ingestBars, refreshProposals, fetchKlines, cooldownMs, source, timeframe });
+  useEffect(() => { handlersRef.current = { ingestBars, refreshProposals, fetchKlines, cooldownMs, source, timeframe }; }, [ingestBars, refreshProposals, fetchKlines, cooldownMs, source, timeframe]);
 
   // Every new scan (rows array) is a heartbeat: process bars, then refresh proposals.
   useEffect(() => {
@@ -303,18 +305,17 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
       setNow(at);
       // Final review I-3: pairs holding a position that this scan did not deliver (below the liquidity floor,
       // outside the list) still need their bars for stops, targets, the time stop and lock closes — paper only.
-      const { fetchKlines: fetcher, source: src, timeframe: tf } = handlersRef.current;
+      // Re-review N-1/N-4: no request while the venue cools down after a 429/418, the loop stops on a rate limit,
+      // and a result is dropped if the scan was aborted or the view (source|tf) changed before it returned.
+      const { fetchKlines: fetcher, cooldownMs: cool, source: src, timeframe: tf } = handlersRef.current;
       const cur = bookRef.current;
-      const missing = cur && fetcher ? missingHeldPairs(cur, src, tf, usable.map((r) => r.pair)) : [];
-      if (!missing.length || !fetcher) { setFeedFailed([]); return; }
-      void fetchHeldBars(missing, fetcher, ac.signal).then(({ bars: held, failed }) => {
-        if (ac.signal.aborted) return;
-        const at2 = Date.now();
-        const fresh: Record<string, Kline[]> = {};
-        for (const [pair, k] of Object.entries(held)) if (seriesUsable(k, intervalMs, at2)) fresh[pair] = k; else failed.push(pair);
-        if (Object.keys(fresh).length) handlersRef.current.ingestBars(fresh, at2);
-        setFeedFailed([...failed].sort());
-      }).catch(() => undefined);
+      if (!cur || !fetcher) { setFeedFailed([]); return; }
+      void runHeldFeed({
+        book: cur, src, tf, scanned: usable.map((r) => r.pair), fetcher, signal: ac.signal, cooldownMs: cool,
+        currentView: () => `${handlersRef.current.source}|${handlersRef.current.timeframe}`,
+        usable: (k) => seriesUsable(k, intervalMs, Date.now()),
+        ingest: (fresh) => handlersRef.current.ingestBars(fresh, Date.now()),
+      }).then((r) => { if (!r.stale) setFeedFailed(r.failed); }).catch(() => undefined);
     }, 0);
     return () => { window.clearTimeout(timer); ac.abort(); };
   }, [rows, loaded]);

@@ -78,7 +78,8 @@ import {
   DATA_SOURCES,
   fetchHistory,
   fetchMarketData,
-  fetchSymbolKlines,
+  fetchPaperHeldKlines,
+  rateLimitCooldown,
   INTERVAL_MS,
   fetchOrderBook,
   MAX_HISTORY_BARS,
@@ -1310,9 +1311,11 @@ export default function Home() {
   // Final review I-3: closed bars for a pair holding a paper position that the scan left out (liquidity floor,
   // list cut). Paper book only: never scored, listed, recorded or alerted on. Read-only public candles.
   const fetchPaperKlines = useCallback(
-    (pair: string, signal?: AbortSignal) => fetchSymbolKlines(dataSource, timeframe, pair, 200, signal),
+    (pair: string, signal?: AbortSignal) => fetchPaperHeldKlines(dataSource, timeframe, pair, 200, signal),
     [dataSource, timeframe],
   );
+  // Re-review N-1: no held-pair request while this source's venue is cooling down after a 429/418.
+  const paperCooldownMs = useCallback(() => rateLimitCooldown(dataSource), [dataSource]);
   // Scheduled macro releases within the next 24 h (or the last 2 h), measured from the last scan.
   const macroEvents = useMemo(() => (lastUpdate ? eventsNear(lastUpdate.getTime()) : []), [lastUpdate]);
   // Kinds whose verified dates run out within 30 days (text-only addition to the macro banner).
@@ -2023,6 +2026,7 @@ export default function Home() {
         depeg={scanMeta.source === dataSource ? scanMeta.depeg : undefined}
         quoteBySymbol={scanMeta.source === dataSource ? scanMeta.quoteBySymbol : undefined}
         fetchKlines={fetchPaperKlines}
+        cooldownMs={paperCooldownMs}
         sourceLabels={SOURCE_LABELS}
       />
 

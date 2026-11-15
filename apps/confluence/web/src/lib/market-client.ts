@@ -1280,6 +1280,16 @@ export function fetchSymbolKlines(source: DataSource, interval: string, symbol: 
 }
 
 /**
+ * Fix-wave re-review N-1: closed bars of one pair for the paper simulator's held-pair feed. Same endpoint as
+ * the scan, but it honours the venue's 429/418 cooldown first (throws RateLimitError, no request) like every
+ * other entry point (fetchMarketData, fetchHistory, prefetch).
+ */
+export function fetchPaperHeldKlines(source: DataSource, interval: string, symbol: string, bars: number, signal?: AbortSignal): Promise<Kline[]> {
+  try { assertNotCoolingDown(source); } catch (error) { return Promise.reject(error); }
+  return fetchSymbolKlines(source, interval, symbol, bars, signal);
+}
+
+/**
  * v2.8 (WP27): one series with the delta rule. With a plan, ask `limit + 1`
  * bars (the extra one is the bar still building, dropped as unclosed) and
  * merge; when the overlap bar is missing or revised, fetch the full 1,000-bar
