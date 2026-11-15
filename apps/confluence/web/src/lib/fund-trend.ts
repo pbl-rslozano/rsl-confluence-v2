@@ -94,8 +94,8 @@ export function fundTrend(daily: Kline[], asOfClose: number): FundTrend | null {
  * Value per bar from daily bars with close <= that bar's close time. Memoised by the last
  * daily bar used, so a few hundred bars cost about one computation per day.
  */
-export function fundTrendSeries(daily: Kline[], bars: { time: number; closeTime: number }[]): (number | null)[] {
-  const memo = new Map<number, number | null>();
+export function fundTrendSeriesFull(daily: Kline[], bars: { time: number; closeTime: number }[]): (FundTrend | null)[] {
+  const memo = new Map<number, FundTrend | null>();
   let hi = 0; // number of daily bars with close <= current bar's close (bars assumed ascending)
   let prevClose = -Infinity;
   return bars.map((b) => {
@@ -104,9 +104,14 @@ export function fundTrendSeries(daily: Kline[], bars: { time: number; closeTime:
     while (hi < daily.length && daily[hi].time + DAY_MS <= b.closeTime) hi++;
     if (hi === 0) return null;
     const key = daily[hi - 1].time;
-    if (!memo.has(key)) memo.set(key, fundTrend(daily, key + DAY_MS)?.value ?? null);
+    if (!memo.has(key)) memo.set(key, fundTrend(daily, key + DAY_MS));
     return memo.get(key) ?? null;
   });
+}
+
+/** Value per bar (see fundTrendSeriesFull for the no-look-ahead rule and memoisation). */
+export function fundTrendSeries(daily: Kline[], bars: { time: number; closeTime: number }[]): (number | null)[] {
+  return fundTrendSeriesFull(daily, bars).map((f) => f?.value ?? null);
 }
 
 export function isFundTrendClass(ac: AssetClass): boolean {

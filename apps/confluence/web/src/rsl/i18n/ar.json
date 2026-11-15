@@ -100,7 +100,14 @@
     "chart.fundRibbon",
     "chart.fundPanel",
     "ft.notEnough",
-    "ft.na"
+    "ft.na",
+    "ft.rank",
+    "ft.panelNote",
+    "ft.panelCapped",
+    "ft.unavailable",
+    "ft.panelScore",
+    "ft.panelTrend",
+    "ft.panelSize"
   ],
   "app.subtitle": "ماسح توافق مؤشرات العملات المشفّرة",
   "ctx.page": "الماسح",
@@ -657,5 +664,12 @@
   "chart.fundRibbon": "شريط اتجاه الصندوق",
   "chart.fundPanel": "لوحة اتجاه الصندوق",
   "ft.notEnough": "اتجاه الصندوق: السجل غير كافٍ",
-  "ft.na": "اتجاه الصندوق: غير متاح لفئة الأصول هذه"
+  "ft.na": "اتجاه الصندوق: غير متاح لفئة الأصول هذه",
+  "ft.rank": "ترتيب الصندوق {rank} من {n}",
+  "ft.panelNote": "الدرجة معروضة لـ {n} من {m} شمعة (تتطلب 1,000 شمعة سابقة)",
+  "ft.panelCapped": "الدرجة معروضة لأحدث {n} من {m} شمعة (الحد 300 شمعة)",
+  "ft.unavailable": "اتجاه الصندوق: البيانات غير متاحة، حاول لاحقًا",
+  "ft.panelScore": "درجة التوافق",
+  "ft.panelTrend": "اتجاه الصندوق",
+  "ft.panelSize": "حجم الصندوق (0–200 %)"
 }

@@ -5,6 +5,8 @@
  * workers are unavailable (old WebViews, file:// origins, CSP) or fail.
  */
 import { runScanJobSafe, type ScanJob, type ScanJobResult } from "./scan-jobs";
+import type { Kline } from "./indicators";
+import { packKlines } from "./scan-jobs";
 
 /** A worker batch that has not answered within this time is treated as hung. */
 const WORKER_TIMEOUT_MS = 120_000;
@@ -12,7 +14,7 @@ const WORKER_TIMEOUT_MS = 120_000;
 let worker: Worker | null = null;
 let workerBroken = false;
 let nextId = 1;
-const pending = new Map<number, { resolve: (r: ScanJobResult[]) => void; reject: (e: Error) => void }>();
+const pending = new Map<number, { resolve: (r: never) => void; reject: (e: Error) => void }>();
 
 export type ScanMode = "worker" | "main";
 let lastMode: ScanMode = "main";
@@ -23,12 +25,12 @@ function getWorker(): Worker | null {
   if (worker) return worker;
   try {
     worker = new Worker(new URL("./scan.worker.ts", import.meta.url), { type: "module" });
-    worker.onmessage = (event: MessageEvent<{ id: number; results?: ScanJobResult[]; error?: string }>) => {
+    worker.onmessage = (event: MessageEvent<{ id: number; results?: ScanJobResult[]; scores?: (number | null)[]; error?: string }>) => {
       const p = pending.get(event.data.id);
       if (!p) return;
       pending.delete(event.data.id);
       if (event.data.error) p.reject(new Error(event.data.error));
-      else p.resolve(event.data.results ?? []);
+      else p.resolve((event.data.scores ?? event.data.results ?? []) as never);
     };
     worker.onerror = (event) => {
       // Load or runtime failure: stop using the worker and fail over everything in flight.
@@ -80,5 +82,35 @@ export async function runScanJobs(jobs: ScanJob[], { allowMainThread = true } = 
     return results;
   } catch {
     return allowMainThread ? runOnMain(jobs) : [];
+  }
+}
+
+/**
+ * v2.8 (WP21): per-bar Confluence scores for the Fund trend panel, in the scan worker. Never runs on the main thread
+ * (300 scoreSeries calls would freeze the UI): without a worker, or when it fails, resolves null. `klines` ends at the
+ * newest bar to score; `known` are ledger scores by bar time, used as they are.
+ */
+export async function runPanelScores(
+  job: Omit<ScanJob, "packed">,
+  klines: Kline[],
+  visible: number,
+  known: ReadonlyMap<number, number>,
+): Promise<(number | null)[] | null> {
+  const w = getWorker();
+  if (!w) return null;
+  const id = nextId++;
+  try {
+    const scores = await new Promise<(number | null)[]>((resolve, reject) => {
+      const timer = setTimeout(() => { pending.delete(id); markBroken(); reject(new Error("scan worker timed out")); }, WORKER_TIMEOUT_MS);
+      pending.set(id, {
+        resolve: ((r: (number | null)[]) => { clearTimeout(timer); resolve(r); }) as (r: never) => void,
+        reject: (e) => { clearTimeout(timer); reject(e); },
+      });
+      const packed = packKlines(klines);
+      w.postMessage({ id, panelScores: { job: { ...job, packed }, visible, known: [...known] } }, [packed.buffer]);
+    });
+    return scores;
+  } catch {
+    return null;
   }
 }

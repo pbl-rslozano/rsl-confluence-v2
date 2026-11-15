@@ -9,7 +9,7 @@ import {
 import { shellFullscreen } from "@/lib/shell-fullscreen";
 import { formatAxisTicks } from "@/lib/money";
 import { useRsl } from "@/rsl/RslContext";
-import { useChartOptIn } from "@/lib/chart-optin";
+import { clearChartOptIn, useChartOptIn } from "@/lib/chart-optin";
 import { ribbonStyle } from "@/lib/fund-trend";
 
 /**
@@ -54,8 +54,20 @@ interface Props {
   fundTrend?: (number | null)[];
   /** v2.8 (WP21): short muted line shown with the ribbon when there is nothing to draw (n/a class, not enough history). */
   fundTrendNote?: string;
+  /** v2.8 (WP21): Fund size (% of capital, 0..200) per candle, aligned to `klines`. Drawn in the opt-in panel only. */
+  fundSize?: (number | null)[];
+  /** v2.8 (WP21): Confluence score by candle open time (null = no full engine window). Drawn in the opt-in panel only. */
+  panelScores?: ReadonlyMap<number, number | null>;
+  /** v2.8 (WP21): short muted note under the panel ("Score shown for N of M bars ..."). */
+  panelNote?: string;
+  /** v2.8 (WP21): "Fund rank {rank} of {n}", shown in the panel header. */
+  fundRankLabel?: string;
+  /** v2.8 (WP21): index range [from, to) of the candles in view, reported while the panel is on (the page scores those bars). */
+  onPanelRange?: (from: number, to: number) => void;
 }
 
+const PANEL_H = 96; // v2.8 (WP21): opt-in Fund trend pane below volume
+const PANEL_COLOURS = { score: "#60a5fa", trend: "#f472b6", size: "#a1a1aa" } as const;
 const RIBBON_H = 6;
 const RIBBON_COLOURS = { up: "#34d399", down: "#fb7185", grey: "#71717a" } as const;
 
@@ -122,10 +134,11 @@ function canUseNativeFullscreen(el: HTMLElement | null): boolean {
   return Boolean(document.fullscreenEnabled && typeof el.requestFullscreen === "function");
 }
 
-export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatAxis, convertPrice, fundTrend, fundTrendNote }: Props) {
+export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatAxis, convertPrice, fundTrend, fundTrendNote, fundSize, panelScores, panelNote, fundRankLabel, onPanelRange }: Props) {
   const { t } = useRsl();
   const optIns = useChartOptIn();
   const showRibbon = optIns.has("fund-ribbon");
+  const showPanel = optIns.has("fund-panel");
   const total = klines.length;
   const [view, setView] = useState<ChartView>(() => initialView(total, visible));
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
@@ -253,12 +266,13 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
 
   /* ---------------- geometry ---------------- */
   const viewW = size ? Math.max(320, size.w) : BASE_W;
-  const panelsH = (showMacd ? HIST_H : 0) + (showVolume ? VOL_H : 0) + PAD_T + PAD_B;
+  const panelsH = (showMacd ? HIST_H : 0) + (showVolume ? VOL_H : 0) + (showPanel ? PANEL_H : 0) + PAD_T + PAD_B;
   const priceH = size ? Math.max(160, size.h - panelsH) : BASE_PRICE_H;
   const chartW = viewW - PAD_L - PAD_R;
 
   const v = clampView(view, total);
   const start = v.end - v.count;
+  useEffect(() => { if (showPanel) onPanelRange?.(start, v.end); }, [showPanel, start, v.end, onPanelRange]);
 
   const model = useMemo(() => {
     const slice = klines.slice(start, v.end);
@@ -322,6 +336,13 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
       ? bucketEnds.map((e) => fundTrend[start + e] ?? null)
       : null;
 
+    // v2.8 (WP21): panel series at each drawn bar (the bucket's last bar when bars are grouped).
+    const panel = showPanel ? {
+      trend: bucketEnds.map((e) => (fundTrend && fundTrend.length === klines.length ? fundTrend[start + e] : null) ?? null),
+      size: bucketEnds.map((e) => (fundSize && fundSize.length === klines.length ? fundSize[start + e] : null) ?? null),
+      score: bucketEnds.map((e) => panelScores?.get(klines[start + e].time) ?? null),
+    } : null;
+
     const step = chartW / bars.length;
     const x = (i: number) => PAD_L + i * step + step / 2;
     const bodyW = Math.max(1, step * 0.62);
@@ -347,14 +368,15 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
       const idx = Math.floor((i / (nTimeTicks - 1)) * (bars.length - 1));
       timeTicks.push({ x: x(idx), label: fmtTime(bars[idx].time) });
     }
-    return { slice: bars, perBar: k, x, y, bodyW, step, bbUpper: bbU, bbLower: bbL, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series, ribbon };
-  }, [klines, start, v.end, hidden, periods, showBollinger, showMacd, priceH, chartW, formatAxis, convertPrice, showRibbon, fundTrend]);
+    return { slice: bars, perBar: k, x, y, bodyW, step, bbUpper: bbU, bbLower: bbL, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series, ribbon, panel };
+  }, [klines, start, v.end, hidden, periods, showBollinger, showMacd, priceH, chartW, formatAxis, convertPrice, showRibbon, fundTrend, showPanel, fundSize, panelScores]);
 
   /* Static layers are memoised: moving the pointer re-renders only the crosshair and readout (review #6). */
   const layers = useMemo(() => {
     if (!model) return null;
-    const { slice, x, y, bodyW, step, bbUpper, bbLower, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series, ribbon } = model;
-    const viewH = volTop + (showVolume ? VOL_H : 0) + PAD_B;
+    const { slice, x, y, bodyW, step, bbUpper, bbLower, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series, ribbon, panel } = model;
+    const panelTop = volTop + (showVolume ? VOL_H : 0);
+    const viewH = panelTop + (panel ? PANEL_H : 0) + PAD_B;
     let bandPath = "";
     let firstUp = true;
     for (let i = 0; i < slice.length; i++) {
@@ -460,6 +482,71 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
               );
             })}
           </g>}
+          {panel && (() => {
+            const inTop = panelTop + 18, inBot = panelTop + PANEL_H - 6, span = inBot - inTop;
+            const yScore = (val: number) => inBot - ((Math.max(-100, Math.min(100, val)) + 100) / 200) * span;
+            const ySize = (val: number) => inBot - (Math.max(0, Math.min(200, val)) / 200) * span;
+            // Runs of consecutive non-null values; a lone point is drawn as a dot.
+            const runs = (vals: (number | null)[], f: (n: number) => number) => {
+              let d = "";
+              let open = false;
+              let single = false;
+              for (let i = 0; i <= vals.length; i++) {
+                const val = i < vals.length ? vals[i] : null;
+                if (val == null || !Number.isFinite(val)) {
+                  if (open && single) d += "h0.01";
+                  open = false;
+                  continue;
+                }
+                d += `${open ? "L" : "M"}${x(i).toFixed(1)},${f(val).toFixed(1)}`;
+                single = !open;
+                open = true;
+              }
+              return d;
+            };
+            const lastOf = (vals: (number | null)[]) => { for (let i = vals.length - 1; i >= 0; i--) { const val = vals[i]; if (val != null && Number.isFinite(val)) return val; } return null; };
+            const scoreLast = lastOf(panel.score), trendLast = lastOf(panel.trend);
+            const scoreD = runs(panel.score, yScore);
+            const trendD = runs(panel.trend, yScore);
+            let areaD = "";
+            for (let i = 0; i <= panel.size.length; i++) {
+              const a = i < panel.size.length ? panel.size[i] : null;
+              if (a != null && Number.isFinite(a)) {
+                let j = i;
+                while (j + 1 < panel.size.length && panel.size[j + 1] != null && Number.isFinite(panel.size[j + 1] as number)) j++;
+                const x0 = x(i) - step / 2, x1 = x(j) + step / 2;
+                areaD += `M${x0.toFixed(1)},${inBot.toFixed(1)}`;
+                for (let q = i; q <= j; q++) areaD += `L${(q === i ? x0 : x(q)).toFixed(1)},${ySize(panel.size[q] as number).toFixed(1)}L${(q === j ? x1 : x(q)).toFixed(1)},${ySize(panel.size[q] as number).toFixed(1)}`;
+                areaD += `L${x1.toFixed(1)},${inBot.toFixed(1)}Z`;
+                i = j;
+              }
+            }
+            const mono = "ui-monospace, monospace";
+            return (
+              <g data-fund="panel" data-testid="fund-panel">
+                <line x1={PAD_L} y1={panelTop} x2={PAD_L + chartW} y2={panelTop} stroke="var(--color-zinc-700)" strokeWidth={1} />
+                <line x1={PAD_L} y1={yScore(0)} x2={PAD_L + chartW} y2={yScore(0)} stroke="var(--color-zinc-800)" strokeWidth={1} strokeDasharray="3 3" />
+                {areaD && <path data-fund-area="size" d={areaD} fill={PANEL_COLOURS.size} opacity={0.2} />}
+                {scoreD && <path data-fund-line="score" data-last={scoreLast ?? undefined} d={scoreD} fill="none" stroke={PANEL_COLOURS.score} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />}
+                {trendD && <path data-fund-line="trend" data-last={trendLast?.toFixed(2)} d={trendD} fill="none" stroke={PANEL_COLOURS.trend} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />}
+                <text x={PAD_L + 4} y={panelTop + 12} fontSize={10} fontFamily={mono}>
+                  <tspan fill={PANEL_COLOURS.score}>{t("ft.panelScore")}</tspan>
+                  <tspan fill="var(--color-zinc-500)" dx={8}>·</tspan>
+                  <tspan fill={PANEL_COLOURS.trend} dx={8}>{t("ft.panelTrend")}</tspan>
+                  <tspan fill="var(--color-zinc-500)" dx={8}>·</tspan>
+                  <tspan fill={PANEL_COLOURS.size} dx={8}>{t("ft.panelSize")}</tspan>
+                </text>
+                {fundRankLabel && (
+                  <text data-testid="fund-rank" x={PAD_L + chartW - 4} y={panelTop + 12} textAnchor="end" fill="var(--color-zinc-300)" fontSize={10} fontFamily={mono}>{fundRankLabel}</text>
+                )}
+                {[100, 0, -100].map((tick) => (
+                  <text key={tick} x={viewW - PAD_R + 6} y={yScore(tick) + 3} fill="var(--color-zinc-500)" fontSize={10} fontFamily={mono}>{tick > 0 ? "+" : tick < 0 ? "−" : ""}{Math.abs(tick)}</text>
+                ))}
+                <text x={PAD_L + 4} y={inTop + 9} fill={PANEL_COLOURS.size} opacity={0.8} fontSize={9} fontFamily={mono}>200 %</text>
+                <text x={PAD_L + 4} y={inBot - 2} fill={PANEL_COLOURS.size} opacity={0.8} fontSize={9} fontFamily={mono}>0 %</text>
+              </g>
+            );
+          })()}
           {timeTicks.map((t, i) => (
             <text key={`t${i}`} x={t.x} y={viewH - 6} fill="var(--color-zinc-500)" fontSize={10} fontFamily="ui-monospace, monospace" textAnchor="middle">
               {t.label}
@@ -467,7 +554,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
           ))}
       </>
     );
-  }, [model, showBollinger, showMacd, showVolume, viewW, chartW]);
+  }, [model, showBollinger, showMacd, showVolume, viewW, chartW, t, fundRankLabel]);
 
   /* ---------------- input ---------------- */
   const viewRef = useRef(v);
@@ -577,7 +664,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
   }
 
   const { slice, x, y, histogram, volTop, series, perBar } = model;
-  const plotBottom = volTop + (showVolume ? VOL_H : 0);
+  const plotBottom = volTop + (showVolume ? VOL_H : 0) + (showPanel ? PANEL_H : 0);
   const viewH = plotBottom + PAD_B;
 
 
@@ -668,7 +755,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
             </div>
           ))}
           <button type="button" className="justify-self-start rounded border border-zinc-600 px-2 py-1"
-            onClick={() => updateSettings(DEFAULT_SETTINGS)}>Reset to defaults</button>
+            onClick={() => { updateSettings(DEFAULT_SETTINGS); clearChartOptIn(); }}>Reset to defaults</button>
         </fieldset>
       )}
       <div ref={plotRef} className={isFull ? "min-h-0 flex-1" : undefined}>
@@ -713,7 +800,8 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
         )}
       </svg>
       </div>
-      {showRibbon && fundTrendNote && <p className="mt-1 px-1 text-[10px] text-zinc-500" data-testid="fund-trend-note">{fundTrendNote}</p>}
+      {(showRibbon || showPanel) && fundTrendNote && <p className="mt-1 px-1 text-[10px] text-zinc-500" data-testid="fund-trend-note">{fundTrendNote}</p>}
+      {showPanel && panelNote && <p className="mt-1 px-1 text-[10px] text-zinc-500" data-testid="fund-panel-note">{panelNote}</p>}
 
       <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1 text-[11px]">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

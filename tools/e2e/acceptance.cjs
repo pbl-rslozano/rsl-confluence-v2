@@ -1853,6 +1853,89 @@ function dsCompare(base, now, prefix = "") {
     await c.close();
   }
 
+  /* ===== v2.8 WP21 (Fund trend): the opt-in panel — per-bar Confluence score, Fund trend, Fund size, Fund rank ===== */
+  /* acceptance-ids: FT-3 */
+  {
+    const c = await newContext(browser);
+    await mockExchanges(c);
+    // ETH: the daily request fails, so the detail sheet must say the Fund trend is unavailable (no silent blank).
+    await c.route(/^https:\/\/data-api\.binance\.vision\/api\/v3\/klines/, async (route) => {
+      const u = new URL(route.request().url());
+      if (u.searchParams.get("interval") !== "1d" || u.searchParams.get("symbol") !== "ETHUSDT") return route.fallback();
+      return route.fulfill({ status: 500, headers: { "access-control-allow-origin": "*", "content-type": "application/json" }, body: JSON.stringify({ code: -1, msg: "upstream error" }) });
+    });
+    // BTC: a steady +1 %/day daily series (Fund trend +100, size 200 %) ...
+    await c.route(/^https:\/\/data-api\.binance\.vision\/api\/v3\/klines/, async (route) => {
+      const u = new URL(route.request().url());
+      if (u.searchParams.get("symbol") !== "BTCUSDT") return route.fallback();
+      const headers = { "access-control-allow-origin": "*", "content-type": "application/json" };
+      if (u.searchParams.get("interval") === "1d") {
+        const day = 864e5, n = 1000, start = Math.floor(Date.now() / day) * day - n * day;
+        const rows = [];
+        for (let i = 0; i <= n; i++) { const o = 100 * Math.exp(0.01 * i), cl = 100 * Math.exp(0.01 * (i + 1)); rows.push([start + i * day, String(o), String(cl * 1.001), String(o * 0.999), String(cl), "1000", start + (i + 1) * day - 1]); }
+        return route.fulfill({ status: 200, headers, body: JSON.stringify(rows) });
+      }
+      // ... and 1,600 bars of the chart timeframe that honour endTime, so the one-time older-bars fetch can fill the window.
+      const step = stepOf(u), total = 1600, last = Math.floor(Date.now() / step) * step;
+      let px = 100, seed = 11;
+      const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 - 0.5; };
+      const all = [];
+      for (let i = 0; i <= total; i++) { const o = px; px *= Math.exp(0.001 + rnd() * 0.01); const t = last - (total - i) * step; all.push([t, String(o), String(Math.max(o, px) * 1.002), String(Math.min(o, px) * 0.998), String(px), String(1000 + (i % 13)), t + step - 1]); }
+      const end = Number(u.searchParams.get("endTime")) || Infinity, limit = Math.min(1000, Number(u.searchParams.get("limit") || 500));
+      return route.fulfill({ status: 200, headers, body: JSON.stringify(all.filter((r) => r[0] <= end).slice(-limit)) });
+    });
+    const p = await c.newPage();
+    await p.goto(BASE, { waitUntil: "domcontentloaded" });
+    await completeFirstRun(p);
+    await waitRows(p);
+    await p.getByRole("button", { name: /^BTC/ }).first().click();
+    const chart = p.locator('[data-testid="price-chart"]');
+    await chart.waitFor();
+    const heightAtRest = await chart.locator("svg").first().evaluate((e) => e.getBoundingClientRect().height);
+    const offAtRest = await chart.locator('[data-fund="panel"]').count() === 0;
+    await p.getByRole("button", { name: "Indicators", exact: true }).click();
+    await p.getByRole("checkbox", { name: "Fund trend panel", exact: true }).check();
+    const score = chart.locator('[data-fund-line="score"]');
+    await score.waitFor({ timeout: 30000 }).catch(() => null);
+    const lines = { score: await score.count(), trend: await chart.locator('[data-fund-line="trend"]').count(), area: await chart.locator('[data-fund-area="size"]').count() };
+    const rankEl = chart.locator('[data-testid="fund-rank"]');
+    await rankEl.waitFor({ timeout: 20000 }).catch(() => null);
+    const rankText = await rankEl.textContent().catch(() => null);
+    const lastScore = await score.getAttribute("data-last").catch(() => null);
+    const listScore = await p.evaluate(() => {
+      const el = [...document.querySelectorAll('[role="dialog"] div')].find((n) => n.children.length === 0 && n.textContent === "Confluence");
+      return el?.nextElementSibling?.textContent ?? null;
+    });
+    const noteFull = await chart.locator('[data-testid="fund-panel-note"]').count();
+    const heightOn = await chart.locator("svg").first().evaluate((e) => e.getBoundingClientRect().height);
+    const sameAsList = lastScore !== null && !!listScore && Number(String(listScore).replace(/[^0-9+\-.]/g, "")) === Number(lastScore);
+    await p.keyboard.press("Escape");
+    // ETH: the mocked series has no older history (the mock ignores endTime) and its daily request fails.
+    await p.getByRole("button", { name: /^ETH/ }).first().click();
+    const note = p.locator('[data-testid="fund-trend-note"]');
+    await note.waitFor({ timeout: 30000 }).catch(() => null);
+    const unavailable = await note.textContent().catch(() => null);
+    const shortNote = p.locator('[data-testid="fund-panel-note"]');
+    await shortNote.waitFor({ timeout: 30000 }).catch(() => null);
+    const shortText = await shortNote.textContent().catch(() => null);
+    // Reset to defaults also clears the opt-ins.
+    await p.getByRole("button", { name: "Indicators", exact: true }).click();
+    await p.getByRole("button", { name: "Reset to defaults", exact: true }).click();
+    const afterReset = {
+      panelBox: await p.getByRole("checkbox", { name: "Fund trend panel", exact: true }).isChecked(),
+      ribbonBox: await p.getByRole("checkbox", { name: "Fund trend ribbon", exact: true }).isChecked(),
+      stored: await p.evaluate(() => localStorage.getItem("ct-chart-optin-v1")),
+      drawn: await p.locator('[data-fund]').count(),
+    };
+    record("FT-3", "Panel off by default; on: Confluence and Fund trend lines plus the Fund size area, \"Fund rank 1 of N\", the last score equals the list's; short history shows \"Score shown for N of M bars\"; a failed daily load says so; Reset to defaults clears the opt-ins",
+      offAtRest && lines.score === 1 && lines.trend === 1 && lines.area === 1 && /^Fund rank 1 of \d+$/.test(rankText || "") && sameAsList && noteFull === 0 && heightOn > heightAtRest
+        && unavailable === "Fund trend: data unavailable, try again later" && /^Score shown for \d+ of \d+ bars \(needs 1,000 earlier bars\)$/.test(shortText || "")
+        && !afterReset.panelBox && !afterReset.ribbonBox && afterReset.stored === "[]" && afterReset.drawn === 0,
+      { offAtRest, lines, rankText, lastScore, listScore, noteFull, heightAtRest, heightOn, unavailable, shortText, afterReset });
+    await p.keyboard.press("Escape");
+    await c.close();
+  }
+
   /* ===== v2.8 WP27: smooth loading — progressive rows; layout at rest unchanged ===== */
   /* acceptance-ids: PG-1, PG-2 */
   {

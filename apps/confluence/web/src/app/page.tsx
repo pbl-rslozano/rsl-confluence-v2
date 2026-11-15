@@ -53,7 +53,7 @@ import {
 } from "@/lib/indicators";
 import type { ReversalResult } from "@/lib/reversal";
 import type { PatternSignal } from "@/lib/pattern-signal";
-import { runScanJobs, scanMode } from "@/lib/scan-runner";
+import { runPanelScores, runScanJobs, scanMode } from "@/lib/scan-runner";
 import { packKlines, type ScanJob, type ScanJobResult } from "@/lib/scan-jobs";
 import { createLedgerStore } from "@/lib/signal-ledger";
 import { createIndexedDBAdapter } from "@rsl/core-kit/core/rsl-storage.js";
@@ -69,7 +69,8 @@ import { coverageUntil, coverageWarnings, eventsNear } from "@/lib/macro-calenda
 import { cachedDailyBars, loadDailyBars, loadFundTrends } from "@/lib/fund-trend-feed";
 import { useChartOptIn } from "@/lib/chart-optin";
 import { createSerialQueue, writeLiveRows } from "@/lib/fund-feed-gate";
-import { fundTrendSeries, isFundTrendClass, type FundTrendState } from "@/lib/fund-trend";
+import { fundRank, fundTrendSeriesFull, isFundTrendClass, type FundTrendState } from "@/lib/fund-trend";
+import { panelBarsNeeded, panelCacheFor, panelCacheKey, PANEL_MAX_BARS, resolvePanelScores, type PanelScoreMap } from "@/lib/panel-scores";
 import { deltaPlan, loadHistoricalSeries, MAX_STORED_BARS, mergeDelta, mergeKlines, saveHistoricalSeries } from "@/lib/history-store";
 import {
   createBatcher, initialRows, liveOnly, priorityOrder, PRIORITY_TOP, ProgressiveRows, recordable, rememberedTickers, rememberTickers,
@@ -640,7 +641,7 @@ export default function Home() {
   const seriesCacheRef = useRef<SeriesCache>(new Map());
   const historyAbortRef = useRef<AbortController | null>(null);
   /** v2.8 (WP21): Fund trend per `source|symbol`, filled by the daily-bar feed that runs behind a finished scan (no display yet). */
-  const [, setFundTrends] = useState<Map<string, FundTrendState>>(new Map());
+  const [fundTrends, setFundTrends] = useState<Map<string, FundTrendState>>(new Map());
   const fundPendingRef = useRef<Map<string, FundTrendState>>(new Map());
   /** v2.8 (WP21): the latest Fund trend state per `source|symbol`, readable from the scan (live ledger rows log `ft` from it). */
   const fundStateRef = useRef<Map<string, FundTrendState>>(new Map());
@@ -666,12 +667,100 @@ export default function Home() {
   }, [detailFundKey]);
   const detailFund = useMemo(() => {
     if (!detailAsset || !detailFundWanted) return null;
-    if (!isFundTrendClass(detailAsset.assetClass)) return { series: undefined, note: "ft.na" as const };
-    if (!detailFundKey || detailDaily?.key !== detailFundKey || !detailDaily.bars) return { series: undefined, note: null }; // loading (or failed): pass nothing
+    if (!isFundTrendClass(detailAsset.assetClass)) return { series: undefined, size: undefined, note: "ft.na" as const };
+    if (!detailFundKey || detailDaily?.key !== detailFundKey) return { series: undefined, size: undefined, note: null }; // loading: pass nothing
+    // A failed load (network, or a venue cooldown) says so once; there is no automatic retry. Reopening the sheet tries again.
+    if (!detailDaily.bars) return { series: undefined, size: undefined, note: "ft.unavailable" as const };
     const ms = INTERVAL_MS[detailAsset.tf];
-    const series = fundTrendSeries(detailDaily.bars, detailAsset.klines.map((k) => ({ time: k.time, closeTime: barCloseTime(k.time, ms) })));
-    return { series, note: series.every((v) => v == null) ? "ft.notEnough" as const : null };
+    const full = fundTrendSeriesFull(detailDaily.bars, detailAsset.klines.map((k) => ({ time: k.time, closeTime: barCloseTime(k.time, ms) })));
+    const series = full.map((f) => f?.value ?? null);
+    return { series, size: full.map((f) => f?.size ?? null), note: series.every((v) => v == null) ? "ft.notEnough" as const : null };
   }, [detailAsset, detailFundWanted, detailFundKey, detailDaily]);
+
+  /**
+   * v2.8 (WP21): the panel's per-bar Confluence score. Only while the opt-in panel is on, for the bars in view (at most 300)
+   * that have a full 1,000-bar window; ledger rows (same cfg, wb = 1,000) first, then the scan worker (never the main thread).
+   * With fewer than 1,299 contiguous bars held, the missing older bars are fetched ONCE per series (one history page).
+   */
+  const detailPanelOn = chartOptIn.has("fund-panel");
+  const panelSeriesKey = detailAsset && detailPanelOn && isFundTrendClass(detailAsset.assetClass) ? `${detailAsset.src}|${detailAsset.tf}|${detailAsset.pair}` : null;
+  const panelLastBar = detailAsset?.klines.at(-1)?.time ?? 0;
+  const panelOlderRef = useRef<Map<string, Kline[]>>(new Map());
+  const [panelOlderVer, setPanelOlderVer] = useState(0);
+  const [panelRange, setPanelRange] = useState<{ from: number; to: number } | null>(null);
+  const [panelResult, setPanelResult] = useState<{ key: string; scores: PanelScoreMap; scored: number; total: number; capped: boolean } | null>(null);
+  const onPanelRange = useCallback((from: number, to: number) => setPanelRange((cur) => (cur && cur.from === from && cur.to === to ? cur : { from, to })), []);
+  const panelKlineCount = detailAsset?.klines.length ?? 0;
+  const panelFirstBar = detailAsset?.klines[0]?.time ?? 0;
+  useEffect(() => {
+    if (!panelSeriesKey || !detailAsset || panelKlineCount >= panelBarsNeeded(PANEL_MAX_BARS) || panelOlderRef.current.has(panelSeriesKey)) return;
+    const [src, tf, pair] = [detailAsset.src, detailAsset.tf, detailAsset.pair];
+    const ac = new AbortController();
+    void (async () => {
+      let older: Kline[] = [];
+      try {
+        const limit = panelBarsNeeded(PANEL_MAX_BARS) - panelKlineCount;
+        const endTime = panelFirstBar - 1;
+        if (usesDirectFetch()) {
+          older = (await fetchHistory(src, pair, tf, limit, endTime, ac.signal)).klines; // asserts the venue cooldown
+        } else {
+          const qs = new URLSearchParams({ source: src, interval: tf, symbol: pair, limit: String(Math.max(200, limit)), endTime: String(endTime) });
+          const response = await fetch(`/api/market/history?${qs.toString()}`, { cache: "no-store", signal: ac.signal });
+          const payload = await response.json() as { klines?: Kline[] };
+          if (response.ok && payload.klines) older = payload.klines;
+        }
+      } catch {
+        if (ac.signal.aborted) return; // closed or switched: not an attempt
+        older = []; // failed (network, cooldown): the line is drawn where a full window exists, and the note says so
+      }
+      if (ac.signal.aborted) return;
+      panelOlderRef.current.set(panelSeriesKey, older);
+      setPanelOlderVer((n) => n + 1);
+    })();
+    return () => ac.abort();
+  }, [panelSeriesKey, panelKlineCount, panelFirstBar]);
+  useEffect(() => {
+    if (!panelSeriesKey || !detailAsset || !panelRange) return; // a stale result is ignored by its key
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void (async () => {
+        const base = detailAsset.klines;
+        const older = panelOlderRef.current.get(panelSeriesKey);
+        const ext = older?.length ? contiguousTail(mergeKlines(older, base), INTERVAL_MS[detailAsset.tf]) : base;
+        const off = ext.length - base.length;
+        const from = Math.max(0, panelRange.from + off), to = Math.min(ext.length, panelRange.to + off);
+        const cacheKey = panelCacheKey(detailAsset.src, detailAsset.tf, detailAsset.pair, panelLastBar, activeConfigId);
+        const cache = panelCacheFor(cacheKey);
+        const wanted: number[] = [];
+        for (let j = Math.max(from, to - PANEL_MAX_BARS); j < to; j++) if (j + 1 >= ENGINE_BARS && !cache.has(ext[j].time)) wanted.push(ext[j].time);
+        let known = new Map<number, number>();
+        if (wanted.length) {
+          try { known = await ledgerStore.seriesScores(detailAsset.src, detailAsset.tf, detailAsset.pair, activeConfigId, wanted, ENGINE_BARS); } catch { /* no ledger: the worker scores them */ }
+        }
+        if (cancelled) return;
+        const jobBase = { key: panelSeriesKey, intervalMs: INTERVAL_MS[detailAsset.tf], volumeAvailable: true, assetClass: detailAsset.assetClass, profile: scoringProfile };
+        const res = await resolvePanelScores({ klines: ext, from, to, cache, known, run: (end, count, kn) => runPanelScores(jobBase, ext.slice(0, end), count, kn) });
+        if (!cancelled) setPanelResult({ key: panelSeriesKey, scores: res.scores, scored: res.scored, total: res.total, capped: res.capped });
+      })();
+    }, 150);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [panelSeriesKey, panelRange, panelLastBar, panelOlderVer, detailAsset, activeConfigId, ledgerStore, scoringProfile]);
+  const panelNote = useMemo(() => {
+    if (!panelSeriesKey || !panelResult || panelResult.key !== panelSeriesKey || panelResult.scored >= panelResult.total) return undefined;
+    return t(panelResult.capped ? "ft.panelCapped" : "ft.panelNote", { n: panelResult.scored, m: panelResult.total });
+  }, [panelSeriesKey, panelResult, t]);
+  /** Fund rank across the scan's crypto rows of this source (the feed's values; ties share a rank). */
+  const detailFundRank = useMemo(() => {
+    if (!detailAsset || !detailPanelOn || !isFundTrendClass(detailAsset.assetClass)) return undefined;
+    const values = new Map<string, number>();
+    for (const r of rows) {
+      if (r.src !== detailAsset.src || !isFundTrendClass(r.assetClass)) continue;
+      const st = fundTrends.get(`${r.src}|${r.pair}`);
+      if (st && !("na" in st)) values.set(r.pair, st.value);
+    }
+    const rank = fundRank(values).get(detailAsset.pair);
+    return rank === undefined ? undefined : t("ft.rank", { rank, n: values.size });
+  }, [detailAsset, detailPanelOn, rows, fundTrends, t]);
   /** v2.8 (WP21): one daily-bar run at a time (post-scan feed and catch-up share it), so concurrency stays 2 in total. */
   const fundQueueRef = useRef(createSerialQueue());
   const alertedReversalRef = useRef<Map<string, number>>(new Map());
@@ -2228,6 +2317,11 @@ export default function Home() {
                   visible={chartDepth === "all" ? Number.MAX_SAFE_INTEGER : Number(chartDepth)}
                   fundTrend={detailFund?.series}
                   fundTrendNote={detailFund?.note ? t(detailFund.note) : undefined}
+                  fundSize={detailFund?.size}
+                  panelScores={panelResult && panelResult.key === panelSeriesKey ? panelResult.scores : undefined}
+                  panelNote={panelNote}
+                  fundRankLabel={detailFundRank}
+                  onPanelRange={onPanelRange}
                 />
               ) : (
                 <div className="flex h-32 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950/50 text-sm text-zinc-500">

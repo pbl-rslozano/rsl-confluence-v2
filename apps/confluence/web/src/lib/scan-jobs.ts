@@ -100,6 +100,29 @@ export function runCatchUp(job: ScanJob, klines: Kline[]): { rows: LedgerRow[]; 
   return gap ? { rows, gap } : { rows };
 }
 
+/**
+ * v2.8 (WP21): the Confluence score of each of the last `visible` bars of `klines` (the caller passes the series up to the
+ * newest bar it wants scored). Same full-window rule and `scoreSeries` options as `runCatchUp`: a bar is scored on the
+ * ENGINE_BARS bars ending at it, and is null when it has no full window (or the window is unusable), so a scored bar
+ * carries exactly the number the list shows. `known` (bar open time -> score, e.g. ledger rows with the same cfg and
+ * wb = ENGINE_BARS) is used as is and not re-scored. The array has min(visible, klines.length) entries, oldest first.
+ */
+export function scoreVisibleBars(job: ScanJob, klines: Kline[], visible: number, known?: ReadonlyMap<number, number>): (number | null)[] {
+  const last = klines.length - 1;
+  const first = Math.max(0, last - Math.max(0, Math.floor(visible)) + 1);
+  const out: (number | null)[] = [];
+  for (let j = first; j <= last; j++) {
+    if (j + 1 < ENGINE_BARS) { out.push(null); continue; }
+    const t = klines[j].time;
+    const k = known?.get(t);
+    if (k !== undefined) { out.push(k); continue; }
+    const window = klines.slice(j - ENGINE_BARS + 1, j + 1);
+    const s = scoreSeries(window, { intervalMs: job.intervalMs, volumeAvailable: job.volumeAvailable, assetClass: job.assetClass, profile: job.profile });
+    out.push(s.usable ? s.confluence.score : null);
+  }
+  return out;
+}
+
 /** Never throws: a failing series returns `error` and an unusable score. */
 export function runScanJobSafe(job: ScanJob): ScanJobResult {
   try {

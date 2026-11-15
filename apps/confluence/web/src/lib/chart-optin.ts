@@ -1,69 +1,13 @@
 /**
- * chart-optin.ts — opt-in chart add-ons (v2.8, WP21). Everything is OFF by default.
- *
- * Kept apart from the chart's LAYERS / `hidden` list (design-unchanged rule, spec §3): a layer in
- * LAYERS is on by default and hidden on request; an opt-in is off by default and shown on request.
- * Stored under `ct-chart-optin-v1` as a JSON array of ids. Same-tab updates reach every
- * `useChartOptIn()` user through a tiny subscription; other tabs through the `storage` event.
+ * chart-optin.ts — React hook over the opt-in store (v2.8, WP21). The store (ids, parsing, storage, subscription) lives in
+ * chart-optin-store.ts so it can be tested under plain Node. Everything is OFF by default; see the store for the rules.
  */
 import { useCallback, useSyncExternalStore } from "react";
+import { snapshot, subscribe, setChartOptIn, type ChartOptIn } from "./chart-optin-store";
 
-export const OPTIN_KEY = "ct-chart-optin-v1";
-export const OPTIN_IDS = ["fund-ribbon", "fund-panel"] as const;
-export type ChartOptIn = (typeof OPTIN_IDS)[number];
+export { OPTIN_KEY, OPTIN_IDS, parseOptIn, setChartOptIn, clearChartOptIn, getChartOptIn, resetChartOptInForTests, type ChartOptIn } from "./chart-optin-store";
 
 const NONE: readonly ChartOptIn[] = Object.freeze([]) as readonly ChartOptIn[];
-
-/** Pure: keeps known ids once, in OPTIN_IDS order; anything else (or a non-array) is dropped. */
-export function parseOptIn(raw: unknown): ChartOptIn[] {
-  if (!Array.isArray(raw)) return [];
-  return OPTIN_IDS.filter((id) => raw.includes(id));
-}
-
-let cache: readonly ChartOptIn[] | null = null;
-const listeners = new Set<() => void>();
-
-function readStored(): readonly ChartOptIn[] {
-  try {
-    const parsed = parseOptIn(JSON.parse(localStorage.getItem(OPTIN_KEY) ?? "null"));
-    return parsed.length ? parsed : NONE;
-  } catch {
-    return NONE;
-  }
-}
-
-function snapshot(): readonly ChartOptIn[] {
-  if (cache === null) cache = readStored();
-  return cache;
-}
-
-function notify() { for (const l of [...listeners]) l(); }
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  const onStorage = (e: StorageEvent) => {
-    if (e.key !== null && e.key !== OPTIN_KEY) return;
-    cache = null; // re-read the other tab's value
-    listener();
-  };
-  if (typeof window !== "undefined") window.addEventListener("storage", onStorage);
-  return () => {
-    listeners.delete(listener);
-    if (typeof window !== "undefined") window.removeEventListener("storage", onStorage);
-  };
-}
-
-export function setChartOptIn(id: ChartOptIn, on: boolean): void {
-  const cur = snapshot();
-  if (cur.includes(id) === on) return;
-  const next = parseOptIn(on ? [...cur, id] : cur.filter((x) => x !== id));
-  cache = next.length ? next : NONE;
-  try { localStorage.setItem(OPTIN_KEY, JSON.stringify(next)); } catch { /* the toggle still works for this tab */ }
-  notify();
-}
-
-/** Test hook: forget the in-memory copy so the next read goes to storage. */
-export function resetChartOptInForTests(): void { cache = null; }
 
 /** Current opt-ins plus a setter. Server render and hydration see "all off". */
 export function useChartOptIn(): { optIn: readonly ChartOptIn[]; has: (id: ChartOptIn) => boolean; set: (id: ChartOptIn, on: boolean) => void } {
