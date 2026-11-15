@@ -316,3 +316,20 @@ test("v2.8 (WP19): the recorder paces Binance requests on X-MBX-USED-WEIGHT-1M (
   assert.equal(result.ok, true);
   assert.ok(paced >= 1_400, `candle requests waited for the used-weight pause (${Math.round(paced)} ms)`);
 });
+
+test("fix round 1 (Task 8): a ledger pair now under the liquidity floor still gets candles while its horizon is open", async (t) => {
+  const dir = tempDir(t);
+  // Cycle 1: THINUSDT trades US$2M/day — scanned and recorded, its 24-bar horizon opens.
+  const ex1 = mockExchange({ binanceTickers: [["BTCUSDT", 9e9], ["ETHUSDT", 5e9], ["THINUSDT", 2e6]] });
+  await runOnce(dir, ex1);
+  assert.ok(ledgerRows(dir).some((r) => r.pair === "THINUSDT"), "THINUSDT recorded while above the floor");
+  // Cycle 2 (next bar): THINUSDT fell to US$900k/day — out of the scored scan, horizon still open.
+  mock.timers.setTime(T0 + IV);
+  const ex2 = mockExchange({ binanceTickers: [["BTCUSDT", 9e9], ["ETHUSDT", 5e9], ["THINUSDT", 9e5]] });
+  const before = ledgerRows(dir).filter((r) => r.pair === "THINUSDT").length;
+  const { result } = await runOnce(dir, ex2);
+  assert.equal(result.ok, true);
+  assert.equal(result.openHorizonPairs, 1, "THINUSDT is an open-horizon pair");
+  assert.ok(ex2.calls.some((c) => c.path === "/api/v3/klines" && c.symbol === "THINUSDT"), "open-horizon candles are fetched without the floor");
+  assert.equal(ledgerRows(dir).filter((r) => r.pair === "THINUSDT").length, before, "candles only — no new row for a thin pair");
+});

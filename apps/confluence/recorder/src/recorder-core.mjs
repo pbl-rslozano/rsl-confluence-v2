@@ -368,7 +368,9 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
       for (const [k, t0] of Object.entries(state.open)) if (t0 + horizonMs <= started - data.intervalMs) delete state.open[k];
       if (missing.length && !result.rateLimitedUntil && !signal?.aborted) {
         try {
-          const extra = await fetchMarketData(tf, { source, assets: missing.map((p) => p.replace(/USDT$/, "")), limit: missing.length, assetClass: "all", signal, klineLimit: () => 200 });
+          // v2.8 (Task 8 review): never floored — a recorded pair that fell under the liquidity floor still
+          // needs bars until its horizon closes, or its outcome can never be measured.
+          const extra = await fetchMarketData(tf, { source, assets: missing.map((p) => p.replace(/USDT$/, "")), limit: missing.length, assetClass: "all", signal, klineLimit: () => 200, liquidityFloorUsd: 0 });
           for (const [sym, recent] of Object.entries(extra.klines)) {
             if (missing.includes(sym) && recent.length) cache.save(sym, mergeKlines(cache.load(sym), recent));
           }
