@@ -1,6 +1,7 @@
 // Fund trend daily-bar feed (v2.8 WP21, Task 2). Run: node scripts/run-engine-tests.mjs fund-trend-feed.test.mjs
 // No test touches the network: the fetcher and the store are stubs, the clock is injected.
 import { loadDailyBars, loadFundTrends, resetFundTrendFeedForTests, DAY_MS } from "./fund-trend-feed.ts";
+import { waitForFeed, writeLiveRows, createSerialQueue, FEED_WAIT_MS } from "./fund-feed-gate.ts";
 import { RateLimitError, rateLimitCooldown, resetRateLimitForTests, noteVenueRateLimit } from "./market-client.ts";
 
 let passed = 0, failed = 0;
@@ -167,6 +168,82 @@ async function main() {
     resetFundTrendFeedForTests();
     await loadDailyBars(SRC, "SUSDT", D0 + 1000, undefined, deps2);
     ok("marker saved after a successful series save", marked === 1);
+  }
+
+  // v2.8 (WP21) fix round 1: live ledger rows wait for the post-scan feed (I-1); one feed run at a time (I-2).
+  {
+    const fakeTimers = () => {
+      let id = 0; const pending = new Map();
+      return { now: () => 0, setTimeout: (fn, ms) => { pending.set(++id, { fn, ms }); return id; }, clearTimeout: (i) => { pending.delete(i); },
+        fire: () => { const [k, v] = [...pending][0] ?? []; if (k !== undefined) { pending.delete(k); v.fn(); } }, count: () => pending.size, lastMs: () => [...pending.values()].pop()?.ms };
+    };
+    const mkRows = () => [{ ac: "crypto", pair: "AUSDT", ft: undefined }, { ac: "crypto", pair: "BUSDT", ft: undefined }, { ac: "stock", pair: "AAPL", ft: undefined }];
+    const tick = () => new Promise((r) => setTimeout(r, 1));
+    const values = new Map([["AUSDT", 41.26], ["BUSDT", -8]]);
+    const fundOf = (sym) => values.get(sym) ?? null;
+
+    ok("FEED_WAIT_MS is 90 s", FEED_WAIT_MS === 90_000);
+    {
+      const tm = fakeTimers(); let res; const settled = new Promise((r) => { res = r; });
+      const w = waitForFeed(settled, { timers: tm });
+      ok("wait arms a 90 s timer", tm.lastMs() === 90_000);
+      res(); ok("wait resolves settled when the feed settles (timer cleared)", (await w) === "settled" && tm.count() === 0);
+      const rej = Promise.reject(new Error("x")); rej.catch(() => {});
+      ok("a feed that rejected still counts as settled", (await waitForFeed(rej, { timers: fakeTimers() })) === "settled");
+    }
+    {
+      const tm = fakeTimers(); const w = waitForFeed(new Promise(() => {}), { timers: tm });
+      tm.fire(); ok("90 s timeout resolves timeout", (await w) === "timeout");
+    }
+    {
+      const ac = new AbortController(); const tm = fakeTimers(); const w = waitForFeed(new Promise(() => {}), { signal: ac.signal, timers: tm });
+      ac.abort(); ok("abort resolves aborted at once (timer cleared)", (await w) === "aborted" && tm.count() === 0);
+      ok("an already aborted signal resolves aborted", (await waitForFeed(new Promise(() => {}), { signal: ac.signal, timers: fakeTimers() })) === "aborted");
+    }
+    {
+      const writes = []; const tm = fakeTimers(); let res; const settled = new Promise((r) => { res = r; });
+      const rows = mkRows();
+      const p = writeLiveRows(rows, { write: async (rs) => { writes.push(rs.map((r) => r.pair + ":" + r.ft)); return rs.length; }, settled, fundTrendOf: fundOf, timers: tm });
+      await tick();
+      ok("non-crypto rows write at once, crypto rows wait for the feed", writes.length === 1 && writes[0].join() === "AAPL:undefined", JSON.stringify(writes));
+      res(); const n = await p;
+      ok("after the feed settles, crypto rows write with ft (1 decimal) from the feed", writes.length === 2 && writes[1].join() === "AUSDT:41.3,BUSDT:-8" && n === 3, JSON.stringify(writes));
+      ok("the non-crypto row never gets ft", rows[2].ft === undefined);
+    }
+    {
+      const writes = []; const tm = fakeTimers(); const rows = mkRows();
+      const p = writeLiveRows(rows, { write: async (rs) => { writes.push(rs.map((r) => r.pair + ":" + r.ft)); return rs.length; }, settled: new Promise(() => {}), fundTrendOf: (s) => (s === "AUSDT" ? 5 : null), timers: tm });
+      await tick(); tm.fire(); await p;
+      ok("90 s timeout writes the crypto rows with what is available (nulls elsewhere)", writes.length === 2 && writes[1].join() === "AUSDT:5,BUSDT:null", JSON.stringify(writes));
+    }
+    {
+      const writes = []; const ac = new AbortController(); const rows = mkRows();
+      const p = writeLiveRows(rows, { write: async (rs) => { writes.push(rs.length); return rs.length; }, settled: new Promise(() => {}), signal: ac.signal, fundTrendOf: fundOf, timers: fakeTimers() });
+      await tick(); ac.abort(); const n = await p;
+      ok("abort writes the waiting rows immediately with what is available, never drops them", n === 3 && writes.length === 2 && rows[0].ft === 41.3 && rows[1].ft === -8);
+    }
+    {
+      const writes = []; const rows = [{ ac: "stock", pair: "X", ft: undefined }];
+      const tm = fakeTimers();
+      const n = await writeLiveRows(rows, { write: async (rs) => { writes.push(rs.length); return rs.length; }, settled: new Promise(() => {}), fundTrendOf: fundOf, timers: tm });
+      ok("a scan with no crypto rows never waits or arms a timer", n === 1 && writes.length === 1 && tm.count() === 0);
+    }
+    {
+      const q = createSerialQueue(); const order = []; let release;
+      const a = q.enqueue(async () => { order.push("a-start"); await new Promise((r) => { release = r; }); order.push("a-end"); return 1; });
+      const b = q.enqueue(async () => { order.push("b-start"); return 2; });
+      await tick();
+      ok("a second feed run does not start while the first is running", order.join() === "a-start");
+      release(); ok("it starts after the first ends, results are returned", (await a) === 1 && (await b) === 2 && order.join() === "a-start,a-end,b-start");
+      const c = q.enqueue(async () => { throw new Error("boom"); }); c.catch(() => {});
+      ok("a failed run does not block the queue", (await q.enqueue(async () => 7)) === 7);
+      const ac = new AbortController(); let release2; let ran = false;
+      const d = q.enqueue(() => new Promise((r) => { release2 = r; }));
+      const e = q.enqueue(async () => { ran = true; }, ac.signal); e.catch(() => {});
+      await tick(); ac.abort(); release2(); await d;
+      const err = await e.catch((x) => x);
+      ok("a queued run whose signal aborted never starts (AbortError)", !ran && err && err.name === "AbortError");
+    }
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

@@ -67,6 +67,7 @@ import { PaperDialog } from "@/components/paper-dialog";
 import { createPaperStore, memoryPaperPort, PAPER_COLLECTIONS, PAPER_DB_NAME } from "@/lib/paper-store";
 import { coverageUntil, coverageWarnings, eventsNear } from "@/lib/macro-calendar";
 import { cachedDailyBars, loadFundTrends } from "@/lib/fund-trend-feed";
+import { createSerialQueue, writeLiveRows } from "@/lib/fund-feed-gate";
 import type { FundTrendState } from "@/lib/fund-trend";
 import { deltaPlan, loadHistoricalSeries, MAX_STORED_BARS, mergeDelta, mergeKlines, saveHistoricalSeries } from "@/lib/history-store";
 import {
@@ -643,6 +644,8 @@ export default function Home() {
   /** v2.8 (WP21): the latest Fund trend state per `source|symbol`, readable from the scan (live ledger rows log `ft` from it). */
   const fundStateRef = useRef<Map<string, FundTrendState>>(new Map());
   const fundAbortRef = useRef<AbortController | null>(null);
+  /** v2.8 (WP21): one daily-bar run at a time (post-scan feed and catch-up share it), so concurrency stays 2 in total. */
+  const fundQueueRef = useRef(createSerialQueue());
   const alertedReversalRef = useRef<Map<string, number>>(new Map());
 
   // v2.5: theme preference (System / Light / Dark) → resolved theme → tokens on <html data-theme>.
@@ -784,6 +787,12 @@ export default function Home() {
     fundAbortRef.current?.abort(); // a new scan stops the daily-bar feed of the previous one
     const ac = new AbortController();
     abortRef.current = ac;
+    // v2.8 (WP21): this scan's daily-bar feed (post-scan feed and catch-up) stops with the scan; `feedSettled` releases the live ledger write.
+    const feed = new AbortController();
+    fundAbortRef.current = feed;
+    ac.signal.addEventListener("abort", () => feed.abort(), { once: true });
+    let resolveFeed: () => void = () => undefined;
+    const feedSettled = new Promise<void>((resolve) => { resolveFeed = resolve; });
     setLoading(true);
     setError(null);
     setProgress({ done: 0, total: 1 });
@@ -1035,8 +1044,15 @@ export default function Home() {
         return lr;
       });
       const newestClosed = prepared.reduce((m, p) => (p.fresh && p.kl.length ? Math.max(m, p.kl[p.kl.length - 1].time) : m), 0);
+      // v2.8 (WP21): crypto rows wait for this scan's Fund trend feed (<= 90 s; an abort writes at once) so ft is not lost for good; others write at once.
+      const universeSnap = data.universe ? { t: newestClosed, list: data.universe } : undefined;
       const liveWrite = ledgerRows.length
-        ? ledgerStore.record(ledgerRows, data.universe ? { t: newestClosed, list: data.universe } : undefined).catch(() => 0)
+        ? writeLiveRows(ledgerRows, {
+            write: (rs) => ledgerStore.record(rs, universeSnap).catch(() => 0),
+            settled: feedSettled,
+            signal: feed.signal,
+            fundTrendOf: (symbol) => { const st = fundStateRef.current.get(`${source}|${symbol}`); return st && !("na" in st) ? st.value : null; },
+          }).catch(() => 0)
         : Promise.resolve(0);
 
       // Catch-up (v2.3: per-series cursors): score bars that closed while the
@@ -1075,8 +1091,10 @@ export default function Home() {
             let catchUpCtx = recordCtx;
             if (usesDirectFetch()) {
               try {
-                await loadFundTrends(source, pending.filter((j) => classOf(j.pair) === "crypto").map((j) => ({ symbol: j.pair, ac: "crypto" as const })), Date.now());
-              } catch { /* feed unavailable: those rows log ft null */ }
+                const cryptoRows = pending.filter((j) => classOf(j.pair) === "crypto").map((j) => ({ symbol: j.pair, ac: "crypto" as const }));
+                // Same queue and abort signal as the post-scan feed: never two runs at once, and a new scan or source switch stops it.
+                if (cryptoRows.length) await fundQueueRef.current.enqueue(() => loadFundTrends(source, cryptoRows, Date.now(), { signal: feed.signal }), feed.signal);
+              } catch { /* aborted, halted or unavailable: those rows log ft null (still written) */ }
               catchUpCtx = { ...recordCtx, dailyOf: (symbol) => cachedDailyBars(source, symbol) };
             }
             for (const j of pending) {
@@ -1184,12 +1202,11 @@ export default function Home() {
         });
       }
       // v2.8 (WP21): the daily-bar feed starts only now, behind the finished scan, for live rows (never display-only cached ones).
+      let feedStarted = false;
       if (usesDirectFetch() && !ac.signal.aborted && !data.rateLimitedUntil) {
         const feedRows = liveOnly(out).map((r) => ({ symbol: r.pair, ac: r.assetClass }));
         if (feedRows.length) {
-          const feed = new AbortController();
-          fundAbortRef.current = feed;
-          ac.signal.addEventListener("abort", () => feed.abort(), { once: true });
+          feedStarted = true;
           // One state update per batch (<= every 250 ms), not one per pair.
           const flushFund = () => {
             if (feed.signal.aborted || !fundPendingRef.current.size) return;
@@ -1199,13 +1216,17 @@ export default function Home() {
           };
           fundPendingRef.current = new Map();
           const fundBatcher = createBatcher(flushFund);
-          void loadFundTrends(source, feedRows, Date.now(), {
+          void fundQueueRef.current.enqueue(() => loadFundTrends(source, feedRows, Date.now(), {
             signal: feed.signal,
             onValue: (symbol, state) => { fundPendingRef.current.set(`${source}|${symbol}`, state); fundStateRef.current.set(`${source}|${symbol}`, state); fundBatcher.schedule(); },
-          }).then(() => fundBatcher.flushNow(), () => fundBatcher.cancel()); // a rejection = aborted by a newer scan or a source switch
+          }), feed.signal)
+            .then(() => fundBatcher.flushNow(), () => fundBatcher.cancel()) // a rejection = aborted by a newer scan or a source switch
+            .finally(resolveFeed);
         }
       }
+      if (!feedStarted) resolveFeed(); // no feed this scan (hosted build, cooling venue, no live rows): nothing to wait for
     } catch (e) {
+      resolveFeed();
       if (!ac.signal.aborted) {
         batcher.cancel();
         setError(e instanceof Error ? e.message : "Failed to load market data");

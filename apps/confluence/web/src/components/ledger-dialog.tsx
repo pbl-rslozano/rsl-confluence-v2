@@ -502,10 +502,10 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
                   )}
                   <div className="mt-2 mb-1 font-semibold text-zinc-200">{t("ledger.benchmarks")}</div>
                   <div className="font-mono tabular-nums text-zinc-300">
-                    {t("ledger.benchMomentum")} {current.benchmarks.momentum ? `${fmtBps(current.benchmarks.momentum.edgeBps)} bp · n ${current.benchmarks.momentum.n}` : "—"}
+                    {t("ledger.benchMomentum")} {current.benchmarks.momentum && current.benchmarks.momentum.n > 0 ? `${fmtBps(current.benchmarks.momentum.edgeBps)} bp · n ${current.benchmarks.momentum.n}` : "—"}
                   </div>
                   <div className="font-mono tabular-nums text-zinc-300" data-testid="ledger-bench-fundtrend">
-                    {t("ledger.bench.fundTrend")} {current.benchmarks.fundTrend ? `${fmtBps(current.benchmarks.fundTrend.edgeBps)} bp · n ${current.benchmarks.fundTrend.n}` : "—"}
+                    {t("ledger.bench.fundTrend")} {current.benchmarks.fundTrend && current.benchmarks.fundTrend.n > 0 ? `${fmtBps(current.benchmarks.fundTrend.edgeBps)} bp · n ${current.benchmarks.fundTrend.n}` : "—"}
                   </div>
                   <div className="font-mono tabular-nums text-zinc-300">
                     {t("ledger.benchShuffle")} p {fmtNum(current.benchmarks.shuffledP, 3)}

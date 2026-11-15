@@ -668,6 +668,15 @@ console.log("WP21 ft: ledger field, CSV, catch-up no-look-ahead, benchmark");
     ok("a later daily bar does not change earlier catch-up rows (no look-ahead)", rows2.map((r) => r.ft).join() === early.join());
     const same = [mk("BTCUSDT", dayN(500) + 4 * H), mk("BTCUSDT", dayN(500) + 8 * H)];
     applyFundTrend(same, () => daily);
+    {
+      // M3: a stale cache (the feed halted) must not give old values to later rows: newest daily bar used must close <= 36 h before the row's close.
+      const lastClose = daily[daily.length - 1].time + DAY; // 700 days of bars: the cache stops here
+      const fresh = mk("BTCUSDT", lastClose - 4 * H - 4 * H); // closes just before the cache end: not stale
+      const edge = mk("BTCUSDT", lastClose + 32 * H); // row closes exactly 36 h after the newest daily close
+      const stale = mk("BTCUSDT", lastClose + 36 * H); // closes 40 h after
+      applyFundTrend([fresh, edge, stale], () => daily);
+      ok("a row closing more than 36 h after the newest daily close gets ft null; 36 h and fresh keep it", typeof fresh.ft === "number" && typeof edge.ft === "number" && stale.ft === null, [fresh.ft, edge.ft, stale.ft].join());
+    }
     ok("two bars of the same day share one ft (daily bar of that day is not closed yet)", same[0].ft === same[1].ft);
   }
 
