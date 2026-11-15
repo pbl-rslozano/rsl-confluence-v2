@@ -108,7 +108,7 @@ import { DerivativesPanel } from "@/components/derivatives-panel";
 import type { DerivativeSnapshot } from "@/lib/derivatives-context";
 import { ChartReplay } from "@/components/chart-replay";
 import { PriceChart } from "@/components/price-chart";
-import { BEST, baseOf as pairBase, normalizeQuoteMode, quoteModesFor, stableQuote, type DepegReading } from "@/lib/quotes";
+import { BEST, baseOf as pairBase, normalizeQuoteMode, quoteModesFor, stableQuote, type DepegReading, type PriceCurrency } from "@/lib/quotes";
 import { autoCurrency, BANDS, cachedCurrencies, cachedTable, canConvert, convert, impliedUsdtPremiumPct, isStale, loadCurrencies, PEGS, rateKind, refreshRates, usdtDeviationPct, type FiatCurrency, type FxTable } from "@/lib/fx-rates";
 import { formatMoney, formatMoneyCompact } from "@/lib/money";
 import { FxSourcesDialog } from "@/components/fx-sources-dialog";
@@ -189,7 +189,7 @@ const inNativeShell = () => {
 /** v2.6: what the last scan of a source carried besides rows (price currency, Coins.ph extras). */
 interface ScanMeta {
   source: string;
-  currency: "USD" | "EUR" | "PHP";
+  currency: PriceCurrency;
   premium: Record<string, number>;
   thin: string[];
   /** v2.8 (WP19): the US$ floor the thin pairs fell under (Coins.ph thin rule or the crypto liquidity floor). */

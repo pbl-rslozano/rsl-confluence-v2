@@ -45,7 +45,7 @@ const args = Object.fromEntries(
 );
 if (args.help || args.h) {
   console.log(`Options:
-  --source binance|bybit-spot|bybit-perp|bitget|bitget-perp   (default binance)
+  --source binance|bybit-spot|bybit-perp|bitget|bitget-perp|okx|okx-perp|coinbase|upbit   (default binance)
   --symbols BTCUSDT,ETHUSDT                       (or --csv-dir)
   --csv-dir <folder>                              Binance kline CSVs named SYMBOL-INTERVAL-*.csv
   --tf 4h                                         timeframe (default 4h)

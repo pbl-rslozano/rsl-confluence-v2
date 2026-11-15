@@ -18,7 +18,7 @@
  * See docs/asset-classes.md for sources and dates.
  * ----------------------------------------------------------------------------
  */
-import { splitPair, stableQuote, USD_STABLE_ASSETS } from "./quotes";
+import { isPerpSource, splitPair, stableQuote, USD_STABLE_ASSETS } from "./quotes";
 import type { AssetClass } from "./ledger-metrics";
 
 export type AssetClassFilter = AssetClass | "all";
@@ -151,7 +151,7 @@ export function classifySymbol(source: string, symbol: string, venueType?: strin
   if (LEVERAGED.test(s) || USD_PEGS.has(s)) return "excluded";
   const venue = fromVenueType(venueType);
   if (venue) return venue;
-  const perp = source === "bybit-perp" || source === "bitget-perp";
+  const perp = isPerpSource(source);
   if (FX.has(s) || (perp && FX_PERP.test(s))) return "fx";
   if (COMMODITY.has(s) || (perp && BYBIT_PERP_COMMODITY.has(s))) return "commodity";
   if (equityTicker(s)) return "stock";

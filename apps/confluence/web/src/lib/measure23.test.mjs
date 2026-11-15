@@ -583,6 +583,17 @@ console.log("WP19 CSV: v2.7 import, hostile values, round-trip");
     const want = sanitizeLedgerRow(row);
     return [imp.rows.length === 1 && JSON.stringify(imp.rows[0]) === JSON.stringify(want), `${JSON.stringify(imp.rows[0])}\n   want ${JSON.stringify(want)}`];
   });
+  check("a ledger row of each new source round-trips through export and import", () => {
+    const cases = [["okx", "BTCUSDT"], ["okx-perp", "BTCUSDT"], ["coinbase", "BTCUSD"], ["upbit", "BTCKRW"]];
+    const bad = [];
+    for (const [src, pair] of cases) {
+      const r = { ...row, id: `c1|${src}|4h|${pair}|${t}`, src, pair };
+      const imp = parseLedgerImport(csvOf(header, [[...ledgerRowValues(r), ""]]));
+      const want = sanitizeLedgerRow(r);
+      if (!(want && imp.rows.length === 1 && JSON.stringify(imp.rows[0]) === JSON.stringify(want) && imp.rows[0].src === src && imp.rows[0].pair === pair)) bad.push(src);
+    }
+    return [bad.length === 0, bad.join()];
+  });
   check("hostile values rejected (vt > 4^18−1, pd 2, fr \"=1+1\")", () => {
     const vals = ledgerRowValues(row);
     const at = (col) => LEDGER_CSV_COLUMNS.indexOf(col);

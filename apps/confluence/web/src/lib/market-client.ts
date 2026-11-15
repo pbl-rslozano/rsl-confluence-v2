@@ -114,7 +114,7 @@ import {
 } from "./coinsph";
 export type { AssetClassFilter } from "./asset-classes";
 import {
-  BEST, DEFAULT_QUOTE, type DepegReading, type QuoteMode, baseFromInput, baseOf, depegLevel, normalizeQuoteMode,
+  BEST, DEFAULT_QUOTE, type DepegReading, type PriceCurrency, type QuoteMode, baseFromInput, baseOf, depegLevel, normalizeQuoteMode,
   priceCurrencyOfQuote, rememberPairs, selectPairs, splitPair, stableQuote,
 } from "./quotes";
 
@@ -181,7 +181,7 @@ export const DATA_SOURCES = [
 ] as const;
 
 /** v2.6: price currency per source (volumes are always reported in USD). v2.7: EUR for EUR-stablecoin quotes. */
-export function priceCurrencyOf(source: string, quote: QuoteMode = DEFAULT_QUOTE): "USD" | "EUR" | "PHP" {
+export function priceCurrencyOf(source: string, quote?: QuoteMode): PriceCurrency {
   return priceCurrencyOfQuote(source, normalizeQuoteMode(source, quote));
 }
 
@@ -274,7 +274,7 @@ export interface AllResponse {
   /** v2.3: symbols dropped by the non-crypto turnover floor. */
   belowFloor?: number;
   /** v2.6: currency of `lastPrice` and of the candles ("USD" ≈ USDT, "EUR" for EUR stablecoins, or "PHP"). */
-  priceCurrency?: "USD" | "EUR" | "PHP";
+  priceCurrency?: PriceCurrency;
   /** v2.7: quote mode this scan used (USDT, USDC, …, BEST or PHP). */
   quote?: QuoteMode;
   /** v2.7: quote of each scanned pair (Best mode mixes them). */
@@ -545,17 +545,24 @@ export class RateLimitError extends Error {
  * Cooldown after a rate-limit response, per venue (v2.6; shared by scans and
  * backfills). A ban from one exchange no longer pauses the others.
  */
-export type Venue = "binance" | "bybit" | "bitget" | "coinsph";
-const rateLimitedUntil: Record<Venue, number> = { binance: 0, bybit: 0, bitget: 0, coinsph: 0 };
+export type Venue = "binance" | "bybit" | "bitget" | "coinsph" | "okx" | "coinbase" | "upbit";
+const rateLimitedUntil: Record<Venue, number> = { binance: 0, bybit: 0, bitget: 0, coinsph: 0, okx: 0, coinbase: 0, upbit: 0 };
 export function venueOf(source: string): Venue {
   if (source.startsWith("bybit")) return "bybit";
   if (source.startsWith("bitget")) return "bitget";
   if (source === "coinsph") return "coinsph";
+  if (source.startsWith("okx")) return "okx"; // okx and okx-perp share one host and one limit pool
+  if (source === "coinbase") return "coinbase";
+  if (source === "upbit") return "upbit";
   return "binance";
 }
 function venueOfUrl(url: string): Venue {
   if (url.startsWith(BYBIT_BASE)) return "bybit";
   if (url.startsWith(BITGET_BASE)) return "bitget";
+  // v2.8 (WP26) hosts, fixed by the plan; the fetchers arrive in Tasks 3-5.
+  if (url.startsWith("https://www.okx.com")) return "okx";
+  if (url.startsWith("https://api.exchange.coinbase.com")) return "coinbase";
+  if (url.startsWith("https://api.upbit.com")) return "upbit";
   return "binance";
 }
 /** Remaining cooldown for one source's venue, or the longest one when no source is given. */

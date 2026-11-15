@@ -69,7 +69,7 @@ const strength = z.enum(["weak", "moderate", "strong"]);
 
 const filterShape = {
   engine_id: strOrList.optional().describe("Engine configId(s), 16 hex"),
-  source: strOrList.optional().describe("binance | bybit-spot | bybit-perp | bitget | bitget-perp"),
+  source: strOrList.optional().describe("binance | bybit-spot | bybit-perp | bitget | bitget-perp | okx | okx-perp | coinbase | upbit"),
   timeframe: strOrList.optional().describe("e.g. 4h"),
   pair: strOrList.optional().describe("e.g. BTCUSDT"),
   asset_class: z.union([assetClass, z.array(assetClass).min(1).max(6)]).optional(),

@@ -1019,7 +1019,7 @@ export function ledgerRowValues(r: LedgerRow): (string | number)[] {
 /* ------------------------------------------------------------------ *
  *  v2.3 — import (headless recorder JSONL, or the app's JSON export)
  * ------------------------------------------------------------------ */
-const IMPORT_SOURCES = new Set(["binance", "bybit-spot", "bybit-perp", "bitget", "bitget-perp"]);
+const IMPORT_SOURCES = new Set(["binance", "bybit-spot", "bybit-perp", "bitget", "bitget-perp", "okx", "okx-perp", "coinbase", "upbit"]);
 const IMPORT_CLASSES = new Set(["crypto", "rwa", "stock", "fx", "commodity"]);
 const SAFE_PAIR = /^[A-Z0-9]{2,30}$/;
 const SAFE_TOKEN = /^[A-Za-z0-9._-]{1,40}$/;
