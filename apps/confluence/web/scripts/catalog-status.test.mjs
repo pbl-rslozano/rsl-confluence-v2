@@ -97,3 +97,15 @@ test("repository ar.json: no English-identical string outside the allow-list; dr
     assert.ok(pending.includes(k), `${k} is flagged @pendingReview`);
   }
 });
+
+// Fix-wave re-review N-2 / N-3: two Arabic drafts said something else than the English.
+test("ar drafts: paper.set.locked says the risk LIMITS cannot be loosened; drawdownResetWaiting says scan, not erase", () => {
+  const dir = new URL("../src/rsl/i18n/", import.meta.url);
+  const ar = JSON.parse(readFileSync(new URL("ar.json", dir), "utf8"));
+  assert.match(ar["paper.set.locked"], /حدود المخاطر/);
+  assert.doesNotMatch(ar["paper.set.locked"], /لا يمكن تخفيف المخاطر/);
+  assert.match(ar["paper.set.locked"], /UTC/);
+  assert.doesNotMatch(ar["paper.drawdownResetWaiting"], /امسح/);
+  assert.match(ar["paper.drawdownResetWaiting"], /افحص \{series\} أولًا/);
+  for (const k of ["paper.set.locked", "paper.drawdownResetWaiting"]) assert.ok(ar["@pendingReview"].includes(k), `${k} stays @pendingReview`);
+});
