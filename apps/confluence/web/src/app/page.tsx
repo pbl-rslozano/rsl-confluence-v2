@@ -78,6 +78,7 @@ import {
   DATA_SOURCES,
   fetchHistory,
   fetchMarketData,
+  fetchSymbolKlines,
   INTERVAL_MS,
   fetchOrderBook,
   MAX_HISTORY_BARS,
@@ -503,6 +504,9 @@ function IndicatorBar({ c }: { c: ConfluenceResult }) {
 /* ========================================================================== *
  *  Main page component
  * ========================================================================== */
+
+/** Source id → label for the paper simulator's waiting text (M-5); the dialog may not import market-client (R12). */
+const SOURCE_LABELS: Record<string, string> = Object.fromEntries(DATA_SOURCES.map((d) => [d.value, d.label]));
 
 export default function Home() {
   const rsl = useRsl();
@@ -1303,6 +1307,12 @@ export default function Home() {
   const rowsRef = useRef(rows);
   useEffect(() => { rowsRef.current = rows; }, [rows]);
   const getLiveKlines = useCallback(() => Object.fromEntries(liveOnly(rowsRef.current).map((row) => [row.pair, row.klines])), []);
+  // Final review I-3: closed bars for a pair holding a paper position that the scan left out (liquidity floor,
+  // list cut). Paper book only: never scored, listed, recorded or alerted on. Read-only public candles.
+  const fetchPaperKlines = useCallback(
+    (pair: string, signal?: AbortSignal) => fetchSymbolKlines(dataSource, timeframe, pair, 200, signal),
+    [dataSource, timeframe],
+  );
   // Scheduled macro releases within the next 24 h (or the last 2 h), measured from the last scan.
   const macroEvents = useMemo(() => (lastUpdate ? eventsNear(lastUpdate.getTime()) : []), [lastUpdate]);
   // Kinds whose verified dates run out within 30 days (text-only addition to the macro banner).
@@ -2012,6 +2022,8 @@ export default function Home() {
         slippage={paperSlippage.source === dataSource ? paperSlippage.readings : undefined}
         depeg={scanMeta.source === dataSource ? scanMeta.depeg : undefined}
         quoteBySymbol={scanMeta.source === dataSource ? scanMeta.quoteBySymbol : undefined}
+        fetchKlines={fetchPaperKlines}
+        sourceLabels={SOURCE_LABELS}
       />
 
       {/* ---------- Detail modal ---------- */}

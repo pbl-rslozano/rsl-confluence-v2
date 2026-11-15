@@ -24,6 +24,7 @@ import { TradeAnnotation } from "@/components/trade-annotation";
 import { ChartReplay } from "@/components/chart-replay";
 import { loadHistoricalSeries } from "@/lib/history-store";
 import { INTERVAL_MS, type DataSource } from "@/lib/market-client";
+import { fetchHeldBars, missingHeldPairs, pairsText, waitingText } from "@/lib/paper-feed";
 import { atr, type Kline } from "@/lib/indicators";
 import type { AssetClass } from "@/lib/ledger-metrics";
 
@@ -63,7 +64,6 @@ import {
   requestClose,
   resetKill,
   resetDrawdown,
-  waitingSeries,
   EXIT_REASON_KEYS,
   setStartingEquity,
   unrealised,
@@ -105,6 +105,13 @@ interface Props {
   /** v2.8: stablecoin depeg readings of the scan these rows came from, and each row's quote (pair → quote). */
   depeg?: ReadonlyArray<{ coin: string; reference: string; deviationPct: number }>;
   quoteBySymbol?: Record<string, string>;
+  /**
+   * v2.8 (final review I-3): closed bars of one pair of the CURRENT source × timeframe. Pairs holding a paper
+   * position that the scan left out (liquidity floor, list cut) are fetched through it for the paper book only.
+   */
+  fetchKlines?: (pair: string, signal?: AbortSignal) => Promise<Kline[]>;
+  /** Source id → display label (the page's DATA_SOURCES), so series are named, not shown as `binance|4h` (M-5). */
+  sourceLabels?: Record<string, string>;
 }
 
 type NumericKey = keyof typeof RISK_SETTING_LIMITS;
@@ -148,7 +155,7 @@ function draftOf(s: RiskSettings): Record<string, string> {
   return Object.fromEntries(NUMERIC_KEYS.map((k) => [k, String(s[k])]));
 }
 
-export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe, engineConfigId, onBar, slippage, depeg, quoteBySymbol }: Props) {
+export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe, engineConfigId, onBar, slippage, depeg, quoteBySymbol, fetchKlines, sourceLabels }: Props) {
   const { t, id, platform, audit, announce, port } = useRsl();
   const [annotating, setAnnotating] = useState<JournalEntry | null>(null);
   const [review, setReview] = useState<{ trade: JournalEntry; candles: Kline[] } | null>(null);
@@ -167,12 +174,17 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
   const [killError, setKillError] = useState(false);
   const [ddText, setDdText] = useState("");
   const [ddError, setDdError] = useState(false);
+  /** Held pairs of the current series whose paper-only fetch failed on the last scan (final review I-3). */
+  const [feedFailed, setFeedFailed] = useState<string[]>([]);
   /** Source of truth for async handlers; updated only in callbacks, never during render. */
   const bookRef = useRef<PaperBook | null>(null);
   const moreLimitsRef = useRef<HTMLDetailsElement>(null);
   const proposalsRef = useRef<Proposal[]>([]);
   const intervalMs = INTERVAL_MS[timeframe] ?? INTERVAL_MS["4h"];
   const costs = costsFor(source);
+  /** M-5: series named by the source label and the localised timeframe, never as raw `src|tf` keys. */
+  const seriesLabel = (src: string, tf: string) => `${sourceLabels?.[src] ?? src} · ${t(`tf.${tf}`)}`;
+  const feedFailedText = pairsText(feedFailed, source, timeframe, seriesLabel);
 
   const log = useCallback((event: string, record: string, reason: string) => {
     void audit.append({ actorId: id.operator.id || "local", event, record, reason }).catch(() => undefined);
@@ -274,12 +286,13 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
 
   // Latest handlers for the scan effect and the external feed, so a re-created
   // callback (e.g. after a language change) never re-runs ingestion by itself.
-  const handlersRef = useRef({ ingestBars, refreshProposals });
-  useEffect(() => { handlersRef.current = { ingestBars, refreshProposals }; }, [ingestBars, refreshProposals]);
+  const handlersRef = useRef({ ingestBars, refreshProposals, fetchKlines, source, timeframe });
+  useEffect(() => { handlersRef.current = { ingestBars, refreshProposals, fetchKlines, source, timeframe }; }, [ingestBars, refreshProposals, fetchKlines, source, timeframe]);
 
   // Every new scan (rows array) is a heartbeat: process bars, then refresh proposals.
   useEffect(() => {
     if (!loaded) return;
+    const ac = new AbortController();
     const timer = window.setTimeout(() => {
       const at = Date.now();
       const usable = usableRows(rows, intervalMs, at);
@@ -288,8 +301,22 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
       handlersRef.current.ingestBars(bars, at);
       handlersRef.current.refreshProposals(usable, at);
       setNow(at);
+      // Final review I-3: pairs holding a position that this scan did not deliver (below the liquidity floor,
+      // outside the list) still need their bars for stops, targets, the time stop and lock closes — paper only.
+      const { fetchKlines: fetcher, source: src, timeframe: tf } = handlersRef.current;
+      const cur = bookRef.current;
+      const missing = cur && fetcher ? missingHeldPairs(cur, src, tf, usable.map((r) => r.pair)) : [];
+      if (!missing.length || !fetcher) { setFeedFailed([]); return; }
+      void fetchHeldBars(missing, fetcher, ac.signal).then(({ bars: held, failed }) => {
+        if (ac.signal.aborted) return;
+        const at2 = Date.now();
+        const fresh: Record<string, Kline[]> = {};
+        for (const [pair, k] of Object.entries(held)) if (seriesUsable(k, intervalMs, at2)) fresh[pair] = k; else failed.push(pair);
+        if (Object.keys(fresh).length) handlersRef.current.ingestBars(fresh, at2);
+        setFeedFailed([...failed].sort());
+      }).catch(() => undefined);
     }, 0);
-    return () => window.clearTimeout(timer);
+    return () => { window.clearTimeout(timer); ac.abort(); };
   }, [rows, loaded]);
 
   // Optional external bar feed (same freshness/interval checks as scan rows).
@@ -631,6 +658,9 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
             {/* ---------- Positions ---------- */}
             <section aria-labelledby="paper-positions" className="space-y-2">
               <h3 id="paper-positions" className="text-sm font-semibold text-zinc-200">{t("paper.positions")}</h3>
+              {feedFailedText && !book.account.drawdownLocked && (
+                <p role="status" data-testid="paper-feed-failed" className="text-xs text-amber-300">{t("paper.heldFeedFailed", { list: feedFailedText })}</p>
+              )}
               {book.positions.length === 0 ? (
                 <p className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3 text-xs text-zinc-400">{t("paper.noPositions")}</p>
               ) : (
@@ -877,13 +907,16 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
 
             {/* ---------- Drawdown lock (v2.8) ---------- */}
             {book.account.drawdownLocked && (() => {
-              const waiting = waitingSeries(book).join(", ");
+              const waiting = waitingText(book, seriesLabel);
               return (
               <section aria-labelledby="paper-dd" data-testid="paper-drawdown" className="rounded-lg border border-rose-500/50 bg-rose-500/5 p-3">
                 <h3 id="paper-dd" className="mb-1 flex items-center gap-2 text-sm font-semibold text-zinc-200"><OctagonX className="h-4 w-4 text-rose-400" />{t("paper.lockDrawdown")}</h3>
                 <p className="mb-2 text-xs text-zinc-400">{t("paper.drawdownHelp", { pct: book.account.settings.maxDrawdownLockPct })}</p>
                 {waiting && (
                   <p role="status" className="mb-2 text-xs text-amber-300">{t("paper.drawdownWaiting", { series: waiting })}</p>
+                )}
+                {feedFailedText && (
+                  <p role="status" data-testid="paper-feed-failed" className="mb-2 text-xs text-amber-300">{t("paper.heldFeedFailed", { list: feedFailedText })}</p>
                 )}
                 <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); resetDd(); }}>
                   <label className="flex flex-col gap-1 text-xs text-zinc-300" htmlFor="paper-dd-confirm">

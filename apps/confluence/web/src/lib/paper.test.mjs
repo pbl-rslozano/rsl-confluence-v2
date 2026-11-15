@@ -724,5 +724,53 @@ console.log("WP19 — rejected proposals keep their reason and a later bracket o
   ok("notes CSV: the annotation form saves under paperNoteId", /paperNoteId\(trade\)/.test(annSrc));
 }
 
+// Final review I-3 / M-5: a pair holding a paper position always feeds the paper book, even when the liquidity
+// floor keeps it off the scanned list; a pair that still cannot be fed is named with labels, never "binance|4h".
+console.log("Paper — held pairs below the liquidity floor");
+{
+  const feed = await import("./paper-feed.ts").catch(() => ({}));
+  const { passesLiquidityFloor, DEFAULT_LIQUIDITY_FLOOR_USD } = await import("./market-client.ts");
+  const zero = { feeBps: 0, slipBps: 0, fundingBpsPer8h: 0 };
+  // One open THIN long on binance|4h (filled at 100, stop 96), one pending PEND on binance|4h, one open ETH on bybit-spot|4h.
+  const b0 = liveBook();
+  const pr = createProposal(b0, input({ pair: "THINUSDT" }), NOW, "th1");
+  let b = processBars(approveProposal(b0, pr, "th1", NOW).book, "binance", "4h", { THINUSDT: [bar(T0 + 2 * I, 100, 100.5, 99.5, 100)] }, T0 + 3 * I, zero).book;
+  const thin = b.positions[0];
+  const pend = { ...thin, id: "pos-pend", proposalId: "pend", pair: "PENDUSDT", status: "pending", entry: null, openedAt: null };
+  const eth = { ...thin, id: "pos-eth", proposalId: "eth", pair: "ETHUSDT", src: "bybit-spot" };
+  b = { ...b, positions: [thin, pend, eth] };
+  ok("setup: THIN is open with its stop at 96", thin.status === "open" && near(thin.stop, 96), `${thin.status} ${thin.stop}`);
+
+  // The scan: THIN has $50k of 24 h volume, below the default floor, so it is not in the scanned (scored) list.
+  const tickers = [{ symbol: "BTCUSDT", qvUsd: 9e9 }, { symbol: "THINUSDT", qvUsd: 50_000 }, { symbol: "PENDUSDT", qvUsd: 10_000 }];
+  const scanned = tickers.filter((x) => passesLiquidityFloor(x.qvUsd, DEFAULT_LIQUIDITY_FLOOR_USD, "binance")).map((x) => x.symbol);
+  ok("setup: the floor keeps THIN and PEND off the scanned list", scanned.join() === "BTCUSDT", scanned.join());
+
+  const missing = feed.missingHeldPairs?.(b, "binance", "4h", scanned) ?? [];
+  ok("held pairs missing from the scan are found (open and pending; only this series)", missing.join() === "PENDUSDT,THINUSDT", missing.join());
+  const asked = [];
+  const stopBars = [bar(T0 + 3 * I, 99, 99.5, 95, 95.5)];
+  const got = await (feed.fetchHeldBars?.(missing, async (pair) => { asked.push(pair); if (pair === "PENDUSDT") throw new Error("HTTP 500"); return stopBars; }) ?? { bars: {}, failed: [] });
+  ok("bars are fetched for every missing held pair; a feed error is reported, not thrown", asked.join() === "PENDUSDT,THINUSDT" && Object.keys(got.bars).join() === "THINUSDT" && got.failed.join() === "PENDUSDT", JSON.stringify({ asked, failed: got.failed }));
+  const res = processBars(b, "binance", "4h", got.bars, T0 + 4 * I, zero);
+  ok("a held pair below the liquidity floor still closes at its stop", res.closed.length === 1 && res.closed[0].pair === "THINUSDT" && res.closed[0].reason === "stop" && near(res.closed[0].exit, 96), JSON.stringify(res.closed.map((j) => [j.pair, j.reason, j.exit])));
+  ok("scanned pairs are not fetched again", (feed.missingHeldPairs?.(b, "binance", "4h", ["THINUSDT", "PENDUSDT"]) ?? ["x"]).length === 0);
+
+  // RESET waiting text: labels and the localised timeframe, never raw series keys (M-5).
+  const label = (src, tf) => `${{ binance: "Binance", "bybit-spot": "Bybit Spot" }[src] ?? src} · ${{ "4h": "4 hours" }[tf] ?? tf}`;
+  const text = feed.waitingText?.(res.book, label) ?? "";
+  ok("waiting text names each pair with the source label and timeframe", text === "Binance · 4 hours: PENDUSDT; Bybit Spot · 4 hours: ETHUSDT", text);
+  ok("waiting text has no raw src|tf key", !/\|/.test(text) && !/binance\|4h/.test(text));
+  ok("waiting text is empty when nothing is held", feed.waitingText?.({ ...res.book, positions: [] }, label) === "");
+  const failedText = feed.pairsText?.(["PENDUSDT"], "binance", "4h", label) ?? "";
+  ok("a pair that cannot be fed is named with labels", failedText === "Binance · 4 hours: PENDUSDT", failedText);
+
+  // Wiring: the dialog fetches missing held pairs on every scan and shows labelled text; the page passes the fetcher.
+  const dlgSrc = readFileSync(join(process.cwd(), "src", "components", "paper-dialog.tsx"), "utf8");
+  const pageSrc = readFileSync(join(process.cwd(), "src", "app", "page.tsx"), "utf8");
+  ok("dialog feeds missing held pairs and labels the waiting text", /missingHeldPairs\(/.test(dlgSrc) && /fetchHeldBars\(/.test(dlgSrc) && /waitingText\(/.test(dlgSrc) && !/waitingSeries\(book\)\.join/.test(dlgSrc));
+  ok("page passes a kline fetcher for held pairs", /fetchKlines=\{/.test(pageSrc.slice(pageSrc.indexOf("<PaperDialog"), pageSrc.indexOf("/>", pageSrc.indexOf("<PaperDialog")))));
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

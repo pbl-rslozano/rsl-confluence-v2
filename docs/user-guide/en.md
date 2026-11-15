@@ -405,7 +405,10 @@ The scoring profile turns individual indicators on or off; weights and threshold
   this are left out of the score, with a note in the summary strip (section 4). Default **$1M**; choose $250k–$10M or
   **Off**. The volume is in US dollars, valued at the quote's own price on the same exchange (1 USDT = 1 USD) — the
   display currency never changes it. Coins.ph peso pairs keep their own thin-pair rule (section 8). It is a scan setting,
-  not a paper-trading rule.
+  not a paper-trading rule: a pair that holds an open or pending paper trade on the scanned source and timeframe keeps
+  receiving its bars for the paper simulator (stops, targets, time stop and lock closes) even when the floor — or the
+  list length or watch list — leaves it out of the list. It is still not shown, scored, recorded or alerted on. If its
+  bars cannot be loaded, the paper window says so and names the pair, the source and the timeframe.
 
 ## 10. Alerts
 ### Reversal alerts (🔔)
@@ -517,7 +520,9 @@ same ATR bracket later gave, are kept in the paper account on this device; they 
 - **Drawdown lock** (v2.8, default **10%**, 1–50%): when equity, open P&L included, falls 10% below its highest mark, the
   app (a) blocks new trades, (b) cancels pending positions — they are removed without a journal entry, since they never
   filled — and (c) closes every open trade at the **next open of its own chart**, reason *drawdown lock*. A position whose
-  chart is not being scanned closes at that chart's next scan; the dead-man badge shows it. The highest mark is checked
+  chart is not being scanned (another source or timeframe) closes at that chart's next scan; the dead-man badge shows
+  it. A pair left out of the list by the liquidity floor, the list length or the watch list still gets its bars on its
+  own source and timeframe, so it closes too (section 9). The highest mark is checked
   after every scan with each position at its latest price (bars missed while the app was closed are marked at the next
   scan from their real closes). A **Drawdown lock** badge and a red **RESET** box appear only while the lock is active.
   - **Losses can exceed 10%.** The closes happen at the next bar's open, so gaps, moves between marks, exit costs and a
@@ -525,8 +530,9 @@ same ATR bracket later gave, are kept in the paper account on this device; they 
   - **RESET.** After every lock close has filled (no open or pending positions), type `RESET` (the same word as the kill
     switch, a separate button) and press **Reset drawdown lock**: the highest mark restarts at current equity — a fresh
     10% — and the reset is recorded with the account (the trade journal and its statistics are unchanged). While closes
-    are still waiting, the button is disabled and names the source and timeframe to scan, for example *Reset drawdown
-    lock (scan binance|4h first)*. RESET keeps the loss; it only restarts the 10% from where you are.
+    are still waiting, the button is disabled and names each pair with its source and timeframe, for example *Reset
+    drawdown lock (scan Binance · 4 hours: SOLUSDT first)*. If a pair's bars could not be loaded, a line says so and
+    names it; the next scan tries again. RESET keeps the loss; it only restarts the 10% from where you are.
   - **How prop firms compare.** Topstep closes positions at its Maximum Loss Limit, which trails the end-of-day balance;
     FTMO's Maximum Loss is 10% of initial capital measured on equity (2-Step; on the 1-Step the floor trails the highest
     end-of-day balance). This lock trails the highest **marked** equity, which is stricter. Topstep's paid Reset restarts a
@@ -680,7 +686,7 @@ The desktop app also has menus: **File** (Export backup…, Restore backup…), 
 | Rows say **updating · …** | They are shown from the history on this device while the scan refreshes them (section 4); they are display only until then. |
 | A row says **not updated · …** | Its fetch failed this scan; it shows saved history, display only. The next scan tries again. |
 | *n thin pairs … are not scored* | The liquidity floor left those crypto pairs out; lower or turn off **Liquidity floor** in the scoring-profile panel (section 9). |
-| **Reset drawdown lock** is greyed out | Lock closes are still waiting: scan the source and timeframe the button names so they fill, then type `RESET`. |
+| **Reset drawdown lock** is greyed out | Lock closes are still waiting: scan the source and timeframe the button names (each pair is listed) so they fill, then type `RESET`. A pair below the liquidity floor still gets its bars; if *Bars could not be loaded* names it, wait for the next scan. |
 | Saving says *risk can't be loosened until the next UTC day* | A lock is active: limits cannot be loosened until the next UTC day after it clears (section 12). |
 | Ledger says **Not proven yet** | Normal for months, and for a small edge often years rather than weeks (see the power readout in the ledger). Keep scanning and export the ledger weekly. |
 | A paper proposal cannot be approved | Read the reason under it (lock, cluster limit, open-risk cap, stale signal…). Engaged kill switch: reset it with `RESET`. |

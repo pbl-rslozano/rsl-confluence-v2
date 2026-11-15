@@ -189,7 +189,7 @@ if (process.argv.includes("--with-tests")) {
       if (ORDER.test(readFileSync(f, "utf8"))) bad.push(`${r}: order endpoint`);
     }
   }
-  const paper = ["apps/confluence/web/src/lib/risk-engine.ts", "apps/confluence/web/src/lib/paper-broker.ts", "apps/confluence/web/src/lib/paper-store.ts", "apps/confluence/web/src/components/paper-dialog.tsx"];
+  const paper = ["apps/confluence/web/src/lib/risk-engine.ts", "apps/confluence/web/src/lib/paper-broker.ts", "apps/confluence/web/src/lib/paper-store.ts", "apps/confluence/web/src/lib/paper-feed.ts", "apps/confluence/web/src/components/paper-dialog.tsx"];
   const boundary = [...paper];
   const mcpDir = join(ROOT, "apps/confluence/mcp/src");
   if (existsSync(mcpDir)) for (const f of readdirSync(mcpDir)) if (/\.m?[jt]s$/.test(f)) boundary.push(`apps/confluence/mcp/src/${f}`);
