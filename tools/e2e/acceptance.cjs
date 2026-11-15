@@ -105,6 +105,87 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
 // The mocked exchange tickers carry 24 h quote volumes of ~1e9 USD, far above the 1M liquidity floor, so it removes no row.
 const DS_NOW = Date.UTC(2026, 10, 11, 9, 7, 0);
 const DS_TOLERANCE_PX = 2;
+// Pinned environment (fix/ds-ci-stability): the guard measures in the same conditions on every machine instead of
+// inheriting them from the host. Three host inputs used to leak into the layout:
+//   - Time zone and languages: "Display currency: Auto" follows the device's time zone, then its languages
+//     (lib/fx-rates.ts autoCurrency). Under TZ=Asia/Riyadh the screen shows SAR and the 25 px "Prices in SAR" FX row
+//     between the header and the list; under the CI runner's UTC it shows USD and no row, so everything below moved.
+//   - Glyph advances: headless Chromium's --font-render-hinting decides whether web-font glyph advances are
+//     fractional (none) or rounded to whole pixels (its default). Masked text ("Xxxx") is drawn with the bundled
+//     Inter, so every text-bearing box changed width by up to ~0.3 px per glyph (12 px "Xxxx": 27.84 vs 29 px).
+//     (The development container's headless shell adds --font-render-hinting=none itself; the CI runner's does not.)
+//   - System fonts: see dsPinFonts.
+// The baselines were captured with exactly these pins; dsEnv records them in each snapshot, and a mismatch is
+// reported as an "env" difference before any box, so a host where a pin does not take effect fails loudly.
+const DS_TIMEZONE = "Asia/Riyadh";
+const DS_LOCALE = "en-US";
+const DS_CHROMIUM_ARGS = ["--font-render-hinting=none", "--disable-lcd-text", "--force-color-profile=srgb"];
+let dsBrowserPromise = null;
+const dsBrowser = () => (dsBrowserPromise ||= chromium.launch({ args: DS_CHROMIUM_ARGS }));
+const dsBrowserClose = async () => { if (dsBrowserPromise) await (await dsBrowserPromise).close(); dsBrowserPromise = null; };
+// System fonts: masked text whose font stack starts with a family the app does not bundle (the table's
+// "Cascadia Mono", "Segoe UI Mono", Consolas, monospace; Arial; Tailwind's ui-monospace stack) is drawn with whatever
+// the host's fontconfig picks (DejaVu Sans Mono in the container; Courier on a host without it moved columns by up to
+// 23 px). dsPinFonts gives each such family the app's own bundled face (JetBrains Mono for monospace stacks, Inter
+// otherwise) before measuring, so masked text is drawn with bundled fonts only. Generic first families (monospace,
+// system-ui, ...) cannot be redefined; they are listed in @env as "not pinned" so a new one shows up as an env diff.
+async function dsPinFonts(page) {
+  await page.evaluate(async () => {
+    const subs = (window.__dsSubs ||= {});
+    // CSS generic keywords Chromium resolves itself on Linux (ui-monospace etc. are plain family names there).
+    const generic = new Set(["serif", "sans-serif", "monospace", "cursive", "fantasy", "math", "emoji", "fangsong", "system-ui"]);
+    const unq = (s) => s.trim().replace(/^["']|["']$/g, "");
+    const faceRules = [];
+    const walk = (rules, href) => { for (const r of rules) { if (r instanceof CSSFontFaceRule) faceRules.push({ r, href }); else if (r.cssRules) walk(r.cssRules, href); } };
+    for (const sheet of document.styleSheets) { try { walk(sheet.cssRules, sheet.href || location.href); } catch { /* cross-origin sheet: none in this app */ } }
+    const bundled = new Set(faceRules.map(({ r }) => unq(r.style.getPropertyValue("font-family")).toLowerCase()));
+    for (const f of document.fonts) bundled.add(unq(f.family).toLowerCase());
+    const loads = [];
+    for (const el of document.body.querySelectorAll("*")) {
+      const text = el.matches("input, textarea, select") || [...el.childNodes].some((n) => n.nodeType === 3 && n.nodeValue.trim());
+      if (!text) continue;
+      const stack = getComputedStyle(el).fontFamily.split(",").map(unq);
+      const first = stack[0];
+      if (bundled.has(first.toLowerCase()) || first in subs) continue;
+      if (generic.has(first.toLowerCase())) { subs[first] = "(generic, not pinned)"; continue; }
+      const to = stack.some((f) => /mono/i.test(f)) ? "JetBrains Mono" : "Inter";
+      for (const { r, href } of faceRules) {
+        if (unq(r.style.getPropertyValue("font-family")) !== to) continue;
+        const src = r.style.getPropertyValue("src").replace(/url\((["']?)([^)"']+)\1\)/g, (_, q, u) => `url("${new URL(u, href).href}")`);
+        const desc = {};
+        for (const [prop, key] of [["font-weight", "weight"], ["font-style", "style"], ["unicode-range", "unicodeRange"]]) { const v = r.style.getPropertyValue(prop); if (v) desc[key] = v; }
+        const face = new FontFace(first, src, desc);
+        document.fonts.add(face);
+        loads.push(face.load().catch(() => {}));
+      }
+      subs[first] = to;
+      bundled.add(first.toLowerCase());
+    }
+    await Promise.all(loads);
+    await document.fonts.ready;
+    await new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)));
+  });
+}
+// The environment as the page sees it: time zone, languages, the advance of the masked placeholder in the bundled
+// Inter at 12 px (fractional only when the hinting pin took effect) and the font substitutions dsPinFonts made.
+// Called after measuring, so the substitutions cover everything measured.
+async function dsEnv(p) {
+  return p.evaluate(async () => {
+    await document.fonts.ready;
+    const s = document.createElement("span");
+    s.style.cssText = "position:absolute;left:-9999px;top:0;white-space:pre;font:400 12px Inter";
+    s.textContent = "Xxxx";
+    document.body.appendChild(s);
+    const w = s.getBoundingClientRect().width;
+    s.remove();
+    const subs = Object.entries(window.__dsSubs || {}).sort(([a], [b]) => a.localeCompare(b)).map(([a, b]) => `${a} → ${b}`).join("; ");
+    return { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, languages: navigator.languages.join(","), interXxxx12px: Math.round(w * 1000) / 1000, fontSubstitutes: subs };
+  });
+}
+function dsEnvDiffs(base, now) {
+  if (!base) return ["env: baseline has no @env (re-capture it)"];
+  return Object.entries(base).filter(([k, v]) => !now || now[k] !== v).map(([k, v]) => `env ${k}: ${v} → ${now ? now[k] : "?"}`);
+}
 // Text masking (spec: "with text and live numbers masked"): right before measuring, every non-blank text node becomes
 // the same placeholder and input values/placeholders too, so a box's size comes from its padding, font and structure,
 // never from the wording or a live number. The context is closed (or the dialog closed) afterwards.
@@ -161,9 +242,10 @@ async function dsInstall(page) {
     };
     window.__ds = { mask, measure };
   });
+  await dsPinFonts(page);
 }
-async function dsContext(browser) {
-  const c = await newContext(browser);
+async function dsContext() {
+  const c = await newContext(await dsBrowser(), { timezoneId: DS_TIMEZONE, locale: DS_LOCALE });
   const seen = [];
   await mockExchanges(c, seen, { now: DS_NOW });
   await c.route(/^https:\/\/(api\.frankfurter\.dev|cdn\.jsdelivr\.net|latest\.currency-api\.pages\.dev|open\.er-api\.com|data-api\.ecb\.europa\.eu)\//, (route) => route.fulfill({ status: 503, body: "" }));
@@ -186,8 +268,8 @@ async function dsQuiet(p, seen) {
     if (seen.length === n) quiet += 250; else { n = seen.length; quiet = 0; }
   }
 }
-async function ds1Snapshot(browser) {
-  const { c, p } = await dsContext(browser);
+async function ds1Snapshot() {
+  const { c, p } = await dsContext();
   await dsInstall(p);
   const snap = await p.evaluate(() => {
     window.__ds.mask(document.body);
@@ -208,8 +290,9 @@ async function ds1Snapshot(browser) {
     const colours = { body: bg("body"), header: bg("header"), thead: bg("thead"), footer: bg("footer"), th: fg("thead th"), rowText: fg("tbody tr td:nth-child(3)") };
     return { boxes, colours };
   });
+  const env = await dsEnv(p);
   await c.close();
-  return snap;
+  return { "@env": env, ...snap };
 }
 // DS-2 excluded regions = exactly the spec §3 allowed additions that exist in this build (hidden before measuring):
 //   paper  §3.6  "More limits" (collapsed, after the existing settings grid)      [data-testid=paper-more-limits]
@@ -226,8 +309,8 @@ const DS2_ALLOWED = {
   paper: ['[data-testid="paper-more-limits"]', '[data-testid="paper-more-stats"]', '[data-testid="paper-add-note"]', '[data-testid="paper-lock-drawdown"]', '[data-testid="paper-drawdown"]', '[data-testid="paper-warning"]'],
   ledger: [],
 };
-async function ds2Snapshot(browser) {
-  const { c, p, seen } = await dsContext(browser);
+async function ds2Snapshot() {
+  const { c, p, seen } = await dsContext();
   const dialog = p.locator('[role="dialog"]').first();
   const measure = async (opts) => { await dsInstall(p); await p.mouse.move(1, 1); return p.evaluate((o) => window.__ds.measure(document.querySelector('[role="dialog"]'), o), opts); };
   const close = async () => { await p.keyboard.press("Escape"); await p.waitForFunction(() => !document.querySelector('[role="dialog"]'), null, { timeout: 10000 }); };
@@ -258,8 +341,9 @@ async function ds2Snapshot(browser) {
   await settle();
   snap.ledger = await measure({ exclude: DS2_ALLOWED.ledger });
   await close();
+  const env = await dsEnv(p);
   await c.close();
-  return snap;
+  return { "@env": env, ...snap };
 }
 function dsCompare(base, now, prefix = "") {
   const diffs = [];
@@ -278,19 +362,20 @@ function dsCompare(base, now, prefix = "") {
 (async () => {
   const browser = await chromium.launch();
   if (CAPTURE_DS1 || CAPTURE_DS2) {
-    const note = `main screen at rest, 1366x768, en, default settings (theme System = light in headless Chromium), text masked; clock ${new Date(DS_NOW).toISOString()}, exchange and FX hosts mocked; captured from ${BASE}`;
+    const note = `main screen at rest, 1366x768, en, default settings (theme System = light in headless Chromium), text masked; clock ${new Date(DS_NOW).toISOString()}, exchange and FX hosts mocked; pinned: time zone ${DS_TIMEZONE}, locale ${DS_LOCALE}, Chromium ${DS_CHROMIUM_ARGS.join(" ")}, masked text in bundled fonts only (see @env); captured from ${BASE}`;
     if (CAPTURE_DS1) {
-      const snap = await ds1Snapshot(browser);
+      const snap = await ds1Snapshot();
       fs.mkdirSync(path.dirname(path.resolve(CAPTURE_DS1)), { recursive: true });
       fs.writeFileSync(CAPTURE_DS1, JSON.stringify({ "@note": `DS-1 baseline: ${note}`, ...snap }, null, 2) + "\n");
       console.log(`DS-1 baseline: ${Object.keys(snap.boxes).length} boxes → ${CAPTURE_DS1}`);
     }
     if (CAPTURE_DS2) {
-      const snap = await ds2Snapshot(browser);
+      const snap = await ds2Snapshot();
       fs.mkdirSync(path.dirname(path.resolve(CAPTURE_DS2)), { recursive: true });
       fs.writeFileSync(CAPTURE_DS2, JSON.stringify({ "@note": `DS-2 baseline (detail sheet top + chart layers, paper dialog, ledger dialog; ${note.replace("main screen at rest", "each at rest")})`, ...snap }, null, 1) + "\n");
-      console.log(`DS-2 baseline: ${Object.entries(snap).map(([k, v]) => `${k} ${Object.keys(v.boxes).length}`).join(", ")} boxes → ${CAPTURE_DS2}`);
+      console.log(`DS-2 baseline: ${["detail", "paper", "ledger"].map((k) => `${k} ${Object.keys(snap[k].boxes).length}`).join(", ")} boxes → ${CAPTURE_DS2}`);
     }
+    await dsBrowserClose();
     await browser.close();
     return;
   }
@@ -1729,20 +1814,21 @@ function dsCompare(base, now, prefix = "") {
   {
     const baseFile = path.join(__dirname, "baselines", "ds-1.json");
     const base = fs.existsSync(baseFile) ? JSON.parse(fs.readFileSync(baseFile, "utf8")) : null;
-    const now = await ds1Snapshot(browser);
-    const diffs = base ? dsCompare(base, now) : ["no baseline"];
+    const now = await ds1Snapshot();
+    const diffs = base ? [...dsEnvDiffs(base["@env"], now["@env"]), ...dsCompare(base, now)] : ["no baseline"];
     record("DS-1", `Main screen at rest: header, controls, list toolbar, columns, rows and footer within ±${DS_TOLERANCE_PX} px of v2.7.0; default colours unchanged (text masked, clock frozen, FX mocked)`,
       diffs.length === 0, diffs.length ? diffs.slice(0, 12).join(" | ") : `${Object.keys(now.boxes).length} boxes`);
   }
   {
     const baseFile = path.join(__dirname, "baselines", "ds-2.json");
     const base = fs.existsSync(baseFile) ? JSON.parse(fs.readFileSync(baseFile, "utf8")) : null;
-    const now = await ds2Snapshot(browser);
-    const diffs = base ? ["detail", "paper", "ledger"].flatMap((k) => (base[k] ? dsCompare(base[k], now[k], `${k} `) : [`${k}: no baseline`])) : ["no baseline"];
+    const now = await ds2Snapshot();
+    const diffs = base ? [...dsEnvDiffs(base["@env"], now["@env"]), ...["detail", "paper", "ledger"].flatMap((k) => (base[k] ? dsCompare(base[k], now[k], `${k} `) : [`${k}: no baseline`]))] : ["no baseline"];
     record("DS-2", `Detail sheet (top + chart layers), paper dialog and ledger dialog at rest within ±${DS_TOLERANCE_PX} px of v2.7.0; default colours unchanged; only the §3 allowed additions excluded (text masked, clock frozen, FX mocked)`,
       diffs.length === 0, diffs.length ? `${diffs.length} differences: ${diffs.slice(0, 12).join(" | ")}` : ["detail", "paper", "ledger"].map((k) => `${k} ${Object.keys(now[k].boxes).length}`).join(", ") + " boxes");
   }
 
+  await dsBrowserClose();
   await browser.close();
   fs.writeFileSync(path.join(OUT, "results.json"), JSON.stringify({ at: new Date().toISOString(), base: BASE, results }, null, 2));
   const failed = results.filter((r) => !r.pass);

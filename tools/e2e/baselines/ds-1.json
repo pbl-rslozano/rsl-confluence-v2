@@ -1,5 +1,11 @@
 {
-  "@note": "DS-1 baseline: main screen at rest, 1366x768, en, default settings (theme System = light in headless Chromium), text masked; clock 2026-11-11T09:07:00.000Z, exchange and FX hosts mocked; served locally. Captured from the v2.7.0-web release build (tag v2.7.0-web, commit c268876, built in a temporary worktree) with --capture-ds1/--capture-ds2; two captures were identical. Boxes are [x, y, width, height] in CSS px (null height = open-ended ancestor of the last measured element); text masked = every non-blank text node replaced by the same placeholder before measuring.",
+  "@note": "DS-1 baseline: main screen at rest, 1366x768, en, default settings (theme System = light in headless Chromium), text masked; clock 2026-11-11T09:07:00.000Z, exchange and FX hosts mocked; pinned: time zone Asia/Riyadh, locale en-US, Chromium --font-render-hinting=none --disable-lcd-text --force-color-profile=srgb, masked text in bundled fonts only (see @env); served locally. Captured from the v2.7.0-web release build (tag v2.7.0-web, commit c268876, built in a temporary worktree) with --capture-ds1/--capture-ds2 on 15 Nov 2026 (fix/ds-ci-stability). Four captures were byte-identical: two in the development container, one under CI conditions (Playwright's stock headless shell without the container's font flags, TZ=UTC, LANG=C.UTF-8) and one with a different system font set (fonts-noto-core added, Inter and DejaVu Sans Mono removed). Boxes are [x, y, width, height] in CSS px (null height = open-ended ancestor of the last measured element); text masked = every non-blank text node replaced by the same placeholder before measuring; @env must match for the comparison to count.",
+  "@env": {
+    "timeZone": "Asia/Riyadh",
+    "languages": "en-US",
+    "interXxxx12px": 27.844,
+    "fontSubstitutes": "Cascadia Mono → JetBrains Mono"
+  },
   "boxes": {
     "header": [
       0,
@@ -196,7 +202,7 @@
     "th.1": [
       83,
       249,
-      114,
+      115,
       29
     ],
     "th.2": [
@@ -218,15 +224,15 @@
       29
     ],
     "th.5": [
-      454,
+      455,
       249,
       195,
       29
     ],
     "th.6": [
-      649,
+      650,
       249,
-      225,
+      224,
       29
     ],
     "th.7": [
@@ -268,7 +274,7 @@
     "row.0.td.1": [
       83,
       278,
-      114,
+      115,
       43
     ],
     "row.0.td.2": [
@@ -290,15 +296,15 @@
       43
     ],
     "row.0.td.5": [
-      454,
+      455,
       278,
       195,
       43
     ],
     "row.0.td.6": [
-      649,
+      650,
       278,
-      225,
+      224,
       43
     ],
     "row.0.td.7": [
@@ -340,7 +346,7 @@
     "row.1.td.1": [
       83,
       321,
-      114,
+      115,
       43
     ],
     "row.1.td.2": [
@@ -362,15 +368,15 @@
       43
     ],
     "row.1.td.5": [
-      454,
+      455,
       321,
       195,
       43
     ],
     "row.1.td.6": [
-      649,
+      650,
       321,
-      225,
+      224,
       43
     ],
     "row.1.td.7": [
@@ -412,7 +418,7 @@
     "row.2.td.1": [
       83,
       364,
-      114,
+      115,
       43
     ],
     "row.2.td.2": [
@@ -434,15 +440,15 @@
       43
     ],
     "row.2.td.5": [
-      454,
+      455,
       364,
       195,
       43
     ],
     "row.2.td.6": [
-      649,
+      650,
       364,
-      225,
+      224,
       43
     ],
     "row.2.td.7": [
@@ -484,7 +490,7 @@
     "row.3.td.1": [
       83,
       407,
-      114,
+      115,
       43
     ],
     "row.3.td.2": [
@@ -506,15 +512,15 @@
       43
     ],
     "row.3.td.5": [
-      454,
+      455,
       407,
       195,
       43
     ],
     "row.3.td.6": [
-      649,
+      650,
       407,
-      225,
+      224,
       43
     ],
     "row.3.td.7": [
