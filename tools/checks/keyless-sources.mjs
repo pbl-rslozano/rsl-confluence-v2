@@ -3,7 +3,7 @@
  * keyless-sources.mjs — release check R20 (v2.6, ADR-0013, ADR-0014).
  *
  * Public market-data sources stay keyless and read-only:
- *   1. the public-source modules (coinsph.ts, public-hosts.ts) contain no key,
+ *   1. the public-source modules (coinsph.ts, public-hosts.ts, v2.8 native-relay.ts) contain no key,
  *      signature or auth-header handling;
  *   2. no app or adapter source references a Coins.ph path outside the read
  *      allowlist in src/lib/public-hosts.ts (an allowlist, not a denylist);
@@ -39,7 +39,8 @@ export function checkKeylessSources(root = ROOT) {
   const read = (p) => (existsSync(join(root, p)) ? readFileSync(join(root, p), "utf8") : "");
   const lib = "apps/confluence/web/src/lib";
 
-  for (const f of [`${lib}/coinsph.ts`, `${lib}/public-hosts.ts`]) {
+  // v2.8 (WP26): the generic relay (Upbit) is a public-source module too.
+  for (const f of [`${lib}/coinsph.ts`, `${lib}/public-hosts.ts`, `${lib}/native-relay.ts`]) {
     const src = read(f);
     if (!src) findings.push(`${f} missing`);
     else if (AUTH.test(src.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ""))) findings.push(`${f}: key/signature/auth handling in a public source`);

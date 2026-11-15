@@ -24,6 +24,7 @@ import { APP, COLLECTIONS, PERSONAL_IDENTITY } from "./app-info";
 import { CATALOGS } from "./i18n/catalogs";
 import { readLegacyPreferences } from "@/lib/preferences-store";
 import { setCoinsphNativeGet } from "@/lib/coinsph";
+import { setRelayNativeGet } from "@/lib/native-relay";
 import { isAllowedNativeUrl } from "@/lib/public-hosts";
 import { registerShellFullscreen } from "@/lib/shell-fullscreen";
 
@@ -170,6 +171,8 @@ export async function loadAdapters(): Promise<Adapters> {
   // v2.6: Coins.ph sends no CORS header; native shells reach its read paths through
   // their own HTTP stack, fenced by the public-host allowlist (R16).
   setCoinsphNativeGet(adapters.makeNativeGet ? adapters.makeNativeGet(isAllowedNativeUrl) : null);
+  // v2.8 (WP26): Upbit's CORS is unreliable; the generic relay reaches its read paths the same way.
+  setRelayNativeGet(adapters.makeNativeGet ? adapters.makeNativeGet(isAllowedNativeUrl) : null);
   registerShellFullscreen(adapters.fullscreen);
   return adapters;
 }

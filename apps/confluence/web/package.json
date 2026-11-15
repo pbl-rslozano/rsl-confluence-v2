@@ -13,7 +13,7 @@
     "build:capacitor": "node scripts/build-html.mjs --target=capacitor",
     "start": "next start",
     "gen:icons": "node scripts/gen-icons.mjs",
-    "test": "npm run test:engine && npm run test:noise && npm run test:coinsph && npm run test:venues && npm run test:quotes && npm run test:fx && npm run test:chart && npm run test:measure && npm run test:measure23 && npm run test:paper && npm run test:fvg && npm run test:i18n && npm run test:theme && npm run test:update && node --test src/lib/derivatives-context.test.mjs src/lib/order-flow.test.mjs && node --experimental-strip-types --no-warnings --test src/lib/progressive-scan.test.mjs",
+    "test": "npm run test:engine && npm run test:noise && npm run test:coinsph && npm run test:relay && npm run test:venues && npm run test:quotes && npm run test:fx && npm run test:chart && npm run test:measure && npm run test:measure23 && npm run test:paper && npm run test:fvg && npm run test:i18n && npm run test:theme && npm run test:update && node --test src/lib/derivatives-context.test.mjs src/lib/order-flow.test.mjs && node --experimental-strip-types --no-warnings --test src/lib/progressive-scan.test.mjs",
     "test:engine": "node scripts/run-engine-tests.mjs",
     "test:noise": "node scripts/run-engine-tests.mjs noise.test.mjs",
     "test:fvg": "node --experimental-strip-types --no-warnings src/lib/fvg.test.mjs",
@@ -29,6 +29,7 @@
     "test:paper": "node scripts/run-engine-tests.mjs paper.test.mjs",
     "test:coinsph": "node scripts/run-engine-tests.mjs coinsph.test.mjs",
     "test:venues": "node scripts/run-engine-tests.mjs venue-ids.test.mjs",
+    "test:relay": "node scripts/run-engine-tests.mjs native-relay.test.mjs",
     "test:quotes": "node scripts/run-engine-tests.mjs quotes.test.mjs",
     "test:chart": "node --experimental-strip-types --no-warnings --test src/lib/chart-view.test.mjs",
     "test:fx": "node scripts/run-engine-tests.mjs fx-rates.test.mjs"

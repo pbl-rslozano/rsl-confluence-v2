@@ -21,7 +21,7 @@
  *   R13 app icon: rsL icon sources present and copied into the Capacitor projects (CI also checks the built APK/IPA, tools/check-icons.py)
  *   R14 an acceptance check in tools/acceptance-ids.json missing from the suite without an ADR (v2.5)
  *   R15 update channel (ADR-0012): service worker re-versioned per build, Netlify headers, update host in both CSPs, CI publish job
- *   R16 public-host table (v2.6, ADR-0013): Coins.ph read paths identical in public-hosts.ts, _redirects, the launcher proxy, the Tauri http scope, the egress manifest and ADR-0003
+ *   R16 public-host table (v2.6, ADR-0013; v2.8 WP26 every NATIVE_HOSTS entry: Coins.ph, Upbit): read paths identical in public-hosts.ts, _redirects, the launcher proxy, the Tauri http scope, the egress manifest and ADR-0003
  *   R17 protected build (v2.6, ADR-0014): no source maps, only listed own chunks obfuscated, vendor chunks unchanged, build manifest complete (needs a built out/)
  *   R18 protected equivalence (v2.6, ADR-0014): evidence that acceptance + engine golden passed on this protected build (needs a built out/)
  *   R19 docs parity (v2.6): the architecture plan and the user guide cover every user-visible change; version stamps match
@@ -256,11 +256,11 @@ if (process.argv.includes("--with-tests")) {
   check("R15", "Update channel wired (sw version, Netlify headers, update host in CSPs, CI publish)", problems.length === 0, problems.join("; ") || `${want} → ${origin}`);
 }
 
-/* R16 — hosts reached outside the CSP (v2.6, ADR-0013) */
+/* R16 — hosts reached outside the CSP (v2.6, ADR-0013; v2.8 WP26: every NATIVE_HOSTS entry) */
 {
   const { checkPublicHosts } = await import("./checks/public-hosts.mjs");
   const r = checkPublicHosts(ROOT);
-  check("R16", "Public-host table consistent (rewrites, launcher, Tauri scope, egress manifest, ADR-0003)", r.ok, r.ok ? r.summary : r.findings.join("; "));
+  check("R16", "Public-host table consistent for every native host (rewrites, launcher, Tauri scope, egress manifest, ADR-0003)", r.ok, r.ok ? r.summary : r.findings.join("; "));
 }
 
 /* R17 / R18 — protected build and its equivalence evidence (v2.6 WP8, ADR-0014). They need a built out/; CI runs
@@ -293,7 +293,7 @@ if (process.argv.includes("--with-tests")) {
 {
   const { checkKeylessSources } = await import("./checks/keyless-sources.mjs");
   const r = checkKeylessSources(ROOT);
-  check("R20", "Public sources keyless; Coins.ph paths only from the read allowlist; no private profile", r.ok, r.ok ? "coinsph, public-hosts, adapters" : r.findings.join("; "));
+  check("R20", "Public sources keyless; Coins.ph paths only from the read allowlist; no private profile", r.ok, r.ok ? "coinsph, public-hosts, native-relay, adapters" : r.findings.join("; "));
 }
 
 /* R21 — display currency is display only (v2.7, plan WP13.2) */

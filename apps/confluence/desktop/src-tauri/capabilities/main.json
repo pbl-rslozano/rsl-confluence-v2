@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-capability",
-  "description": "Least privilege for the main window: SQLite records, save/open dialogs (paths the user picks are added to the fs scope by the dialog plugin), file read/write in app data only, and the developer-contact mailto link, and (v2.7) window full screen for the chart, and GET of Coins.ph public market-data paths (ADR-0013; must match src/lib/public-hosts.ts, release check R16).",
+  "description": "Least privilege for the main window: SQLite records, save/open dialogs (paths the user picks are added to the fs scope by the dialog plugin), file read/write in app data only, and the developer-contact mailto link, and (v2.7) window full screen for the chart, and GET of Coins.ph (ADR-0013) and, v2.8, Upbit (ADR-0003 v2.8, WP26) public market-data read paths (must match src/lib/public-hosts.ts, release check R16).",
   "windows": [
     "main"
   ],
@@ -52,6 +52,21 @@
         },
         {
           "url": "https://api.pro.coins.ph/openapi/quote/v1/*"
+        },
+        {
+          "url": "https://api.upbit.com/v1/market/all"
+        },
+        {
+          "url": "https://api.upbit.com/v1/ticker/all"
+        },
+        {
+          "url": "https://api.upbit.com/v1/ticker"
+        },
+        {
+          "url": "https://api.upbit.com/v1/orderbook"
+        },
+        {
+          "url": "https://api.upbit.com/v1/candles/*"
         }
       ]
     }

@@ -3,7 +3,7 @@
   "description": "Allowed outbound hosts per process (ADR-0003, amended by ADR-0008). tools/check-egress.mjs fails when a source file under a process root contains an http(s) URL whose host is not listed for that process; the recorder also enforces this list at runtime.",
   "processes": {
     "web": {
-      "description": "Browser / Tauri / Capacitor app. Enforced by CSP connect-src (apps/confluence/web/src/lib/csp.ts) and release-check R8; listed here for one overview, not scanned by check-egress. v2.6: nativeHosts are reached outside the CSP (no CORS header) — web through the same-origin rewrite in public/_redirects, Capacitor/Tauri through nativeGet — and only on the read paths in src/lib/public-hosts.ts (release-check R16). v2.8 (WP20): `hosts` lists every CSP_HOSTS host without its scheme, the six display-currency rate hosts included (ADR-0015); tools/check-egress.test.mjs checks it.",
+      "description": "Browser / Tauri / Capacitor app. Enforced by CSP connect-src (apps/confluence/web/src/lib/csp.ts) and release-check R8; listed here for one overview, not scanned by check-egress. v2.6: nativeHosts are reached outside the CSP (no CORS header) — web through the same-origin rewrite in public/_redirects, Capacitor/Tauri through nativeGet — and only on the read paths in src/lib/public-hosts.ts (release-check R16). v2.8 (WP20): `hosts` lists every CSP_HOSTS host without its scheme, the six display-currency rate hosts included (ADR-0015); tools/check-egress.test.mjs checks it. v2.8 (WP26): www.okx.com and api.exchange.coinbase.com join the CSP hosts; api.upbit.com is a native host (read paths only, like Coins.ph). The Node paths of the app (the server route src/app/api/market, the replay CLI) fetch these venues directly with plain fetch; they run on the user's own computer and use the same hosts.",
       "roots": [],
       "hosts": [
         "data-api.binance.vision",
@@ -17,7 +17,9 @@
         "latest.currency-api.pages.dev",
         "data-api.ecb.europa.eu",
         "open.er-api.com",
-        "www.floatrates.com"
+        "www.floatrates.com",
+        "www.okx.com",
+        "api.exchange.coinbase.com"
       ],
       "csp": [
         "'self'",
@@ -34,19 +36,23 @@
         "https://latest.currency-api.pages.dev",
         "https://data-api.ecb.europa.eu",
         "https://open.er-api.com",
-        "https://www.floatrates.com"
+        "https://www.floatrates.com",
+        "https://www.okx.com",
+        "https://api.exchange.coinbase.com"
       ],
       "nativeHosts": [
-        "api.pro.coins.ph"
+        "api.pro.coins.ph",
+        "api.upbit.com"
       ]
     },
     "launcher": {
-      "description": "Local PWA launcher (tools/pwa-launcher/serve-pwa.mjs), run by the user on their own computer. v2.6: proxies Coins.ph public market-data read paths for the page (same list as src/lib/public-hosts.ts, R16).",
+      "description": "Local PWA launcher (tools/pwa-launcher/serve-pwa.mjs), run by the user on their own computer. v2.6: proxies Coins.ph public market-data read paths for the page (same list as src/lib/public-hosts.ts, R16). v2.8 (WP26): and the Upbit read paths.",
       "roots": [
         "tools/pwa-launcher"
       ],
       "hosts": [
-        "api.pro.coins.ph"
+        "api.pro.coins.ph",
+        "api.upbit.com"
       ],
       "loopbackListen": true
     },
@@ -65,14 +71,17 @@
       "loopbackListen": true
     },
     "recorder": {
-      "description": "Headless forward-test recorder (apps/confluence/recorder, ADR-0008). Market data only; alert hosts are added at runtime only when the matching environment variables are set.",
+      "description": "Headless forward-test recorder (apps/confluence/recorder, ADR-0008). Market data only (v2.8 WP26: OKX, Coinbase Exchange and Upbit join the exchange hosts; Upbit read paths only); alert hosts are added at runtime only when the matching environment variables are set.",
       "roots": [
         "apps/confluence/recorder"
       ],
       "hosts": [
         "data-api.binance.vision",
         "api.bybit.com",
-        "api.bitget.com"
+        "api.bitget.com",
+        "www.okx.com",
+        "api.exchange.coinbase.com",
+        "api.upbit.com"
       ],
       "conditionalHosts": {
         "api.telegram.org": "only when TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are both set"

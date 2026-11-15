@@ -5,3 +5,15 @@
 /x/coinsph/openapi/v1/time            https://api.pro.coins.ph/openapi/v1/time            200
 /x/coinsph/openapi/v1/exchangeInfo    https://api.pro.coins.ph/openapi/v1/exchangeInfo    200
 /x/coinsph/openapi/quote/v1/*         https://api.pro.coins.ph/openapi/quote/v1/:splat    200
+
+# v2.8 (WP26, ADR-0003 amendment v2.8): Upbit public market data, read paths only. Upbit's
+# Access-Control-Allow-Origin header is unreliable (probe EX-PROBE-1,
+# docs/research/evidence/wp26-venues-probe-2026-11-15.json), so the hosted PWA reaches it
+# through these same-origin rewrites. Its account and order endpoints share the host and
+# have no rule here. No headers, no secrets. Must match
+# apps/confluence/web/src/lib/public-hosts.ts — release check R16.
+/x/upbit/v1/market/all    https://api.upbit.com/v1/market/all    200
+/x/upbit/v1/ticker/all    https://api.upbit.com/v1/ticker/all    200
+/x/upbit/v1/ticker        https://api.upbit.com/v1/ticker        200
+/x/upbit/v1/orderbook     https://api.upbit.com/v1/orderbook     200
+/x/upbit/v1/candles/*     https://api.upbit.com/v1/candles/:splat    200
