@@ -1,5 +1,11 @@
 {
- "@note": "DS-2 baseline (detail sheet top + chart layers, paper dialog, ledger dialog; each at rest, 1366x768, en, default settings (theme System = light in headless Chromium), text masked; clock 2026-11-11T09:07:00.000Z, exchange and FX hosts mocked; served locally). Captured from the v2.7.0-web release build (tag v2.7.0-web, commit c268876, built in a temporary worktree) with --capture-ds1/--capture-ds2; two captures were identical. Boxes are [x, y, width, height] in CSS px (null height = open-ended ancestor of the last measured element); text masked = every non-blank text node replaced by the same placeholder before measuring.",
+ "@note": "DS-2 baseline (detail sheet top + chart layers, paper dialog, ledger dialog; each at rest, 1366x768, en, default settings (theme System = light in headless Chromium), text masked; clock 2026-11-11T09:07:00.000Z, exchange and FX hosts mocked; pinned: time zone Asia/Riyadh, locale en-US, Chromium --font-render-hinting=none --disable-lcd-text --force-color-profile=srgb, masked text in bundled fonts only (see @env); served locally). Captured from the v2.7.0-web release build (tag v2.7.0-web, commit c268876, built in a temporary worktree) with --capture-ds1/--capture-ds2 on 15 Nov 2026 (fix/ds-ci-stability). Four captures were byte-identical: two in the development container, one under CI conditions (Playwright's stock headless shell without the container's font flags, TZ=UTC, LANG=C.UTF-8) and one with a different system font set (fonts-noto-core added, Inter and DejaVu Sans Mono removed). Boxes are [x, y, width, height] in CSS px (null height = open-ended ancestor of the last measured element); text masked = every non-blank text node replaced by the same placeholder before measuring; @env must match for the comparison to count.",
+ "@env": {
+  "timeZone": "Asia/Riyadh",
+  "languages": "en-US",
+  "interXxxx12px": 27.844,
+  "fontSubstitutes": "Arial → Inter; Cascadia Mono → JetBrains Mono; ui-monospace → JetBrains Mono"
+ },
  "detail": {
   "boxes": {
    "div": [
@@ -23,7 +29,7 @@
    "div/0:div/0:h2/0:span": [
     448,
     52,
-    186,
+    185,
     30
    ],
    "div/0:div/0:h2/0:span/0:span": [
@@ -354,31 +360,31 @@
     462,
     544,
     427,
-    7
+    8
    ],
    "div/1:div/3:div/1:div/0:svg/1:g": [
     462,
     491,
     427,
-    7
+    8
    ],
    "div/1:div/3:div/1:div/0:svg/2:g": [
     462,
     437,
     427,
-    7
+    8
    ],
    "div/1:div/3:div/1:div/0:svg/3:g": [
     462,
     384,
     427,
-    7
+    8
    ],
    "div/1:div/3:div/1:div/0:svg/4:g": [
     462,
     330,
     427,
-    7
+    8
    ],
    "div/1:div/3:div/1:div/0:svg/5:g": [
     463,
@@ -432,31 +438,31 @@
     455,
     651,
     15,
-    7
+    8
    ],
    "div/1:div/3:div/1:div/0:svg/14:text": [
     557,
     651,
     15,
-    7
+    8
    ],
    "div/1:div/3:div/1:div/0:svg/15:text": [
     658,
     651,
     15,
-    7
+    8
    ],
    "div/1:div/3:div/1:div/0:svg/16:text": [
     760,
     651,
     15,
-    7
+    8
    ],
    "div/1:div/3:div/1:div/0:svg/17:text": [
     863,
     651,
     15,
-    7
+    8
    ],
    "div/1:div/3:div/1:div/0:svg/18:g": [
     462,
@@ -557,79 +563,79 @@
    "div/1:div/3:div/2:div/1:div/0:span": [
     461,
     687,
-    27,
+    26,
     17
    ],
    "div/1:div/3:div/2:div/1:div/1:span": [
-    500,
+    499,
     687,
-    27,
+    26,
     17
    ],
    "div/1:div/3:div/2:div/1:div/2:span": [
     538,
     687,
-    27,
+    26,
     17
    ],
    "div/1:div/3:div/2:div/1:div/3:span": [
-    577,
+    576,
     687,
-    27,
+    26,
     17
    ],
    "div/1:div/3:div/2:div/1:div/4:span": [
     615,
     687,
-    27,
+    26,
     17
    ],
    "div/1:div/3:div/2:div/1:div/5:span": [
-    654,
+    653,
     687,
-    27,
+    26,
     17
    ],
    "div/1:div/3:div/2:div/1:div/6:span": [
-    692,
+    691,
     687,
-    27,
+    26,
     17
    ],
    "div/1:div/3:div/2:div/1:div/7:span": [
-    731,
+    730,
     687,
-    27,
+    26,
     17
    ],
    "div/1:div/3:div/2:div/1:div/8:span": [
-    769,
+    768,
     687,
-    27,
+    26,
     17
    ],
    "div/1:div/3:div/2:div/1:div/9:span": [
-    808,
+    807,
     687,
-    27,
+    26,
     17
    ],
    "div/1:div/3:div/2:div/1:div/10:span": [
-    846,
+    845,
     687,
-    27,
+    26,
     17
    ],
    "div/1:div/3:div/2:div/1:div/11:span": [
     461,
     707,
-    27,
+    26,
     17
    ],
    "div/1:div/3:div/2:div/1:div/12:span": [
-    500,
+    499,
     707,
-    27,
+    26,
     17
    ],
    "div/1:div/3:div/3:p": [
@@ -1922,17 +1928,17 @@
    "div/1:div/0:span": [
     448,
     116,
-    105,
+    104,
     22
    ],
    "div/1:div/1:span": [
-    561,
+    560,
     116,
     47,
     22
    ],
    "div/1:div/2:span": [
-    616,
+    615,
     119,
     28,
     16
