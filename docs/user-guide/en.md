@@ -310,7 +310,8 @@ Choose them under **Data source**. They scan like the other sources: closed cand
 
   Upbit's own weekly and monthly candles also start on Monday and on the 1st, at 00:00 UTC.
 - **Request cap and "cold" scores.** These exchanges send at most 300 candles (OKX, Coinbase) or 200 (Upbit) per request.
-  A full history of 1,000 bars therefore takes several requests per pair, and the app stops at **16 requests per pair**.
+  A full history of 1,000 bars therefore takes several requests per pair, and the app stops at **16 requests per pair**
+  (OKX needs at most 5).
   Where that is not enough, the pair is scored on the bars it has and counts as **cold** in the ledger (fewer than 1,000
   bars), for example:
   - Coinbase 8 hours, weekly and monthly;
@@ -328,9 +329,13 @@ Choose them under **Data source**. They scan like the other sources: closed cand
   - **KRW** prices follow your display currency, like pesos on Coins.ph.
   - **BTC-market** prices stay in BTC, and the scan line says *Prices in BTC — not converted to your display currency.*
   - For the liquidity floor and the ranking, volume is valued in US dollars with Upbit's own USDT market (KRW-USDT,
-    USDT-BTC), never with display rates.
+    USDT-BTC), never with display rates. If Upbit's KRW-USDT price is missing, KRW volume is unknown: with a liquidity
+    floor on, those pairs are not scored, and the scan line says *… pairs with unknown US$ volume are not scored*.
+  - Upbit's **24h %** is measured from the previous 00:00 UTC close, not over a rolling 24 hours as on the other exchanges.
+  - In paper trading, Upbit's KRW and BTC pairs are refused (the paper account is in US dollars); its USDT pairs can be
+    proposed.
 - **Coinbase** offers USD and USDT pairs. USDC pairs are not offered, because Coinbase Exchange has delisted its USDC books
-  and serves them as USD.
+  and serves them as USD. Both USD and USDT pairs can be proposed in paper trading.
 - **Upbit is reached through a relay.**
   - The web app and the local launcher read Upbit through their own address (`/x/upbit/…`). The installed apps read it
     directly, but only Upbit's public price paths.
@@ -503,8 +508,14 @@ Every scored closed bar is recorded with the engine version. The ledger shows ho
 | Bybit Perpetual | 5.5 bp | 5 bp | 1 bp |
 | Bitget Perpetual | 6 bp | 5 bp | 1 bp |
 | Coins.ph (PH) | 30 bp | 15 bp | 0 |
+| OKX Spot (v2.8) | 10 bp | 5 bp | 0 |
+| OKX Perpetual (v2.8) | 6 bp | 5 bp | 1 bp |
+| Coinbase (US) (v2.8) | 60 bp | 5 bp | 0 |
+| Upbit (KR) (v2.8): KRW markets | 5 bp | 5 bp | 0 |
+| Upbit (KR) (v2.8): BTC and USDT markets | 25 bp | 5 bp | 0 |
 
-Other stablecoin quotes on the same exchange use the same costs. RWA and stocks add 10 bp slippage, commodities 5 bp, currencies 3 bp.
+Other stablecoin quotes on the same exchange use the same costs. The OKX and Upbit fees are not yet confirmed on the
+exchanges' own fee pages (Upbit's come from a 2026 review of the exchange). RWA and stocks add 10 bp slippage, commodities 5 bp, currencies 3 bp.
 
 ### The check
 ![The measurement check and pre-registration.](images/ledger-gate.webp)
@@ -565,7 +576,7 @@ at the next open, reason *time*. **Warnings:** risk per trade above 1% of equity
 total notional is capped at 1 × equity until liquidation is modelled. **Rejected** proposals, with any note and the result the
 same ATR bracket later gave, are kept in the paper account on this device; they are not shown on screen or exported yet.
 
-**Currency (v2.7).** The paper account is kept in USDT, so only pairs quoted in a dollar stablecoin (USDT, USDC, FDUSD …) can be proposed; peso (Coins.ph) and euro pairs are refused with a reason. One position per coin: BTCUSDT and BTCUSDC count as the same exposure.
+**Currency (v2.7).** The paper account is kept in US dollars (USDT), so only pairs quoted in a dollar stablecoin (USDT, USDC, FDUSD …) can be proposed, plus (v2.8) Coinbase's own USD pairs; peso (Coins.ph), won and BTC-market (Upbit) and euro pairs are refused with a reason. One position per coin: BTCUSDT and BTCUSDC count as the same exposure.
 
 ### Locks
 - **Daily and weekly loss locks** block new approvals after the set loss. From v2.8 **open losses count**: the lock
@@ -735,7 +746,7 @@ The desktop app also has menus: **File** (Export backup…, Restore backup…), 
 | **Could not reach …** in Rate sources | The source you chose is down or blocked on your network; the last rates it gave are kept. Choose **Automatic** or another source. |
 | A custom rates file is refused | It holds no rates the app can read; save the source's JSON (not its web page) and import that. |
 | **Load 5K older** says the row is from an earlier scan | You changed source or timeframe; wait for the new scan, then reopen the asset. |
-| A paper proposal says the account is in USDT | Peso and euro pairs cannot be booked in the USDT paper account; scan a dollar-stablecoin quote. |
+| A paper proposal says the account is in US dollars | Peso, won, BTC-market and euro pairs cannot be booked in the US-dollar paper account; scan a dollar-stablecoin quote (or Coinbase USD). |
 | Rows say **updating · …** | They are shown from the history on this device while the scan refreshes them (section 4); they are display only until then. |
 | A row says **not updated · …** | Its fetch failed this scan; it shows saved history, display only. The next scan tries again. |
 | *n thin pairs … are not scored* | The liquidity floor left those crypto pairs out; lower or turn off **Liquidity floor** in the scoring-profile panel (section 9). |

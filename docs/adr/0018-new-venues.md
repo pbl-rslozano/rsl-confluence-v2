@@ -157,6 +157,8 @@ one-second window per gate.
 - USD (default) and USDT, with `status "online"` and `trading_disabled false` only.
 - **USDC is not offered:** BTC-USDC and ETH-USDC are `delisted` with trading disabled, and USDC books are served as USD
   (probe).
+- **Paper trading:** Coinbase's own USD books are US dollars, so `usdQuoted` accepts plain `USD` when the source is
+  `coinbase` (final fix wave). USD and USDT pairs can both be proposed. Plain-USD books on other venues stay refused.
 
 **Fees**
 - 60 bps: base-tier taker (maker 40 bps). Source: Coinbase Exchange fees,
@@ -228,7 +230,11 @@ one-second window per gate.
 **Quotes and prices**
 - Markets: KRW (default), USDT and BTC.
 - The scan's USD volume and the liquidity floor use Upbit's own `KRW-USDT` and `USDT-BTC` tickers, never display rates
-  (R21). A missing `KRW-USDT` makes KRW volume unknown and ranks the pair last.
+  (R21). A missing `KRW-USDT` makes KRW volume unknown and ranks the pair last. It is sent to the page as `0`, never
+  `NaN`. An active liquidity floor leaves such pairs out, and the scan line counts them as "unknown US$ volume", not as
+  thin pairs.
+- **Paper trading:** KRW and BTC pairs are refused with `paper.rule.currency` (the paper account is in US dollars). USDT
+  pairs can be proposed. Tests pin both cases.
 - **KRW prices** go to the display currency through display FX, like PHP.
 - **BTC-market prices are not converted.** Display FX (ADR-0015) converts fiat currencies with reference rates, and BTC is
   not one. Converting through `USDT-BTC` would put a market price into the display-only rate path. The scan line says
@@ -239,9 +245,13 @@ one-second window per gate.
 - The `/v1/orderbook` shape comes from the docs [not verified by probe].
 
 **Fees**
-- Currently **25 bps flat** for every market [not verified].
-- The final fix wave sets **KRW 0.05 %** and **BTC and USDT markets 0.25 %**. These come from a secondary source (an Upbit
-  review, 2026) and are to be checked on Upbit's own fee page.
+- Taker fee per quote market (`QUOTE_FEE_BPS`, through `costsFor(source, ac, slip, quote)`):
+  - **KRW markets 5 bps** (0.05 %);
+  - **BTC and USDT markets 25 bps** (0.25 %, the `DEFAULT_COSTS.upbit` figure).
+- Slippage is a 5 bps placeholder.
+- Source: a secondary source (Upbit review, digitalmoneybox.com, 2026) [not verified on Upbit's fee page].
+- The ledger's measured outcomes, the paper broker and the replay CLI charge the pair's own quote market. The ledger's
+  cost line still shows the source default (25 bps).
 
 ### 4. Common rules (all four sources)
 - **No keys, no orders, no referral codes, no embedding:**
@@ -287,12 +297,18 @@ way.
    encoded `..` before forwarding. No credentials are relayed, so the worst case is an unauthenticated request reaching a
    private path, which Upbit refuses. To check on a deploy preview. The local launcher re-checks the parsed path and
    refuses `%2e` / `%25` / `%2f` / `%5c` / `\` (Task 2 fix).
-2. **Tauri http scope for Upbit:**
-   - The scope lists `/v1/market/all`, `/v1/ticker/all`, `/v1/ticker` and `/v1/orderbook` as exact URLs, but the calls
-     carry query strings, so the desktop shell may refuse them.
-   - **Fix pending** (final fix wave): add query-tolerant entries (`…?*`) for each exact path, and check the Coins.ph
-     exact entries the same way.
-3. **Upbit fees:** per-quote costs (section 3), checked against Upbit's fee page.
+2. **Tauri http scope for Upbit: closed, no change needed.**
+   - The scope lists `/v1/market/all`, `/v1/ticker/all`, `/v1/ticker` and `/v1/orderbook` as exact URLs, and the calls
+     carry query strings.
+   - The pinned `tauri-plugin-http` 2.8.3 (`desktop/src-tauri/Cargo.toml`, `=2.8.3`) parses each scope URL with
+     `parse_url_pattern`, which sets an empty search and hash to `*` (`src/scope.rs:17-34`). Its own `fixed_path` test
+     shows that `http://localhost:8080/file.png` allows `…/file.png?q=1` and refuses `…/file.png/other.jpg`.
+   - So an exact-path entry already admits any query string, while the path stays exact. The same holds for the Coins.ph
+     exact entries.
+   - No `…?*` entries are added. They would change nothing at runtime, and R16 would then fail, because it requires the
+     scope to equal the `NATIVE_HOSTS` URLs exactly.
+   - One native smoke run before release is still worthwhile, to check the wiring of `makeNativeGet`.
+3. **Upbit fees:** per-quote costs are set (section 3). The figures still need checking against Upbit's own fee page.
 4. **Terms and link patterns:** sections 5 and 6.
 
 ## Consequences

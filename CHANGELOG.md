@@ -26,12 +26,15 @@ ledger rows of engine 2.3.0 stay and are reported separately.
 - **New exchanges (WP26, ADR-0018):** **OKX Spot**, **OKX Perpetual** (USDT-margined), **Coinbase (US)** (USD, USDT) and
   **Upbit (KR)** (KRW, USDT, BTC) are scan sources, with public prices only and no keys, orders, referral codes or embedded
   pages. Closed bars only: OKX's open bar (`confirm "0"`) and the forming row of Coinbase and Upbit are never scored. Pages
-  are merged without duplicates, capped at 16 requests per series and scored cold below 1,000 bars. Each venue is paced
+  are merged without duplicates, capped at 16 requests per series (OKX needs at most 5) and scored cold below 1,000 bars. Each venue is paced
   at 80 % of its documented limit (OKX candles 16/s and history 8/s; Coinbase 8/s; Upbit 8/s).
   - Timeframes a venue lacks are built from complete shorter candles: Coinbase weeks start Monday 00:00 UTC and its
     months are calendar months.
   - Upbit's KRW prices follow the display currency; its BTC-market prices stay in BTC. Volume is valued with Upbit's own
-    KRW-USDT and USDT-BTC markets (R21).
+    KRW-USDT and USDT-BTC markets (R21). Without KRW-USDT, KRW volume is unknown, never "NaN".
+  - Paper trading: Coinbase USD and USDT pairs can be proposed; Upbit KRW and BTC pairs are refused. Upbit fees per
+    market: KRW 5 bps, BTC and USDT 25 bps (secondary source). A scan whose every series is unavailable shows "Blocked or
+    unreachable".
   - Hosts: `www.okx.com` and `api.exchange.coinbase.com` are fetched directly (CSP). `api.upbit.com` is reached only
     through the read-only relay: the `/x/upbit/` rewrite on the web, path-scoped native access in the apps (ADR-0003
     amendment, R8/R16). A refused relay is "feed unavailable" for Upbit alone.
