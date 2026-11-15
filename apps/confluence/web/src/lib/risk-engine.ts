@@ -14,6 +14,7 @@
  * ----------------------------------------------------------------------------
  */
 import { splitPair, stableQuote } from "./quotes";
+import { inBlackout } from "./macro-calendar";
 import type { AssetClass } from "./ledger-metrics";
 
 export type Side = "long" | "short";
@@ -45,6 +46,12 @@ export interface ProposalInput {
   intervalMs: number;
   /** Optional exchange lot step; derived from price when absent. */
   lotStep?: number;
+  /** v2.8: round-trip cost as a fraction of entry, 2 × (taker fee + slippage); sized inside the risk budget. */
+  roundTripCost?: number;
+  /** v2.8: the measured one-side slippage (bp) that went into roundTripCost; frozen on the position at approval. */
+  measuredSlipBps?: number;
+  /** v2.8: the quote stablecoin's deviation from USDT in % (null for USDT itself or no reading). */
+  depegPct?: number | null;
 }
 
 /** Minimal view of an open (or pending) paper position the engine needs. */
@@ -70,6 +77,13 @@ export interface AccountState {
   killSwitch: boolean;
   /** Last scan heartbeat for this proposal's source × timeframe (ms; 0 = never). */
   lastHeartbeat: number;
+  /** v2.8: highest marked equity (incl. open P&L) since the book started or the last drawdown RESET. */
+  peakEquity?: number;
+  /** v2.8: the drawdown lock is engaged (clears only by RESET). */
+  drawdownLocked?: boolean;
+  /** v2.8: equity at the first mark at or after 00:00 UTC today / Monday — open losses then count in the locks. */
+  dayStartEquity?: number;
+  weekStartEquity?: number;
 }
 
 export interface RiskSettings {
@@ -99,6 +113,16 @@ export interface RiskSettings {
   deadManBars: number;
   /** Total notional of all positions ≤ maxLeverage × equity (1 = no leverage). */
   maxLeverage: number;
+  /** v2.8: stop and close everything once equity falls this % below its highest mark. */
+  maxDrawdownLockPct: number;
+  /** v2.8: open crypto positions at once (crypto moves together). */
+  maxCryptoPositions: number;
+  /** v2.8: block proposals 2 h before to 1 h after FOMC / CPI / NFP. */
+  eventBlackout: boolean;
+  /** v2.8: close after this many bars held (0 = off; preset 24 when turned on). */
+  timeStopBars: number;
+  /** v2.8: 1m–15m proposals are context only unless this is on. */
+  allowIntradayProposals: boolean;
 }
 
 export const DEFAULT_RISK_SETTINGS: RiskSettings = {
@@ -116,10 +140,26 @@ export const DEFAULT_RISK_SETTINGS: RiskSettings = {
   maxSignalAgeBars: 1,
   deadManBars: 3,
   maxLeverage: 1,
+  maxDrawdownLockPct: 10,
+  maxCryptoPositions: 3,
+  eventBlackout: true,
+  timeStopBars: 0,
+  allowIntradayProposals: false,
 };
 
+/** v2.8: settings whose increase loosens risk — refused while a lock is active and until the next UTC day. */
+export const LOOSENING_KEYS = ["dailyLossLockPct", "weeklyLossLockPct", "maxDrawdownLockPct", "riskPerTradePct", "maxOpenRiskPct", "maxLeverage"] as const;
+/** v2.8: boolean settings. */
+export const BOOLEAN_SETTINGS = ["allowShortsOnSpot", "requireFreshSignal", "eventBlackout", "allowIntradayProposals"] as const;
+/** v2.8: preset offered when the time stop is turned on. */
+export const TIME_STOP_PRESET_BARS = 24;
+/** Bars to put in the time-stop field when the on/off checkbox changes: the preset when turned on, 0 when off. */
+export const timeStopToggleBars = (on: boolean): number => (on ? TIME_STOP_PRESET_BARS : 0);
+/** v2.8: proposals at or below this bar length are intraday context. */
+export const INTRADAY_MAX_MS = 15 * 60_000;
+
 /** Valid range for every numeric setting: [min, max]. Used by the settings form and `validateSettings`. */
-export const RISK_SETTING_LIMITS: Record<Exclude<keyof RiskSettings, "allowShortsOnSpot" | "requireFreshSignal">, [number, number]> = {
+export const RISK_SETTING_LIMITS: Record<Exclude<keyof RiskSettings, (typeof BOOLEAN_SETTINGS)[number]>, [number, number]> = {
   riskPerTradePct: [0.01, 5],
   maxOpenRiskPct: [0.1, 20],
   maxPositions: [1, 50],
@@ -131,11 +171,15 @@ export const RISK_SETTING_LIMITS: Record<Exclude<keyof RiskSettings, "allowShort
   minScoreAbs: [0, 100],
   maxSignalAgeBars: [0, 10],
   deadManBars: [1, 100],
-  maxLeverage: [0.1, 10],
+  // v2.8: capped at 1 until liquidation is modelled.
+  maxLeverage: [0.1, 1],
+  maxDrawdownLockPct: [1, 50],
+  maxCryptoPositions: [1, 50],
+  timeStopBars: [0, 1000],
 };
 
 /** Integer-only settings. */
-const INTEGER_SETTINGS = new Set(["maxPositions", "maxPerClusterPositions", "maxSignalAgeBars", "deadManBars"]);
+const INTEGER_SETTINGS = new Set(["maxPositions", "maxPerClusterPositions", "maxSignalAgeBars", "deadManBars", "maxCryptoPositions", "timeStopBars"]);
 
 /** Returns the names of invalid fields (empty = valid). */
 export function validateSettings(s: Partial<RiskSettings>): string[] {
@@ -144,8 +188,7 @@ export function validateSettings(s: Partial<RiskSettings>): string[] {
     const v = (s as Record<string, unknown>)[key];
     if (typeof v !== "number" || !Number.isFinite(v) || v < lo || v > hi || (INTEGER_SETTINGS.has(key) && !Number.isInteger(v))) bad.push(key);
   }
-  if (typeof s.allowShortsOnSpot !== "boolean") bad.push("allowShortsOnSpot");
-  if (typeof s.requireFreshSignal !== "boolean") bad.push("requireFreshSignal");
+  for (const key of BOOLEAN_SETTINGS) if (typeof s[key] !== "boolean") bad.push(key);
   return bad;
 }
 
@@ -218,6 +261,11 @@ export type RuleKey =
   | "paper.rule.deadMan"
   | "paper.rule.dailyLock"
   | "paper.rule.weeklyLock"
+  | "paper.rule.drawdownLock"
+  | "paper.rule.cryptoCap"
+  | "paper.rule.depeg"
+  | "paper.rule.intradayContext"
+  | "paper.rule.event"
   | "paper.rule.maxPositions"
   | "paper.rule.openRisk"
   | "paper.rule.cluster"
@@ -250,6 +298,22 @@ export interface RiskVerdict {
   cluster: string;
   /** True when the size was reduced to fit the leverage cap. */
   capped: boolean;
+  /** v2.8: advisory warnings (i18n keys); they never block. */
+  warnings: WarningKey[];
+}
+
+export type WarningKey = "paper.warn.riskAbove1";
+
+/** v2.8: daily / weekly loss locks, on the stricter of two bases: the start-of-period mark (open losses count) and
+ * the v2.2 realised basis (realised loss over equity − realised) — so a loss realised before the mark was set,
+ * or an engine-only caller without marks, still locks. */
+export function lossLocks(acct: AccountState, s: RiskSettings): { daily: boolean; weekly: boolean } {
+  const hit = (start: number | undefined, realised: number, pct: number) => {
+    const marked = typeof start === "number" && start > 0 && start - acct.equity >= (pct / 100) * start - 1e-9;
+    const base = acct.equity - realised;
+    return marked || (realised < 0 && base > 0 && -realised >= (pct / 100) * base);
+  };
+  return { daily: hit(acct.dayStartEquity, acct.realisedToday, s.dailyLossLockPct), weekly: hit(acct.weekStartEquity, acct.realisedWeek, s.weeklyLossLockPct) };
 }
 
 const finitePos = (v: number) => typeof v === "number" && Number.isFinite(v) && v > 0;
@@ -264,6 +328,13 @@ export function deadManTripped(lastHeartbeat: number, intervalMs: number, now: n
   return !(lastHeartbeat > 0) || now - lastHeartbeat > deadManBars * intervalMs;
 }
 
+/** v2.8: the drawdown lock is engaged, or equity is at or below peak × (1 − maxDrawdownLockPct). */
+export function drawdownBreached(acct: Pick<AccountState, "equity" | "peakEquity" | "drawdownLocked">, s: RiskSettings): boolean {
+  if (acct.drawdownLocked) return true;
+  const peak = acct.peakEquity;
+  return typeof peak === "number" && peak > 0 && acct.equity <= peak * (1 - s.maxDrawdownLockPct / 100) + 1e-9;
+}
+
 /**
  * Evaluate one proposal against the account and settings at instant `now`.
  * Pure and deterministic.
@@ -273,6 +344,7 @@ export function evaluateProposal(p: ProposalInput, acct: AccountState, s: RiskSe
   const cluster = clusterOf(p.assetClass, p.pair, p.src);
   const lotStep = p.lotStep && p.lotStep > 0 ? p.lotStep : defaultLotStep(p.entryRef);
   const dir = p.side === "long" ? 1 : -1;
+  const rt = typeof p.roundTripCost === "number" && Number.isFinite(p.roundTripCost) && p.roundTripCost > 0 ? p.roundTripCost : 0;
 
   const inputOk = finitePos(p.entryRef) && finitePos(p.atr) && finitePos(p.intervalMs) && finitePos(acct.equity) && Number.isFinite(p.score);
   const stopDistance = inputOk ? s.stopAtrMult * p.atr : NaN;
@@ -284,11 +356,10 @@ export function evaluateProposal(p: ProposalInput, acct: AccountState, s: RiskSe
   // Account-level locks.
   if (acct.killSwitch) reasons.push("paper.rule.killSwitch");
   if (deadManTripped(acct.lastHeartbeat, p.intervalMs, now, s.deadManBars)) reasons.push("paper.rule.deadMan");
-  // Start-of-period balances on a realised basis: equity minus what was realised in the period.
-  const dayBase = acct.equity - acct.realisedToday;
-  const weekBase = acct.equity - acct.realisedWeek;
-  if (acct.realisedToday < 0 && dayBase > 0 && -acct.realisedToday >= (s.dailyLossLockPct / 100) * dayBase) reasons.push("paper.rule.dailyLock");
-  if (acct.realisedWeek < 0 && weekBase > 0 && -acct.realisedWeek >= (s.weeklyLossLockPct / 100) * weekBase) reasons.push("paper.rule.weeklyLock");
+  const locks = lossLocks(acct, s);
+  if (locks.daily) reasons.push("paper.rule.dailyLock");
+  if (locks.weekly) reasons.push("paper.rule.weeklyLock");
+  if (drawdownBreached(acct, s)) reasons.push("paper.rule.drawdownLock");
 
   // Portfolio rules.
   if (acct.positions.length >= s.maxPositions) reasons.push("paper.rule.maxPositions");
@@ -298,6 +369,14 @@ export function evaluateProposal(p: ProposalInput, acct: AccountState, s: RiskSe
   // The paper account is kept in USDT: only pairs quoted in a USD stablecoin can be sized and booked in it
   // (v2.6 booked Coins.ph peso amounts as USDT).
   if (!usdQuoted(p.pair, p.src)) reasons.push("paper.rule.currency");
+  // v2.8: crypto moves together — cap open crypto positions across clusters.
+  if (p.assetClass === "crypto" && acct.positions.filter((x) => x.assetClass === "crypto").length >= s.maxCryptoPositions) reasons.push("paper.rule.cryptoCap");
+  // v2.8: the quote stablecoin is off its peg against USDT (DEPEG_TIERS "warning" or "severe").
+  if (typeof p.depegPct === "number" && Number.isFinite(p.depegPct) && Math.abs(p.depegPct) >= 1) reasons.push("paper.rule.depeg");
+  // v2.8: 1m–15m signals are context, not trades, unless allowed.
+  if (!s.allowIntradayProposals && finitePos(p.intervalMs) && p.intervalMs <= INTRADAY_MAX_MS) reasons.push("paper.rule.intradayContext");
+  // v2.8: 2 h before to 1 h after FOMC / CPI / jobs report.
+  if (s.eventBlackout && inBlackout(now)) reasons.push("paper.rule.event");
   if (p.side === "short" && !isPerpSource(p.src) && !s.allowShortsOnSpot) reasons.push("paper.rule.spotShort");
 
   // Signal rules.
@@ -314,7 +393,8 @@ export function evaluateProposal(p: ProposalInput, acct: AccountState, s: RiskSe
   let capped = false;
   if (!reasons.includes("paper.rule.invalidInput")) {
     const riskBudget = (s.riskPerTradePct / 100) * acct.equity;
-    size = roundToStep(riskBudget / stopDistance, lotStep);
+    // v2.8: the round-trip cost sits inside the budget, so a clean stop-out is ≈ −1 R.
+    size = roundToStep(riskBudget / (stopDistance + p.entryRef * rt), lotStep);
     // Leverage cap: total notional of all positions ≤ maxLeverage × equity.
     const usedNotional = acct.positions.reduce((a, x) => a + (Number.isFinite(x.notional) ? x.notional : 0), 0);
     const room = s.maxLeverage * acct.equity - usedNotional;
@@ -322,10 +402,11 @@ export function evaluateProposal(p: ProposalInput, acct: AccountState, s: RiskSe
     if (size > maxUnits) { size = maxUnits; capped = true; }
     if (!(size > 0)) reasons.push("paper.rule.notional");
     const openRisk = acct.positions.reduce((a, x) => a + (Number.isFinite(x.riskAmount) ? x.riskAmount : 0), 0);
-    if (openRisk + size * stopDistance > (s.maxOpenRiskPct / 100) * acct.equity + 1e-9) reasons.push("paper.rule.openRisk");
+    if (openRisk + size * (stopDistance + p.entryRef * rt) > (s.maxOpenRiskPct / 100) * acct.equity + 1e-9) reasons.push("paper.rule.openRisk");
   }
 
-  const riskAmount = size > 0 ? size * stopDistance : 0;
+  const riskAmount = size > 0 ? size * (stopDistance + p.entryRef * rt) : 0;
+  const warnings: WarningKey[] = s.riskPerTradePct > 1 ? ["paper.warn.riskAbove1"] : [];
   return {
     approved: reasons.length === 0,
     reasons,
@@ -338,5 +419,6 @@ export function evaluateProposal(p: ProposalInput, acct: AccountState, s: RiskSe
     lotStep,
     cluster,
     capped,
+    warnings,
   };
 }

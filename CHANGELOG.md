@@ -1,3 +1,35 @@
+# v2.8.0 — in progress, Step 1 (not released; app still reports v2.7.0)
+
+Step 1 of the v2.8 plan (`docs/superpowers/specs/2026-11-15-v2.8-architecture-design.md`): safety fixes, licence credits
+and smooth loading. Engine 2.4.0 (`5c30b5c39f5ba3f2`); ledger rows of engine 2.3.0 stay and are reported separately.
+
+- **Paper safety (WP19):** 10% drawdown lock (Stop + close all at the next open of each chart; pending positions cancelled;
+  typed RESET restarts the 10% from current equity, disabled while closes are pending); open losses count in the daily and
+  weekly locks; no loosening while a lock is active; costs inside the risk budget (a clean stop-out ≈ −1 R); event
+  blackout around FOMC/CPI/NFP (2 h before, 1 h after; ECB never blocks) with 2027 dates; crypto cap 3; depeg gate;
+  time stop (off, preset 24 bars); intraday proposals off by default; total notional capped at 1×; risk > 1 % warning;
+  measured slippage in fills; More statistics (profit factor, Wilson range, R histogram, MAE/MFE), Add a note, rejected
+  proposals with their bracket outcome. New limits in a collapsed **More limits** section.
+- **Signals and measurement (WP19):** Pattern calls a direction only past a Wilson lower bound (20–40 analogues, "Too few
+  analogues"); FVG minimum gap 0.5 × ATR(14), "FVG adjustment (unvalidated)"; honest wording for paper, power, macro and
+  reversal; ledger records the 18 votes, Pattern and derivative context, shows days needed at the current Sharpe and imports
+  CSV; confirmatory DSR counts active pre-registrations; ATR-bracket outcome in the replay CLI; noise regressions.
+- **Data (WP19):** Binance quote volume and trade count, a crypto liquidity floor (default $1M, scan setting; a pair holding
+  a paper position still gets its bars for the simulator), used-weight pacing in the Node tools; the gateway refuses write
+  or unknown-permission keys (Bitget: only known read-only authorities pass).
+- **Licences (WP20):** THIRD-PARTY-NOTICES.txt in every bundle, About → Open-source licences with the trademark line, full
+  OFL font texts, Rust and mobile notices, WebView2 terms, rate-provider credits (ExchangeRate-API, ECB), SBOM licences and
+  scope, release check **R24** licence policy, Binance Vision archive notice, root `LICENSE`.
+- **Smooth loading (WP27):** rows appear at once from on-device history ("updating" / "not updated" badges, display only),
+  watchlist or top 10 first, then batches of 20, delta fetch of new bars only; acceptance PG-1, PG-2.
+- **Design unchanged (spec §3):** acceptance **DS-1** (main screen) and **DS-2** (detail sheet top and chart layers, paper
+  dialog, ledger dialog) compare the layout at rest with text masked against baselines captured from the v2.7.0-web build.
+- **Languages:** the new and changed v2.8 strings are Arabic drafts awaiting native-speaker review (About shows the count;
+  release check **R25** blocks a release until they are reviewed); the other 16 languages show them in English for now.
+- **Docs:** user guide chapters for WP19, WP20 and WP27; R19 accepts this "in progress" entry above the released v2.7.0.
+- **Before going back to v2.7, export the paper journal** (Paper → Export CSV) and note your open positions: v2.7 cannot
+  read the v2.8 paper account format and starts a fresh 10,000 USDT account over it on its first scan.
+
 # v2.7.0 — 11 November 2026 · build 20261111
 
 Stablecoin quotes on every exchange, any display currency at official reference rates, and a chart that zooms, pans and

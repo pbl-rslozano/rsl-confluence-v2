@@ -4,7 +4,7 @@ import { deflateRawSync, crc32 } from "node:zlib";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readZip, sha256, parseChecksum, download, listSymbols } from "./fetch-binance-archive.mjs";
+import { readZip, sha256, parseChecksum, download, listSymbols, paceFromUsedWeight } from "./fetch-binance-archive.mjs";
 
 let passed = 0; let failed = 0;
 const ok = (n, c, x = "") => { if (c) { passed++; console.log("  ok   - " + n); } else { failed++; console.log("  FAIL - " + n + (x ? "  [" + x + "]" : "")); } };
@@ -35,10 +35,13 @@ const routes = new Map([
   ["/list", Buffer.from("<ListBucketResult><Prefix>data/spot/monthly/klines/</Prefix><CommonPrefixes><Prefix>data/spot/monthly/klines/BTCUSDT/</Prefix></CommonPrefixes><CommonPrefixes><Prefix>data/spot/monthly/klines/LUNAUSDT/</Prefix></CommonPrefixes><IsTruncated>false</IsTruncated></ListBucketResult>")],
   ["/api/v3/exchangeInfo", Buffer.from(JSON.stringify({ symbols: [{ symbol: "BTCUSDT", status: "TRADING" }] }))],
 ]);
+/** v2.8 (WP19): Binance API responses carry X-MBX-USED-WEIGHT-1M; the archive bucket does not. */
+let usedWeight = null;
 const server = createServer((req, res) => {
   const path = req.url.split("?")[0];
   const body = routes.get(path);
   if (!body) { res.statusCode = 404; res.end(); return; }
+  if (usedWeight && path.startsWith("/api/")) res.setHeader("X-MBX-USED-WEIGHT-1M", usedWeight);
   res.end(body);
 });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -75,6 +78,17 @@ try {
   ok("unsafe symbols are rejected", /Invalid symbol/.test(err));
   const list = await listSymbols({ listBase: `${base}/list`, infoBase: base });
   ok("archive listing keeps delisted symbols and marks them", list.length === 2 && list.find((x) => x.symbol === "LUNAUSDT")?.delisted === true && list.find((x) => x.symbol === "BTCUSDT")?.delisted === false, JSON.stringify(list));
+  // v2.8 (WP19): pacing on Binance's used-weight header (Node fetch reads it).
+  ok("WP19 paceFromUsedWeight('5000') > 0, ('100') === 0, (null) === 0", paceFromUsedWeight("5000") > 0 && paceFromUsedWeight("100") === 0 && paceFromUsedWeight(null) === 0);
+  ok("WP19 paceFromUsedWeight: 80% of 6,000 → 0; the limit → 60 s", paceFromUsedWeight("4800") === 0 && paceFromUsedWeight("6000") === 60_000);
+  let t0 = Date.now();
+  await listSymbols({ listBase: `${base}/list`, infoBase: base });
+  ok("WP19 no used-weight header → only the fixed pacing", Date.now() - t0 < 1_000, String(Date.now() - t0));
+  usedWeight = "4830"; // 30 of 1,200 over the 80% threshold → 1.5 s
+  t0 = Date.now();
+  await listSymbols({ listBase: `${base}/list`, infoBase: base });
+  ok("WP19 a used-weight reading above 80% pauses before the next request", Date.now() - t0 >= 1_400, String(Date.now() - t0));
+  usedWeight = null;
 } finally {
   server.close();
   rmSync(out, { recursive: true, force: true });

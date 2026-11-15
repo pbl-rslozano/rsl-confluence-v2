@@ -48,6 +48,10 @@ export interface Kline {
   volume: number;
   /** v2.3: taker-buy base volume when the venue reports it (Binance spot). Never scored. */
   takerBuy?: number;
+  /** v2.8 (WP19): quote-asset volume of the bar (Binance kline field 7). Never scored. */
+  qv?: number;
+  /** v2.8 (WP19): number of trades in the bar (Binance kline field 8). Never scored. */
+  trades?: number;
 }
 
 export interface IndicatorResult {
@@ -111,7 +115,7 @@ export const MIN_VALID_VOTING_SHARE = 0.7;
  * NEUTRAL_BAND = 55 → about 5% of noise bars receive a direction.
  * STRONG_BAND  = 70 → about 1.3% of noise bars are STRONG.
  *
- * At that same 5% false-positive rate the gated engine labels 19–70% of bars on
+ * At that same 5% false-positive rate the gated engine labels 15–70% (re-probed v2.7) of bars on
  * synthetic drifting series (per-bar Sharpe 0.2–0.5), versus 11–16% without
  * the gate. The regression suite asserts the noise rates, so a change that
  * inflates scores on noise fails the build. Re-run the calibration after any
@@ -1123,6 +1127,15 @@ const emptyBlocs = (): BlocScore[] =>
   VOTING_BLOCS.map((bloc) => ({ bloc, bull: 0, bear: 0, neutral: 0, valid: 0, score: 0, weight: 1 }));
 
 /**
+ * Voting id of each entry of INDICATORS (null = informational by design: ATR, Std Dev, FVG).
+ * v2.8: module-level so the ledger's vote vector (`vt`) reads the voters in this same order.
+ */
+export const VOTING_SLOT_IDS: readonly (VotingIndicatorId | null)[] = [
+  "sma", "ema", "macd", "adx", "psar", "ichimoku", "supertrend", "rsi", "stochastic",
+  "cci", "williams", "ao", "mfi", "bollinger", null, "keltner", null, "vwap", "obv", "cmf", null,
+];
+
+/**
  * Run all 21 indicators and aggregate the 18 voters by BLOC rather than by headcount.
  *
  *   blocScore = clamp((bull − bear) / validMembers, −1, +1)
@@ -1141,14 +1154,10 @@ export function runConfluence(k: Kline[], options: ConfluenceOptions = {}): Conf
   const volumeAvailable = options.volumeAvailable ?? true;
   const ctx: IndicatorContext = { intervalMs: options.intervalMs ?? DEFAULT_CONTEXT.intervalMs };
 
-  const votingIds: (VotingIndicatorId | null)[] = [
-    "sma", "ema", "macd", "adx", "psar", "ichimoku", "supertrend", "rsi", "stochastic",
-    "cci", "williams", "ao", "mfi", "bollinger", null, "keltner", null, "vwap", "obv", "cmf", null,
-  ];
   const indicators: IndicatorResult[] = INDICATORS.map((fn, index) => {
     try {
       const result = fn(k, ctx);
-      const id = votingIds[index];
+      const id = VOTING_SLOT_IDS[index];
       if (enabled && id && !enabled.has(id)) {
         return { ...result, informational: true, state: "NEUTRAL" as SignalState, detail: "Disabled by scoring profile" };
       }

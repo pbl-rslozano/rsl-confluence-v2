@@ -54,10 +54,14 @@ jobs:
           python3 -m pip install --quiet pillow==12.3.0 fonttools==4.67.0 brotli==1.1.0 || python3 -m pip install --quiet --break-system-packages pillow==12.3.0 fonttools==4.67.0 brotli==1.1.0
           python3 tools/check-icons.test.py
           python3 tools/build-menu-fonts.py --check
+      - name: Third-party notices complete (WP20) — every shipped component has a licence text
+        run: node tools/third-party-notices.mjs --check
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm sbom
-      - run: node tools/release-check.mjs --with-tests
+      # R25 (final review I-1): release builds — the same refs the installer jobs build on — add --release, which fails
+      # while a tier-1 catalog has strings pending native-speaker review. Pushes and pull requests (merges) do not.
+      - run: node tools/release-check.mjs --with-tests ${{ (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release'))) && '--release' || '' }}
       - run: pnpm build:pwa
       - name: Acceptance (Playwright + axe, mocked exchanges)
         run: |

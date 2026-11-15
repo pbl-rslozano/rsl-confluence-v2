@@ -22,6 +22,14 @@ type Catalog = Record<string, string>;
 const asCatalog = (c: Record<string, unknown>): Catalog =>
   Object.fromEntries(Object.entries(c).map(([k, v]) => [k, v === null ? "" : String(v)]));
 
+/** Final review I-1: tier-1 keys whose text is a machine draft awaiting native-speaker review (About shows the count). */
+export const PENDING_REVIEW: Record<string, readonly string[]> = Object.fromEntries(
+  Object.entries({ en, ar }).map(([k, v]) => {
+    const list = (v as Record<string, unknown>)["@pendingReview"];
+    return [k, Array.isArray(list) ? list.filter((x): x is string => typeof x === "string") : []];
+  }),
+);
+
 export const CATALOGS: Record<string, Catalog> = Object.fromEntries(
   Object.entries({ en, ar, ja, fil, bn, ur, ru, hi, zh, ko, id, ms, tr, fr, de, es, pt, it }).map(([k, v]) => [k, asCatalog(v)]),
 );

@@ -4,10 +4,12 @@
  * About — brand + build stamp, 3D signature, edition, platform/storage, audit-trail integrity,
  * language catalog status, workspace identity (edit / export), backup export/restore,
  * contact, credit at the end. Builder skill §3.5, §7; identity skill §2.3–2.4, §3.3, §6.2.
+ * v2.8 (WP20, licence audit): a collapsed "Open-source licences" section just above the credit — the third-party notices
+ * (out/THIRD-PARTY-NOTICES.txt, tools/third-party-notices.mjs) and the trademark line.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { LANGUAGES } from "@rsl/core-kit/core/rsl-i18n.js";
-import { CATALOGS } from "../i18n/catalogs";
+import { CATALOGS, PENDING_REVIEW } from "../i18n/catalogs";
 import { exportSnapshot, importSnapshot } from "@rsl/core-kit/core/rsl-storage.js";
 import { contactMailto, poweredBy, BRAND } from "@rsl/core-kit/core/rsl-brand.js";
 import { exportFileName } from "@rsl/core-kit/core/rsl-export.js";
@@ -182,6 +184,9 @@ function AboutBody() {
                   const st = i18n.status(l.code);
                   const meta = CATALOGS[l.code] ?? {};
                   if (st === "CERTIFIED") return <span className="text-emerald-300">{t("about.catalogCertified", { name: meta["@reviewer"] ?? "", date: meta["@certifiedAt"] ?? "" })}</span>;
+                  // Final review I-1: an approved tier-1 catalog with machine drafts says how many await review.
+                  const pending = PENDING_REVIEW[l.code]?.length ?? 0;
+                  if (st === "APPROVED" && pending) return <span data-testid={`catalog-pending-${l.code}`} className="text-amber-300">{t("about.catalogApprovedPending", { n: pending })}</span>;
                   if (st === "APPROVED") return <span className="text-emerald-300">{t("about.catalogApproved")}</span>;
                   if (st === "MACHINE-CHECKED") return <span className="text-sky-300">{t("about.catalogMachine")}</span>;
                   return <span className="text-amber-300">{t("about.catalogDraft")}</span>;
@@ -190,6 +195,8 @@ function AboutBody() {
             ))}
           </ul>
         </section>
+
+        <LicencesSection />
 
         <footer className="mt-4 space-y-1 border-t border-zinc-800 pt-3 text-xs text-zinc-400">
           <p>
@@ -202,6 +209,47 @@ function AboutBody() {
           <p dir="ltr">{APP.credit}</p>
         </footer>
     </>
+  );
+}
+
+/** Shipped next to index.html in every bundle (scripts/build-html.mjs → tools/third-party-notices.mjs). */
+const NOTICES_HREF = "./THIRD-PARTY-NOTICES.txt";
+
+/**
+ * v2.8 (WP20): collapsed by default. The link opens the notices file; a plain click shows it here instead, because the
+ * desktop and mobile shells do not open a new window for a local file.
+ */
+function LicencesSection() {
+  const { t } = useRsl();
+  const [text, setText] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const show = async (e: MouseEvent<HTMLAnchorElement>) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    try {
+      const r = await fetch(NOTICES_HREF, { cache: "no-cache" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setErr(null);
+      setText(await r.text());
+    } catch (x) {
+      setErr(t("about.failed", { reason: x instanceof Error ? x.message : String(x) }));
+    }
+  };
+  return (
+    <details data-testid="about-licences" className="mt-4 rounded-md border border-zinc-800 px-3 py-2 text-xs text-zinc-400">
+      <summary className="cursor-pointer select-none text-sm font-semibold text-zinc-200">{t("about.licences")}</summary>
+      <p className="mt-2">{t("about.licencesNote")}</p>
+      <p className="mt-1">
+        <a data-testid="about-licences-link" href={NOTICES_HREF} target="_blank" rel="noopener" onClick={(e) => void show(e)}
+          className="text-cyan-300 underline-offset-2 hover:underline">{t("about.licencesOpen")}</a>
+      </p>
+      {text !== null && (
+        <pre data-testid="about-licences-text" dir="ltr" tabIndex={0}
+          className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-zinc-950 p-2 font-mono text-[10px] text-zinc-300">{text}</pre>
+      )}
+      {err && <p role="status" className="mt-2 text-rose-300">{err}</p>}
+      <p data-testid="about-trademarks" className="mt-2">{t("about.trademarks")}</p>
+    </details>
   );
 }
 

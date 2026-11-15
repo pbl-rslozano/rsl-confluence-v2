@@ -24,6 +24,7 @@ import { TradeAnnotation } from "@/components/trade-annotation";
 import { ChartReplay } from "@/components/chart-replay";
 import { loadHistoricalSeries } from "@/lib/history-store";
 import { INTERVAL_MS, type DataSource } from "@/lib/market-client";
+import { pairsText, runHeldFeed, waitingText } from "@/lib/paper-feed";
 import { atr, type Kline } from "@/lib/indicators";
 import type { AssetClass } from "@/lib/ledger-metrics";
 
@@ -31,6 +32,8 @@ import {
   DEFAULT_RISK_SETTINGS,
   evaluateProposal,
   RISK_SETTING_LIMITS,
+  BOOLEAN_SETTINGS,
+  timeStopToggleBars,
   validateSettings,
   type Master,
   type ProposalInput,
@@ -40,9 +43,13 @@ import {
 import {
   accountSnapshot,
   approveProposal,
+  SETUP_TAGS,
+  PRE_REASON_MAX,
   bookEquity,
   costsFor,
   createProposal,
+  depegFor,
+  slippageFor,
   engageKill,
   isUnmanaged,
   journalStats,
@@ -56,6 +63,8 @@ import {
   rejectProposal,
   requestClose,
   resetKill,
+  resetDrawdown,
+  EXIT_REASON_KEYS,
   setStartingEquity,
   unrealised,
   updateSettings,
@@ -63,7 +72,7 @@ import {
   type PaperBook,
   type Proposal,
 } from "@/lib/paper-broker";
-import { journalRowValues, PAPER_JOURNAL_COLUMNS, type PaperStore } from "@/lib/paper-store";
+import { annotationNote, journalRowValues, PAPER_JOURNAL_COLUMNS, paperNoteId, type PaperStore } from "@/lib/paper-store";
 
 /** The subset of a scan row the simulator needs (the page's AssetRow satisfies it structurally). */
 export interface PaperScanRow {
@@ -91,10 +100,34 @@ interface Props {
   engineConfigId: string;
   /** Optional subscription for extra bars; return an unsubscribe function. */
   onBar?: (listener: PaperBarListener) => () => void;
+  /** v2.8: stored order-book slippage readings of this source (pair → bps, time); only readings < 24 h old are used. */
+  slippage?: Record<string, { bps: number; at: number }>;
+  /** v2.8: stablecoin depeg readings of the scan these rows came from, and each row's quote (pair → quote). */
+  depeg?: ReadonlyArray<{ coin: string; reference: string; deviationPct: number }>;
+  quoteBySymbol?: Record<string, string>;
+  /**
+   * v2.8 (final review I-3): closed bars of one pair of the CURRENT source × timeframe. Pairs holding a paper
+   * position that the scan left out (liquidity floor, list cut) are fetched through it for the paper book only.
+   */
+  fetchKlines?: (pair: string, signal?: AbortSignal) => Promise<Kline[]>;
+  /** Re-review N-1: remaining 429/418 cooldown of the current source (ms); > 0 → no held-pair request. */
+  cooldownMs?: () => number;
+  /** Source id → display label (the page's DATA_SOURCES), so series are named, not shown as `binance|4h` (M-5). */
+  sourceLabels?: Record<string, string>;
 }
 
 type NumericKey = keyof typeof RISK_SETTING_LIMITS;
+/**
+ * v2.8 (spec §3 item 6): the new limits sit in a collapsed "More limits" section after the existing settings grid,
+ * so the v2.7 grid and its two checkboxes keep their layout (DS-2).
+ */
+const MORE_LIMIT_KEYS = ["maxDrawdownLockPct", "maxCryptoPositions", "timeStopBars"] as const satisfies readonly NumericKey[];
+const MORE_FLAG_KEYS = ["eventBlackout", "allowIntradayProposals"] as const;
 const NUMERIC_KEYS = Object.keys(RISK_SETTING_LIMITS) as NumericKey[];
+const GRID_KEYS = NUMERIC_KEYS.filter((k) => !(MORE_LIMIT_KEYS as readonly string[]).includes(k));
+const BASE_FLAG_KEYS = BOOLEAN_SETTINGS.filter((k) => !(MORE_FLAG_KEYS as readonly string[]).includes(k));
+type BoolKey = (typeof BOOLEAN_SETTINGS)[number];
+const flagsOf = (s: RiskSettings) => Object.fromEntries(BOOLEAN_SETTINGS.map((k) => [k, s[k]])) as Record<BoolKey, boolean>;
 
 const fmtMoney = (v: number) => (Number.isFinite(v) ? v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—");
 const fmtSigned = (v: number) => (Number.isFinite(v) ? `${v >= 0 ? "+" : ""}${fmtMoney(v)}` : "—");
@@ -124,7 +157,7 @@ function draftOf(s: RiskSettings): Record<string, string> {
   return Object.fromEntries(NUMERIC_KEYS.map((k) => [k, String(s[k])]));
 }
 
-export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe, engineConfigId, onBar }: Props) {
+export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe, engineConfigId, onBar, slippage, depeg, quoteBySymbol, fetchKlines, sourceLabels, cooldownMs }: Props) {
   const { t, id, platform, audit, announce, port } = useRsl();
   const [annotating, setAnnotating] = useState<JournalEntry | null>(null);
   const [review, setReview] = useState<{ trade: JournalEntry; candles: Kline[] } | null>(null);
@@ -135,16 +168,25 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
   const [message, setMessage] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>(() => draftOf(DEFAULT_RISK_SETTINGS));
-  const [draftFlags, setDraftFlags] = useState({ allowShortsOnSpot: DEFAULT_RISK_SETTINGS.allowShortsOnSpot, requireFreshSignal: DEFAULT_RISK_SETTINGS.requireFreshSignal });
+  const [draftFlags, setDraftFlags] = useState<Record<BoolKey, boolean>>(() => flagsOf(DEFAULT_RISK_SETTINGS));
   const [equityDraft, setEquityDraft] = useState("");
   const [settingErrors, setSettingErrors] = useState<string[]>([]);
+  const [metaDraft, setMetaDraft] = useState<Record<string, { reason: string; tag: string }>>({});
   const [killText, setKillText] = useState("");
   const [killError, setKillError] = useState(false);
+  const [ddText, setDdText] = useState("");
+  const [ddError, setDdError] = useState(false);
+  /** Held pairs of the current series whose paper-only fetch failed on the last scan (final review I-3). */
+  const [feedFailed, setFeedFailed] = useState<string[]>([]);
   /** Source of truth for async handlers; updated only in callbacks, never during render. */
   const bookRef = useRef<PaperBook | null>(null);
+  const moreLimitsRef = useRef<HTMLDetailsElement>(null);
   const proposalsRef = useRef<Proposal[]>([]);
   const intervalMs = INTERVAL_MS[timeframe] ?? INTERVAL_MS["4h"];
   const costs = costsFor(source);
+  /** M-5: series named by the source label and the localised timeframe, never as raw `src|tf` keys. */
+  const seriesLabel = (src: string, tf: string) => `${sourceLabels?.[src] ?? src} · ${t(`tf.${tf}`)}`;
+  const feedFailedText = pairsText(feedFailed, source, timeframe, seriesLabel);
 
   const log = useCallback((event: string, record: string, reason: string) => {
     void audit.append({ actorId: id.operator.id || "local", event, record, reason }).catch(() => undefined);
@@ -163,7 +205,7 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
 
   const syncDraft = (b: PaperBook) => {
     setDraft(draftOf(b.account.settings));
-    setDraftFlags({ allowShortsOnSpot: b.account.settings.allowShortsOnSpot, requireFreshSignal: b.account.settings.requireFreshSignal });
+    setDraftFlags(flagsOf(b.account.settings));
     setEquityDraft(String(b.account.startingEquity));
   };
 
@@ -191,13 +233,18 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
   const ingestBars = useCallback((bars: Record<string, Kline[]>, at: number) => {
     const cur = bookRef.current;
     if (!cur) return;
-    const res = processBars(cur, source, timeframe, bars, at); // per-position costs (asset class)
+    const slipByPair: Record<string, number> = {};
+    for (const pair of Object.keys(bars)) {
+      const m = slippageFor(slippage, pair, at); // readings < 24 h old only
+      if (m !== undefined) slipByPair[pair] = m;
+    }
+    const res = processBars(cur, source, timeframe, bars, at, undefined, slipByPair); // per-position costs (asset class, measured slippage)
     commit(res.book);
     for (const j of res.closed) {
       log("paper.close", "paper", `${j.id} ${j.pair} ${j.side} ${j.reason} · exit ${fmtPx(j.exit)} · pnl ${fmtSigned(j.pnl)} · R ${fmtNum(j.r)}`);
       announce(t("paper.closedMsg", { name: j.pair, s: fmtNum(j.r) }));
     }
-  }, [source, timeframe, commit, log, announce, t]);
+  }, [source, timeframe, slippage, commit, log, announce, t]);
 
   /** Strong BUY/SELL rows → proposals (one per signal bar; decided or expired ones are not re-proposed). */
   const refreshProposals = useCallback((scan: PaperScanRow[], at: number) => {
@@ -225,27 +272,29 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
         configId: engineConfigId,
         barTime: last.time,
         intervalMs,
+        depegPct: depegFor(depeg, quoteBySymbol?.[row.pair]),
       };
       const pid = proposalId(input);
       const prior = existing.get(pid);
       if (prior && at <= prior.expiresAt && !cur.account.decisions[pid]) { next.push(prior); continue; }
-      const p = createProposal(cur, input, at, randomNonce());
+      const p = createProposal(cur, input, at, randomNonce(), slippageFor(slippage, row.pair, at));
       if (p) {
         next.push(p);
         log("paper.propose", "paper", `${p.id} · ${p.verdict.approved ? "passes" : `blocked: ${p.verdict.reasons.join(",")}`}`);
       }
     }
     setProposalList(next);
-  }, [source, timeframe, engineConfigId, intervalMs, log]);
+  }, [source, timeframe, engineConfigId, intervalMs, slippage, depeg, quoteBySymbol, log]);
 
   // Latest handlers for the scan effect and the external feed, so a re-created
   // callback (e.g. after a language change) never re-runs ingestion by itself.
-  const handlersRef = useRef({ ingestBars, refreshProposals });
-  useEffect(() => { handlersRef.current = { ingestBars, refreshProposals }; }, [ingestBars, refreshProposals]);
+  const handlersRef = useRef({ ingestBars, refreshProposals, fetchKlines, cooldownMs, source, timeframe });
+  useEffect(() => { handlersRef.current = { ingestBars, refreshProposals, fetchKlines, cooldownMs, source, timeframe }; }, [ingestBars, refreshProposals, fetchKlines, cooldownMs, source, timeframe]);
 
   // Every new scan (rows array) is a heartbeat: process bars, then refresh proposals.
   useEffect(() => {
     if (!loaded) return;
+    const ac = new AbortController();
     const timer = window.setTimeout(() => {
       const at = Date.now();
       const usable = usableRows(rows, intervalMs, at);
@@ -254,8 +303,21 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
       handlersRef.current.ingestBars(bars, at);
       handlersRef.current.refreshProposals(usable, at);
       setNow(at);
+      // Final review I-3: pairs holding a position that this scan did not deliver (below the liquidity floor,
+      // outside the list) still need their bars for stops, targets, the time stop and lock closes — paper only.
+      // Re-review N-1/N-4: no request while the venue cools down after a 429/418, the loop stops on a rate limit,
+      // and a result is dropped if the scan was aborted or the view (source|tf) changed before it returned.
+      const { fetchKlines: fetcher, cooldownMs: cool, source: src, timeframe: tf } = handlersRef.current;
+      const cur = bookRef.current;
+      if (!cur || !fetcher) { setFeedFailed([]); return; }
+      void runHeldFeed({
+        book: cur, src, tf, scanned: usable.map((r) => r.pair), fetcher, signal: ac.signal, cooldownMs: cool,
+        currentView: () => `${handlersRef.current.source}|${handlersRef.current.timeframe}`,
+        usable: (k) => seriesUsable(k, intervalMs, Date.now()),
+        ingest: (fresh) => handlersRef.current.ingestBars(fresh, Date.now()),
+      }).then((r) => { if (!r.stale) setFeedFailed(r.failed); }).catch(() => undefined);
     }, 0);
-    return () => window.clearTimeout(timer);
+    return () => { window.clearTimeout(timer); ac.abort(); };
   }, [rows, loaded]);
 
   // Optional external bar feed (same freshness/interval checks as scan rows).
@@ -285,7 +347,8 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
     const cur = bookRef.current;
     if (!cur) return;
     const at = Date.now();
-    const res = approveProposal(cur, p, p.nonce, at);
+    const md = metaDraft[p.id];
+    const res = approveProposal(cur, p, p.nonce, at, { reason: md?.reason, tag: md?.tag });
     commit(res.book);
     setProposalList(proposalsRef.current.filter((x) => x.id !== p.id));
     setNow(at);
@@ -306,7 +369,9 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
   const reject = (p: Proposal) => {
     const cur = bookRef.current;
     if (!cur) return;
-    const res = rejectProposal(cur, p, p.nonce, Date.now());
+    // v2.8 (WP19): the typed reason/tag is kept with the rejection; its later bracket outcome is measured.
+    const md = metaDraft[p.id];
+    const res = rejectProposal(cur, p, p.nonce, Date.now(), { reason: md?.reason, tag: md?.tag });
     commit(res.book);
     setProposalList(proposalsRef.current.filter((x) => x.id !== p.id));
     if (res.ok) {
@@ -347,6 +412,18 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
     setMessage(t("paper.killResetDone"));
   };
 
+  const resetDd = () => {
+    const cur = bookRef.current;
+    if (!cur) return;
+    const res = resetDrawdown(cur, ddText, Date.now());
+    if (!res.ok) { setDdError(true); return; }
+    commit(res.book);
+    setDdError(false);
+    setDdText("");
+    log("paper.drawdown", "paper", "drawdown lock reset (typed confirmation) — peak restarted at current equity");
+    setMessage(t("paper.drawdownResetDone"));
+  };
+
   const saveSettings = () => {
     const cur = bookRef.current;
     if (!cur) return;
@@ -366,10 +443,15 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
         else { b = r.book; equityChanged = true; }
       }
     }
-    setSettingErrors(invalid);
+    // An invalid field inside the collapsed "More limits" opens it, so the marked field is visible.
+    const showErrors = (list: string[]) => {
+      setSettingErrors(list);
+      if (moreLimitsRef.current && list.some((k) => (MORE_LIMIT_KEYS as readonly string[]).includes(k))) moreLimitsRef.current.open = true;
+    };
+    showErrors(invalid);
     if (invalid.length) return;
     const res = updateSettings(b, next);
-    if (!res.ok) { setSettingErrors(res.invalid); return; }
+    if (!res.ok) { showErrors(res.invalid); return; }
     commit(res.book);
     const changed = (Object.keys(next) as (keyof RiskSettings)[]).filter((k) => next[k] !== cur.account.settings[k]);
     log("paper.settings", "paper", `changed: ${[...changed, ...(equityChanged ? ["startingEquity"] : [])].join(", ") || "none"}`);
@@ -395,8 +477,12 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
   const exportCsv = async () => {
     const cur = bookRef.current;
     if (!cur?.journal.length) return;
-    const headers = [...PAPER_JOURNAL_COLUMNS];
-    const csv = toCSV(cur.journal.map(journalRowValues), { headers, columns: headers, notice: t("paper.banner") });
+    const extra: Record<string, string> = { mae: t("paper.csv.mae"), mfe: t("paper.csv.mfe"), pre_trade_reason: t("paper.csv.reason"), setup_tag: t("paper.csv.tag"), notes: t("paper.csv.notes") };
+    const columns = [...PAPER_JOURNAL_COLUMNS];
+    const headers = columns.map((c) => extra[c] ?? c);
+    // Final review (Task 5): the Notes column comes from each trade's saved annotation (tags + notes).
+    const notes = await Promise.all(cur.journal.map((j) => port.get("preferences", paperNoteId(j)).then((saved) => annotationNote(saved), () => "")));
+    const csv = toCSV(cur.journal.map((j, i) => journalRowValues(j, notes[i])), { headers, columns, notice: t("paper.banner") });
     const name = exportFileName({ app: "ConfluenceTerminal", customerCode: id.customer.code, docId: "paper-journal", ext: "csv" });
     const res = await platform.saveOrShare(new TextEncoder().encode(csv), name, "text/csv");
     if (res.ok) {
@@ -412,7 +498,26 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
       {label}: {on ? t("paper.stateOn") : t("paper.stateOff")}
     </Badge>
   );
-  const blocked = !!view && (view.locks.kill || view.locks.deadMan || view.locks.daily || view.locks.weekly);
+  const numericField = (k: NumericKey) => (
+    <label key={k} className="flex flex-col gap-1 text-xs text-zinc-300" htmlFor={`paper-${k}`}>
+      {t(`paper.set.${k}`)}
+      <input
+        id={`paper-${k}`}
+        inputMode="decimal"
+        value={draft[k] ?? ""}
+        onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
+        aria-invalid={settingErrors.includes(k)}
+        aria-describedby={settingErrors.includes(k) ? `paper-${k}-err` : undefined}
+        className="h-8 rounded-md border border-zinc-700 bg-zinc-900 px-2 font-mono text-zinc-100 aria-[invalid=true]:border-rose-500"
+      />
+      {settingErrors.includes(k) && (
+        <span id={`paper-${k}-err`} className="text-[11px] text-rose-300">
+          {t("paper.range", { s: String(RISK_SETTING_LIMITS[k][0]), k: String(RISK_SETTING_LIMITS[k][1]) })}
+        </span>
+      )}
+    </label>
+  );
+  const blocked = !!view && (view.locks.kill || view.locks.deadMan || view.locks.daily || view.locks.weekly || view.locks.drawdown);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -455,6 +560,8 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                 {lockBadge(view.locks.weekly, t("paper.lockWeekly"))}
                 {lockBadge(view.locks.kill, t("paper.lockKill"))}
                 {lockBadge(view.locks.deadMan, t("paper.lockDeadMan"))}
+                {/* v2.8 (spec §3 item 6): the drawdown badge only while that lock is active. */}
+                {view.locks.drawdown && <span data-testid="paper-lock-drawdown" className="contents">{lockBadge(true, t("paper.lockDrawdown"))}</span>}
               </div>
               {view.locks.deadMan && (
                 <p role="alert" className="mt-2 flex items-center gap-1.5 text-xs text-amber-300"><AlertTriangle className="h-3.5 w-3.5" />{t("paper.deadMan", { bars: s.deadManBars })}</p>
@@ -503,10 +610,42 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                       <div><dt className="font-sans text-zinc-400">{t("paper.target")}</dt><dd>{fmtPx(v.target)}</dd></div>
                       <div><dt className="font-sans text-zinc-400">{t("paper.risk")}</dt><dd>{fmtMoney(v.riskAmount)}</dd></div>
                     </dl>
+                    {/* v2.8 (spec §3 item 6): the optional note is a collapsed "Add a note", so Approve stays one click. */}
+                    {v.approved && !expired && (
+                      <details data-testid="paper-add-note" className="mt-2">
+                      <summary className="cursor-pointer text-zinc-300">{t("paper.addNote")}</summary>
+                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        <label className="flex flex-col gap-1 text-zinc-300 sm:col-span-2" htmlFor={`paper-reason-${p.id}`}>
+                          {t("paper.preReason")}
+                          <input
+                            id={`paper-reason-${p.id}`}
+                            type="text"
+                            maxLength={PRE_REASON_MAX}
+                            value={metaDraft[p.id]?.reason ?? ""}
+                            onChange={(e) => setMetaDraft((m) => ({ ...m, [p.id]: { reason: e.target.value, tag: m[p.id]?.tag ?? "" } }))}
+                            className="h-8 rounded border border-zinc-700 bg-zinc-950 px-2 text-zinc-100"
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1 text-zinc-300" htmlFor={`paper-tag-${p.id}`}>
+                          {t("paper.setupTag")}
+                          <select
+                            id={`paper-tag-${p.id}`}
+                            value={metaDraft[p.id]?.tag ?? ""}
+                            onChange={(e) => setMetaDraft((m) => ({ ...m, [p.id]: { reason: m[p.id]?.reason ?? "", tag: e.target.value } }))}
+                            className="h-8 rounded border border-zinc-700 bg-zinc-950 px-2 text-zinc-100"
+                          >
+                            <option value="">—</option>
+                            {SETUP_TAGS.map((g) => <option key={g} value={g}>{t(`paper.tag.${g}`)}</option>)}
+                          </select>
+                        </label>
+                      </div>
+                      </details>
+                    )}
                     <div className={`mt-2 ${v.approved && !expired ? "text-emerald-300" : "text-amber-300"}`}>
                       {expired ? t("paper.err.expired") : v.approved ? t("paper.verdictPass") : t("paper.verdictBlocked")}
                       {v.capped && <span className="ms-2 text-zinc-400">{t("paper.capped")}</span>}
                     </div>
+                    {(v.warnings ?? []).map((w) => <p key={w} data-testid="paper-warning" className="mt-1 text-amber-300">{t(w)}</p>)}
                     {!v.approved && (
                       <ul className="mt-1 list-disc space-y-0.5 ps-5 text-zinc-300">
                         {v.reasons.map((r) => <li key={r}>{t(r)}</li>)}
@@ -520,6 +659,9 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
             {/* ---------- Positions ---------- */}
             <section aria-labelledby="paper-positions" className="space-y-2">
               <h3 id="paper-positions" className="text-sm font-semibold text-zinc-200">{t("paper.positions")}</h3>
+              {feedFailedText && !book.account.drawdownLocked && (
+                <p role="status" data-testid="paper-feed-failed" className="text-xs text-amber-300">{t("paper.heldFeedFailed", { list: feedFailedText })}</p>
+              )}
               {book.positions.length === 0 ? (
                 <p className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3 text-xs text-zinc-400">{t("paper.noPositions")}</p>
               ) : (
@@ -593,6 +735,30 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                 <div><dt className="text-zinc-400">{t("paper.netPnl")}</dt><dd className={`font-mono tabular-nums ${pnlClass(view.stats.netPnl)}`}>{fmtSigned(view.stats.netPnl)}</dd></div>
                 <div><dt className="text-zinc-400">{t("paper.maxDd")}</dt><dd className="font-mono tabular-nums">{fmtMoney(view.stats.maxDrawdown)} · {fmtPct(view.stats.maxDrawdownPct)}</dd></div>
               </dl>
+              <details data-testid="paper-more-stats" className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3 text-xs">
+                <summary className="cursor-pointer font-semibold text-zinc-200">{t("paper.moreStats")}</summary>
+                <dl className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <div><dt className="text-zinc-400">{t("paper.profitFactor")}</dt><dd className="font-mono tabular-nums">{view.stats.profitFactor === Infinity ? "∞" : fmtNum(view.stats.profitFactor)}</dd></div>
+                  <div><dt className="text-zinc-400">{t("paper.winRateRange")}</dt><dd className="font-mono tabular-nums">{fmtPct(view.stats.winRateCI[0])} – {fmtPct(view.stats.winRateCI[1])}</dd></div>
+                  <div><dt className="text-zinc-400">{t("paper.avgMae")}</dt><dd className="font-mono tabular-nums">{fmtNum(view.stats.avgMae)}</dd></div>
+                  <div><dt className="text-zinc-400">{t("paper.avgMfe")}</dt><dd className="font-mono tabular-nums">{fmtNum(view.stats.avgMfe)}</dd></div>
+                </dl>
+                {view.stats.tooFewTrades && <p className="mt-2 text-amber-300">{t("paper.tooFewTrades", { n: view.stats.trades })}</p>}
+                <h4 className="mt-3 text-zinc-300">{t("paper.rHistogram")}</h4>
+                <ul className="mt-1 space-y-0.5 font-mono tabular-nums" aria-label={t("paper.rHistogram")}>
+                  {view.stats.rHistogram.map((b, i, all) => {
+                    const peak = Math.max(1, ...all.map((x) => x.count));
+                    const label = i === 0 ? `< ${(b.edge + 0.5).toFixed(1)}` : i === all.length - 1 ? `≥ ${b.edge.toFixed(1)}` : `${b.edge.toFixed(1)}`;
+                    return (
+                      <li key={b.edge} className="flex items-center gap-2">
+                        <span className="w-12 text-end text-zinc-400">{label}</span>
+                        <span className="h-2 rounded bg-cyan-700" style={{ width: `${(b.count / peak) * 60}%`, minWidth: b.count ? 2 : 0 }} aria-hidden="true" />
+                        <span>{b.count}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </details>
               <p className="text-[11px] text-zinc-400">{t("paper.gateProgress", { n: view.stats.trades, total: RECONCILE_GATE_TRADES })}</p>
               {annotating && (
                 <div className="space-y-2 rounded border border-zinc-800 p-2">
@@ -641,7 +807,7 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                           <td className="px-2 py-1.5 text-end">{fmtMoney(j.fees + j.funding)}</td>
                           <td className={`px-2 py-1.5 text-end ${pnlClass(j.pnl)}`}>{fmtSigned(j.pnl)}</td>
                           <td className={`px-2 py-1.5 text-end ${pnlClass(j.r)}`}>{fmtNum(j.r)}</td>
-                          <td className="px-2 py-1.5 font-sans">{t(`paper.reason.${j.reason}`)}</td>
+                          <td className="px-2 py-1.5 font-sans">{t(EXIT_REASON_KEYS[j.reason] ?? `paper.reason.${j.reason}`)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -672,36 +838,39 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                       />
                     </label>
                   )}
-                  {NUMERIC_KEYS.map((k) => (
-                    <label key={k} className="flex flex-col gap-1 text-xs text-zinc-300" htmlFor={`paper-${k}`}>
+                  {GRID_KEYS.map(numericField)}
+                </div>
+                <div className="flex flex-wrap gap-4 text-xs text-zinc-300">
+                  {BASE_FLAG_KEYS.map((k) => (
+                    <label key={k} className="flex items-center gap-2" htmlFor={`paper-${k}`}>
+                      <input id={`paper-${k}`} type="checkbox" checked={draftFlags[k]} onChange={(e) => setDraftFlags((f) => ({ ...f, [k]: e.target.checked }))} />
                       {t(`paper.set.${k}`)}
-                      <input
-                        id={`paper-${k}`}
-                        inputMode="decimal"
-                        value={draft[k] ?? ""}
-                        onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
-                        aria-invalid={settingErrors.includes(k)}
-                        aria-describedby={settingErrors.includes(k) ? `paper-${k}-err` : undefined}
-                        className="h-8 rounded-md border border-zinc-700 bg-zinc-900 px-2 font-mono text-zinc-100 aria-[invalid=true]:border-rose-500"
-                      />
-                      {settingErrors.includes(k) && (
-                        <span id={`paper-${k}-err`} className="text-[11px] text-rose-300">
-                          {t("paper.range", { s: String(RISK_SETTING_LIMITS[k][0]), k: String(RISK_SETTING_LIMITS[k][1]) })}
-                        </span>
-                      )}
                     </label>
                   ))}
                 </div>
-                <div className="flex flex-wrap gap-4 text-xs text-zinc-300">
-                  <label className="flex items-center gap-2" htmlFor="paper-allowShortsOnSpot">
-                    <input id="paper-allowShortsOnSpot" type="checkbox" checked={draftFlags.allowShortsOnSpot} onChange={(e) => setDraftFlags((f) => ({ ...f, allowShortsOnSpot: e.target.checked }))} />
-                    {t("paper.set.allowShortsOnSpot")}
-                  </label>
-                  <label className="flex items-center gap-2" htmlFor="paper-requireFreshSignal">
-                    <input id="paper-requireFreshSignal" type="checkbox" checked={draftFlags.requireFreshSignal} onChange={(e) => setDraftFlags((f) => ({ ...f, requireFreshSignal: e.target.checked }))} />
-                    {t("paper.set.requireFreshSignal")}
-                  </label>
-                </div>
+                <details ref={moreLimitsRef} data-testid="paper-more-limits" className="text-xs text-zinc-300">
+                  <summary className="cursor-pointer font-semibold text-zinc-200">{t("paper.moreLimits")}</summary>
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    {MORE_LIMIT_KEYS.map(numericField)}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-4">
+                    <label className="flex items-center gap-2" htmlFor="paper-timeStopOn">
+                      <input
+                        id="paper-timeStopOn"
+                        type="checkbox"
+                        checked={Number(draft.timeStopBars) > 0}
+                        onChange={(e) => setDraft((d) => ({ ...d, timeStopBars: String(timeStopToggleBars(e.target.checked)) }))}
+                      />
+                      {t("paper.set.timeStopOn")}
+                    </label>
+                    {MORE_FLAG_KEYS.map((k) => (
+                      <label key={k} className="flex items-center gap-2" htmlFor={`paper-${k}`}>
+                        <input id={`paper-${k}`} type="checkbox" checked={draftFlags[k]} onChange={(e) => setDraftFlags((f) => ({ ...f, [k]: e.target.checked }))} />
+                        {t(`paper.set.${k}`)}
+                      </label>
+                    ))}
+                  </div>
+                </details>
                 {settingErrors.length > 0 && <p role="alert" className="text-xs text-rose-300">{t("paper.invalid", { list: settingErrors.map((k) => t(`paper.set.${k}`)).join(", ") })}</p>}
                 <div className="flex flex-wrap justify-end gap-2">
                   <Button type="button" size="sm" variant="outline" className="h-8 border-zinc-700 text-zinc-300" onClick={() => { syncDraft(book); setSettingErrors([]); }}>
@@ -736,6 +905,38 @@ export function PaperDialog({ open, onOpenChange, store, rows, source, timeframe
                 </form>
               )}
             </section>
+
+            {/* ---------- Drawdown lock (v2.8) ---------- */}
+            {book.account.drawdownLocked && (() => {
+              const waiting = waitingText(book, seriesLabel);
+              return (
+              <section aria-labelledby="paper-dd" data-testid="paper-drawdown" className="rounded-lg border border-rose-500/50 bg-rose-500/5 p-3">
+                <h3 id="paper-dd" className="mb-1 flex items-center gap-2 text-sm font-semibold text-zinc-200"><OctagonX className="h-4 w-4 text-rose-400" />{t("paper.lockDrawdown")}</h3>
+                <p className="mb-2 text-xs text-zinc-400">{t("paper.drawdownHelp", { pct: book.account.settings.maxDrawdownLockPct })}</p>
+                {waiting && (
+                  <p role="status" className="mb-2 text-xs text-amber-300">{t("paper.drawdownWaiting", { series: waiting })}</p>
+                )}
+                {feedFailedText && (
+                  <p role="status" data-testid="paper-feed-failed" className="mb-2 text-xs text-amber-300">{t("paper.heldFeedFailed", { list: feedFailedText })}</p>
+                )}
+                <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); resetDd(); }}>
+                  <label className="flex flex-col gap-1 text-xs text-zinc-300" htmlFor="paper-dd-confirm">
+                    {t("paper.drawdownConfirm", { name: KILL_RESET_WORD })}
+                    <input
+                      id="paper-dd-confirm"
+                      autoComplete="off"
+                      value={ddText}
+                      onChange={(e) => { setDdText(e.target.value); setDdError(false); }}
+                      aria-invalid={ddError}
+                      className="h-8 w-40 rounded-md border border-zinc-700 bg-zinc-900 px-2 font-mono text-zinc-100 aria-[invalid=true]:border-rose-500"
+                    />
+                  </label>
+                  <Button type="submit" size="sm" variant="outline" disabled={waiting !== ""} className="h-8 border-zinc-700 text-zinc-300">{waiting ? t("paper.drawdownResetWaiting", { series: waiting }) : t("paper.drawdownReset")}</Button>
+                  {ddError && <p role="alert" className="w-full text-xs text-rose-300">{t("paper.drawdownMismatch", { name: KILL_RESET_WORD })}</p>}
+                </form>
+              </section>
+              );
+            })()}
           </div>
         )}
 

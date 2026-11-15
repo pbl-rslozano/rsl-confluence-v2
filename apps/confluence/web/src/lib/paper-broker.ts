@@ -24,10 +24,16 @@
  * ----------------------------------------------------------------------------
  */
 import type { Kline } from "./indicators";
-import { costsFor as ledgerCostsFor, type AssetClass, type CostModel } from "./ledger-metrics";
+import {
+  bracketAdvance, bracketInit, costsFor as ledgerCostsFor, wilson,
+  type AssetClass, type BracketSpec, type BracketState, type CostModel,
+} from "./ledger-metrics";
 import {
   deadManTripped,
+  drawdownBreached,
   evaluateProposal,
+  LOOSENING_KEYS,
+  lossLocks,
   normaliseSettings,
   validateSettings,
   type AccountState,
@@ -37,18 +43,41 @@ import {
   type Side,
 } from "./risk-engine";
 
-export const PAPER_SCHEMA = 1;
+export const PAPER_SCHEMA = 2;
 export const DEFAULT_STARTING_EQUITY = 10_000;
 /** The typed word that resets the kill switch. Not translated. */
 export const KILL_RESET_WORD = "RESET";
-/** Reconciled paper/demo trades required before anything beyond paper is considered (ADR-0010). */
+/** Closed paper trades counted towards the gate before anything beyond paper is considered (ADR-0010); reconciling them to the recorded bars is a separate step. */
 export const RECONCILE_GATE_TRADES = 50;
 const MAX_NONCES = 2_000;
 const DECISION_TTL_MS = 14 * 86_400_000;
 const DAY = 86_400_000;
 
 export type PositionStatus = "pending" | "open";
-export type ExitReason = "stop" | "target" | "manual";
+export type ExitReason = "stop" | "target" | "manual" | "drawdown lock" | "time";
+/** Catalog key for each exit reason (the journal label); a Record, so a new reason cannot be left without one. */
+export const EXIT_REASON_KEYS: Record<ExitReason, string> = {
+  stop: "paper.reason.stop",
+  target: "paper.reason.target",
+  manual: "paper.reason.manual",
+  "drawdown lock": "paper.reason.drawdownLock",
+  time: "paper.reason.time",
+};
+
+/** v2.8: setup tags offered at approval. */
+export const SETUP_TAGS = ["breakout", "trend", "reversal", "range", "other"] as const;
+export type SetupTag = (typeof SETUP_TAGS)[number];
+export const PRE_REASON_MAX = 280;
+
+/** Clean a free-text pre-trade reason: control characters out, trimmed, at most 280 characters; empty = none. */
+export function cleanPreReason(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const s = v.replace(/[\u0000-\u001F\u007F]+/g, " ").trim().slice(0, PRE_REASON_MAX).trim();
+  return s ? s : undefined;
+}
+export function cleanTag(v: unknown): SetupTag | undefined {
+  return typeof v === "string" && (SETUP_TAGS as readonly string[]).includes(v) ? (v as SetupTag) : undefined;
+}
 
 export interface PaperPosition {
   id: string;
@@ -85,6 +114,16 @@ export interface PaperPosition {
   lastBarTime: number;
   /** Set by a manual close; the exit happens at the first bar opening at or after it. */
   closeRequestedAt: number | null;
+  /** v2.8: why the close was requested (absent = manual). */
+  closeReason?: ExitReason;
+  /** v2.8: measured one-side slippage (bp) frozen at approval from the sizing reading; absent = default costs (older positions). */
+  slipBps?: number;
+  /** v2.8: worst / best excursion since the fill in R (mae ≤ 0 ≤ mfe), from bar lows and highs; absent = unknown (older positions). */
+  mae?: number;
+  mfe?: number;
+  /** v2.8: owner's pre-trade reason (≤ 280 chars) and setup tag, typed at approval. */
+  preReason?: string;
+  tag?: SetupTag;
 }
 
 export interface JournalEntry {
@@ -113,6 +152,12 @@ export interface JournalEntry {
   proposalId: string;
   approvedAt: number;
   approvedBy: "owner";
+  /** v2.8: excursions in R, pre-trade reason, setup tag, free notes; absent on older entries = unknown. */
+  mae?: number;
+  mfe?: number;
+  preReason?: string;
+  tag?: SetupTag;
+  notes?: string;
 }
 
 export interface PaperAccount {
@@ -131,6 +176,49 @@ export interface PaperAccount {
   /** Decided proposals, so a decided signal is not proposed again. */
   decisions: Record<string, { d: "approved" | "rejected" | "blocked" | "expired"; at: number }>;
   seq: number;
+  /** v2.8 (schema 2): highest marked equity since the start or the last drawdown RESET. */
+  peakEquity: number;
+  /** v2.8: drawdown lock engaged; clears only by RESET once every lock close has filled. */
+  drawdownLocked: boolean;
+  /** v2.8: when a lock (drawdown) was last cleared — the no-loosening rule runs until the next UTC day. */
+  lockClearedAt: number | null;
+  /** v2.8: journal of drawdown RESETs. */
+  resets: { at: number; equity: number; peakBefore: number }[];
+  /** v2.8: equity at the first mark at or after 00:00 UTC (day) and Monday 00:00 UTC (week). */
+  dayMark: { day: number; equity: number };
+  weekMark: { week: number; equity: number };
+  /** v2.8: last instant any lock (daily, weekly, drawdown, kill) was seen active or cleared — no loosening until the next UTC day. */
+  lastLockAt: number | null;
+  /** v2.8 (WP19): rejected proposals with the owner's reason and the outcome the same ATR bracket later gave (newest last, bounded). */
+  rejected?: RejectedProposal[];
+}
+
+/** Rejected proposals kept on the account (oldest dropped first). */
+export const MAX_REJECTED = 500;
+
+/**
+ * v2.8 (WP19): a rejected proposal, so discretionary choices can be compared
+ * with the system. `bracketOutcome` stays null until the bracket the approval
+ * would have used (same fill rule, 2 × ATR stop, RR target, stop first, gap at
+ * the open, same costs) is resolved by later closed bars.
+ */
+export interface RejectedProposal {
+  proposalId: string;
+  configId: string;
+  pair: string;
+  src: string;
+  tf: string;
+  assetClass: AssetClass;
+  side: Side;
+  rejectedAt: number;
+  reason?: string;
+  tag?: SetupTag;
+  /** Measured one-side slippage (bp) frozen at the proposal; absent = default costs. */
+  slipBps?: number;
+  /** null when the proposal had no usable ATR stop (nothing to measure). */
+  spec: BracketSpec | null;
+  bracket: BracketState | null;
+  bracketOutcome: { r: number; reason: "stop" | "target"; closedAt: number } | null;
 }
 
 export interface PaperBook {
@@ -168,6 +256,14 @@ export function newBook(now: number, startingEquity = DEFAULT_STARTING_EQUITY, s
       usedNonces: [],
       decisions: {},
       seq: 0,
+      peakEquity: eq,
+      drawdownLocked: false,
+      lockClearedAt: null,
+      resets: [],
+      dayMark: { day: utcDayStart(now), equity: eq },
+      weekMark: { week: utcWeekStart(now), equity: eq },
+      lastLockAt: null,
+      rejected: [],
     },
     positions: [],
     journal: [],
@@ -176,7 +272,32 @@ export function newBook(now: number, startingEquity = DEFAULT_STARTING_EQUITY, s
 
 export const seriesKey = (src: string, tf: string) => `${src}|${tf}`;
 /** Same cost model as the ledger, including the per-class slippage extra (review S14). */
-export const costsFor = (src: string, ac: AssetClass = "crypto"): CostModel => ledgerCostsFor(src, ac);
+export const costsFor = (src: string, ac: AssetClass = "crypto", measuredSlipBps?: number): CostModel => ledgerCostsFor(src, ac, measuredSlipBps);
+
+/** A measured slippage reading older than this is not used (default costs apply). */
+export const SLIPPAGE_MAX_AGE_MS = 24 * 3_600_000;
+
+/**
+ * v2.8: the stored order-book slippage (bp per side, at 10,000 notional) of a pair, only while the reading is
+ * under 24 h old (and not dated in the future); undefined otherwise so the default costs apply. Pure.
+ */
+export function slippageFor(readings: Record<string, { bps: number; at: number }> | undefined | null, pair: string, now: number): number | undefined {
+  const r = readings?.[pair];
+  if (!r || !Number.isFinite(r.bps) || r.bps < 0 || !Number.isFinite(r.at)) return undefined;
+  const age = now - r.at;
+  return age >= 0 && age < SLIPPAGE_MAX_AGE_MS ? r.bps : undefined;
+}
+
+/**
+ * v2.8: the quote stablecoin's deviation from USDT (%) for the depeg gate. null for USDT (the reference), for a
+ * quote with no reading and for readings against another reference. Pure.
+ */
+export function depegFor(readings: ReadonlyArray<{ coin: string; reference: string; deviationPct: number }> | undefined | null, quote: string | undefined | null): number | null {
+  if (!quote || quote === "USDT" || !readings) return null;
+  const r = readings.find((d) => d.coin === quote && d.reference === "USDT");
+  return r && Number.isFinite(r.deviationPct) ? r.deviationPct : null;
+}
+
 const dirOf = (side: Side) => (side === "long" ? 1 : -1);
 
 /** Unrealised net P&L of a position at its mark (entry fee and funding so far included). */
@@ -222,6 +343,11 @@ export function accountSnapshot(book: PaperBook, src: string, tf: string, now: n
     realisedWeek: realisedSince(book.journal, utcWeekStart(now)),
     killSwitch: book.account.killSwitch,
     lastHeartbeat: book.account.heartbeats[seriesKey(src, tf)] ?? 0,
+    peakEquity: book.account.peakEquity,
+    drawdownLocked: book.account.drawdownLocked,
+    // v2.8: open losses count — no mark yet this period means nothing has moved since it began.
+    dayStartEquity: book.account.dayMark?.day === utcDayStart(now) ? book.account.dayMark.equity : undefined,
+    weekStartEquity: book.account.weekMark?.week === utcWeekStart(now) ? book.account.weekMark.equity : undefined,
   };
 }
 
@@ -234,15 +360,17 @@ export function isUnmanaged(book: PaperBook, p: PaperPosition, now: number): boo
 export function lockState(book: PaperBook, src: string, tf: string, intervalMs: number, now: number) {
   const s = book.account.settings;
   const snap = accountSnapshot(book, src, tf, now);
-  const dayBase = snap.equity - snap.realisedToday;
-  const weekBase = snap.equity - snap.realisedWeek;
+  const loss = lossLocks(snap, s);
   return {
-    daily: snap.realisedToday < 0 && dayBase > 0 && -snap.realisedToday >= (s.dailyLossLockPct / 100) * dayBase,
-    weekly: snap.realisedWeek < 0 && weekBase > 0 && -snap.realisedWeek >= (s.weeklyLossLockPct / 100) * weekBase,
+    daily: loss.daily,
+    weekly: loss.weekly,
     kill: book.account.killSwitch,
     deadMan: deadManTripped(snap.lastHeartbeat, intervalMs, now, s.deadManBars),
     realisedToday: snap.realisedToday,
     realisedWeek: snap.realisedWeek,
+    drawdown: book.account.drawdownLocked,
+    /** Fall from the peak, fraction of the peak. */
+    drawdownPct: book.account.peakEquity > 0 ? Math.max(0, (book.account.peakEquity - snap.equity) / book.account.peakEquity) : 0,
   };
 }
 
@@ -269,7 +397,16 @@ export function proposalExpiry(p: ProposalInput): number {
  * Build a proposal for a signal, or null when it was already decided or has
  * expired. `nonce` is injected so the function stays pure (use `randomNonce()`).
  */
-export function createProposal(book: PaperBook, input: ProposalInput, now: number, nonce: string): Proposal | null {
+/** v2.8: the proposal with its round-trip cost (2 × (taker fee + slippage)) filled in from the cost model. */
+export function withCosts(input: ProposalInput, measuredSlipBps?: number): ProposalInput {
+  if (typeof input.roundTripCost === "number") return input;
+  const c = ledgerCostsFor(input.src, input.assetClass, measuredSlipBps);
+  const frozen = measuredSlipBps !== undefined && Number.isFinite(measuredSlipBps) && measuredSlipBps >= 0 ? { measuredSlipBps } : {};
+  return { ...input, ...frozen, roundTripCost: (2 * (c.feeBps + c.slipBps)) / 1e4 };
+}
+
+export function createProposal(book: PaperBook, rawInput: ProposalInput, now: number, nonce: string, measuredSlipBps?: number): Proposal | null {
+  const input = withCosts(rawInput, measuredSlipBps);
   const id = proposalId(input);
   if (book.account.decisions[id]) return null;
   const expiresAt = proposalExpiry(input);
@@ -304,7 +441,14 @@ function checkNonce(book: PaperBook, proposal: Proposal, presented: string): Dec
 }
 
 /** Approve: same nonce, single-use, not expired, and the risk engine must pass again NOW. */
-export function approveProposal(book: PaperBook, proposal: Proposal, presentedNonce: string, now: number): DecisionResult {
+export function approveProposal(
+  book: PaperBook,
+  proposal: Proposal,
+  presentedNonce: string,
+  now: number,
+  /** v2.8: optional pre-trade reason (≤ 280 chars) and setup tag. */
+  meta?: { reason?: string; tag?: string },
+): DecisionResult {
   const bad = checkNonce(book, proposal, presentedNonce);
   if (bad) return { ok: false, book, error: bad };
   if (now > proposal.expiresAt) return { ok: false, book: consume(book, proposal, "expired", now), error: "expired" };
@@ -341,6 +485,11 @@ export function approveProposal(book: PaperBook, proposal: Proposal, presentedNo
     markTime: input.barTime,
     lastBarTime: input.barTime,
     closeRequestedAt: null,
+    mae: 0,
+    mfe: 0,
+    ...(cleanPreReason(meta?.reason) ? { preReason: cleanPreReason(meta?.reason) } : {}),
+    ...(cleanTag(meta?.tag) ? { tag: cleanTag(meta?.tag) } : {}),
+    ...(typeof input.measuredSlipBps === "number" ? { slipBps: input.measuredSlipBps } : {}),
   };
   return {
     ok: true,
@@ -350,11 +499,59 @@ export function approveProposal(book: PaperBook, proposal: Proposal, presentedNo
   };
 }
 
-/** Reject: same nonce, single-use. */
-export function rejectProposal(book: PaperBook, proposal: Proposal, presentedNonce: string, now: number): DecisionResult {
+/**
+ * Reject: same nonce, single-use. v2.8 (WP19): the rejection is recorded with
+ * the optional reason/tag and a pending bracket, resolved later by processBars.
+ */
+export function rejectProposal(
+  book: PaperBook, proposal: Proposal, presentedNonce: string, now: number,
+  meta?: { reason?: string; tag?: string },
+): DecisionResult {
   const bad = checkNonce(book, proposal, presentedNonce);
   if (bad) return { ok: false, book, error: bad };
-  return { ok: true, book: consume(book, proposal, "rejected", now) };
+  const consumed = consume(book, proposal, "rejected", now);
+  const input = proposal.input;
+  const dir = input.side === "long" ? 1 : -1;
+  const v = proposal.verdict;
+  const rt = typeof input.roundTripCost === "number" && Number.isFinite(input.roundTripCost) && input.roundTripCost > 0 ? input.roundTripCost : 0;
+  const usable = v.stopDistance > 0 && Number.isFinite(v.stopDistance) && input.entryRef > 0 && input.intervalMs > 0;
+  const spec: BracketSpec | null = usable
+    ? {
+        dir, refPrice: input.entryRef, stopDistance: v.stopDistance, targetDistance: v.stopDistance * consumed.account.settings.targetRR,
+        riskPerUnit: v.stopDistance + input.entryRef * rt, signalBarTime: input.barTime, fillFrom: now, intervalMs: input.intervalMs,
+      }
+    : null;
+  const record: RejectedProposal = {
+    proposalId: proposal.id, configId: input.configId, pair: input.pair, src: input.src, tf: input.tf, assetClass: input.assetClass,
+    side: input.side, rejectedAt: now,
+    ...(cleanPreReason(meta?.reason) ? { reason: cleanPreReason(meta?.reason) } : {}),
+    ...(cleanTag(meta?.tag) ? { tag: cleanTag(meta?.tag) } : {}),
+    ...(typeof input.measuredSlipBps === "number" ? { slipBps: input.measuredSlipBps } : {}),
+    spec, bracket: spec ? bracketInit(spec) : null, bracketOutcome: null,
+  };
+  const rejected = [...(consumed.account.rejected ?? []), record].slice(-MAX_REJECTED);
+  return { ok: true, book: { ...consumed, account: { ...consumed.account, rejected } } };
+}
+
+/** Advance the pending rejected brackets of `src × tf` over new closed bars (same costs as positions). */
+function advanceRejected(
+  list: RejectedProposal[] | undefined, src: string, tf: string, barsByPair: Record<string, Kline[] | undefined>,
+  costsOverride?: CostModel, slipByPair?: Record<string, number>,
+): RejectedProposal[] | undefined {
+  if (!list?.length) return list;
+  let changed = false;
+  const next = list.map((x) => {
+    if (x.bracketOutcome || !x.spec || !x.bracket || x.src !== src || x.tf !== tf) return x;
+    const k = barsByPair[x.pair];
+    if (!k || !k.length) return x;
+    const costs = costsOverride ?? costsFor(src, x.assetClass, x.slipBps ?? slipByPair?.[x.pair]);
+    const b = bracketAdvance(x.spec, x.bracket, k, costs);
+    if (b === x.bracket || (b.lastBarTime === x.bracket.lastBarTime && b.status === x.bracket.status)) return x;
+    changed = true;
+    const done = b.status === "closed" && b.r !== undefined && b.exitReason && b.closedAt !== undefined;
+    return { ...x, bracket: b, bracketOutcome: done ? { r: b.r as number, reason: b.exitReason as "stop" | "target", closedAt: b.closedAt as number } : null };
+  });
+  return changed ? next : list;
 }
 
 /* ------------------------------------------------------------------ *
@@ -382,19 +579,30 @@ export function engageKill(book: PaperBook, now: number): PaperBook {
 export function resetKill(book: PaperBook, typed: string, now: number): { ok: boolean; book: PaperBook } {
   if (!book.account.killSwitch) return { ok: true, book };
   if (String(typed ?? "").trim() !== KILL_RESET_WORD) return { ok: false, book };
-  return { ok: true, book: { ...book, account: { ...book.account, killSwitch: false, killChangedAt: now } } };
+  return { ok: true, book: { ...book, account: { ...book.account, killSwitch: false, killChangedAt: now, lastLockAt: now } } };
 }
 
-export function updateSettings(book: PaperBook, next: RiskSettings): { ok: boolean; book: PaperBook; invalid: string[] } {
+/** v2.8: a lock that forbids loosening is active now (kill, drawdown, daily or weekly — not the dead-man badge). */
+export function lockActive(book: PaperBook, now: number): boolean {
+  if (book.account.killSwitch || book.account.drawdownLocked) return true;
+  const l = lossLocks(accountSnapshot(book, "", "", now), book.account.settings);
+  return l.daily || l.weekly;
+}
+
+export function updateSettings(book: PaperBook, next: RiskSettings, now = Date.now()): { ok: boolean; book: PaperBook; invalid: string[] } {
   const invalid = validateSettings(next);
   if (invalid.length) return { ok: false, book, invalid };
+  const cur = book.account.settings;
+  const loosens = LOOSENING_KEYS.some((k) => next[k] > cur[k]);
+  const last = book.account.lastLockAt;
+  if (loosens && (lockActive(book, now) || (last != null && utcDayStart(now) <= utcDayStart(last)))) return { ok: false, book, invalid: ["locked"] };
   return { ok: true, invalid, book: { ...book, account: { ...book.account, settings: { ...next } } } };
 }
 
 /** Starting equity can only change on an empty book (no positions, no journal). */
 export function setStartingEquity(book: PaperBook, equity: number): { ok: boolean; book: PaperBook } {
   if (book.positions.length || book.journal.length || !(equity > 0) || !Number.isFinite(equity) || equity > 1e12) return { ok: false, book };
-  return { ok: true, book: { ...book, account: { ...book.account, startingEquity: equity, balance: equity } } };
+  return { ok: true, book: { ...book, account: { ...book.account, startingEquity: equity, balance: equity, peakEquity: equity, dayMark: { day: book.account.dayMark.day, equity }, weekMark: { week: book.account.weekMark.week, equity } } } };
 }
 
 /* ------------------------------------------------------------------ *
@@ -419,6 +627,8 @@ export function processBars(
   barsByPair: Record<string, Kline[] | undefined>,
   now: number,
   costsOverride?: CostModel,
+  /** v2.8: measured slippage (bp per side) by pair, already age-checked via `slippageFor`; costsOverride wins. */
+  slipByPair?: Record<string, number>,
 ): ProcessResult {
   const filled: PaperPosition[] = [];
   const closed: JournalEntry[] = [];
@@ -428,7 +638,7 @@ export function processBars(
   for (const orig of book.positions) {
     const k = orig.src === src && orig.tf === tf ? barsByPair[orig.pair] : undefined;
     if (!k || !k.length) { positions.push(orig); continue; }
-    const costs = costsOverride ?? costsFor(src, orig.assetClass);
+    const costs = costsOverride ?? costsFor(src, orig.assetClass, orig.slipBps ?? slipByPair?.[orig.pair]);
     const fee = costs.feeBps / 1e4;
     const slip = costs.slipBps / 1e4;
     let p: PaperPosition = { ...orig };
@@ -458,7 +668,7 @@ export function processBars(
       }
       // Manual close: exit at this bar's open (not on the fill bar itself — that would be a zero-length trade).
       if (!fillBar && p.closeRequestedAt != null && bar.time >= p.closeRequestedAt) {
-        exit = { px: bar.open, reason: "manual", at: bar.time };
+        exit = { px: bar.open, reason: p.closeReason ?? "manual", at: bar.time };
         p.lastBarTime = bar.time;
         break;
       }
@@ -474,10 +684,24 @@ export function processBars(
         else if (bar.high >= p.stop) exit = { px: p.stop, reason: "stop", at: barClose };
         else if (bar.low <= p.target) exit = { px: p.target, reason: "target", at: barClose };
       }
+      // v2.8: excursions in R from this bar's extremes (1 R per unit = plannedRisk ÷ size).
+      if (p.entry != null && p.plannedRisk > 0 && p.size > 0) {
+        const oneR = p.plannedRisk / p.size;
+        const adverse = dir === 1 ? bar.low : bar.high;
+        const favourable = dir === 1 ? bar.high : bar.low;
+        p.mae = Math.min(p.mae ?? 0, (dir * (adverse - p.entry)) / oneR);
+        p.mfe = Math.max(p.mfe ?? 0, (dir * (favourable - p.entry)) / oneR);
+      }
       p.mark = bar.close;
       p.markTime = bar.time;
       p.lastBarTime = bar.time;
       if (exit) break;
+      // v2.8 time stop: after `timeStopBars` bars held, exit at the next open (reason "time").
+      const ts = book.account.settings.timeStopBars;
+      if (ts > 0 && p.closeRequestedAt == null && p.openedAt != null && (bar.time - p.openedAt) / p.intervalMs + 1 >= ts) {
+        p.closeRequestedAt = barClose;
+        p.closeReason = "time";
+      }
     }
 
     if (exit && p.entry != null && p.openedAt != null) {
@@ -508,6 +732,10 @@ export function processBars(
         proposalId: p.proposalId,
         approvedAt: p.approvedAt,
         approvedBy: "owner",
+        ...(typeof p.mae === "number" ? { mae: p.mae } : {}),
+        ...(typeof p.mfe === "number" ? { mfe: p.mfe } : {}),
+        ...(p.preReason ? { preReason: p.preReason } : {}),
+        ...(p.tag ? { tag: p.tag } : {}),
       };
       balance += pnl;
       closed.push(entry);
@@ -518,10 +746,75 @@ export function processBars(
 
   const anyBars = Object.values(barsByPair).some((k) => k && k.length);
   const heartbeats = anyBars ? { ...book.account.heartbeats, [seriesKey(src, tf)]: now } : book.account.heartbeats;
+  const rejected = advanceRejected(book.account.rejected, src, tf, barsByPair, costsOverride, slipByPair);
+  const account = { ...book.account, balance, seq, heartbeats, ...(rejected ? { rejected } : {}) };
+  const next: PaperBook = { account, positions, journal: [...book.journal, ...closed] };
+  return { book: applyMarks(applyDrawdown(next, now), now), filled, closed };
+}
+
+/** v2.8: start-of-day/week marks (first mark at or after 00:00 UTC / Monday) and the lock memory for the no-loosening rule. */
+function applyMarks(book: PaperBook, now: number): PaperBook {
+  const a = book.account;
+  const equity = bookEquity(book);
+  const day = utcDayStart(now);
+  const week = utcWeekStart(now);
+  // The mark is the equity before anything realised this period: a stop-out in the scan that sets the mark is a
+  // loss of the period, not part of its starting point.
+  const dayMark = a.dayMark?.day === day ? a.dayMark : { day, equity: equity - realisedSince(book.journal, day) };
+  const weekMark = a.weekMark?.week === week ? a.weekMark : { week, equity: equity - realisedSince(book.journal, week) };
+  const next: PaperBook = { ...book, account: { ...a, dayMark, weekMark } };
+  return lockActive(next, now) ? { ...next, account: { ...next.account, lastLockAt: now } } : next;
+}
+
+/**
+ * v2.8 drawdown lock: after every bar batch, with every position at its latest
+ * mark, raise the peak or — at peak × (1 − maxDrawdownLockPct) — engage the
+ * lock: cancel pending positions and request a close of every open one at the
+ * next open of its own series.
+ */
+function applyDrawdown(book: PaperBook, now: number): PaperBook {
+  const a = book.account;
+  if (a.drawdownLocked) return book;
+  const equity = bookEquity(book);
+  if (!(equity > 0) && !(a.peakEquity > 0)) return book;
+  if (equity > a.peakEquity) return { ...book, account: { ...a, peakEquity: equity } };
+  if (!(a.peakEquity > 0) || !drawdownBreached({ equity, peakEquity: a.peakEquity, drawdownLocked: false }, a.settings)) return book;
+  const positions = book.positions
+    .filter((p) => p.status === "open")
+    .map((p) => (p.closeRequestedAt != null ? p : { ...p, closeRequestedAt: now, closeReason: "drawdown lock" as const }));
+  return { ...book, account: { ...a, drawdownLocked: true }, positions };
+}
+
+/** Series (`src|tf`) that still hold a position, sorted — the scans RESET is waiting for. */
+export function waitingSeries(book: PaperBook): string[] {
+  return [...new Set(book.positions.map((p) => seriesKey(p.src, p.tf)))].sort();
+}
+
+/**
+ * v2.8: clear the drawdown lock. Needs the typed word (KILL_RESET_WORD) and no
+ * open or pending positions; sets the peak to current equity (a fresh 10%) and
+ * journals the reset on the account. The realised loss is kept.
+ */
+export function resetDrawdown(book: PaperBook, typed: string, now: number): { ok: boolean; book: PaperBook; waitingSeries: string[] } {
+  const waiting = waitingSeries(book);
+  if (!book.account.drawdownLocked) return { ok: true, book, waitingSeries: [] };
+  if (String(typed ?? "").trim() !== KILL_RESET_WORD || waiting.length) return { ok: false, book, waitingSeries: waiting };
+  const equity = bookEquity(book);
+  const a = book.account;
   return {
-    book: { account: { ...book.account, balance, seq, heartbeats }, positions, journal: [...book.journal, ...closed] },
-    filled,
-    closed,
+    ok: true,
+    waitingSeries: [],
+    book: {
+      ...book,
+      account: {
+        ...a,
+        drawdownLocked: false,
+        peakEquity: equity,
+        lockClearedAt: now,
+        lastLockAt: now,
+        resets: [...a.resets, { at: now, equity, peakBefore: a.peakEquity }].slice(-100),
+      },
+    },
   };
 }
 
@@ -544,7 +837,32 @@ export interface JournalStats {
   /** Peak-to-trough fall of the realised equity curve, quote and fraction of the peak. */
   maxDrawdown: number;
   maxDrawdownPct: number;
+  /** v2.8: Wilson 95% range on the win rate ([NaN, NaN] with no trades). */
+  winRateCI: [number, number];
+  /** v2.8: R histogram, bins of 0.5 R from −3 to +5; the end bins hold everything beyond (edge = lower bound). */
+  rHistogram: { edge: number; count: number }[];
+  /** v2.8: fewer than 30 trades — too few to judge. */
+  tooFewTrades: boolean;
+  /** v2.8: mean MAE / MFE in R over entries that carry them (NaN when none do). */
+  avgMae: number;
+  avgMfe: number;
   curve: { t: number; equity: number }[];
+}
+
+export const TOO_FEW_TRADES = 30;
+const R_HIST_MIN = -3;
+const R_HIST_MAX = 5;
+const R_HIST_STEP = 0.5;
+
+export function rHistogram(rs: number[]): { edge: number; count: number }[] {
+  const bins = Math.round((R_HIST_MAX - R_HIST_MIN) / R_HIST_STEP);
+  const out = Array.from({ length: bins }, (_, i) => ({ edge: R_HIST_MIN + i * R_HIST_STEP, count: 0 }));
+  for (const r of rs) {
+    if (!Number.isFinite(r)) continue;
+    const i = Math.min(bins - 1, Math.max(0, Math.floor((r - R_HIST_MIN) / R_HIST_STEP)));
+    out[i].count++;
+  }
+  return out;
 }
 
 const avg = (x: number[]) => (x.length ? x.reduce((a, b) => a + b, 0) / x.length : NaN);
@@ -575,7 +893,9 @@ export function journalStats(journal: JournalEntry[], startingEquity: number, st
   for (const pt of curve) {
     if (pt.equity > peak) peak = pt.equity;
     const dd = peak - pt.equity;
-    if (dd > mdd) { mdd = dd; mddPct = peak > 0 ? dd / peak : 0; }
+    if (dd > mdd) mdd = dd;
+    // v2.8: the largest % drawdown is tracked on its own (it need not be the largest amount).
+    if (peak > 0 && dd / peak > mddPct) mddPct = dd / peak;
   }
   return {
     trades: n,
@@ -590,6 +910,11 @@ export function journalStats(journal: JournalEntry[], startingEquity: number, st
     profitFactor: grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : NaN,
     maxDrawdown: mdd,
     maxDrawdownPct: mddPct,
+    winRateCI: wilson(winsR.length, n),
+    rHistogram: rHistogram(rs),
+    tooFewTrades: n < TOO_FEW_TRADES,
+    avgMae: avg(journal.map((j) => j.mae).filter((v): v is number => typeof v === "number" && Number.isFinite(v))),
+    avgMfe: avg(journal.map((j) => j.mfe).filter((v): v is number => typeof v === "number" && Number.isFinite(v))),
     curve,
   };
 }

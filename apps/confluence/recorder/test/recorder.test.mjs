@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
-  barWhileClosed, classifySymbol, ENGINE_BARS, enrich, percentiles, resetRateLimitForTests, rateLimitCooldown, ret20, scoreSeries, toLedgerRow,
+  barWhileClosed, classifySymbol, detectHistoricalPattern, ENGINE_BARS, enrich, percentiles, resetRateLimitForTests, rateLimitCooldown, ret20, scoreSeries, toLedgerRow,
 } from "../src/engine.mjs";
 import { createRecorder, readHeartbeatStatus } from "../src/recorder-core.mjs";
 import { nextWake } from "../src/schedule.mjs";
@@ -37,10 +37,12 @@ function expectedLive(klBySym, rec) {
     const ac = classifySymbol("binance", u.symbol);
     const score = scoreSeries(kl, { intervalMs: IV, volumeAvailable: true, assetClass: ac });
     const last = kl[kl.length - 1];
+    // v2.8 (WP19): the Pattern output, as the app's scan job computes it.
+    const p = detectHistoricalPattern(kl, { volumeAvailable: true, intervalMs: IV, currentConfluence: score.confluence, currentReversal: score.reversal });
     const row = toLedgerRow(kl, score, {
       src: "binance", tf: "4h", pair: u.symbol, ac, intervalMs: IV, closeTime: last.time + IV, rank: u.rank, quoteVolume: u.qv,
       appVersion: "recorder-2.5.1", live: true, recordedAt: rec, underlyingClosed: barWhileClosed(ac, last.time, IV),
-      universeRank: FULL_RANK[u.symbol], rankSource: "live",
+      universeRank: FULL_RANK[u.symbol], rankSource: "live", pattern: { direction: p.direction, confidence: p.confidence },
     });
     Object.assign(row, enrich(row, kl, { intervalMs: IV, btc: klBySym.BTCUSDT, basis: undefined, rs: rsMap.get(u.symbol) ?? null, split: "split" in score ? Boolean(score.split) : false }));
     return JSON.parse(JSON.stringify(row));
@@ -70,6 +72,13 @@ test("live rows are identical to scoreSeries + toLedgerRow (+ enrich) on the sam
   assert.equal(got[2].rk, 3, "rank = position in the scanned (class) universe, as in the app");
   assert.equal(got[2].rku, 4, "rku = position in the full unfiltered venue ranking");
   assert.equal(got[0].t, cur - IV, "newest CLOSED bar, never the bar in progress");
+  // v2.8 (WP19): every row logs the vote vector and the Pattern output; no derivatives configured → null.
+  for (const r of got) {
+    assert.ok(Number.isSafeInteger(r.vt) && r.vt >= 0 && r.vt <= 4 ** 18 - 1);
+    assert.ok([-1, 0, 1].includes(r.pd) && [0, 1, 2, 3].includes(r.pc));
+    assert.equal(r.fr, null);
+    assert.equal(r.oiChg, null);
+  }
 });
 
 test("restarts never record a bar twice; the id index is rebuilt from the ledger and a torn line is cut", async (t) => {
@@ -276,4 +285,51 @@ test("recorder profiles use separate ledger identity and cursors", async (t) => 
   assert.equal(customRows.find((row) => row.pair === "BTCUSDT").sc, expected.confluence.score);
   const repeated = await runOnce(dir, ex, { profile });
   assert.equal(repeated.result.written, 0);
+});
+
+test("v2.8 (WP19): a crypto pair under the default US$1,000,000 liquidity floor is left out of the recorded score", async (t) => {
+  const dir = tempDir(t);
+  const ex = mockExchange({ binanceTickers: [["BTCUSDT", 9e9], ["THINUSDT", 9e5], ["ETHUSDT", 5e9]] });
+  const { result } = await runOnce(dir, ex);
+  assert.equal(result.ok, true);
+  assert.deepEqual(ledgerRows(dir).map((r) => r.pair).sort(), ["BTCUSDT", "ETHUSDT"]);
+  assert.equal(ex.calls.filter((c) => c.path === "/api/v3/klines" && c.symbol === "THINUSDT").length, 0, "no candle request for a thin pair");
+});
+
+test("v2.8 (WP19): the recorder paces Binance requests on X-MBX-USED-WEIGHT-1M (Node fetch reads it)", async (t) => {
+  const dir = tempDir(t);
+  const tickers = (header) => mockExchange({
+    override: (url) => (url.pathname === "/api/v3/ticker/24hr"
+      ? new Response(JSON.stringify([["BTCUSDT", 9e9], ["ETHUSDT", 5e9], ["SOLUSDT", 2e9]].map(([symbol, qv]) => ({ symbol, openPrice: "100", lastPrice: "101", quoteVolume: String(qv) }))),
+        { status: 200, headers: { "content-type": "application/json", ...(header ? { "x-mbx-used-weight-1m": header } : {}) } })
+      : undefined),
+  });
+  let t0 = performance.now();
+  await runOnce(dir, tickers(null));
+  const fixed = performance.now() - t0;
+  assert.ok(fixed < 1_200, `no header → fixed pacing only (${Math.round(fixed)} ms)`);
+  resetRateLimitForTests();
+  mock.timers.setTime(T0 + IV); // next bar: a fresh cycle with candle requests
+  t0 = performance.now();
+  const { result } = await runOnce(dir, tickers("4830")); // 30 of 1,200 over 80% of 6,000 → 1.5 s
+  const paced = performance.now() - t0;
+  assert.equal(result.ok, true);
+  assert.ok(paced >= 1_400, `candle requests waited for the used-weight pause (${Math.round(paced)} ms)`);
+});
+
+test("fix round 1 (Task 8): a ledger pair now under the liquidity floor still gets candles while its horizon is open", async (t) => {
+  const dir = tempDir(t);
+  // Cycle 1: THINUSDT trades US$2M/day — scanned and recorded, its 24-bar horizon opens.
+  const ex1 = mockExchange({ binanceTickers: [["BTCUSDT", 9e9], ["ETHUSDT", 5e9], ["THINUSDT", 2e6]] });
+  await runOnce(dir, ex1);
+  assert.ok(ledgerRows(dir).some((r) => r.pair === "THINUSDT"), "THINUSDT recorded while above the floor");
+  // Cycle 2 (next bar): THINUSDT fell to US$900k/day — out of the scored scan, horizon still open.
+  mock.timers.setTime(T0 + IV);
+  const ex2 = mockExchange({ binanceTickers: [["BTCUSDT", 9e9], ["ETHUSDT", 5e9], ["THINUSDT", 9e5]] });
+  const before = ledgerRows(dir).filter((r) => r.pair === "THINUSDT").length;
+  const { result } = await runOnce(dir, ex2);
+  assert.equal(result.ok, true);
+  assert.equal(result.openHorizonPairs, 1, "THINUSDT is an open-horizon pair");
+  assert.ok(ex2.calls.some((c) => c.path === "/api/v3/klines" && c.symbol === "THINUSDT"), "open-horizon candles are fetched without the floor");
+  assert.equal(ledgerRows(dir).filter((r) => r.pair === "THINUSDT").length, before, "candles only — no new row for a thin pair");
 });

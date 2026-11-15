@@ -1,5 +1,8 @@
 {
   "@note": "R14 baseline: acceptance check IDs that must not disappear without an ADR (removals[].adr = docs/adr/NNNN-*.md).",
+  "@specIdMap": {
+    "LD-*": "Spec §4 (v2.8) 'LD-* (progressive rows, delta equals full)' is implemented as PG-1 and PG-2 in tools/e2e/acceptance.cjs. The acceptance mock always falls back from delta, so 'delta equals full' is pinned by the unit tests in apps/confluence/web/src/lib/quotes.test.mjs (WP27 delta)."
+  },
   "ids": [
     "A-1",
     "A-2",
@@ -23,8 +26,11 @@
     "CH-5",
     "CH-5b",
     "CH-6",
+    "DS-1",
+    "DS-2",
     "FX-14",
     "FX-15",
+    "FX-16",
     "FX-7",
     "I-1",
     "I-2",
@@ -37,6 +43,7 @@
     "I-9",
     "ID-2.2-rtl",
     "ID-2.4",
+    "ID-2.5",
     "ID-3.2",
     "ID-6.3a",
     "ID-6.3b",
@@ -96,6 +103,8 @@
     "P-2",
     "P-3",
     "P-4",
+    "PG-1",
+    "PG-2",
     "PH-10",
     "PH-11",
     "PH-12",

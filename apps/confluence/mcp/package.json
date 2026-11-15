@@ -2,6 +2,7 @@
   "name": "@rsl/confluence-mcp",
   "version": "2.5.1",
   "private": true,
+  "license": "UNLICENSED",
   "type": "module",
   "description": "Local, read-only MCP server (stdio) that lets Claude analyse the forward-test signal ledger. No trading, no funds, no network.",
   "author": "rsLozano",

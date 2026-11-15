@@ -36,7 +36,7 @@ Add `--disable-warning=ExperimentalWarning` after `node` to hide Node's type-str
 | `--interval-seconds` | off | fixed cadence (≥ 30 s) instead of "just after each bar close" |
 | `--grace-seconds` | `20` | wait after a bar close. Raise it if this PC's clock runs fast. |
 | `--catch-up-max` | `48` | closed bars scored per series after a gap (same as the app) |
-| `--derivs` | `auto` | funding / open-interest log. `auto` = only with `bybit-perp`; `on` = for scanned symbols that also list on Bybit linear. |
+| `--derivs` | `auto` | funding / open-interest log. `auto` = only with `bybit-perp`; `on` = for scanned symbols that also list on Bybit linear. v2.8: rows log `fr` / `oiChg` from a snapshot ≤ 2 h before their close; on bars longer than 2 h the looping recorder adds a derivatives-only snapshot 15 min before each close (not with `--once`). |
 | `--oi-top` | `10` | how many top symbols get an open-interest request each cycle |
 | `--check-heartbeat` | | dead-man check. Exit 1 (and alert, if configured) when no cycle has succeeded for 3 cycle periods + 10 min. |
 

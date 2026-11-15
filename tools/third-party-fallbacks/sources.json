@@ -1,0 +1,260 @@
+{
+  "@note": "Licence texts for shipped components that carry no licence file of their own (WP20, licence audit 14 Nov 2026). Every file here is a verbatim copy of the source named in `source` (fetched 15 Nov 2026) and is pinned by sha256; tools/third-party-notices.mjs --check fails when a hash differs or a shipped package has neither its own licence file nor an entry here. Never write a licence text or a copyright line from memory.",
+  "files": {
+    "npm/react-remove-scroll-bar.LICENSE": {
+      "source": "https://raw.githubusercontent.com/theKashey/react-remove-scroll-bar/master/LICENSE (no tag for 2.3.8 in the repository)",
+      "sha256": "a79aae0c0f21990d9d963bb3c5a79cdcea9a46f8523ba55c58d7fe776b6ebc84"
+    },
+    "npm/web3icons.LICENCE": {
+      "source": "https://raw.githubusercontent.com/0xa3k5/web3icons/main/LICENCE (linked from the package README's License section)",
+      "sha256": "fcbc59252ec73f93cb16242e7a10157747058b70d561a2cec650d8dc60778263"
+    },
+    "npm/embla-carousel.LICENSE": {
+      "source": "https://raw.githubusercontent.com/davidjerleke/embla-carousel/v8.6.0/LICENSE",
+      "sha256": "992490064b90ec94c302fe5f29dcc14cb44145857064e46f9ffe6c8f511c1093"
+    },
+    "npm/input-otp.LICENSE": {
+      "source": "https://raw.githubusercontent.com/guilhermerodz/input-otp/master/LICENSE",
+      "sha256": "079031192fea535a245aa64a637d8433c406b82a14f91c3606b1d63e41c00152"
+    },
+    "npm/react-resizable-panels.LICENSE": {
+      "source": "https://raw.githubusercontent.com/bvaughn/react-resizable-panels/3.0.6/LICENSE",
+      "sha256": "8b21167f99f3c016b39473b2984ceb03b54bf796dd9a7c74fcb80cfd513fe8a8"
+    },
+    "npm/victory.LICENSE.txt": {
+      "source": "https://raw.githubusercontent.com/FormidableLabs/victory/main/LICENSE.txt (victory-vendor is published from this repository)",
+      "sha256": "5da462e6df31ee859ce22a4ddee2729b7587e8e429707f83da8af2df311972aa"
+    },
+    "npm/isarray.LICENSE": {
+      "source": "isarray@1.0.0 README.md, section \"License\" (the package's own file; HTML entities &lt; &gt; decoded)",
+      "sha256": "b05c56f1c665cd9e57dae61865c8881344d7cba85c7a8cb0d643a6ec03497f9d"
+    },
+    "npm/shadcn-ui.LICENSE.md": {
+      "source": "https://raw.githubusercontent.com/shadcn-ui/ui/main/LICENSE.md",
+      "sha256": "1564074e13439397221ffd522e2e504d56561994a23d371aa5e3ad43e4f5423f"
+    },
+    "texts/MIT.txt": {
+      "source": "https://raw.githubusercontent.com/spdx/license-list-data/main/text/MIT.txt (SPDX licence list)",
+      "sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
+    },
+    "texts/Apache-2.0.txt": {
+      "source": "https://raw.githubusercontent.com/spdx/license-list-data/main/text/Apache-2.0.txt (SPDX licence list)",
+      "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
+    },
+    "texts/BSD-3-Clause.txt": {
+      "source": "https://raw.githubusercontent.com/spdx/license-list-data/main/text/BSD-3-Clause.txt (SPDX licence list)",
+      "sha256": "5a93d5831e1297ab10fe643e1a631e83be392896da14ee2951285a79012df69d"
+    },
+    "texts/OFL-1.1.txt": {
+      "source": "https://raw.githubusercontent.com/spdx/license-list-data/main/text/OFL-1.1.txt (SPDX licence list)",
+      "sha256": "8eea8287e5876b539670cadb82e99f9a7afddec6f6730811be1daf25d2e9bcfd"
+    },
+    "texts/MPL-2.0.txt": {
+      "source": "https://raw.githubusercontent.com/spdx/license-list-data/main/text/MPL-2.0.txt (SPDX licence list)",
+      "sha256": "66a3107d5ad6a058aab753eaac2047ccb2ed0e39465dd0fe5844da3e300d5172"
+    },
+    "texts/CDLA-Permissive-2.0.txt": {
+      "source": "https://raw.githubusercontent.com/spdx/license-list-data/main/text/CDLA-Permissive-2.0.txt (SPDX licence list)",
+      "sha256": "4531a67d443284d93ffed0803df5b10634aff21c3d77e381f2d48af01d875868"
+    },
+    "texts/Unicode-3.0.txt": {
+      "source": "https://raw.githubusercontent.com/spdx/license-list-data/main/text/Unicode-3.0.txt (SPDX licence list)",
+      "sha256": "f7db81051789b729fea528a63ec4c938fdcb93d9d61d97dc8cc2e9df6d47f2a1"
+    },
+    "native/sqlcipher-android-v4.17.0.LICENSE": {
+      "source": "https://raw.githubusercontent.com/sqlcipher/sqlcipher-android/v4.17.0/LICENSE",
+      "sha256": "09e4af560ce2e3c9c2aa6b564e35947b03db7d1ae345f22a32793ed46542cc14"
+    },
+    "native/sqlcipher.LICENSE.md": {
+      "source": "https://raw.githubusercontent.com/sqlcipher/sqlcipher/master/LICENSE.md (SQLCipher core, Community Edition)",
+      "sha256": "2a2826f6acf46fa650730cf42cbb22a642be33a7ef119c9c4f4bf6daf3bef48e"
+    },
+    "native/libtomcrypt.LICENSE": {
+      "source": "https://raw.githubusercontent.com/libtom/libtomcrypt/develop/LICENSE",
+      "sha256": "2fa64b163659f41965c9815882a8296d3d03ff546b76153e11445f9bdecf955a"
+    },
+    "native/zipfoundation.LICENSE": {
+      "source": "https://raw.githubusercontent.com/weichsel/ZIPFoundation/development/LICENSE",
+      "sha256": "a1b3078a6d85d20b533ac9861f409f06f5f06b7b13ffd1b63d2734eb489ced83"
+    },
+    "npm/tauri-plugins.LICENSE_MIT": {
+      "source": "https://raw.githubusercontent.com/tauri-apps/plugins-workspace/v2/plugins/{dialog,fs,http,opener,sql}/LICENSE_MIT (identical files; the npm packages ship only LICENSE.spdx)",
+      "sha256": "89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607"
+    },
+    "native/sqlcipher-swift.LICENSE.md": {
+      "source": "https://raw.githubusercontent.com/sqlcipher/SQLCipher.swift/master/LICENSE.md (Swift package used by @capacitor-community/sqlite with SPM, from 4.14.0)",
+      "sha256": "930857b664903eef7d8ee4f110c111aa6f97acebf96f162669f4bf62722c2b31"
+    }
+  },
+  "packages": {
+    "react-remove-scroll-bar@2.3.8": {
+      "files": [
+        "npm/react-remove-scroll-bar.LICENSE"
+      ]
+    },
+    "@web3icons/react@4.1.17": {
+      "files": [
+        "npm/web3icons.LICENCE"
+      ]
+    },
+    "@web3icons/common@0.11.46": {
+      "files": [
+        "npm/web3icons.LICENCE"
+      ]
+    },
+    "embla-carousel@8.6.0": {
+      "files": [
+        "npm/embla-carousel.LICENSE"
+      ]
+    },
+    "embla-carousel-react@8.6.0": {
+      "files": [
+        "npm/embla-carousel.LICENSE"
+      ]
+    },
+    "embla-carousel-reactive-utils@8.6.0": {
+      "files": [
+        "npm/embla-carousel.LICENSE"
+      ]
+    },
+    "input-otp@1.4.2": {
+      "files": [
+        "npm/input-otp.LICENSE"
+      ]
+    },
+    "react-resizable-panels@3.0.6": {
+      "files": [
+        "npm/react-resizable-panels.LICENSE"
+      ]
+    },
+    "victory-vendor@36.9.2": {
+      "files": [
+        "npm/victory.LICENSE.txt"
+      ],
+      "packageFiles": "lib-vendor/*/LICENSE",
+      "note": "MIT for victory-vendor itself; the vendored d3 modules keep their ISC/BSD-3-Clause licences (lib-vendor/*/LICENSE in the package, reproduced below)."
+    },
+    "isarray@1.0.0": {
+      "files": [
+        "npm/isarray.LICENSE"
+      ]
+    },
+    "client-only@0.0.1": {
+      "files": [
+        "texts/MIT.txt"
+      ],
+      "note": "The package ships no licence file and names no copyright holder; package.json declares MIT, homepage reactjs.org, issues at github.com/facebook/react. The MIT terms (SPDX text) apply."
+    },
+    "@tauri-apps/plugin-dialog@2.8.4": {
+      "files": [
+        "npm/tauri-plugins.LICENSE_MIT"
+      ],
+      "note": "MIT OR Apache-2.0; MIT elected. The package ships LICENSE.spdx (copyright metadata, reproduced) but no licence text."
+    },
+    "@tauri-apps/plugin-fs@2.7.1": {
+      "files": [
+        "npm/tauri-plugins.LICENSE_MIT"
+      ],
+      "note": "MIT OR Apache-2.0; MIT elected. The package ships LICENSE.spdx (copyright metadata, reproduced) but no licence text."
+    },
+    "@tauri-apps/plugin-http@2.8.3": {
+      "files": [
+        "npm/tauri-plugins.LICENSE_MIT"
+      ],
+      "note": "MIT OR Apache-2.0; MIT elected. The package ships LICENSE.spdx (copyright metadata, reproduced) but no licence text."
+    },
+    "@tauri-apps/plugin-opener@2.7.2": {
+      "files": [
+        "npm/tauri-plugins.LICENSE_MIT"
+      ],
+      "note": "MIT OR Apache-2.0; MIT elected. The package ships LICENSE.spdx (copyright metadata, reproduced) but no licence text."
+    },
+    "@tauri-apps/plugin-sql@2.6.0": {
+      "files": [
+        "npm/tauri-plugins.LICENSE_MIT"
+      ],
+      "note": "MIT OR Apache-2.0; MIT elected. The package ships LICENSE.spdx (copyright metadata, reproduced) but no licence text."
+    },
+    "jszip@3.10.2": {
+      "files": [],
+      "note": "Dual-licensed (MIT OR GPL-3.0-or-later); this app uses it under the MIT licence (its LICENSE.markdown, reproduced below, carries both)."
+    }
+  },
+  "components": [
+    {
+      "id": "shadcn-ui",
+      "title": "shadcn/ui component code (apps/confluence/web/src/components/ui, copied into this app and modified)",
+      "license": "MIT",
+      "files": [
+        "npm/shadcn-ui.LICENSE.md"
+      ],
+      "targets": [
+        "html",
+        "tauri",
+        "capacitor"
+      ]
+    },
+    {
+      "id": "sqlcipher",
+      "title": "SQLCipher Community Edition — encrypted SQLite used by @capacitor-community/sqlite in the Android app (net.zetetic:sqlcipher-android 4.17.0) and the iPhone app (SQLCipher.swift package, from 4.14.0, via Swift Package Manager)",
+      "license": "BSD-3-Clause",
+      "files": [
+        "native/sqlcipher-android-v4.17.0.LICENSE",
+        "native/sqlcipher-swift.LICENSE.md",
+        "native/sqlcipher.LICENSE.md"
+      ],
+      "note": "Licence page: https://www.zetetic.net/sqlcipher/license/ . SQLite itself is in the public domain. OpenSSL: not bundled as far as the sources show — SQLCipher for Android uses LibTomCrypt as its default crypto provider (sqlcipher-android README, \"Using OpenSSL\") and the iPhone build uses Apple's CommonCrypto; not yet verified against a built APK/IPA.",
+      "targets": [
+        "capacitor"
+      ]
+    },
+    {
+      "id": "libtomcrypt",
+      "title": "LibTomCrypt — default crypto provider of SQLCipher for Android",
+      "license": "Unlicense",
+      "files": [
+        "native/libtomcrypt.LICENSE"
+      ],
+      "targets": [
+        "capacitor"
+      ]
+    },
+    {
+      "id": "zipfoundation",
+      "title": "ZIPFoundation — dependency of @capacitor-community/sqlite in the iPhone app",
+      "license": "MIT",
+      "files": [
+        "native/zipfoundation.LICENSE"
+      ],
+      "targets": [
+        "capacitor"
+      ]
+    },
+    {
+      "id": "androidx",
+      "title": "AndroidX libraries resolved by Gradle for Capacitor and its plugins (appcompat, room, sqlite, security-crypto, biometric, coordinatorlayout and their dependencies)",
+      "license": "Apache-2.0",
+      "files": [
+        "texts/Apache-2.0.txt"
+      ],
+      "targets": [
+        "capacitor"
+      ]
+    }
+  ],
+  "notices": [
+    {
+      "id": "webview2",
+      "targets": [
+        "tauri"
+      ],
+      "checked": "2026-11-15",
+      "url": "https://developer.microsoft.com/microsoft-edge/api/eula/webview2",
+      "checkedPages": [
+        "https://learn.microsoft.com/microsoft-edge/webview2/concepts/distribution (no licence terms on the page)",
+        "https://developer.microsoft.com/microsoft-edge/api/eula/webview2 (Microsoft Software License Terms — Microsoft Edge WebView2 Runtime, sections 2, 3(b) and 9)"
+      ],
+      "text": "Microsoft Edge WebView2 Runtime (Windows desktop app). The Windows installers embed Microsoft's Evergreen Bootstrapper, which downloads the WebView2 Runtime from Microsoft and installs it. The Runtime is Microsoft software licensed under the Microsoft Software License Terms for Microsoft Edge WebView2 Runtime (https://developer.microsoft.com/microsoft-edge/api/eula/webview2); those terms, which protect Microsoft, apply to your use of it. The Runtime includes Microsoft Defender SmartScreen, which is on by default; SmartScreen collects and sends information about your use to Microsoft, as described in the Microsoft Privacy Statement and the Microsoft Edge Privacy Whitepaper. The Runtime may check for updates and download and install them without further notice."
+    }
+  ]
+}

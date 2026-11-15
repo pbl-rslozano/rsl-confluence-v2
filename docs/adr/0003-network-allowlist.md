@@ -16,7 +16,9 @@ The only hosts the app may contact (CSP `connect-src`, desktop and web):
 | `http://127.0.0.1:8787`, `http://localhost:8787` | Optional localhost gateway for read-only private API profiles (desktop) |
 | `'self'`, `ipc:`, `http://ipc.localhost` | App assets and Tauri IPC |
 
-- No telemetry, analytics, fonts or CDN requests; all libraries and fonts are vendored.
+- No telemetry, analytics, fonts or CDN code; all libraries and fonts are vendored. (v2.8 wording, licence audit: since
+  v2.7 one JSON rates file may be read from `cdn.jsdelivr.net` — the fawazahmed0 fallback, ADR-0015 — as data, parsed and
+  validated, never executed.)
 - Offline: the UI keeps the last scan and the status line shows **Offline**.
 - `tools/release-check.mjs` R8 fails the release if any other host appears.
 
@@ -66,3 +68,11 @@ keeps this WebSocket host separate from its HTTPS allowlist.
   `https://www.floatrates.com` (FloatRates). Each is contacted only while the user has chosen it under **Rate sources**,
   GET only, at most every 6 hours or on **Update now**. All three answered browser requests from another origin in the live
   probe of 11 Nov 2026. A user's own (custom) source is never contacted by the app: its rates file is imported (ADR-0015).
+
+## Amendment — v2.8 (15 Nov 2026, licence audit WP20)
+- **App: no new host.** `tools/egress-manifest.json` `web.hosts` now lists every `CSP_HOSTS` host (the six display-currency
+  rate hosts of v2.7 were in `web.csp` only); `tools/check-egress.test.mjs` fails when a table host is missing (R11).
+- **Gateway (existing behaviour, now listed):** the optional local gateway (`apps/confluence/gateway`, process `gateway` in the
+  egress manifest, R11) calls an exchange's account endpoint only when the user connects an API key and asks it to check the
+  key's permissions: `api.binance.com`, `testnet.binance.vision`, `api.bybit.com`, `api-testnet.bybit.com`, `api.bitget.com`.
+  It listens on loopback, never runs inside the app, and refuses keys that can trade or withdraw (ADR-0009, WP19).

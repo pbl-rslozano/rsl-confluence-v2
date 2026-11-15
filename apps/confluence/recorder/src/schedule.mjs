@@ -62,3 +62,24 @@ export function cyclePeriodMs(tf, intervalSeconds = 0) {
 
 /** Heartbeat counts as dead after three missed cycles plus 10 minutes of slack. */
 export const staleAfterMs = (tf, intervalSeconds = 0) => 3 * cyclePeriodMs(tf, intervalSeconds) + 10 * 60_000;
+
+/** v2.8 (WP19 fix round 1): a derivatives-only snapshot this long before a bar close. */
+export const DERIVS_LEAD_MS = 15 * 60_000;
+
+/**
+ * v2.8 (WP19 fix round 1): when to take a derivatives-only snapshot (no scoring,
+ * no ledger rows) before the next bar close, or null when none is needed.
+ * Rows log fr / oiChg only from a snapshot taken at or before their bar close
+ * and at most `maxAgeMs` (2 h) before it. A cycle's own snapshot is taken at
+ * `now`; it already serves the next close when `now` is inside that window.
+ * Otherwise, unless a regular cycle wakes inside the window anyway, a snapshot
+ * is due `leadMs` before the close (the default once-per-bar cadence on 4h, 1d…).
+ */
+export function derivsWake({ now, wake, tf, newestBarOpen = 0, maxAgeMs, leadMs = DERIVS_LEAD_MS }) {
+  const close = nextRegularWake({ now, tf, newestBarOpen, intervalSeconds: 0, graceMs: 0 });
+  const windowStart = close - maxAgeMs;
+  if (now >= windowStart) return null; // this cycle's snapshot is already within 2 h of the close
+  if (wake >= windowStart && wake < close) return null; // the next regular cycle snapshots inside the window
+  const at = Math.max(windowStart, close - leadMs);
+  return at > now && at < wake ? at : null;
+}

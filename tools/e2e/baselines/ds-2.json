@@ -1,0 +1,3010 @@
+{
+ "@note": "DS-2 baseline (detail sheet top + chart layers, paper dialog, ledger dialog; each at rest, 1366x768, en, default settings (theme System = light in headless Chromium), text masked; clock 2026-11-11T09:07:00.000Z, exchange and FX hosts mocked; served locally). Captured from the v2.7.0-web release build (tag v2.7.0-web, commit c268876, built in a temporary worktree) with --capture-ds1/--capture-ds2; two captures were identical. Boxes are [x, y, width, height] in CSS px (null height = open-ended ancestor of the last measured element); text masked = every non-blank text node replaced by the same placeholder before measuring.",
+ "detail": {
+  "boxes": {
+   "div": [
+    427,
+    31,
+    512,
+    null
+   ],
+   "div/0:div": [
+    448,
+    52,
+    470,
+    30
+   ],
+   "div/0:div/0:h2": [
+    448,
+    52,
+    470,
+    30
+   ],
+   "div/0:div/0:h2/0:span": [
+    448,
+    52,
+    186,
+    30
+   ],
+   "div/0:div/0:h2/0:span/0:span": [
+    448,
+    52,
+    30,
+    30
+   ],
+   "div/0:div/0:h2/0:span/0:span/0:svg": [
+    448,
+    52,
+    30,
+    30
+   ],
+   "div/0:div/0:h2/0:span/0:span/0:svg/0:path": [
+    455,
+    55,
+    17,
+    23
+   ],
+   "div/0:div/0:h2/0:span/1:span": [
+    533,
+    56,
+    47,
+    22
+   ],
+   "div/0:div/0:h2/0:span/2:span": [
+    588,
+    56,
+    46,
+    22
+   ],
+   "div/0:div/0:h2/1:span": [
+    823,
+    55,
+    63,
+    23
+   ],
+   "div/0:div/0:h2/1:span/0:svg": [
+    832,
+    61,
+    12,
+    12
+   ],
+   "div/0:div/0:h2/1:span/0:svg/0:path": [
+    840,
+    64,
+    3,
+    3
+   ],
+   "div/0:div/0:h2/1:span/0:svg/1:path": [
+    833,
+    64,
+    10,
+    5
+   ],
+   "div/1:div": [
+    448,
+    98,
+    470,
+    null
+   ],
+   "div/1:div/0:div": [
+    448,
+    98,
+    470,
+    61
+   ],
+   "div/1:div/0:div/0:div": [
+    448,
+    98,
+    112,
+    61
+   ],
+   "div/1:div/0:div/0:div/0:div": [
+    461,
+    107,
+    86,
+    17
+   ],
+   "div/1:div/0:div/0:div/1:div": [
+    461,
+    125,
+    86,
+    24
+   ],
+   "div/1:div/0:div/1:div": [
+    568,
+    98,
+    112,
+    61
+   ],
+   "div/1:div/0:div/1:div/0:div": [
+    581,
+    107,
+    86,
+    17
+   ],
+   "div/1:div/0:div/1:div/1:div": [
+    581,
+    125,
+    86,
+    24
+   ],
+   "div/1:div/0:div/2:div": [
+    687,
+    98,
+    112,
+    61
+   ],
+   "div/1:div/0:div/2:div/0:div": [
+    700,
+    107,
+    86,
+    17
+   ],
+   "div/1:div/0:div/2:div/1:div": [
+    700,
+    125,
+    86,
+    24
+   ],
+   "div/1:div/0:div/3:div": [
+    807,
+    98,
+    112,
+    61
+   ],
+   "div/1:div/0:div/3:div/0:div": [
+    820,
+    107,
+    86,
+    17
+   ],
+   "div/1:div/0:div/3:div/1:div": [
+    820,
+    125,
+    86,
+    24
+   ],
+   "div/1:div/1:div": [
+    448,
+    170,
+    470,
+    54
+   ],
+   "div/1:div/1:div/0:div": [
+    461,
+    182,
+    117,
+    31
+   ],
+   "div/1:div/1:div/0:div/0:svg": [
+    461,
+    189,
+    16,
+    16
+   ],
+   "div/1:div/1:div/0:div/0:svg/0:ellipse": [
+    463,
+    191,
+    12,
+    4
+   ],
+   "div/1:div/1:div/0:div/0:svg/1:path": [
+    463,
+    193,
+    12,
+    11
+   ],
+   "div/1:div/1:div/0:div/0:svg/2:path": [
+    463,
+    197,
+    12,
+    2
+   ],
+   "div/1:div/1:div/0:div/1:div": [
+    485,
+    182,
+    93,
+    31
+   ],
+   "div/1:div/1:div/0:div/1:div/0:div": [
+    485,
+    182,
+    93,
+    16
+   ],
+   "div/1:div/1:div/0:div/1:div/1:div": [
+    485,
+    198,
+    93,
+    15
+   ],
+   "div/1:div/1:div/1:div": [
+    717,
+    179,
+    188,
+    36
+   ],
+   "div/1:div/1:div/1:div/0:button": [
+    717,
+    179,
+    108,
+    36
+   ],
+   "div/1:div/1:div/1:div/0:button/0:span": [
+    730,
+    189,
+    28,
+    16
+   ],
+   "div/1:div/1:div/1:div/0:button/1:svg": [
+    796,
+    189,
+    16,
+    16
+   ],
+   "div/1:div/1:div/1:div/0:button/1:svg/0:path": [
+    800,
+    195,
+    8,
+    4
+   ],
+   "div/1:div/1:div/1:div/1:button": [
+    833,
+    181,
+    72,
+    32
+   ],
+   "div/1:div/1:div/1:div/1:button/0:svg": [
+    844,
+    189,
+    16,
+    16
+   ],
+   "div/1:div/1:div/1:div/1:button/0:svg/0:path": [
+    846,
+    191,
+    12,
+    12
+   ],
+   "div/1:div/1:div/1:div/1:button/0:svg/1:path": [
+    846,
+    191,
+    3,
+    3
+   ],
+   "div/1:div/1:div/1:div/1:button/0:svg/2:path": [
+    852,
+    194,
+    3,
+    5
+   ],
+   "div/1:div/2:button": [
+    448,
+    236,
+    50,
+    30
+   ],
+   "div/1:div/3:div": [
+    448,
+    278,
+    470,
+    474
+   ],
+   "div/1:div/3:div/0:div": [
+    457,
+    287,
+    452,
+    32
+   ],
+   "div/1:div/3:div/0:div/0:button": [
+    457,
+    287,
+    50,
+    32
+   ],
+   "div/1:div/3:div/0:div/1:span": [
+    517,
+    293,
+    1,
+    20
+   ],
+   "div/1:div/3:div/0:div/2:button": [
+    528,
+    287,
+    50,
+    32
+   ],
+   "div/1:div/3:div/0:div/3:button": [
+    585,
+    287,
+    50,
+    32
+   ],
+   "div/1:div/3:div/0:div/4:button": [
+    641,
+    287,
+    50,
+    32
+   ],
+   "div/1:div/3:div/0:div/5:button": [
+    698,
+    287,
+    50,
+    32
+   ],
+   "div/1:div/3:div/0:div/6:span": [
+    803,
+    295,
+    106,
+    17
+   ],
+   "div/1:div/3:div/1:div": [
+    457,
+    327,
+    452,
+    333
+   ],
+   "div/1:div/3:div/1:div/0:svg": [
+    457,
+    327,
+    452,
+    333
+   ],
+   "div/1:div/3:div/1:div/0:svg/0:g": [
+    462,
+    544,
+    427,
+    7
+   ],
+   "div/1:div/3:div/1:div/0:svg/1:g": [
+    462,
+    491,
+    427,
+    7
+   ],
+   "div/1:div/3:div/1:div/0:svg/2:g": [
+    462,
+    437,
+    427,
+    7
+   ],
+   "div/1:div/3:div/1:div/0:svg/3:g": [
+    462,
+    384,
+    427,
+    7
+   ],
+   "div/1:div/3:div/1:div/0:svg/4:g": [
+    462,
+    330,
+    427,
+    7
+   ],
+   "div/1:div/3:div/1:div/0:svg/5:g": [
+    463,
+    346,
+    408,
+    172
+   ],
+   "div/1:div/3:div/1:div/0:svg/6:polyline": [
+    463,
+    359,
+    408,
+    154
+   ],
+   "div/1:div/3:div/1:div/0:svg/7:polyline": [
+    463,
+    373,
+    408,
+    145
+   ],
+   "div/1:div/3:div/1:div/0:svg/8:polyline": [
+    463,
+    429,
+    408,
+    108
+   ],
+   "div/1:div/3:div/1:div/0:svg/9:polyline": [
+    463,
+    441,
+    408,
+    68
+   ],
+   "div/1:div/3:div/1:div/0:svg/10:g": [
+    462,
+    548,
+    409,
+    43
+   ],
+   "div/1:div/3:div/1:div/0:svg/11:g": [
+    462,
+    600,
+    409,
+    46
+   ],
+   "div/1:div/3:div/1:div/0:svg/12:g": [
+    462,
+    349,
+    409,
+    161
+   ],
+   "div/1:div/3:div/1:div/0:svg/13:text": [
+    455,
+    651,
+    15,
+    7
+   ],
+   "div/1:div/3:div/1:div/0:svg/14:text": [
+    557,
+    651,
+    15,
+    7
+   ],
+   "div/1:div/3:div/1:div/0:svg/15:text": [
+    658,
+    651,
+    15,
+    7
+   ],
+   "div/1:div/3:div/1:div/0:svg/16:text": [
+    760,
+    651,
+    15,
+    7
+   ],
+   "div/1:div/3:div/1:div/0:svg/17:text": [
+    863,
+    651,
+    15,
+    7
+   ],
+   "div/1:div/3:div/1:div/0:svg/18:g": [
+    462,
+    334,
+    409,
+    312
+   ],
+   "div/1:div/3:div/2:div": [
+    457,
+    666,
+    452,
+    58
+   ],
+   "div/1:div/3:div/2:div/0:div": [
+    461,
+    666,
+    321,
+    17
+   ],
+   "div/1:div/3:div/2:div/0:div/0:span": [
+    461,
+    666,
+    44,
+    17
+   ],
+   "div/1:div/3:div/2:div/0:div/0:span/0:span": [
+    461,
+    671,
+    12,
+    8
+   ],
+   "div/1:div/3:div/2:div/0:div/1:span": [
+    517,
+    666,
+    44,
+    17
+   ],
+   "div/1:div/3:div/2:div/0:div/1:span/0:span": [
+    517,
+    671,
+    12,
+    8
+   ],
+   "div/1:div/3:div/2:div/0:div/2:span": [
+    572,
+    666,
+    44,
+    17
+   ],
+   "div/1:div/3:div/2:div/0:div/2:span/0:span": [
+    572,
+    671,
+    12,
+    8
+   ],
+   "div/1:div/3:div/2:div/0:div/3:span": [
+    628,
+    666,
+    44,
+    17
+   ],
+   "div/1:div/3:div/2:div/0:div/3:span/0:span": [
+    628,
+    671,
+    12,
+    8
+   ],
+   "div/1:div/3:div/2:div/0:div/4:span": [
+    683,
+    666,
+    44,
+    17
+   ],
+   "div/1:div/3:div/2:div/0:div/4:span/0:span": [
+    683,
+    671,
+    12,
+    8
+   ],
+   "div/1:div/3:div/2:div/0:div/5:span": [
+    739,
+    666,
+    44,
+    17
+   ],
+   "div/1:div/3:div/2:div/0:div/5:span/0:span": [
+    739,
+    671,
+    12,
+    8
+   ],
+   "div/1:div/3:div/2:div/1:div": [
+    461,
+    687,
+    444,
+    37
+   ],
+   "div/1:div/3:div/2:div/1:div/0:span": [
+    461,
+    687,
+    27,
+    17
+   ],
+   "div/1:div/3:div/2:div/1:div/1:span": [
+    500,
+    687,
+    27,
+    17
+   ],
+   "div/1:div/3:div/2:div/1:div/2:span": [
+    538,
+    687,
+    27,
+    17
+   ],
+   "div/1:div/3:div/2:div/1:div/3:span": [
+    577,
+    687,
+    27,
+    17
+   ],
+   "div/1:div/3:div/2:div/1:div/4:span": [
+    615,
+    687,
+    27,
+    17
+   ],
+   "div/1:div/3:div/2:div/1:div/5:span": [
+    654,
+    687,
+    27,
+    17
+   ],
+   "div/1:div/3:div/2:div/1:div/6:span": [
+    692,
+    687,
+    27,
+    17
+   ],
+   "div/1:div/3:div/2:div/1:div/7:span": [
+    731,
+    687,
+    27,
+    17
+   ],
+   "div/1:div/3:div/2:div/1:div/8:span": [
+    769,
+    687,
+    27,
+    17
+   ],
+   "div/1:div/3:div/2:div/1:div/9:span": [
+    808,
+    687,
+    27,
+    17
+   ],
+   "div/1:div/3:div/2:div/1:div/10:span": [
+    846,
+    687,
+    27,
+    17
+   ],
+   "div/1:div/3:div/2:div/1:div/11:span": [
+    461,
+    707,
+    27,
+    17
+   ],
+   "div/1:div/3:div/2:div/1:div/12:span": [
+    500,
+    707,
+    27,
+    17
+   ],
+   "div/1:div/3:div/3:p": [
+    457,
+    728,
+    452,
+    15
+   ]
+  },
+  "colours": {
+   "div": "rgb(255, 255, 255)|rgb(17, 24, 39)|rgb(230, 234, 240)",
+   "div/0:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/0:div/0:h2": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/0:div/0:h2/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/0:div/0:h2/0:span/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/0:div/0:h2/0:span/0:span/0:svg": "none|none",
+   "div/0:div/0:h2/0:span/0:span/0:svg/0:path": "rgb(247, 147, 26)|none",
+   "div/0:div/0:h2/0:span/1:span": "rgba(0, 0, 0, 0)|rgb(91, 107, 130)|rgb(201, 209, 220)",
+   "div/0:div/0:h2/0:span/2:span": "rgba(0, 0, 0, 0)|rgb(91, 107, 130)|rgb(201, 209, 220)",
+   "div/0:div/0:h2/1:span": "oklab(0.695996 -0.162107 0.0511875 / 0.15)|rgb(4, 120, 87)|oklab(0.695996 -0.162107 0.0511875 / 0.4)",
+   "div/0:div/0:h2/1:span/0:svg": "none|rgb(4, 120, 87)",
+   "div/0:div/0:h2/1:span/0:svg/0:path": "none|rgb(4, 120, 87)",
+   "div/0:div/0:h2/1:span/0:svg/1:path": "none|rgb(4, 120, 87)",
+   "div/1:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/0:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/0:div/0:div": "oklab(0.975462 -0.00087294 -0.00442082 / 0.5)|rgb(17, 24, 39)|rgb(230, 234, 240)",
+   "div/1:div/0:div/0:div/0:div": "rgba(0, 0, 0, 0)|rgb(91, 107, 130)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/0:div/0:div/1:div": "rgba(0, 0, 0, 0)|rgb(31, 41, 55)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/0:div/1:div": "oklab(0.975462 -0.00087294 -0.00442082 / 0.5)|rgb(17, 24, 39)|rgb(230, 234, 240)",
+   "div/1:div/0:div/1:div/0:div": "rgba(0, 0, 0, 0)|rgb(91, 107, 130)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/0:div/1:div/1:div": "rgba(0, 0, 0, 0)|rgb(4, 120, 87)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/0:div/2:div": "oklab(0.975462 -0.00087294 -0.00442082 / 0.5)|rgb(17, 24, 39)|rgb(230, 234, 240)",
+   "div/1:div/0:div/2:div/0:div": "rgba(0, 0, 0, 0)|rgb(91, 107, 130)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/0:div/2:div/1:div": "rgba(0, 0, 0, 0)|rgb(31, 41, 55)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/0:div/3:div": "oklab(0.975462 -0.00087294 -0.00442082 / 0.5)|rgb(17, 24, 39)|rgb(230, 234, 240)",
+   "div/1:div/0:div/3:div/0:div": "rgba(0, 0, 0, 0)|rgb(91, 107, 130)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/0:div/3:div/1:div": "rgba(0, 0, 0, 0)|rgb(4, 120, 87)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/1:div": "oklab(0.975462 -0.00087294 -0.00442082 / 0.4)|rgb(17, 24, 39)|rgb(230, 234, 240)",
+   "div/1:div/1:div/0:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/1:div/0:div/0:svg": "none|rgb(11, 97, 120)",
+   "div/1:div/1:div/0:div/0:svg/0:ellipse": "none|rgb(11, 97, 120)",
+   "div/1:div/1:div/0:div/0:svg/1:path": "none|rgb(11, 97, 120)",
+   "div/1:div/1:div/0:div/0:svg/2:path": "none|rgb(11, 97, 120)",
+   "div/1:div/1:div/0:div/1:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/1:div/0:div/1:div/0:div": "rgba(0, 0, 0, 0)|rgb(31, 41, 55)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/1:div/0:div/1:div/1:div": "rgba(0, 0, 0, 0)|rgb(91, 107, 130)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/1:div/1:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/1:div/1:div/0:button": "rgb(255, 255, 255)|rgb(17, 24, 39)|rgb(201, 209, 220)",
+   "div/1:div/1:div/1:div/0:button/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/1:div/1:div/0:button/1:svg": "none|lab(48.496 0 0)",
+   "div/1:div/1:div/1:div/0:button/1:svg/0:path": "none|lab(48.496 0 0)",
+   "div/1:div/1:div/1:div/1:button": "oklab(0.714993 -0.116823 -0.0824539 / 0.05)|rgb(11, 97, 120)|oklab(0.714993 -0.116823 -0.0824538 / 0.3)",
+   "div/1:div/1:div/1:div/1:button/0:svg": "none|rgb(11, 97, 120)",
+   "div/1:div/1:div/1:div/1:button/0:svg/0:path": "none|rgb(11, 97, 120)",
+   "div/1:div/1:div/1:div/1:button/0:svg/1:path": "none|rgb(11, 97, 120)",
+   "div/1:div/1:div/1:div/1:button/0:svg/2:path": "none|rgb(11, 97, 120)",
+   "div/1:div/2:button": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|rgb(201, 209, 220)",
+   "div/1:div/3:div": "oklab(0.975462 -0.00087294 -0.00442082 / 0.6)|rgb(17, 24, 39)|rgb(230, 234, 240)",
+   "div/1:div/3:div/0:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/0:div/0:button": "rgba(0, 0, 0, 0)|rgb(31, 41, 55)|rgb(95, 107, 125)",
+   "div/1:div/3:div/0:div/1:span": "rgb(201, 209, 220)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/0:div/2:button": "rgba(0, 0, 0, 0)|rgb(31, 41, 55)|rgb(95, 107, 125)",
+   "div/1:div/3:div/0:div/3:button": "rgba(0, 0, 0, 0)|rgb(31, 41, 55)|rgb(95, 107, 125)",
+   "div/1:div/3:div/0:div/4:button": "rgba(0, 0, 0, 0)|rgb(31, 41, 55)|rgb(95, 107, 125)",
+   "div/1:div/3:div/0:div/5:button": "rgba(0, 0, 0, 0)|rgb(31, 41, 55)|rgb(95, 107, 125)",
+   "div/1:div/3:div/0:div/6:span": "rgba(0, 0, 0, 0)|rgb(91, 107, 130)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/1:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/1:div/0:svg": "rgb(0, 0, 0)|none",
+   "div/1:div/3:div/1:div/0:svg/0:g": "rgb(0, 0, 0)|none",
+   "div/1:div/3:div/1:div/0:svg/1:g": "rgb(0, 0, 0)|none",
+   "div/1:div/3:div/1:div/0:svg/2:g": "rgb(0, 0, 0)|none",
+   "div/1:div/3:div/1:div/0:svg/3:g": "rgb(0, 0, 0)|none",
+   "div/1:div/3:div/1:div/0:svg/4:g": "rgb(0, 0, 0)|none",
+   "div/1:div/3:div/1:div/0:svg/5:g": "rgb(0, 0, 0)|none",
+   "div/1:div/3:div/1:div/0:svg/6:polyline": "none|rgb(245, 158, 11)",
+   "div/1:div/3:div/1:div/0:svg/7:polyline": "none|rgb(167, 139, 250)",
+   "div/1:div/3:div/1:div/0:svg/8:polyline": "none|rgb(148, 163, 184)",
+   "div/1:div/3:div/1:div/0:svg/9:polyline": "none|rgb(34, 211, 238)",
+   "div/1:div/3:div/1:div/0:svg/10:g": "rgb(0, 0, 0)|none",
+   "div/1:div/3:div/1:div/0:svg/11:g": "rgb(0, 0, 0)|none",
+   "div/1:div/3:div/1:div/0:svg/12:g": "rgb(0, 0, 0)|none",
+   "div/1:div/3:div/1:div/0:svg/13:text": "rgb(91, 107, 130)|none",
+   "div/1:div/3:div/1:div/0:svg/14:text": "rgb(91, 107, 130)|none",
+   "div/1:div/3:div/1:div/0:svg/15:text": "rgb(91, 107, 130)|none",
+   "div/1:div/3:div/1:div/0:svg/16:text": "rgb(91, 107, 130)|none",
+   "div/1:div/3:div/1:div/0:svg/17:text": "rgb(91, 107, 130)|none",
+   "div/1:div/3:div/1:div/0:svg/18:g": "rgb(0, 0, 0)|none",
+   "div/1:div/3:div/2:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/0:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/0:div/0:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/0:div/0:span/0:span": "rgb(245, 158, 11)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/0:div/1:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/0:div/1:span/0:span": "rgb(167, 139, 250)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/0:div/2:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/0:div/2:span/0:span": "rgb(148, 163, 184)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/0:div/3:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/0:div/3:span/0:span": "rgb(34, 211, 238)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/0:div/4:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/0:div/4:span/0:span": "oklab(0.508122 -0.101623 0.0260828 / 0.1)|rgb(74, 85, 104)|oklab(0.508122 -0.101623 0.0260828 / 0.5)",
+   "div/1:div/3:div/2:div/0:div/5:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/0:div/5:span/0:span": "oklab(0.508122 -0.101623 0.0260828 / 0.7)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/1:div": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/1:div/0:span": "rgba(0, 0, 0, 0)|rgb(91, 107, 130)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/1:div/1:span": "rgba(0, 0, 0, 0)|rgb(91, 107, 130)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/1:div/2:span": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/1:div/3:span": "rgba(0, 0, 0, 0)|rgb(91, 107, 130)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/1:div/4:span": "rgba(0, 0, 0, 0)|rgb(4, 120, 87)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/1:div/5:span": "rgba(0, 0, 0, 0)|rgb(91, 107, 130)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/1:div/6:span": "rgba(0, 0, 0, 0)|rgb(190, 18, 60)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/1:div/7:span": "rgba(0, 0, 0, 0)|rgb(91, 107, 130)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/1:div/8:span": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/1:div/9:span": "rgba(0, 0, 0, 0)|rgb(91, 107, 130)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/1:div/10:span": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/1:div/11:span": "rgba(0, 0, 0, 0)|rgb(91, 107, 130)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/2:div/1:div/12:span": "rgba(0, 0, 0, 0)|rgb(4, 120, 87)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/3:div/3:p": "rgba(0, 0, 0, 0)|rgb(95, 107, 125)|lab(90.952 0 -0.0000119209)"
+  },
+  "counts": {
+   "div/0:div/0:h2/0:span/0:span/0:svg/0:path": 0,
+   "div/0:div/0:h2/1:span/0:svg/0:path": 0,
+   "div/0:div/0:h2/1:span/0:svg/1:path": 0,
+   "div/1:div/1:div/0:div/0:svg/0:ellipse": 0,
+   "div/1:div/1:div/0:div/0:svg/1:path": 0,
+   "div/1:div/1:div/0:div/0:svg/2:path": 0,
+   "div/1:div/1:div/1:div/0:button/1:svg/0:path": 0,
+   "div/1:div/1:div/1:div/1:button/0:svg/0:path": 0,
+   "div/1:div/1:div/1:div/1:button/0:svg/1:path": 0,
+   "div/1:div/1:div/1:div/1:button/0:svg/2:path": 0,
+   "div/1:div/3:div/1:div/0:svg/0:g": 2,
+   "div/1:div/3:div/1:div/0:svg/1:g": 2,
+   "div/1:div/3:div/1:div/0:svg/2:g": 2,
+   "div/1:div/3:div/1:div/0:svg/3:g": 2,
+   "div/1:div/3:div/1:div/0:svg/4:g": 2,
+   "div/1:div/3:div/1:div/0:svg/5:g": 3,
+   "div/1:div/3:div/1:div/0:svg/6:polyline": 0,
+   "div/1:div/3:div/1:div/0:svg/7:polyline": 0,
+   "div/1:div/3:div/1:div/0:svg/8:polyline": 0,
+   "div/1:div/3:div/1:div/0:svg/9:polyline": 0,
+   "div/1:div/3:div/1:div/0:svg/10:g": 253,
+   "div/1:div/3:div/1:div/0:svg/11:g": 252,
+   "div/1:div/3:div/1:div/0:svg/12:g": 750,
+   "div/1:div/3:div/1:div/0:svg/13:text": 0,
+   "div/1:div/3:div/1:div/0:svg/14:text": 0,
+   "div/1:div/3:div/1:div/0:svg/15:text": 0,
+   "div/1:div/3:div/1:div/0:svg/16:text": 0,
+   "div/1:div/3:div/1:div/0:svg/17:text": 0,
+   "div/1:div/3:div/1:div/0:svg/18:g": 2
+  }
+ },
+ "paper": {
+  "boxes": {
+   "div": [
+    427,
+    31,
+    512,
+    707
+   ],
+   "div/0:div": [
+    448,
+    52,
+    470,
+    48
+   ],
+   "div/0:div/0:h2": [
+    448,
+    52,
+    470,
+    24
+   ],
+   "div/0:div/0:h2/0:svg": [
+    448,
+    54,
+    20,
+    20
+   ],
+   "div/0:div/0:h2/0:svg/0:path": [
+    451,
+    55,
+    13,
+    17
+   ],
+   "div/0:div/0:h2/0:svg/1:path": [
+    453,
+    66,
+    9,
+    0
+   ],
+   "div/0:div/0:h2/0:svg/2:path": [
+    455,
+    55,
+    6,
+    0
+   ],
+   "div/0:div/1:p": [
+    448,
+    84,
+    470,
+    16
+   ],
+   "div/1:p": [
+    448,
+    116,
+    470,
+    38
+   ],
+   "div/1:p/0:svg": [
+    461,
+    127,
+    16,
+    16
+   ],
+   "div/1:p/0:svg/0:path": [
+    464,
+    128,
+    11,
+    13
+   ],
+   "div/1:p/0:svg/1:path": [
+    467,
+    133,
+    4,
+    3
+   ],
+   "div/2:div": [
+    448,
+    170,
+    470,
+    1137
+   ],
+   "div/2:div/0:section": [
+    448,
+    170,
+    470,
+    141
+   ],
+   "div/2:div/0:section/0:h3": [
+    461,
+    183,
+    444,
+    20
+   ],
+   "div/2:div/0:section/1:dl": [
+    461,
+    211,
+    444,
+    32
+   ],
+   "div/2:div/0:section/1:dl/0:div": [
+    461,
+    211,
+    82,
+    32
+   ],
+   "div/2:div/0:section/1:dl/0:div/0:dt": [
+    461,
+    211,
+    82,
+    16
+   ],
+   "div/2:div/0:section/1:dl/0:div/1:dd": [
+    461,
+    227,
+    82,
+    16
+   ],
+   "div/2:div/0:section/1:dl/1:div": [
+    551,
+    211,
+    82,
+    32
+   ],
+   "div/2:div/0:section/1:dl/1:div/0:dt": [
+    551,
+    211,
+    82,
+    16
+   ],
+   "div/2:div/0:section/1:dl/1:div/1:dd": [
+    551,
+    227,
+    82,
+    16
+   ],
+   "div/2:div/0:section/1:dl/2:div": [
+    642,
+    211,
+    82,
+    32
+   ],
+   "div/2:div/0:section/1:dl/2:div/0:dt": [
+    642,
+    211,
+    82,
+    16
+   ],
+   "div/2:div/0:section/1:dl/2:div/1:dd": [
+    642,
+    227,
+    82,
+    16
+   ],
+   "div/2:div/0:section/1:dl/3:div": [
+    732,
+    211,
+    82,
+    32
+   ],
+   "div/2:div/0:section/1:dl/3:div/0:dt": [
+    732,
+    211,
+    82,
+    16
+   ],
+   "div/2:div/0:section/1:dl/3:div/1:dd": [
+    732,
+    227,
+    82,
+    16
+   ],
+   "div/2:div/0:section/1:dl/4:div": [
+    823,
+    211,
+    82,
+    32
+   ],
+   "div/2:div/0:section/1:dl/4:div/0:dt": [
+    823,
+    211,
+    82,
+    16
+   ],
+   "div/2:div/0:section/1:dl/4:div/1:dd": [
+    823,
+    227,
+    82,
+    16
+   ],
+   "div/2:div/0:section/2:div": [
+    461,
+    251,
+    444,
+    22
+   ],
+   "div/2:div/0:section/2:div/0:span": [
+    461,
+    251,
+    102,
+    22
+   ],
+   "div/2:div/0:section/2:div/1:span": [
+    569,
+    251,
+    102,
+    22
+   ],
+   "div/2:div/0:section/2:div/2:span": [
+    676,
+    251,
+    102,
+    22
+   ],
+   "div/2:div/0:section/2:div/3:span": [
+    784,
+    251,
+    102,
+    22
+   ],
+   "div/2:div/0:section/3:p": [
+    461,
+    281,
+    444,
+    17
+   ],
+   "div/2:div/1:section": [
+    448,
+    326,
+    470,
+    150
+   ],
+   "div/2:div/1:section/0:h3": [
+    448,
+    326,
+    470,
+    20
+   ],
+   "div/2:div/1:section/1:ul": [
+    448,
+    354,
+    470,
+    122
+   ],
+   "div/2:div/1:section/1:ul/0:li": [
+    448,
+    354,
+    470,
+    122
+   ],
+   "div/2:div/1:section/1:ul/0:li/0:div": [
+    461,
+    367,
+    444,
+    32
+   ],
+   "div/2:div/1:section/1:ul/0:li/0:div/0:div": [
+    461,
+    372,
+    192,
+    22
+   ],
+   "div/2:div/1:section/1:ul/0:li/0:div/0:div/0:span": [
+    461,
+    375,
+    29,
+    16
+   ],
+   "div/2:div/1:section/1:ul/0:li/0:div/0:div/1:span": [
+    498,
+    372,
+    46,
+    22
+   ],
+   "div/2:div/1:section/1:ul/0:li/0:div/0:div/2:span": [
+    552,
+    375,
+    65,
+    16
+   ],
+   "div/2:div/1:section/1:ul/0:li/0:div/0:div/3:span": [
+    625,
+    375,
+    28,
+    16
+   ],
+   "div/2:div/1:section/1:ul/0:li/0:div/1:div": [
+    782,
+    367,
+    123,
+    32
+   ],
+   "div/2:div/1:section/1:ul/0:li/0:div/1:div/0:button": [
+    782,
+    367,
+    58,
+    32
+   ],
+   "div/2:div/1:section/1:ul/0:li/0:div/1:div/1:button": [
+    849,
+    367,
+    56,
+    32
+   ],
+   "div/2:div/1:section/1:ul/0:li/1:dl": [
+    461,
+    407,
+    444,
+    32
+   ],
+   "div/2:div/1:section/1:ul/0:li/1:dl/0:div": [
+    461,
+    407,
+    86,
+    32
+   ],
+   "div/2:div/1:section/1:ul/0:li/1:dl/0:div/0:dt": [
+    461,
+    407,
+    86,
+    16
+   ],
+   "div/2:div/1:section/1:ul/0:li/1:dl/0:div/1:dd": [
+    461,
+    423,
+    86,
+    16
+   ],
+   "div/2:div/1:section/1:ul/0:li/1:dl/1:div": [
+    551,
+    407,
+    86,
+    32
+   ],
+   "div/2:div/1:section/1:ul/0:li/1:dl/1:div/0:dt": [
+    551,
+    407,
+    86,
+    16
+   ],
+   "div/2:div/1:section/1:ul/0:li/1:dl/1:div/1:dd": [
+    551,
+    423,
+    86,
+    16
+   ],
+   "div/2:div/1:section/1:ul/0:li/1:dl/2:div": [
+    640,
+    407,
+    86,
+    32
+   ],
+   "div/2:div/1:section/1:ul/0:li/1:dl/2:div/0:dt": [
+    640,
+    407,
+    86,
+    16
+   ],
+   "div/2:div/1:section/1:ul/0:li/1:dl/2:div/1:dd": [
+    640,
+    423,
+    86,
+    16
+   ],
+   "div/2:div/1:section/1:ul/0:li/1:dl/3:div": [
+    730,
+    407,
+    86,
+    32
+   ],
+   "div/2:div/1:section/1:ul/0:li/1:dl/3:div/0:dt": [
+    730,
+    407,
+    86,
+    16
+   ],
+   "div/2:div/1:section/1:ul/0:li/1:dl/3:div/1:dd": [
+    730,
+    423,
+    86,
+    16
+   ],
+   "div/2:div/1:section/1:ul/0:li/1:dl/4:div": [
+    819,
+    407,
+    86,
+    32
+   ],
+   "div/2:div/1:section/1:ul/0:li/1:dl/4:div/0:dt": [
+    819,
+    407,
+    86,
+    16
+   ],
+   "div/2:div/1:section/1:ul/0:li/1:dl/4:div/1:dd": [
+    819,
+    423,
+    86,
+    16
+   ],
+   "div/2:div/1:section/1:ul/0:li/2:div": [
+    461,
+    447,
+    444,
+    16
+   ],
+   "div/2:div/2:section": [
+    448,
+    492,
+    470,
+    70
+   ],
+   "div/2:div/2:section/0:h3": [
+    448,
+    492,
+    470,
+    20
+   ],
+   "div/2:div/2:section/1:p": [
+    448,
+    520,
+    470,
+    42
+   ],
+   "div/2:div/3:section": [
+    448,
+    578,
+    470,
+    173
+   ],
+   "div/2:div/3:section/0:div": [
+    448,
+    578,
+    470,
+    32
+   ],
+   "div/2:div/3:section/0:div/0:h3": [
+    448,
+    584,
+    34,
+    20
+   ],
+   "div/2:div/3:section/0:div/1:button": [
+    844,
+    578,
+    74,
+    32
+   ],
+   "div/2:div/3:section/0:div/1:button/0:svg": [
+    854,
+    586,
+    16,
+    16
+   ],
+   "div/2:div/3:section/0:div/1:button/0:svg/0:path": [
+    862,
+    588,
+    0,
+    8
+   ],
+   "div/2:div/3:section/0:div/1:button/0:svg/1:path": [
+    856,
+    596,
+    12,
+    4
+   ],
+   "div/2:div/3:section/0:div/1:button/0:svg/2:path": [
+    858,
+    593,
+    7,
+    3
+   ],
+   "div/2:div/3:section/1:dl": [
+    448,
+    618,
+    470,
+    58
+   ],
+   "div/2:div/3:section/1:dl/0:div": [
+    461,
+    631,
+    67,
+    32
+   ],
+   "div/2:div/3:section/1:dl/0:div/0:dt": [
+    461,
+    631,
+    67,
+    16
+   ],
+   "div/2:div/3:section/1:dl/0:div/1:dd": [
+    461,
+    647,
+    67,
+    16
+   ],
+   "div/2:div/3:section/1:dl/1:div": [
+    536,
+    631,
+    67,
+    32
+   ],
+   "div/2:div/3:section/1:dl/1:div/0:dt": [
+    536,
+    631,
+    67,
+    16
+   ],
+   "div/2:div/3:section/1:dl/1:div/1:dd": [
+    536,
+    647,
+    67,
+    16
+   ],
+   "div/2:div/3:section/1:dl/2:div": [
+    612,
+    631,
+    67,
+    32
+   ],
+   "div/2:div/3:section/1:dl/2:div/0:dt": [
+    612,
+    631,
+    67,
+    16
+   ],
+   "div/2:div/3:section/1:dl/2:div/1:dd": [
+    612,
+    647,
+    67,
+    16
+   ],
+   "div/2:div/3:section/1:dl/3:div": [
+    687,
+    631,
+    67,
+    32
+   ],
+   "div/2:div/3:section/1:dl/3:div/0:dt": [
+    687,
+    631,
+    67,
+    16
+   ],
+   "div/2:div/3:section/1:dl/3:div/1:dd": [
+    687,
+    647,
+    67,
+    16
+   ],
+   "div/2:div/3:section/1:dl/4:div": [
+    762,
+    631,
+    67,
+    32
+   ],
+   "div/2:div/3:section/1:dl/4:div/0:dt": [
+    762,
+    631,
+    67,
+    16
+   ],
+   "div/2:div/3:section/1:dl/4:div/1:dd": [
+    762,
+    647,
+    67,
+    16
+   ],
+   "div/2:div/3:section/1:dl/5:div": [
+    838,
+    631,
+    67,
+    32
+   ],
+   "div/2:div/3:section/1:dl/5:div/0:dt": [
+    838,
+    631,
+    67,
+    16
+   ],
+   "div/2:div/3:section/1:dl/5:div/1:dd": [
+    838,
+    647,
+    67,
+    16
+   ],
+   "div/2:div/3:section/2:p": [
+    448,
+    684,
+    470,
+    17
+   ],
+   "div/2:div/3:section/3:p": [
+    448,
+    709,
+    470,
+    42
+   ],
+   "div/2:div/4:section": [
+    448,
+    767,
+    470,
+    418
+   ],
+   "div/2:div/4:section/0:h3": [
+    461,
+    780,
+    444,
+    20
+   ],
+   "div/2:div/4:section/1:form": [
+    461,
+    808,
+    444,
+    364
+   ],
+   "div/2:div/4:section/1:form/0:div": [
+    461,
+    808,
+    444,
+    292
+   ],
+   "div/2:div/4:section/1:form/0:div/0:label": [
+    461,
+    808,
+    143,
+    52
+   ],
+   "div/2:div/4:section/1:form/0:div/0:label/0:input": [
+    461,
+    828,
+    143,
+    32
+   ],
+   "div/2:div/4:section/1:form/0:div/1:label": [
+    612,
+    808,
+    143,
+    52
+   ],
+   "div/2:div/4:section/1:form/0:div/1:label/0:input": [
+    612,
+    828,
+    143,
+    32
+   ],
+   "div/2:div/4:section/1:form/0:div/2:label": [
+    762,
+    808,
+    143,
+    52
+   ],
+   "div/2:div/4:section/1:form/0:div/2:label/0:input": [
+    762,
+    828,
+    143,
+    32
+   ],
+   "div/2:div/4:section/1:form/0:div/3:label": [
+    461,
+    868,
+    143,
+    52
+   ],
+   "div/2:div/4:section/1:form/0:div/3:label/0:input": [
+    461,
+    888,
+    143,
+    32
+   ],
+   "div/2:div/4:section/1:form/0:div/4:label": [
+    612,
+    868,
+    143,
+    52
+   ],
+   "div/2:div/4:section/1:form/0:div/4:label/0:input": [
+    612,
+    888,
+    143,
+    32
+   ],
+   "div/2:div/4:section/1:form/0:div/5:label": [
+    762,
+    868,
+    143,
+    52
+   ],
+   "div/2:div/4:section/1:form/0:div/5:label/0:input": [
+    762,
+    888,
+    143,
+    32
+   ],
+   "div/2:div/4:section/1:form/0:div/6:label": [
+    461,
+    928,
+    143,
+    52
+   ],
+   "div/2:div/4:section/1:form/0:div/6:label/0:input": [
+    461,
+    948,
+    143,
+    32
+   ],
+   "div/2:div/4:section/1:form/0:div/7:label": [
+    612,
+    928,
+    143,
+    52
+   ],
+   "div/2:div/4:section/1:form/0:div/7:label/0:input": [
+    612,
+    948,
+    143,
+    32
+   ],
+   "div/2:div/4:section/1:form/0:div/8:label": [
+    762,
+    928,
+    143,
+    52
+   ],
+   "div/2:div/4:section/1:form/0:div/8:label/0:input": [
+    762,
+    948,
+    143,
+    32
+   ],
+   "div/2:div/4:section/1:form/0:div/9:label": [
+    461,
+    988,
+    143,
+    52
+   ],
+   "div/2:div/4:section/1:form/0:div/9:label/0:input": [
+    461,
+    1008,
+    143,
+    32
+   ],
+   "div/2:div/4:section/1:form/0:div/10:label": [
+    612,
+    988,
+    143,
+    52
+   ],
+   "div/2:div/4:section/1:form/0:div/10:label/0:input": [
+    612,
+    1008,
+    143,
+    32
+   ],
+   "div/2:div/4:section/1:form/0:div/11:label": [
+    762,
+    988,
+    143,
+    52
+   ],
+   "div/2:div/4:section/1:form/0:div/11:label/0:input": [
+    762,
+    1008,
+    143,
+    32
+   ],
+   "div/2:div/4:section/1:form/0:div/12:label": [
+    461,
+    1048,
+    143,
+    52
+   ],
+   "div/2:div/4:section/1:form/0:div/12:label/0:input": [
+    461,
+    1068,
+    143,
+    32
+   ],
+   "div/2:div/4:section/1:form/1:div": [
+    461,
+    1112,
+    444,
+    16
+   ],
+   "div/2:div/4:section/1:form/1:div/0:label": [
+    461,
+    1112,
+    49,
+    16
+   ],
+   "div/2:div/4:section/1:form/1:div/0:label/0:input": [
+    461,
+    1113,
+    13,
+    13
+   ],
+   "div/2:div/4:section/1:form/1:div/1:label": [
+    526,
+    1112,
+    49,
+    16
+   ],
+   "div/2:div/4:section/1:form/1:div/1:label/0:input": [
+    526,
+    1113,
+    13,
+    13
+   ],
+   "div/2:div/4:section/1:form/2:div": [
+    461,
+    1140,
+    444,
+    32
+   ],
+   "div/2:div/4:section/1:form/2:div/0:button": [
+    782,
+    1140,
+    58,
+    32
+   ],
+   "div/2:div/4:section/1:form/2:div/1:button": [
+    849,
+    1140,
+    56,
+    32
+   ],
+   "div/2:div/5:section": [
+    448,
+    1201,
+    470,
+    106
+   ],
+   "div/2:div/5:section/0:h3": [
+    461,
+    1214,
+    444,
+    20
+   ],
+   "div/2:div/5:section/0:h3/0:svg": [
+    461,
+    1216,
+    16,
+    16
+   ],
+   "div/2:div/5:section/0:h3/0:svg/0:path": [
+    467,
+    1222,
+    4,
+    4
+   ],
+   "div/2:div/5:section/0:h3/0:svg/1:path": [
+    462,
+    1217,
+    13,
+    13
+   ],
+   "div/2:div/5:section/0:h3/0:svg/2:path": [
+    467,
+    1222,
+    4,
+    4
+   ],
+   "div/2:div/5:section/1:p": [
+    461,
+    1238,
+    444,
+    16
+   ],
+   "div/2:div/5:section/2:button": [
+    461,
+    1262,
+    56,
+    32
+   ],
+   "div/3:p": [
+    448,
+    1323,
+    470,
+    17
+   ],
+   "div/4:button": [
+    906,
+    48,
+    16,
+    16
+   ],
+   "div/4:button/0:svg": [
+    906,
+    48,
+    16,
+    16
+   ],
+   "div/4:button/0:svg/0:path": [
+    910,
+    52,
+    8,
+    8
+   ],
+   "div/4:button/0:svg/1:path": [
+    910,
+    52,
+    8,
+    8
+   ],
+   "div/4:button/1:span": [
+    913,
+    63,
+    1,
+    1
+   ]
+  },
+  "colours": {
+   "div": "rgb(255, 255, 255)|rgb(17, 24, 39)|rgb(230, 234, 240)",
+   "div/0:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/0:div/0:h2": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/0:div/0:h2/0:svg": "none|rgb(146, 64, 14)",
+   "div/0:div/0:h2/0:svg/0:path": "none|rgb(146, 64, 14)",
+   "div/0:div/0:h2/0:svg/1:path": "none|rgb(146, 64, 14)",
+   "div/0:div/0:h2/0:svg/2:path": "none|rgb(146, 64, 14)",
+   "div/0:div/1:p": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/1:p": "oklab(0.769006 0.0640422 0.176756 / 0.1)|rgb(122, 74, 0)|oklab(0.769006 0.0640422 0.176756 / 0.5)",
+   "div/1:p/0:svg": "none|rgb(122, 74, 0)",
+   "div/1:p/0:svg/0:path": "none|rgb(122, 74, 0)",
+   "div/1:p/0:svg/1:path": "none|rgb(122, 74, 0)",
+   "div/2:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:section": "oklab(0.975462 -0.00087294 -0.00442082 / 0.4)|rgb(17, 24, 39)|rgb(230, 234, 240)",
+   "div/2:div/0:section/0:h3": "rgba(0, 0, 0, 0)|rgb(31, 41, 55)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:section/1:dl": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:section/1:dl/0:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:section/1:dl/0:div/0:dt": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:section/1:dl/0:div/1:dd": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:section/1:dl/1:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:section/1:dl/1:div/0:dt": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:section/1:dl/1:div/1:dd": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:section/1:dl/2:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:section/1:dl/2:div/0:dt": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:section/1:dl/2:div/1:dd": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:section/1:dl/3:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:section/1:dl/3:div/0:dt": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:section/1:dl/3:div/1:dd": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:section/1:dl/4:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:section/1:dl/4:div/0:dt": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:section/1:dl/4:div/1:dd": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:section/2:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:section/2:div/0:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|rgb(201, 209, 220)",
+   "div/2:div/0:section/2:div/1:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|rgb(201, 209, 220)",
+   "div/2:div/0:section/2:div/2:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|rgb(201, 209, 220)",
+   "div/2:div/0:section/2:div/3:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|rgb(201, 209, 220)",
+   "div/2:div/0:section/3:p": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/0:h3": "rgba(0, 0, 0, 0)|rgb(31, 41, 55)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li": "oklab(0.695996 -0.162107 0.0511875 / 0.05)|rgb(17, 24, 39)|oklab(0.695996 -0.162107 0.0511875 / 0.4)",
+   "div/2:div/1:section/1:ul/0:li/0:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/0:div/0:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/0:div/0:div/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/0:div/0:div/1:span": "rgba(0, 0, 0, 0)|rgb(4, 120, 87)|oklab(0.695996 -0.162107 0.0511875 / 0.5)",
+   "div/2:div/1:section/1:ul/0:li/0:div/0:div/2:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/0:div/0:div/3:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/0:div/1:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/0:div/1:div/0:button": "lab(100 0 0)|rgb(45, 55, 72)|rgb(201, 209, 220)",
+   "div/2:div/1:section/1:ul/0:li/0:div/1:div/1:button": "lab(35.3675 -33.1188 8.04002)|rgb(255, 255, 255)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/1:dl": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/1:dl/0:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/1:dl/0:div/0:dt": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/1:dl/0:div/1:dd": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/1:dl/1:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/1:dl/1:div/0:dt": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/1:dl/1:div/1:dd": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/1:dl/2:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/1:dl/2:div/0:dt": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/1:dl/2:div/1:dd": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/1:dl/3:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/1:dl/3:div/0:dt": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/1:dl/3:div/1:dd": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/1:dl/4:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/1:dl/4:div/0:dt": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/1:dl/4:div/1:dd": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:section/1:ul/0:li/2:div": "rgba(0, 0, 0, 0)|rgb(4, 120, 87)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/2:section": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/2:section/0:h3": "rgba(0, 0, 0, 0)|rgb(31, 41, 55)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/2:section/1:p": "oklab(0.975462 -0.00087294 -0.00442082 / 0.4)|rgb(74, 85, 104)|rgb(230, 234, 240)",
+   "div/2:div/3:section": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/0:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/0:div/0:h3": "rgba(0, 0, 0, 0)|rgb(31, 41, 55)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/0:div/1:button": "lab(36.5114 -17.1989 -21.6292)|rgb(255, 255, 255)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/0:div/1:button/0:svg": "none|rgb(255, 255, 255)",
+   "div/2:div/3:section/0:div/1:button/0:svg/0:path": "none|rgb(255, 255, 255)",
+   "div/2:div/3:section/0:div/1:button/0:svg/1:path": "none|rgb(255, 255, 255)",
+   "div/2:div/3:section/0:div/1:button/0:svg/2:path": "none|rgb(255, 255, 255)",
+   "div/2:div/3:section/1:dl": "oklab(0.975462 -0.00087294 -0.00442082 / 0.4)|rgb(17, 24, 39)|rgb(230, 234, 240)",
+   "div/2:div/3:section/1:dl/0:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/1:dl/0:div/0:dt": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/1:dl/0:div/1:dd": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/1:dl/1:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/1:dl/1:div/0:dt": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/1:dl/1:div/1:dd": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/1:dl/2:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/1:dl/2:div/0:dt": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/1:dl/2:div/1:dd": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/1:dl/3:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/1:dl/3:div/0:dt": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/1:dl/3:div/1:dd": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/1:dl/4:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/1:dl/4:div/0:dt": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/1:dl/4:div/1:dd": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/1:dl/5:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/1:dl/5:div/0:dt": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/1:dl/5:div/1:dd": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/2:p": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:section/3:p": "oklab(0.975462 -0.00087294 -0.00442082 / 0.4)|rgb(74, 85, 104)|rgb(230, 234, 240)",
+   "div/2:div/4:section": "oklab(0.975462 -0.00087294 -0.00442082 / 0.4)|rgb(17, 24, 39)|rgb(230, 234, 240)",
+   "div/2:div/4:section/0:h3": "rgba(0, 0, 0, 0)|rgb(31, 41, 55)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form/0:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form/0:div/0:label": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form/0:div/0:label/0:input": "rgb(255, 255, 255)|rgb(17, 24, 39)|rgb(201, 209, 220)",
+   "div/2:div/4:section/1:form/0:div/1:label": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form/0:div/1:label/0:input": "rgb(255, 255, 255)|rgb(17, 24, 39)|rgb(201, 209, 220)",
+   "div/2:div/4:section/1:form/0:div/2:label": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form/0:div/2:label/0:input": "rgb(255, 255, 255)|rgb(17, 24, 39)|rgb(201, 209, 220)",
+   "div/2:div/4:section/1:form/0:div/3:label": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form/0:div/3:label/0:input": "rgb(255, 255, 255)|rgb(17, 24, 39)|rgb(201, 209, 220)",
+   "div/2:div/4:section/1:form/0:div/4:label": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form/0:div/4:label/0:input": "rgb(255, 255, 255)|rgb(17, 24, 39)|rgb(201, 209, 220)",
+   "div/2:div/4:section/1:form/0:div/5:label": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form/0:div/5:label/0:input": "rgb(255, 255, 255)|rgb(17, 24, 39)|rgb(201, 209, 220)",
+   "div/2:div/4:section/1:form/0:div/6:label": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form/0:div/6:label/0:input": "rgb(255, 255, 255)|rgb(17, 24, 39)|rgb(201, 209, 220)",
+   "div/2:div/4:section/1:form/0:div/7:label": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form/0:div/7:label/0:input": "rgb(255, 255, 255)|rgb(17, 24, 39)|rgb(201, 209, 220)",
+   "div/2:div/4:section/1:form/0:div/8:label": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form/0:div/8:label/0:input": "rgb(255, 255, 255)|rgb(17, 24, 39)|rgb(201, 209, 220)",
+   "div/2:div/4:section/1:form/0:div/9:label": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form/0:div/9:label/0:input": "rgb(255, 255, 255)|rgb(17, 24, 39)|rgb(201, 209, 220)",
+   "div/2:div/4:section/1:form/0:div/10:label": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form/0:div/10:label/0:input": "rgb(255, 255, 255)|rgb(17, 24, 39)|rgb(201, 209, 220)",
+   "div/2:div/4:section/1:form/0:div/11:label": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form/0:div/11:label/0:input": "rgb(255, 255, 255)|rgb(17, 24, 39)|rgb(201, 209, 220)",
+   "div/2:div/4:section/1:form/0:div/12:label": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form/0:div/12:label/0:input": "rgb(255, 255, 255)|rgb(17, 24, 39)|rgb(201, 209, 220)",
+   "div/2:div/4:section/1:form/1:div": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form/1:div/0:label": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form/1:div/0:label/0:input": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|rgb(45, 55, 72)",
+   "div/2:div/4:section/1:form/1:div/1:label": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form/1:div/1:label/0:input": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|rgb(45, 55, 72)",
+   "div/2:div/4:section/1:form/2:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/4:section/1:form/2:div/0:button": "lab(100 0 0)|rgb(45, 55, 72)|rgb(201, 209, 220)",
+   "div/2:div/4:section/1:form/2:div/1:button": "lab(36.5114 -17.1989 -21.6292)|rgb(255, 255, 255)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/5:section": "oklab(0.975462 -0.00087294 -0.00442082 / 0.4)|rgb(17, 24, 39)|rgb(230, 234, 240)",
+   "div/2:div/5:section/0:h3": "rgba(0, 0, 0, 0)|rgb(31, 41, 55)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/5:section/0:h3/0:svg": "none|rgb(190, 18, 60)",
+   "div/2:div/5:section/0:h3/0:svg/0:path": "none|rgb(190, 18, 60)",
+   "div/2:div/5:section/0:h3/0:svg/1:path": "none|rgb(190, 18, 60)",
+   "div/2:div/5:section/0:h3/0:svg/2:path": "none|rgb(190, 18, 60)",
+   "div/2:div/5:section/1:p": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/5:section/2:button": "lab(41.1651 71.6251 30.3087)|rgb(255, 255, 255)|lab(90.952 0 -0.0000119209)",
+   "div/3:p": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:button": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:button/0:svg": "none|rgb(17, 24, 39)",
+   "div/4:button/0:svg/0:path": "none|rgb(17, 24, 39)",
+   "div/4:button/0:svg/1:path": "none|rgb(17, 24, 39)",
+   "div/4:button/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)"
+  },
+  "counts": {
+   "div/0:div/0:h2/0:svg/0:path": 0,
+   "div/0:div/0:h2/0:svg/1:path": 0,
+   "div/0:div/0:h2/0:svg/2:path": 0,
+   "div/1:p/0:svg/0:path": 0,
+   "div/1:p/0:svg/1:path": 0,
+   "div/2:div/3:section/0:div/1:button/0:svg/0:path": 0,
+   "div/2:div/3:section/0:div/1:button/0:svg/1:path": 0,
+   "div/2:div/3:section/0:div/1:button/0:svg/2:path": 0,
+   "div/2:div/5:section/0:h3/0:svg/0:path": 0,
+   "div/2:div/5:section/0:h3/0:svg/1:path": 0,
+   "div/2:div/5:section/0:h3/0:svg/2:path": 0,
+   "div/4:button/0:svg/0:path": 0,
+   "div/4:button/0:svg/1:path": 0
+  }
+ },
+ "ledger": {
+  "boxes": {
+   "div": [
+    427,
+    31,
+    512,
+    707
+   ],
+   "div/0:div": [
+    448,
+    52,
+    470,
+    48
+   ],
+   "div/0:div/0:h2": [
+    448,
+    52,
+    470,
+    24
+   ],
+   "div/0:div/0:h2/0:svg": [
+    448,
+    54,
+    20,
+    20
+   ],
+   "div/0:div/0:h2/0:svg/0:path": [
+    451,
+    56,
+    15,
+    15
+   ],
+   "div/0:div/0:h2/0:svg/1:path": [
+    463,
+    61,
+    0,
+    7
+   ],
+   "div/0:div/0:h2/0:svg/2:path": [
+    459,
+    58,
+    0,
+    10
+   ],
+   "div/0:div/0:h2/0:svg/3:path": [
+    455,
+    65,
+    0,
+    3
+   ],
+   "div/0:div/1:p": [
+    448,
+    84,
+    470,
+    16
+   ],
+   "div/1:div": [
+    448,
+    116,
+    470,
+    22
+   ],
+   "div/1:div/0:span": [
+    448,
+    116,
+    105,
+    22
+   ],
+   "div/1:div/1:span": [
+    561,
+    116,
+    47,
+    22
+   ],
+   "div/1:div/2:span": [
+    616,
+    119,
+    28,
+    16
+   ],
+   "div/2:div": [
+    448,
+    154,
+    470,
+    32
+   ],
+   "div/2:div/0:span": [
+    448,
+    162,
+    28,
+    16
+   ],
+   "div/2:div/1:div": [
+    484,
+    154,
+    96,
+    32
+   ],
+   "div/2:div/1:div/0:button": [
+    484,
+    154,
+    46,
+    32
+   ],
+   "div/2:div/1:div/1:button": [
+    534,
+    154,
+    46,
+    32
+   ],
+   "div/2:div/2:span": [
+    588,
+    162,
+    29,
+    16
+   ],
+   "div/2:div/3:span": [
+    624,
+    162,
+    28,
+    16
+   ],
+   "div/3:div": [
+    448,
+    202,
+    470,
+    32
+   ],
+   "div/3:div/0:span": [
+    448,
+    210,
+    28,
+    16
+   ],
+   "div/3:div/1:button": [
+    484,
+    202,
+    58,
+    32
+   ],
+   "div/3:div/2:span": [
+    550,
+    210,
+    28,
+    16
+   ],
+   "div/4:div": [
+    448,
+    250,
+    470,
+    391
+   ],
+   "div/4:div/0:div": [
+    448,
+    250,
+    470,
+    32
+   ],
+   "div/4:div/0:div/0:span": [
+    448,
+    258,
+    28,
+    16
+   ],
+   "div/4:div/0:div/1:div": [
+    484,
+    250,
+    245,
+    32
+   ],
+   "div/4:div/0:div/1:div/0:button": [
+    484,
+    250,
+    46,
+    32
+   ],
+   "div/4:div/0:div/1:div/1:button": [
+    534,
+    250,
+    46,
+    32
+   ],
+   "div/4:div/0:div/1:div/2:button": [
+    584,
+    250,
+    46,
+    32
+   ],
+   "div/4:div/0:div/1:div/3:button": [
+    633,
+    250,
+    46,
+    32
+   ],
+   "div/4:div/0:div/1:div/4:button": [
+    683,
+    250,
+    46,
+    32
+   ],
+   "div/4:div/1:p": [
+    448,
+    294,
+    470,
+    20
+   ],
+   "div/4:div/2:div": [
+    448,
+    326,
+    470,
+    206
+   ],
+   "div/4:div/2:div/0:div": [
+    448,
+    326,
+    231,
+    206
+   ],
+   "div/4:div/2:div/0:div/0:div": [
+    461,
+    339,
+    205,
+    16
+   ],
+   "div/4:div/2:div/0:div/1:div": [
+    461,
+    359,
+    205,
+    16
+   ],
+   "div/4:div/2:div/0:div/2:div": [
+    461,
+    379,
+    205,
+    32
+   ],
+   "div/4:div/2:div/0:div/3:div": [
+    461,
+    419,
+    205,
+    16
+   ],
+   "div/4:div/2:div/0:div/4:div": [
+    461,
+    439,
+    205,
+    16
+   ],
+   "div/4:div/2:div/0:div/5:div": [
+    461,
+    455,
+    205,
+    16
+   ],
+   "div/4:div/2:div/0:div/6:div": [
+    461,
+    471,
+    205,
+    16
+   ],
+   "div/4:div/2:div/0:div/7:div": [
+    461,
+    487,
+    205,
+    16
+   ],
+   "div/4:div/2:div/1:div": [
+    687,
+    326,
+    231,
+    206
+   ],
+   "div/4:div/2:div/1:div/0:div": [
+    700,
+    339,
+    205,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul": [
+    700,
+    359,
+    205,
+    160
+   ],
+   "div/4:div/2:div/1:div/1:ul/0:li": [
+    700,
+    359,
+    205,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/0:li/0:span": [
+    700,
+    359,
+    59,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/0:li/0:span/0:span": [
+    700,
+    359,
+    28,
+    15
+   ],
+   "div/4:div/2:div/1:div/1:ul/0:li/0:span/1:span": [
+    727,
+    358,
+    1,
+    1
+   ],
+   "div/4:div/2:div/1:div/1:ul/0:li/1:span": [
+    876,
+    359,
+    29,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/1:li": [
+    700,
+    377,
+    205,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/1:li/0:span": [
+    700,
+    377,
+    59,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/1:li/0:span/0:span": [
+    700,
+    377,
+    28,
+    15
+   ],
+   "div/4:div/2:div/1:div/1:ul/1:li/0:span/1:span": [
+    727,
+    376,
+    1,
+    1
+   ],
+   "div/4:div/2:div/1:div/1:ul/1:li/1:span": [
+    876,
+    377,
+    29,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/2:li": [
+    700,
+    395,
+    205,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/2:li/0:span": [
+    700,
+    395,
+    59,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/2:li/0:span/0:span": [
+    700,
+    395,
+    28,
+    15
+   ],
+   "div/4:div/2:div/1:div/1:ul/2:li/0:span/1:span": [
+    727,
+    394,
+    1,
+    1
+   ],
+   "div/4:div/2:div/1:div/1:ul/2:li/1:span": [
+    876,
+    395,
+    29,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/3:li": [
+    700,
+    413,
+    205,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/3:li/0:span": [
+    700,
+    413,
+    59,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/3:li/0:span/0:span": [
+    700,
+    413,
+    28,
+    15
+   ],
+   "div/4:div/2:div/1:div/1:ul/3:li/0:span/1:span": [
+    727,
+    412,
+    1,
+    1
+   ],
+   "div/4:div/2:div/1:div/1:ul/3:li/1:span": [
+    876,
+    413,
+    29,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/4:li": [
+    700,
+    431,
+    205,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/4:li/0:span": [
+    700,
+    431,
+    59,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/4:li/0:span/0:span": [
+    700,
+    431,
+    28,
+    15
+   ],
+   "div/4:div/2:div/1:div/1:ul/4:li/0:span/1:span": [
+    727,
+    430,
+    1,
+    1
+   ],
+   "div/4:div/2:div/1:div/1:ul/4:li/1:span": [
+    876,
+    431,
+    29,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/5:li": [
+    700,
+    449,
+    205,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/5:li/0:span": [
+    700,
+    449,
+    59,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/5:li/0:span/0:span": [
+    700,
+    449,
+    28,
+    15
+   ],
+   "div/4:div/2:div/1:div/1:ul/5:li/0:span/1:span": [
+    727,
+    448,
+    1,
+    1
+   ],
+   "div/4:div/2:div/1:div/1:ul/5:li/1:span": [
+    876,
+    449,
+    29,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/6:li": [
+    700,
+    467,
+    205,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/6:li/0:span": [
+    700,
+    467,
+    59,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/6:li/0:span/0:span": [
+    700,
+    467,
+    28,
+    15
+   ],
+   "div/4:div/2:div/1:div/1:ul/6:li/0:span/1:span": [
+    727,
+    466,
+    1,
+    1
+   ],
+   "div/4:div/2:div/1:div/1:ul/6:li/1:span": [
+    876,
+    467,
+    29,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/7:li": [
+    700,
+    485,
+    205,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/7:li/0:span": [
+    700,
+    485,
+    59,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/7:li/0:span/0:span": [
+    700,
+    485,
+    28,
+    15
+   ],
+   "div/4:div/2:div/1:div/1:ul/7:li/0:span/1:span": [
+    727,
+    484,
+    1,
+    1
+   ],
+   "div/4:div/2:div/1:div/1:ul/7:li/1:span": [
+    876,
+    485,
+    29,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/8:li": [
+    700,
+    503,
+    205,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/8:li/0:span": [
+    700,
+    503,
+    59,
+    16
+   ],
+   "div/4:div/2:div/1:div/1:ul/8:li/0:span/0:span": [
+    700,
+    503,
+    28,
+    15
+   ],
+   "div/4:div/2:div/1:div/1:ul/8:li/0:span/1:span": [
+    727,
+    502,
+    1,
+    1
+   ],
+   "div/4:div/2:div/1:div/1:ul/8:li/1:span": [
+    876,
+    503,
+    29,
+    16
+   ],
+   "div/4:div/3:div": [
+    448,
+    544,
+    470,
+    97
+   ],
+   "div/4:div/3:div/0:div": [
+    461,
+    557,
+    444,
+    16
+   ],
+   "div/4:div/3:div/1:div": [
+    461,
+    577,
+    444,
+    51
+   ],
+   "div/4:div/3:div/1:div/0:div": [
+    461,
+    577,
+    60,
+    51
+   ],
+   "div/4:div/3:div/1:div/0:div/0:div": [
+    465,
+    581,
+    52,
+    13
+   ],
+   "div/4:div/3:div/1:div/0:div/1:div": [
+    465,
+    594,
+    52,
+    16
+   ],
+   "div/4:div/3:div/1:div/0:div/2:div": [
+    465,
+    610,
+    52,
+    13
+   ],
+   "div/4:div/3:div/1:div/1:div": [
+    525,
+    577,
+    60,
+    51
+   ],
+   "div/4:div/3:div/1:div/1:div/0:div": [
+    529,
+    581,
+    52,
+    13
+   ],
+   "div/4:div/3:div/1:div/1:div/1:div": [
+    529,
+    594,
+    52,
+    16
+   ],
+   "div/4:div/3:div/1:div/1:div/2:div": [
+    529,
+    610,
+    52,
+    13
+   ],
+   "div/4:div/3:div/1:div/2:div": [
+    589,
+    577,
+    60,
+    51
+   ],
+   "div/4:div/3:div/1:div/2:div/0:div": [
+    593,
+    581,
+    52,
+    13
+   ],
+   "div/4:div/3:div/1:div/2:div/1:div": [
+    593,
+    594,
+    52,
+    16
+   ],
+   "div/4:div/3:div/1:div/2:div/2:div": [
+    593,
+    610,
+    52,
+    13
+   ],
+   "div/4:div/3:div/1:div/3:div": [
+    653,
+    577,
+    60,
+    51
+   ],
+   "div/4:div/3:div/1:div/3:div/0:div": [
+    657,
+    581,
+    52,
+    13
+   ],
+   "div/4:div/3:div/1:div/3:div/1:div": [
+    657,
+    594,
+    52,
+    16
+   ],
+   "div/4:div/3:div/1:div/3:div/2:div": [
+    657,
+    610,
+    52,
+    13
+   ],
+   "div/4:div/3:div/1:div/4:div": [
+    717,
+    577,
+    60,
+    51
+   ],
+   "div/4:div/3:div/1:div/4:div/0:div": [
+    721,
+    581,
+    52,
+    13
+   ],
+   "div/4:div/3:div/1:div/4:div/1:div": [
+    721,
+    594,
+    52,
+    16
+   ],
+   "div/4:div/3:div/1:div/4:div/2:div": [
+    721,
+    610,
+    52,
+    13
+   ],
+   "div/4:div/3:div/1:div/5:div": [
+    781,
+    577,
+    60,
+    51
+   ],
+   "div/4:div/3:div/1:div/5:div/0:div": [
+    785,
+    581,
+    52,
+    13
+   ],
+   "div/4:div/3:div/1:div/5:div/1:div": [
+    785,
+    594,
+    52,
+    16
+   ],
+   "div/4:div/3:div/1:div/5:div/2:div": [
+    785,
+    610,
+    52,
+    13
+   ],
+   "div/4:div/3:div/1:div/6:div": [
+    845,
+    577,
+    60,
+    51
+   ],
+   "div/4:div/3:div/1:div/6:div/0:div": [
+    849,
+    581,
+    52,
+    13
+   ],
+   "div/4:div/3:div/1:div/6:div/1:div": [
+    849,
+    594,
+    52,
+    16
+   ],
+   "div/4:div/3:div/1:div/6:div/2:div": [
+    849,
+    610,
+    52,
+    13
+   ],
+   "div/5:div": [
+    448,
+    656,
+    470,
+    78
+   ],
+   "div/5:div/0:div": [
+    461,
+    669,
+    444,
+    16
+   ],
+   "div/5:div/0:div/0:svg": [
+    461,
+    670,
+    14,
+    14
+   ],
+   "div/5:div/0:div/0:svg/0:rect": [
+    463,
+    677,
+    11,
+    6
+   ],
+   "div/5:div/0:div/0:svg/1:path": [
+    465,
+    672,
+    6,
+    5
+   ],
+   "div/5:div/1:div": [
+    461,
+    689,
+    444,
+    32
+   ],
+   "div/5:div/1:div/0:span": [
+    461,
+    697,
+    28,
+    16
+   ],
+   "div/5:div/1:div/1:button": [
+    497,
+    689,
+    58,
+    32
+   ],
+   "div/6:p": [
+    448,
+    750,
+    470,
+    17
+   ],
+   "div/7:div": [
+    448,
+    783,
+    470,
+    32
+   ],
+   "div/7:div/0:button": [
+    590,
+    783,
+    76,
+    32
+   ],
+   "div/7:div/0:button/0:svg": [
+    601,
+    791,
+    16,
+    16
+   ],
+   "div/7:div/0:button/0:svg/0:path": [
+    603,
+    795,
+    12,
+    0
+   ],
+   "div/7:div/0:button/0:svg/1:path": [
+    604,
+    795,
+    9,
+    11
+   ],
+   "div/7:div/0:button/0:svg/2:path": [
+    606,
+    792,
+    5,
+    3
+   ],
+   "div/7:div/0:button/0:svg/3:line": [
+    608,
+    798,
+    0,
+    4
+   ],
+   "div/7:div/0:button/0:svg/4:line": [
+    610,
+    798,
+    0,
+    4
+   ],
+   "div/7:div/1:button": [
+    675,
+    783,
+    76,
+    32
+   ],
+   "div/7:div/1:button/0:svg": [
+    686,
+    791,
+    16,
+    16
+   ],
+   "div/7:div/1:button/0:svg/0:path": [
+    694,
+    793,
+    0,
+    8
+   ],
+   "div/7:div/1:button/0:svg/1:path": [
+    690,
+    793,
+    7,
+    3
+   ],
+   "div/7:div/1:button/0:svg/2:path": [
+    688,
+    801,
+    12,
+    4
+   ],
+   "div/7:div/2:button": [
+    759,
+    783,
+    76,
+    32
+   ],
+   "div/7:div/2:button/0:svg": [
+    770,
+    791,
+    16,
+    16
+   ],
+   "div/7:div/2:button/0:svg/0:path": [
+    778,
+    793,
+    0,
+    8
+   ],
+   "div/7:div/2:button/0:svg/1:path": [
+    772,
+    801,
+    12,
+    4
+   ],
+   "div/7:div/2:button/0:svg/2:path": [
+    775,
+    798,
+    7,
+    3
+   ],
+   "div/7:div/3:button": [
+    844,
+    783,
+    74,
+    32
+   ],
+   "div/7:div/3:button/0:svg": [
+    854,
+    791,
+    16,
+    16
+   ],
+   "div/7:div/3:button/0:svg/0:path": [
+    862,
+    793,
+    0,
+    8
+   ],
+   "div/7:div/3:button/0:svg/1:path": [
+    856,
+    801,
+    12,
+    4
+   ],
+   "div/7:div/3:button/0:svg/2:path": [
+    858,
+    798,
+    7,
+    3
+   ],
+   "div/8:button": [
+    906,
+    48,
+    16,
+    16
+   ],
+   "div/8:button/0:svg": [
+    906,
+    48,
+    16,
+    16
+   ],
+   "div/8:button/0:svg/0:path": [
+    910,
+    52,
+    8,
+    8
+   ],
+   "div/8:button/0:svg/1:path": [
+    910,
+    52,
+    8,
+    8
+   ],
+   "div/8:button/1:span": [
+    913,
+    63,
+    1,
+    1
+   ]
+  },
+  "colours": {
+   "div": "rgb(255, 255, 255)|rgb(17, 24, 39)|rgb(230, 234, 240)",
+   "div/0:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/0:div/0:h2": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/0:div/0:h2/0:svg": "none|rgb(11, 97, 120)",
+   "div/0:div/0:h2/0:svg/0:path": "none|rgb(11, 97, 120)",
+   "div/0:div/0:h2/0:svg/1:path": "none|rgb(11, 97, 120)",
+   "div/0:div/0:h2/0:svg/2:path": "none|rgb(11, 97, 120)",
+   "div/0:div/0:h2/0:svg/3:path": "none|rgb(11, 97, 120)",
+   "div/0:div/1:p": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/1:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/1:div/0:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|rgb(201, 209, 220)",
+   "div/1:div/1:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|rgb(201, 209, 220)",
+   "div/1:div/2:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/0:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/1:div/0:button": "oklab(0.714993 -0.116823 -0.0824539 / 0.1)|rgb(11, 97, 120)|rgb(11, 97, 120)",
+   "div/2:div/1:div/1:button": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|rgb(201, 209, 220)",
+   "div/2:div/2:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/2:div/3:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/3:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/3:div/0:span": "rgba(0, 0, 0, 0)|rgb(146, 64, 14)|lab(90.952 0 -0.0000119209)",
+   "div/3:div/1:button": "lab(100 0 0)|rgb(45, 55, 72)|rgb(201, 209, 220)",
+   "div/3:div/2:span": "rgba(0, 0, 0, 0)|rgb(146, 64, 14)|lab(90.952 0 -0.0000119209)",
+   "div/4:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/0:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/0:div/0:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/0:div/1:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/0:div/1:div/0:button": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|rgb(201, 209, 220)",
+   "div/4:div/0:div/1:div/1:button": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|rgb(201, 209, 220)",
+   "div/4:div/0:div/1:div/2:button": "oklab(0.714993 -0.116823 -0.0824539 / 0.1)|rgb(11, 97, 120)|rgb(11, 97, 120)",
+   "div/4:div/0:div/1:div/3:button": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|rgb(201, 209, 220)",
+   "div/4:div/0:div/1:div/4:button": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|rgb(201, 209, 220)",
+   "div/4:div/1:p": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/0:div": "oklab(0.975462 -0.00087294 -0.00442082 / 0.4)|rgb(17, 24, 39)|rgb(230, 234, 240)",
+   "div/4:div/2:div/0:div/0:div": "rgba(0, 0, 0, 0)|rgb(31, 41, 55)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/0:div/1:div": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/0:div/2:div": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/0:div/3:div": "rgba(0, 0, 0, 0)|rgb(31, 41, 55)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/0:div/4:div": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/0:div/5:div": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/0:div/6:div": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/0:div/7:div": "rgba(0, 0, 0, 0)|rgb(45, 55, 72)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div": "oklab(0.769006 0.0640422 0.176756 / 0.05)|rgb(17, 24, 39)|oklab(0.769006 0.0640422 0.176756 / 0.4)",
+   "div/4:div/2:div/1:div/0:div": "rgba(0, 0, 0, 0)|rgb(31, 41, 55)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/0:li": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/0:li/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/0:li/0:span/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/0:li/0:span/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/0:li/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/1:li": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/1:li/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/1:li/0:span/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/1:li/0:span/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/1:li/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/2:li": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/2:li/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/2:li/0:span/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/2:li/0:span/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/2:li/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/3:li": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/3:li/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/3:li/0:span/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/3:li/0:span/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/3:li/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/4:li": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/4:li/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/4:li/0:span/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/4:li/0:span/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/4:li/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/5:li": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/5:li/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/5:li/0:span/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/5:li/0:span/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/5:li/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/6:li": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/6:li/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/6:li/0:span/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/6:li/0:span/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/6:li/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/7:li": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/7:li/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/7:li/0:span/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/7:li/0:span/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/7:li/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/8:li": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/8:li/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/8:li/0:span/0:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/8:li/0:span/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/2:div/1:div/1:ul/8:li/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div": "oklab(0.975462 -0.00087294 -0.00442082 / 0.4)|rgb(17, 24, 39)|rgb(230, 234, 240)",
+   "div/4:div/3:div/0:div": "rgba(0, 0, 0, 0)|rgb(31, 41, 55)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/0:div": "rgb(255, 255, 255)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/0:div/0:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/0:div/1:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/0:div/2:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/1:div": "rgb(255, 255, 255)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/1:div/0:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/1:div/1:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/1:div/2:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/2:div": "rgb(255, 255, 255)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/2:div/0:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/2:div/1:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/2:div/2:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/3:div": "rgb(255, 255, 255)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/3:div/0:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/3:div/1:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/3:div/2:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/4:div": "rgb(255, 255, 255)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/4:div/0:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/4:div/1:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/4:div/2:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/5:div": "rgb(255, 255, 255)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/5:div/0:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/5:div/1:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/5:div/2:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/6:div": "rgb(255, 255, 255)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/6:div/0:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/6:div/1:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/4:div/3:div/1:div/6:div/2:div": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/5:div": "oklab(0.975462 -0.00087294 -0.00442082 / 0.4)|rgb(17, 24, 39)|rgb(230, 234, 240)",
+   "div/5:div/0:div": "rgba(0, 0, 0, 0)|rgb(31, 41, 55)|lab(90.952 0 -0.0000119209)",
+   "div/5:div/0:div/0:svg": "none|rgb(31, 41, 55)",
+   "div/5:div/0:div/0:svg/0:rect": "none|rgb(31, 41, 55)",
+   "div/5:div/0:div/0:svg/1:path": "none|rgb(31, 41, 55)",
+   "div/5:div/1:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/5:div/1:div/0:span": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/5:div/1:div/1:button": "lab(100 0 0)|rgb(45, 55, 72)|rgb(201, 209, 220)",
+   "div/6:p": "rgba(0, 0, 0, 0)|rgb(74, 85, 104)|lab(90.952 0 -0.0000119209)",
+   "div/7:div": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/7:div/0:button": "lab(100 0 0)|rgb(45, 55, 72)|rgb(201, 209, 220)",
+   "div/7:div/0:button/0:svg": "none|rgb(45, 55, 72)",
+   "div/7:div/0:button/0:svg/0:path": "none|rgb(45, 55, 72)",
+   "div/7:div/0:button/0:svg/1:path": "none|rgb(45, 55, 72)",
+   "div/7:div/0:button/0:svg/2:path": "none|rgb(45, 55, 72)",
+   "div/7:div/0:button/0:svg/3:line": "none|rgb(45, 55, 72)",
+   "div/7:div/0:button/0:svg/4:line": "none|rgb(45, 55, 72)",
+   "div/7:div/1:button": "lab(100 0 0)|rgb(45, 55, 72)|rgb(201, 209, 220)",
+   "div/7:div/1:button/0:svg": "none|rgb(45, 55, 72)",
+   "div/7:div/1:button/0:svg/0:path": "none|rgb(45, 55, 72)",
+   "div/7:div/1:button/0:svg/1:path": "none|rgb(45, 55, 72)",
+   "div/7:div/1:button/0:svg/2:path": "none|rgb(45, 55, 72)",
+   "div/7:div/2:button": "lab(100 0 0)|rgb(45, 55, 72)|rgb(201, 209, 220)",
+   "div/7:div/2:button/0:svg": "none|rgb(45, 55, 72)",
+   "div/7:div/2:button/0:svg/0:path": "none|rgb(45, 55, 72)",
+   "div/7:div/2:button/0:svg/1:path": "none|rgb(45, 55, 72)",
+   "div/7:div/2:button/0:svg/2:path": "none|rgb(45, 55, 72)",
+   "div/7:div/3:button": "lab(36.5114 -17.1989 -21.6292)|rgb(255, 255, 255)|lab(90.952 0 -0.0000119209)",
+   "div/7:div/3:button/0:svg": "none|rgb(255, 255, 255)",
+   "div/7:div/3:button/0:svg/0:path": "none|rgb(255, 255, 255)",
+   "div/7:div/3:button/0:svg/1:path": "none|rgb(255, 255, 255)",
+   "div/7:div/3:button/0:svg/2:path": "none|rgb(255, 255, 255)",
+   "div/8:button": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)",
+   "div/8:button/0:svg": "none|rgb(17, 24, 39)",
+   "div/8:button/0:svg/0:path": "none|rgb(17, 24, 39)",
+   "div/8:button/0:svg/1:path": "none|rgb(17, 24, 39)",
+   "div/8:button/1:span": "rgba(0, 0, 0, 0)|rgb(17, 24, 39)|lab(90.952 0 -0.0000119209)"
+  },
+  "counts": {
+   "div/0:div/0:h2/0:svg/0:path": 0,
+   "div/0:div/0:h2/0:svg/1:path": 0,
+   "div/0:div/0:h2/0:svg/2:path": 0,
+   "div/0:div/0:h2/0:svg/3:path": 0,
+   "div/5:div/0:div/0:svg/0:rect": 0,
+   "div/5:div/0:div/0:svg/1:path": 0,
+   "div/7:div/0:button/0:svg/0:path": 0,
+   "div/7:div/0:button/0:svg/1:path": 0,
+   "div/7:div/0:button/0:svg/2:path": 0,
+   "div/7:div/0:button/0:svg/3:line": 0,
+   "div/7:div/0:button/0:svg/4:line": 0,
+   "div/7:div/1:button/0:svg/0:path": 0,
+   "div/7:div/1:button/0:svg/1:path": 0,
+   "div/7:div/1:button/0:svg/2:path": 0,
+   "div/7:div/2:button/0:svg/0:path": 0,
+   "div/7:div/2:button/0:svg/1:path": 0,
+   "div/7:div/2:button/0:svg/2:path": 0,
+   "div/7:div/3:button/0:svg/0:path": 0,
+   "div/7:div/3:button/0:svg/1:path": 0,
+   "div/7:div/3:button/0:svg/2:path": 0,
+   "div/8:button/0:svg/0:path": 0,
+   "div/8:button/0:svg/1:path": 0
+  }
+ }
+}

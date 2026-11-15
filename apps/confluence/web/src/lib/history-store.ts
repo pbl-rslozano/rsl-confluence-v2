@@ -1,7 +1,8 @@
 "use client";
 
 import type { Kline } from "./indicators";
-import type { DataSource } from "./market-client";
+import { barCloseTime, contiguousTail, INTERVAL_MS, type DataSource } from "./market-client";
+import { ENGINE_BARS } from "./engine-window";
 
 const DB_NAME = "confluence-terminal-history";
 
@@ -70,10 +71,12 @@ export async function saveHistoricalSeries(
   interval: string,
   symbol: string,
   incoming: Kline[],
+  /** v2.8 (WP27): true discards the stored series first (the exchange revised the delta overlap bar). */
+  replace = false,
 ): Promise<Kline[]> {
   const db = await openDb();
   if (!db) return incoming;
-  const existing = await new Promise<Kline[]>((resolve, reject) => {
+  const existing = replace ? [] : await new Promise<Kline[]>((resolve, reject) => {
     const tx = db.transaction(STORE, "readonly");
     const request = tx.objectStore(STORE).get(keyOf(source, interval, symbol));
     request.onsuccess = () => resolve((request.result as StoredSeries | undefined)?.klines ?? []);
@@ -97,3 +100,55 @@ export async function saveHistoricalSeries(
   return klines;
 }
 
+
+/* ---------------------------------------------------------------------------
+ * v2.8 (WP27) delta fetch. Extends the v2.1.1 warm start: when the stored
+ * history already holds the engine window, ask only for the bars that closed
+ * after the newest stored bar, plus that bar again (the overlap) to verify
+ * continuity. Engine inputs are unchanged: the merged series has the same
+ * newest ENGINE_BARS bars as a full fetch.
+ * ------------------------------------------------------------------------- */
+export interface DeltaPlan {
+  /** Closed bars wanted: the missing bars + the overlap bar. The request adds one for the bar still building. */
+  limit: number;
+  /** Open time of the newest stored bar, fetched again and compared. */
+  overlapOpenTime: number;
+}
+/** Largest delta `limit` (the request asks limit + 1 and venues serve at most 1,000 bars). */
+export const MAX_DELTA_LIMIT = 999;
+
+const nextOpen = (openTime: number, intervalMs: number) =>
+  intervalMs === INTERVAL_MS["1M"] ? barCloseTime(openTime, intervalMs) : openTime + intervalMs;
+
+/**
+ * Null (fetch the full window) when the stored series is not contiguous over
+ * its newest ENGINE_BARS bars, is shorter than that, holds a bar that has not
+ * closed, or is too far behind for one request.
+ */
+export function deltaPlan(stored: Kline[], intervalMs: number, now: number): DeltaPlan | null {
+  if (!(intervalMs > 0) || stored.length < ENGINE_BARS) return null;
+  if (contiguousTail(stored, intervalMs).length < ENGINE_BARS) return null;
+  const last = stored[stored.length - 1].time;
+  if (!Number.isFinite(last) || barCloseTime(last, intervalMs) > now) return null;
+  let missing = 0;
+  for (let t = nextOpen(last, intervalMs); barCloseTime(t, intervalMs) <= now; t = nextOpen(t, intervalMs)) {
+    missing++;
+    if (missing + 1 > MAX_DELTA_LIMIT) return null;
+  }
+  return { limit: missing + 1, overlapOpenTime: last };
+}
+
+const sameBar = (a: Kline, b: Kline) =>
+  a.open === b.open && a.high === b.high && a.low === b.low && a.close === b.close && a.volume === b.volume;
+
+/**
+ * Stored bars up to the overlap + fresh bars after it. Null when the overlap
+ * bar is missing from either side or its OHLCV differs (the exchange revised
+ * it): the caller then fetches the full window and discards the stored series.
+ */
+export function mergeDelta(stored: Kline[], fresh: Kline[], overlapOpenTime: number): Kline[] | null {
+  const s = stored.findLast((b) => b.time === overlapOpenTime);
+  const f = fresh.find((b) => b.time === overlapOpenTime);
+  if (!s || !f || !sameBar(s, f)) return null;
+  return mergeKlines(stored.filter((b) => b.time <= overlapOpenTime), fresh.filter((b) => b.time > overlapOpenTime));
+}

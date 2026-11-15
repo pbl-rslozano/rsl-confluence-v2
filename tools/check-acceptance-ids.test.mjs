@@ -50,3 +50,16 @@ test("// and /* inside strings and regexes do not swallow real record() calls", 
   const src = 'const u = "https://x.test/a";\nrecord("A-3", t, ok);\nconst g = "src/*.js"; const r = /a\\/\\*b/;\nrecord("A-4", t, ok);\nconst z = "*/";\nrecord("A-5", t, ok);';
   assert.deepEqual(listAcceptanceIds(src), ["A-3", "A-4", "A-5"]);
 });
+
+// Final review M-7: the spec's LD-* (progressive rows, delta equals full) are PG-1/PG-2 in the suite; the mapping is
+// recorded beside the baseline (no ID removed or renamed).
+test("acceptance-ids.json maps the spec's LD-* to PG-1 / PG-2 and keeps both IDs", async () => {
+  const { readFileSync } = await import("node:fs");
+  const j = JSON.parse(readFileSync(new URL("./acceptance-ids.json", import.meta.url), "utf8"));
+  const map = j["@specIdMap"] ?? {};
+  assert.match(JSON.stringify(map["LD-*"] ?? ""), /PG-1/);
+  assert.match(JSON.stringify(map["LD-*"] ?? ""), /PG-2/);
+  assert.match(JSON.stringify(map["LD-*"] ?? ""), /quotes\.test\.mjs/);
+  assert.ok(j.ids.includes("PG-1") && j.ids.includes("PG-2"));
+  assert.deepEqual(j.removals, []);
+});

@@ -2,6 +2,7 @@
   "name": "@rsl/adapter-tauri",
   "version": "1.0.2026",
   "private": true,
+  "license": "UNLICENSED",
   "type": "module",
   "main": "index.js",
   "dependencies": {

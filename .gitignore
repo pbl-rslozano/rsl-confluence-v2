@@ -18,6 +18,11 @@ apps/confluence/mobile/ios/
 recorder-data/
 replay-out/
 klines/
+# Binance Vision monthly kline archives (SYMBOL-TF-YYYY-MM.csv/.zip; CC BY-NC-SA 4.0, personal non-production
+# backtesting only) are never committed, wherever --out writes them (v2.8 WP20; release check R24)
+*-[0-9][0-9][0-9][0-9]-[0-9][0-9].csv
+*-[0-9][0-9][0-9][0-9]-[0-9][0-9].zip
+*-[0-9][0-9][0-9][0-9]-[0-9][0-9].zip.CHECKSUM
 # Keys never live in the repository (builder skill §8.3)
 *.key
 *.pem

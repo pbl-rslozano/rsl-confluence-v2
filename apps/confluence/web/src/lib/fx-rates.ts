@@ -53,14 +53,18 @@ export const FX_SOURCES: readonly FxSourceInfo[] = [
   {
     id: "frankfurter", name: "Frankfurter", publisher: "Frankfurter (open source, frankfurter.dev)",
     method: "Reference rates published by central banks and official bodies, blended per currency; each rate lists the banks it came from (SAMA, BSP, ECB …); outliers are excluded; pegs are exact.",
-    coverage: "about 160 currencies", cadence: "daily, after the banks publish", terms: "MIT licence, no key, no quota",
+    coverage: "about 160 currencies", cadence: "daily, after the banks publish",
+    // v2.8 WP20: its published terms (frankfurter.dev, frankfurter.dev/license) — the MIT licence covers the code, not the rates.
+    terms: "free, no key, no quotas (rate-limited against abuse); code MIT; rates are public data under each central bank's terms",
     homepage: "https://frankfurter.dev", dataUrl: FRANKFURTER_RATES,
   },
   {
     id: "ecb", name: "European Central Bank", publisher: "European Central Bank (ECB Data Portal)",
-    method: "Official euro reference rates, set around 16:00 CET on TARGET working days; converted from euro to US-dollar base in the app.",
-    coverage: "about 30 currencies (no SAR, AED, PHP is included)", cadence: "working days", terms: "ECB statistics, free reuse with source credit",
+    method: "Official euro reference rates, published around 16:00 CET on TARGET working days, for information only; this app divides them by the EUR/USD rate to show a US-dollar base.",
+    coverage: "29 currencies (PHP included; no SAR or AED)", cadence: "working days", terms: "ECB statistics, free reuse with source credit",
     homepage: "https://data.ecb.europa.eu/main-figures/ecb-reference-rates", dataUrl: ECB_RATES,
+    // v2.8 WP20: the ECB's reuse terms ask for the source; the rates are rebased, so the credit says so.
+    attribution: { text: "Source: ECB statistics (rebased to USD by this app)", url: "https://data.ecb.europa.eu/main-figures/ecb-reference-rates" },
   },
   {
     id: "erapi", name: "ExchangeRate-API (open access)", publisher: "ExchangeRate-API",
@@ -71,8 +75,8 @@ export const FX_SOURCES: readonly FxSourceInfo[] = [
   },
   {
     id: "fawazahmed0", name: "fawazahmed0 currency-api", publisher: "community project on GitHub, served by jsDelivr",
-    method: "Community aggregate; the method and the sources are not published.",
-    coverage: "about 340 codes (fiat and crypto; fiat used)", cadence: "daily", terms: "free, no key; licence not stated",
+    method: "Single-maintainer project; the method and the sources are not published.",
+    coverage: "about 340 codes (fiat and crypto; fiat used)", cadence: "daily", terms: "free, no key; licence not verified by us — see the repository",
     homepage: "https://github.com/fawazahmed0/exchange-api", dataUrl: FAWAZ_URLS[0],
   },
   {
@@ -457,4 +461,16 @@ export async function refreshRates(opts: { force?: boolean; fetcher?: Fetcher; s
     } catch { /* next mirror */ }
   }
   return cached ?? pegTable(now);
+}
+/**
+ * v2.8 WP20 (licence audit): the credit a source's terms require, whenever its rates convert something on screen —
+ * prices shown in another currency than the market's own (`shown !== native`), or volumes (always valued in USD)
+ * shown in another currency (`volumeShown !== "USD"`, e.g. a peso market displayed in PHP: prices native, volumes
+ * converted; review round 1). ExchangeRate-API requires "Rates By Exchange Rate API" on the pages that use its rates;
+ * the ECB asks for the source. Frankfurter (the default) and the fallbacks need none, so the default layout carries
+ * no extra text.
+ */
+export function fxCredit(fx: FxTable | null, native: string, shown: string, volumeShown = "USD"): { text: string; url: string } | undefined {
+  if (!fx || (native === shown && volumeShown === "USD")) return undefined;
+  return fxSourceInfo(fx.source)?.attribution;
 }

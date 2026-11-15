@@ -7,15 +7,15 @@
 // store round-trip through an in-memory port.
 import {
   evaluateProposal, DEFAULT_RISK_SETTINGS, validateSettings, normaliseSettings, clusterOf, defaultLotStep, roundToStep,
-  isPerpSource, signalAgeBars,
+  isPerpSource, signalAgeBars, lossLocks, TIME_STOP_PRESET_BARS, timeStopToggleBars,
 } from "./risk-engine.ts";
 import {
   newBook, createProposal, approveProposal, rejectProposal, processBars, requestClose, engageKill, resetKill,
   journalStats, accountSnapshot, isUnmanaged, lockState, bookEquity, updateSettings, setStartingEquity, randomNonce,
-  utcWeekStart, utcDayStart, KILL_RESET_WORD,
+  utcWeekStart, utcDayStart, KILL_RESET_WORD, slippageFor, depegFor, SETUP_TAGS,
 } from "./paper-broker.ts";
 import { createPaperStore, memoryPaperPort, PAPER_JOURNAL_COLUMNS, journalRowValues } from "./paper-store.ts";
-import { DEFAULT_COSTS } from "./ledger-metrics.ts";
+import { DEFAULT_COSTS, wilson } from "./ledger-metrics.ts";
 import { atr } from "./indicators.ts";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -32,6 +32,7 @@ const H = 3600e3;
 const I = 4 * H;
 const T0 = Date.UTC(2026, 9, 26, 0); // Monday 26 Oct 2026 00:00 UTC
 const S = DEFAULT_RISK_SETTINGS;
+const lossLocksOf = (a) => lossLocks(a, S);
 
 /** A proposal input for a fresh strong BUY on bar T0 (closes at T0 + I). */
 const input = (over = {}) => ({
@@ -171,8 +172,8 @@ console.log("Broker — next-open fill, no look-ahead");
   ok("fills at the open of the first bar opening after approval", q.status === "open" && q.openedAt === T0 + 2 * I);
   ok("entry includes slippage against the position", near(q.entry, 101 * 1.0005), String(q.entry));
   ok("stop/target re-anchored to the fill (same distances)", near(q.stop, q.entry - 4) && near(q.target, q.entry + 8));
-  ok("entry fee charged on notional", near(q.entryFee, q.entry * 12.5 * 0.001));
-  ok("mark-to-market at the bar close", q.mark === 101.5 && near(bookEquity(r2.book), 10_000 + (101.5 - q.entry) * 12.5 - q.entryFee));
+  ok("entry fee charged on notional", near(q.entryFee, q.entry * q.size * 0.001) && q.size === 11.62);
+  ok("mark-to-market at the bar close", q.mark === 101.5 && near(bookEquity(r2.book), 10_000 + (101.5 - q.entry) * q.size - q.entryFee));
   ok("reprocessing the same bars is idempotent", JSON.stringify(processBars(r2.book, "binance", "4h", { SOLUSDT: k2 }, T0 + 3 * I, costs).book.positions) === JSON.stringify(r2.book.positions));
   ok("other source/timeframe bars are ignored", processBars(b1, "binance", "1h", { SOLUSDT: k2 }, T0 + 3 * I, costs).book.positions[0].status === "pending");
   ok("heartbeat recorded for the processed series", r2.book.account.heartbeats["binance|4h"] === T0 + 3 * I);
@@ -198,15 +199,16 @@ console.log("Broker — exits");
   ok("bar touching stop and target → stop assumed first", both.closed.length === 1 && both.closed[0].reason === "stop");
   const j = both.closed[0];
   ok("stop exit at stop with slippage", near(j.exit, (e - 4) * (1 - 0.0005)));
-  ok("fees = entry + exit taker fees", near(j.fees, e * 12.5 * 0.001 + j.exit * 12.5 * 0.001));
-  ok("pnl = gross − fees − funding", near(j.pnl, (j.exit - e) * 12.5 - j.fees));
-  ok("R multiple = pnl ÷ planned risk (≈ −1R after costs)", near(j.r, j.pnl / 50) && j.r < -1 && j.r > -1.2, String(j.r));
+  ok("fees = entry + exit taker fees", near(j.fees, e * j.size * 0.001 + j.exit * j.size * 0.001));
+  ok("pnl = gross − fees − funding", near(j.pnl, (j.exit - e) * j.size - j.fees));
+  // v2.8: the round-trip cost is inside the 1 R budget, so a clean stop-out is ≈ −1 R (was −1.06 R).
+  ok("R multiple = pnl ÷ planned risk (≈ −1R, costs inside the budget)", near(j.r, j.pnl / b.positions[0].plannedRisk) && j.r <= -0.95 && j.r >= -1, String(j.r));
   ok("journal entry is approvedBy owner with ids", j.approvedBy === "owner" && j.proposalId && j.configId === "cfgtest000000001");
   ok("balance updated by realised pnl", near(both.book.account.balance, 10_000 + j.pnl) && both.book.positions.length === 0);
   ok("closedAt = close of the exit bar", j.closedAt === T0 + 4 * I);
   const tgt = processBars(b, "binance", "4h", { SOLUSDT: [bar(T0 + 3 * I, 100.2, e + 8.5, 100, 107)] }, T0 + 4 * I, costs);
   ok("target-only bar exits at target", tgt.closed[0].reason === "target" && near(tgt.closed[0].exit, (e + 8) * (1 - 0.0005)));
-  ok("target trade ≈ +2R minus costs", tgt.closed[0].r > 1.8 && tgt.closed[0].r < 2);
+  ok("target trade ≈ +2R minus costs", tgt.closed[0].r > 1.7 && tgt.closed[0].r < 1.9, String(tgt.closed[0].r));
   const gap = processBars(b, "binance", "4h", { SOLUSDT: [bar(T0 + 3 * I, 90, 91, 89, 90.5)] }, T0 + 4 * I, costs);
   ok("gap through the stop exits at the open (worse than stop)", gap.closed[0].reason === "stop" && near(gap.closed[0].exit, 90 * (1 - 0.0005)));
   const hold = processBars(b, "binance", "4h", { SOLUSDT: [bar(T0 + 3 * I, 100, 101, 99, 100.7)] }, T0 + 4 * I, costs);
@@ -361,5 +363,477 @@ console.log("Boundary — paper only");
   ok("same replay bar produces deterministic paper results",
     JSON.stringify(replayed) === JSON.stringify(advanceReplayTrade(queued, instrument, next)));
 }
+
+console.log("v2.8 WP19 — drawdown lock (10%) and RESET");
+{
+  const { resetDrawdown, PAPER_SCHEMA } = await import("./paper-broker.ts");
+  const zero = { feeBps: 0, slipBps: 0, fundingBpsPer8h: 0 };
+  ok("drawdown lock default 10", DEFAULT_RISK_SETTINGS.maxDrawdownLockPct === 10);
+  ok("drawdown lock range 1–50", validateSettings({ ...S, maxDrawdownLockPct: 0.5 }).includes("maxDrawdownLockPct")
+    && validateSettings({ ...S, maxDrawdownLockPct: 51 }).includes("maxDrawdownLockPct")
+    && validateSettings({ ...S, maxDrawdownLockPct: 10 }).length === 0);
+  ok("paper schema is 2", PAPER_SCHEMA === 2 && newBook(T0).account.schema === 2);
+  ok("new book starts with peak = starting equity, unlocked", newBook(T0).account.peakEquity === 10_000 && newBook(T0).account.drawdownLocked === false);
+  const has = (v, key) => v.reasons.includes(key);
+  ok("equity ≤ peak × 0.9 blocks new trades", has(evaluateProposal(input(), acct({ equity: 10_000, peakEquity: 11_200 }), S, NOW), "paper.rule.drawdownLock"));
+  ok("equity above the floor passes", !has(evaluateProposal(input(), acct({ equity: 10_100, peakEquity: 11_200 }), S, NOW), "paper.rule.drawdownLock"));
+  ok("an active lock blocks even after equity recovers", has(evaluateProposal(input(), acct({ equity: 12_000, peakEquity: 12_000, drawdownLocked: true }), S, NOW), "paper.rule.drawdownLock"));
+
+  // Book: one open SOL long on binance|4h (enlarged to 300 units, far stop), one open ETH long on
+  // bybit-spot|4h, one pending XRP on binance|4h.
+  const b0 = liveBook();
+  const pr = createProposal(b0, input(), NOW, "dd1");
+  const b1 = approveProposal(b0, pr, "dd1", NOW).book;
+  let b = processBars(b1, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 100.5, 99.5, 100)] }, T0 + 3 * I, zero).book;
+  const sol = { ...b.positions[0], size: 300, stop: 1, stopDistance: 99, plannedRisk: 300 * 99, target: 1000, targetDistance: 900 };
+  const eth = { ...sol, id: "pos-eth", proposalId: "eth", pair: "ETHUSDT", src: "bybit-spot", size: 0.1, entry: 3000, mark: 3000, stop: 1, target: 9000, plannedRisk: 299.9, refPrice: 3000 };
+  const xrp = { ...sol, id: "pos-xrp", proposalId: "xrp", pair: "XRPUSDT", status: "pending", entry: null, openedAt: null, size: 10, plannedRisk: 1 };
+  b = { ...b, positions: [sol, eth, xrp] };
+  const up = processBars(b, "binance", "4h", { SOLUSDT: [bar(T0 + 3 * I, 100, 101.2, 99.8, 101)] }, T0 + 4 * I, zero).book;
+  ok("peak tracks highest marked equity incl. open P&L", near(up.account.peakEquity, 10_000 + 300 * 1) && !up.account.drawdownLocked, String(up.account.peakEquity));
+  const LOCK_AT = T0 + 5 * I;
+  const down = processBars(up, "binance", "4h", { SOLUSDT: [bar(T0 + 4 * I, 101, 101, 96.2, 96.5)] }, LOCK_AT, zero).book;
+  ok("drop to ≤ 90% of peak engages the lock", down.account.drawdownLocked === true);
+  ok("pending positions are cancelled", !down.positions.some((x) => x.status === "pending"));
+  ok("every open position gets a close request", down.positions.length === 2 && down.positions.every((x) => x.closeRequestedAt === LOCK_AT && x.closeReason === "drawdown lock"));
+  ok("lockState reports the drawdown", lockState(down, "binance", "4h", I, LOCK_AT).drawdown === true && lockState(down, "binance", "4h", I, LOCK_AT).drawdownPct > 0.1);
+  const r1 = resetDrawdown(down, "RESET", LOCK_AT + 1);
+  ok("RESET refused while closes are pending, naming the series", !r1.ok && r1.waitingSeries.join(",") === "binance|4h,bybit-spot|4h", r1.waitingSeries.join(","));
+  const c1 = processBars(down, "binance", "4h", { SOLUSDT: [bar(T0 + 5 * I, 96, 97, 95.5, 96.4)] }, T0 + 6 * I, zero);
+  ok("scanned series closes at its next open with reason 'drawdown lock'", c1.closed.length === 1 && c1.closed[0].reason === "drawdown lock" && near(c1.closed[0].exit, 96));
+  ok("lock stays engaged after the closes", c1.book.account.drawdownLocked === true);
+  const r2 = resetDrawdown(c1.book, "RESET", T0 + 6 * I);
+  ok("lock closes unscanned series later and RESET waits", !r2.ok && r2.waitingSeries.join(",") === "bybit-spot|4h");
+  const c2 = processBars(c1.book, "bybit-spot", "4h", { ETHUSDT: [bar(T0 + 6 * I, 2990, 3000, 2980, 2995)] }, T0 + 7 * I, zero);
+  ok("unscanned series closes on its own next scan", c2.closed.length === 1 && c2.closed[0].reason === "drawdown lock" && c2.book.positions.length === 0);
+  ok("wrong word refused", !resetDrawdown(c2.book, "reset", T0 + 7 * I).ok);
+  const r3 = resetDrawdown(c2.book, "RESET", T0 + 7 * I);
+  ok("RESET after every close sets a fresh peak at current equity", r3.ok && !r3.book.account.drawdownLocked && near(r3.book.account.peakEquity, bookEquity(r3.book)));
+  ok("RESET is journaled on the account", r3.book.account.resets.length === 1 && r3.book.account.resets[0].at === T0 + 7 * I && r3.book.account.lockClearedAt === T0 + 7 * I);
+  ok("RESET with no lock is a no-op", (() => { const z = resetDrawdown(newBook(T0), "RESET", T0); return z.ok && z.book.account.resets.length === 0; })());
+  ok("evaluate sees the book's peak", accountSnapshot(down, "binance", "4h", LOCK_AT).drawdownLocked === true && accountSnapshot(up, "binance", "4h", T0 + 4 * I).peakEquity === up.account.peakEquity);
+
+  // Migration: a stored v1 account with an open position.
+  const port = memoryPaperPort();
+  const v1 = { ...newBook(T0).account, schema: 1, balance: 9_500, startingEquity: 10_000 };
+  delete v1.peakEquity; delete v1.drawdownLocked; delete v1.resets; delete v1.lockClearedAt;
+  await port.put("paper_state", "account", v1);
+  const openPos = { ...sol, size: 10, mark: 98, entry: 100 };
+  await port.put("paper_positions", openPos.id, openPos);
+  const migrated = await createPaperStore(Promise.resolve(port)).load(T0);
+  ok("migrates v1 book with open positions", migrated.account.schema === 2 && migrated.account.balance === 9_500 && migrated.positions.length === 1
+    && migrated.account.drawdownLocked === false && near(migrated.account.peakEquity, bookEquity(migrated)), JSON.stringify({ s: migrated.account.schema, b: migrated.account.balance, p: migrated.account.peakEquity }));
+}
+
+console.log("v2.8 WP19 — fix round 1 (Task 1)");
+{
+  const { EXIT_REASON_KEYS } = await import("./paper-broker.ts");
+  const en = JSON.parse(readFileSync(join(process.cwd(), "src/rsl/i18n/en.json"), "utf8"));
+  const reasons = ["stop", "target", "manual", "drawdown lock", "time"];
+  ok("every ExitReason maps to a catalog key present in en.json",
+    reasons.every((r) => typeof EXIT_REASON_KEYS?.[r] === "string" && !/\s/.test(EXIT_REASON_KEYS[r]) && typeof en[EXIT_REASON_KEYS[r]] === "string"),
+    JSON.stringify(EXIT_REASON_KEYS));
+  // T1-2: entering a starting equity on a fresh book must not trip the drawdown lock.
+  const lowered = setStartingEquity(newBook(T0), 5_000);
+  ok("setStartingEquity sets the peak to the new equity", lowered.ok && lowered.book.account.peakEquity === 5_000, String(lowered.book.account.peakEquity));
+  const zero = { feeBps: 0, slipBps: 0, fundingBpsPer8h: 0 };
+  const hb = { ...lowered.book, account: { ...lowered.book.account, heartbeats: { "binance|4h": NOW } } };
+  ok("a fresh book at 5 000 is not drawdown-locked", !evaluateProposal(input(), accountSnapshot(hb, "binance", "4h", NOW), hb.account.settings, NOW).reasons.includes("paper.rule.drawdownLock"));
+  const raised = setStartingEquity(newBook(T0), 50_000);
+  ok("raising the starting equity moves the peak too", raised.ok && raised.book.account.peakEquity === 50_000);
+  const scanned = processBars(hb, "binance", "4h", { SOLUSDT: [bar(T0 + 6 * I, 1, 1, 1, 1)] }, T0 + 7 * I, zero).book;
+  ok("a scan after lowering does not engage the lock", scanned.account.drawdownLocked === false);
+  // T1-4: a NaN mark never engages the lock (and drawdownBreached is the single formula).
+  const { drawdownBreached } = await import("./risk-engine.ts");
+  ok("drawdownBreached: NaN equity is not a breach", drawdownBreached({ equity: NaN, peakEquity: 10_000, drawdownLocked: false }, S) === false);
+  const nanBook = { ...liveBook(), positions: [{ id: "n", proposalId: "n", configId: "c", pair: "SOLUSDT", src: "binance", tf: "4h", assetClass: "crypto", side: "long", size: 1, stopDistance: 4, targetDistance: 8, plannedRisk: 4, refPrice: 100, signalBarTime: T0, intervalMs: I, approvedAt: T0, status: "open", entry: 100, openedAt: T0 + I, stop: 96, target: 108, mark: NaN, fundingPaid: 0, feesPaid: 0, closeRequestedAt: null }] };
+  const nanRes = processBars(nanBook, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 100.5, 99.5, 100)] }, T0 + 3 * I, zero);
+  ok("a NaN mark does not engage the lock", nanRes.book.account.drawdownLocked === false);
+}
+
+console.log("v2.8 WP19 — cost-inclusive sizing, open-loss locks, no loosening, caps and gates");
+{
+  const has = (v, key) => v.reasons.includes(key);
+  const ev = (i = {}, a = {}, st = {}, now = NOW) => evaluateProposal(input(i), acct(a), { ...S, ...st }, now);
+  const binRt = 2 * (10 + 5) / 1e4;
+  const v = ev({ roundTripCost: binRt });
+  ok("size = budget ÷ (stop distance + entry × round-trip cost)", v.size === roundToStep(50 / (4 + 100 * binRt), 0.01), String(v.size));
+  ok("1 R includes the round-trip cost", near(v.riskAmount, v.size * (4 + 100 * binRt)));
+  ok("no round-trip cost given → old sizing", ev().size === 12.5);
+  // End to end: a clean stop-out through the broker is ≈ −1 R (stop 2% from entry).
+  const cleanStopR = (src, pair) => {
+    const c = DEFAULT_COSTS[src];
+    const b0 = { ...newBook(T0), account: { ...newBook(T0).account, heartbeats: { [`${src}|4h`]: NOW } } };
+    const rt = 2 * (c.feeBps + c.slipBps) / 1e4;
+    const pr = createProposal(b0, input({ src, pair, atr: 1, roundTripCost: rt }), NOW, "c" + src);
+    const b1 = approveProposal(b0, pr, "c" + src, NOW).book;
+    const o = processBars(b1, src, "4h", { [pair]: [bar(T0 + 2 * I, 100, 100.5, 99.5, 100)] }, T0 + 3 * I, c).book;
+    const e = o.positions[0].entry;
+    const stopDist = o.positions[0].stopDistance;
+    return { r: processBars(o, src, "4h", { [pair]: [bar(T0 + 3 * I, e, e, e - stopDist - 0.5, e - stopDist)] }, T0 + 4 * I, c).closed[0].r, stopDist };
+  };
+  const rb = cleanStopR("binance", "SOLUSDT");
+  ok("clean stop-out ≈ −1 R on Binance (2% stop, in [−1.00, −0.97])", near(rb.stopDist, 2) && rb.r >= -1.0 - 1e-9 && rb.r <= -0.97, JSON.stringify(rb));
+  const rc = cleanStopR("coinsph", "SOLUSDT");
+  ok("clean stop-out ≈ −1 R on Coins.ph (2% stop, in [−1.00, −0.94])", near(rc.stopDist, 2) && rc.r >= -1.0 - 1e-9 && rc.r <= -0.94, JSON.stringify(rc));
+
+  // T2-1: changing the starting equity restarts the day/week marks (and the peak) at the new equity.
+  const low = setStartingEquity(newBook(T0), 1_000);
+  ok("lowering the starting equity resets day/week marks and peak", low.ok && low.book.account.dayMark.equity === 1_000 && low.book.account.weekMark.equity === 1_000 && low.book.account.peakEquity === 1_000,
+    JSON.stringify([low.book.account.dayMark, low.book.account.weekMark]));
+  const lowLive = { ...low.book, account: { ...low.book.account, heartbeats: { "binance|4h": NOW } } };
+  const lowLocks = lockState(lowLive, "binance", "4h", I, NOW);
+  ok("lowering 10 000 → 1 000 does not trip the daily or weekly lock", !lowLocks.daily && !lowLocks.weekly && !lowLocks.drawdown);
+  const high = setStartingEquity(newBook(T0), 50_000);
+  ok("raising resets day/week marks to the new equity", high.book.account.dayMark.equity === 50_000 && high.book.account.weekMark.equity === 50_000);
+  const highSnap = accountSnapshot({ ...high.book, account: { ...high.book.account, balance: 48_900 } }, "binance", "4h", NOW);
+  ok("after raising to 50 000 a −2.2% day is still a daily lock", lossLocksOf(highSnap).daily);
+
+  // T2-2: a loss realised in the scan that sets today's mark counts toward today's locks.
+  {
+    const zeroC = { feeBps: 0, slipBps: 0, fundingBpsPer8h: 0 };
+    const x0 = liveBook();
+    const xp = createProposal(x0, input(), NOW, "t22");
+    const x1 = processBars(approveProposal(x0, xp, "t22", NOW).book, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 100.5, 99.5, 100)] }, T0 + 3 * I, zeroC).book;
+    const A = { ...x1.positions[0], size: 75, entry: 100, mark: 100, stop: 98, stopDistance: 2, target: 1000, targetDistance: 900, plannedRisk: 150, feesPaid: 0, fundingPaid: 0 };
+    const B = { ...A, id: "pos-B", proposalId: "B", pair: "ETHUSDT", size: 100, stop: 1, plannedRisk: 99 * 100 };
+    const x2 = { ...x1, positions: [A, B], account: { ...x1.account, balance: 10_000 } };
+    const D2 = T0 + 86_400_000;
+    const s1 = processBars(x2, "binance", "4h", { SOLUSDT: [bar(D2, 100, 100, 97, 97.5)], ETHUSDT: [bar(D2, 100, 100, 100, 100)] }, D2 + I, zeroC);
+    ok("the overnight stop closed at −1.5%", s1.closed.length === 1 && near(s1.closed[0].pnl, -150), JSON.stringify(s1.closed.map((c) => c.pnl)));
+    ok("the day mark is the equity before today's realised loss", near(s1.book.account.dayMark.equity, 10_000), String(s1.book.account.dayMark.equity));
+    const s2 = processBars(s1.book, "binance", "4h", { ETHUSDT: [bar(D2 + I, 100, 100, 99.3, 99.4)] }, D2 + 2 * I, zeroC);
+    const ls = lockState(s2.book, "binance", "4h", I, D2 + 2 * I);
+    ok("−1.5% realised then −0.6% open engages the 2% daily lock", ls.daily === true, JSON.stringify([bookEquity(s2.book), s2.book.account.dayMark]));
+  }
+  // The realised basis is kept as the other half of "the stricter of the two".
+  ok("realised basis still locks when the mark basis alone would not", lossLocksOf({ ...acct({ equity: 9_790, realisedToday: -210 }), dayStartEquity: 9_790 }).daily);
+
+  ok("open losses count toward the daily lock", has(ev({}, { equity: 9_790, realisedToday: 0, dayStartEquity: 10_000 }), "paper.rule.dailyLock"));
+  ok("daily lock not tripped at 1.9% open loss", !has(ev({}, { equity: 9_810, realisedToday: 0, dayStartEquity: 10_000 }), "paper.rule.dailyLock"));
+  ok("open losses count toward the weekly lock", has(ev({}, { equity: 9_500, weekStartEquity: 10_000, dayStartEquity: 9_500 }), "paper.rule.weeklyLock"));
+
+  // Start-of-day mark: the first mark at or after 00:00 UTC.
+  const bk = liveBook();
+  ok("new book carries day/week start marks", bk.account.dayMark.equity === 10_000 && bk.account.dayMark.day === utcDayStart(T0) && bk.account.weekMark.week === utcWeekStart(T0));
+  const nextDay = processBars(bk, "binance", "4h", { SOLUSDT: [bar(T0 + 6 * I, 1, 1, 1, 1)] }, T0 + 7 * I).book;
+  ok("first mark of a new UTC day resets the day start", nextDay.account.dayMark.day === utcDayStart(T0 + 7 * I));
+  ok("snapshot passes the start-of-day equity", accountSnapshot(nextDay, "binance", "4h", T0 + 7 * I).dayStartEquity === nextDay.account.dayMark.equity);
+
+  // No loosening while locked.
+  const killed = engageKill(liveBook(), NOW);
+  const loosen = updateSettings(killed, { ...killed.account.settings, riskPerTradePct: 1 }, NOW);
+  ok("locks can't be loosened while active (kill switch)", !loosen.ok && loosen.invalid.join() === "locked");
+  ok("tightening is allowed while locked", updateSettings(killed, { ...killed.account.settings, riskPerTradePct: 0.25 }, NOW).ok);
+  ok("non-risk settings can change while locked", updateSettings(killed, { ...killed.account.settings, stopAtrMult: 3 }, NOW).ok);
+  const unlocked = resetKill(killed, "RESET", NOW + 1).book;
+  ok("still refused later the same UTC day after the lock cleared", !updateSettings(unlocked, { ...S, riskPerTradePct: 1 }, NOW + 2).ok);
+  ok("allowed again from the next UTC day", updateSettings(unlocked, { ...S, riskPerTradePct: 1 }, utcDayStart(NOW) + 86_400_000).ok);
+  const lostDay = { ...liveBook(), account: { ...liveBook().account, balance: 9_790 } };
+  ok("daily lock (open or realised) also blocks loosening", !updateSettings(lostDay, { ...S, dailyLossLockPct: 3 }, NOW).ok);
+  const dmOnly = { ...newBook(T0) }; // no heartbeat → dead-man badge only
+  ok("the dead-man badge alone does not block loosening", updateSettings(dmOnly, { ...S, riskPerTradePct: 1 }, NOW).ok);
+
+  // Max drawdown % is tracked separately from the amount.
+  const jr = (id, t, pnl) => ({ id, openedAt: t - 1, closedAt: t, pnl, r: pnl / 50 });
+  const st = journalStats([jr("a", 1, -50), jr("b", 2, 950), jr("c", 3, -300)], 100);
+  ok("max drawdown % is the largest % drawdown", st.maxDrawdown === 300 && near(st.maxDrawdownPct, 0.5), `${st.maxDrawdown} ${st.maxDrawdownPct}`);
+
+  // Correlated crypto cap.
+  const three = [pos({ pair: "BTCUSDT" }), pos({ pair: "XRPUSDT" }), pos({ pair: "ETHUSDT" })];
+  ok("crypto cap default 3", S.maxCryptoPositions === 3);
+  ok("a 4th crypto position is blocked", has(ev({}, { positions: three }, { maxPerClusterPositions: 5 }), "paper.rule.cryptoCap"));
+  ok("a stock is not counted against the crypto cap", !has(ev({ assetClass: "stock", pair: "AAPLUSDT" }, { positions: three }, { maxPerClusterPositions: 5 }), "paper.rule.cryptoCap"));
+
+  // Depeg gate.
+  ok("quote depeg ≥ 1% blocks", has(ev({ depegPct: 1.0 }), "paper.rule.depeg") && has(ev({ depegPct: -2.4 }), "paper.rule.depeg"));
+  ok("quote depeg 0.99% passes", !has(ev({ depegPct: 0.99 }), "paper.rule.depeg"));
+  ok("USDT (reference, null reading) is never gated", !has(ev({ depegPct: null }), "paper.rule.depeg"));
+
+  // Intraday as context.
+  const M15 = 15 * 60e3;
+  ok("1m–15m proposals blocked by default", has(ev({ tf: "15m", intervalMs: M15, barTime: NOW - 2 * M15 + 1 }), "paper.rule.intradayContext"));
+  ok("1h passes the intraday rule", !has(ev({ tf: "1h", intervalMs: H, barTime: NOW - 2 * H + 1 }), "paper.rule.intradayContext"));
+  ok("intraday allowed by the setting", !has(ev({ tf: "15m", intervalMs: M15, barTime: NOW - 2 * M15 + 1 }, {}, { allowIntradayProposals: true }), "paper.rule.intradayContext"));
+
+  // Time stop.
+  ok("time stop off by default", S.timeStopBars === 0);
+  ok("time-stop checkbox: on fills the 24-bar preset, off sets 0", timeStopToggleBars(true) === TIME_STOP_PRESET_BARS && TIME_STOP_PRESET_BARS === 24 && timeStopToggleBars(false) === 0);
+  const zero = { feeBps: 0, slipBps: 0, fundingBpsPer8h: 0 };
+  const tb0 = { ...liveBook(), account: { ...liveBook().account, settings: { ...S, timeStopBars: 2 } } };
+  const tpr = createProposal(tb0, input(), NOW, "ts");
+  let tb = approveProposal(tb0, tpr, "ts", NOW).book;
+  tb = processBars(tb, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 100.5, 99.5, 100)] }, T0 + 3 * I, zero).book;
+  const tr = processBars(tb, "binance", "4h", { SOLUSDT: [bar(T0 + 3 * I, 100, 101, 99, 100.5), bar(T0 + 4 * I, 100.7, 101, 100, 100.9)] }, T0 + 5 * I, zero);
+  ok("time stop closes at the next open with reason 'time'", tr.closed.length === 1 && tr.closed[0].reason === "time" && near(tr.closed[0].exit, 100.7), tr.closed.map((c) => c.reason + "@" + c.exit).join());
+
+  // Event blackout (WP19).
+  const FOMC_AT = Date.UTC(2026, 9, 28, 18); // 28 Oct 2026 14:00 EDT
+  const inEvent = FOMC_AT - 90 * 60e3;
+  const evAt = (now, s = {}) => evaluateProposal(input({ barTime: now - 4 * H }), acct(), { ...S, ...s }, now);
+  ok("proposal 90 min before FOMC is blocked with paper.rule.event", has(evAt(inEvent), "paper.rule.event"));
+  ok("event blackout off lets it pass", !has(evAt(inEvent, { eventBlackout: false }), "paper.rule.event"));
+  ok("outside the window the rule is silent", !has(evAt(FOMC_AT - 3 * H), "paper.rule.event") && !has(evAt(FOMC_AT + 61 * 60e3), "paper.rule.event"));
+
+
+  // Measured slippage (WP19): readings < 24 h old feed sizing and fills; older ones fall back to default costs.
+  const SLIP_NOW = NOW;
+  const reads = (ageH) => ({ SOLUSDT: { bps: 20, at: SLIP_NOW - ageH * H } });
+  const m23 = slippageFor(reads(23), "SOLUSDT", SLIP_NOW);
+  const m25 = slippageFor(reads(25), "SOLUSDT", SLIP_NOW);
+  ok("slippageFor: 23 h old reading returned, 25 h old and unknown pair undefined", m23 === 20 && m25 === undefined && slippageFor(reads(1), "ETHUSDT", SLIP_NOW) === undefined && slippageFor(undefined, "SOLUSDT", SLIP_NOW) === undefined);
+  ok("slippageFor: rejects negative, NaN and future-dated readings", slippageFor({ A: { bps: -1, at: SLIP_NOW } }, "A", SLIP_NOW) === undefined && slippageFor({ A: { bps: NaN, at: SLIP_NOW } }, "A", SLIP_NOW) === undefined && slippageFor({ A: { bps: 5, at: SLIP_NOW + H } }, "A", SLIP_NOW) === undefined);
+  const defP = createProposal(liveBook(), input(), NOW, "m0");
+  const p23 = createProposal(liveBook(), input(), NOW, "m1", m23);
+  const p25 = createProposal(liveBook(), input(), NOW, "m2", m25);
+  const rt = (bps) => (2 * (DEFAULT_COSTS.binance.feeBps + bps)) / 1e4;
+  ok("reading 23h old is used for sizing and fills", p23 && near(p23.input.roundTripCost, rt(20)) && p23.verdict.size < defP.verdict.size, `${p23?.input.roundTripCost} ${p23?.verdict.size} vs ${defP.verdict.size}`);
+  const f23 = approveProposal(liveBook(), p23, "m1", NOW + 1000).book;
+  const fill23 = processBars(f23, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 101, 99, 100)] }, T0 + 3 * I, undefined, { SOLUSDT: m23 }).book.positions[0];
+  ok("reading 23h old: fill slips by the measured 20 bp", near(fill23.entry, 100 * (1 + 20 / 1e4)), String(fill23.entry));
+  ok("reading 25h old falls back to default costs", p25 && near(p25.input.roundTripCost, rt(DEFAULT_COSTS.binance.slipBps)) && p25.verdict.size === defP.verdict.size);
+  const fill25 = processBars(approveProposal(liveBook(), p25, "m2", NOW + 1000).book, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 101, 99, 100)] }, T0 + 3 * I, undefined, m25 === undefined ? {} : { SOLUSDT: m25 }).book.positions[0];
+  ok("reading 25h old: fill uses the default slippage", near(fill25.entry, 100 * (1 + DEFAULT_COSTS.binance.slipBps / 1e4)), String(fill25.entry));
+  const fillOv = processBars(approveProposal(liveBook(), p23, "m1", NOW + 1000).book, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 101, 99, 100)] }, T0 + 3 * I, zero, { SOLUSDT: 20 }).book.positions[0];
+  ok("costsOverride still wins over measured slippage", near(fillOv.entry, 100));
+
+
+  // Fix round 1: the measured slippage is frozen on the position at approval (sizing and fills agree).
+  const fz = createProposal(liveBook(), input(), NOW, "z1", m23);
+  const fzBook = approveProposal(liveBook(), fz, "z1", NOW + 1000).book;
+  ok("position stores the measured slippage used for sizing", fzBook.positions[0].slipBps === 20);
+  const lateFill = processBars(fzBook, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 101, 99, 100)] }, T0 + 3 * I, undefined, {}).book.positions[0];
+  ok("approve on a 23 h reading, fill when it would be 25 h old: still 20 bp", near(lateFill.entry, 100 * 1.002), String(lateFill.entry));
+  const newer = processBars(fzBook, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 101, 99, 100)] }, T0 + 3 * I, undefined, { SOLUSDT: 3 }).book.positions[0];
+  ok("a newer reading after approval does not change the position's fills", near(newer.entry, 100 * 1.002), String(newer.entry));
+  const legacyBook = approveProposal(liveBook(), createProposal(liveBook(), input(), NOW, "z2"), "z2", NOW + 1000).book;
+  ok("no measured reading: position has no slipBps and uses slipByPair/defaults as before", legacyBook.positions[0].slipBps === undefined && near(processBars(legacyBook, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 101, 99, 100)] }, T0 + 3 * I, undefined, { SOLUSDT: 8 }).book.positions[0].entry, 100.08));
+  const ovz = processBars(fzBook, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 101, 99, 100)] }, T0 + 3 * I, zero).book.positions[0];
+  ok("costsOverride wins over the frozen slippage", near(ovz.entry, 100));
+
+  // Depeg gate wiring (WP19): quote's deviation from USDT, null for USDT or no reading.
+  const dr = [{ coin: "USDC", reference: "USDT", price: 0.985, deviationPct: -1.5, level: "warning" }, { coin: "FDUSD", reference: "USDT", price: 1.006, deviationPct: 0.6, level: "watch" }];
+  ok("depegFor: USDC quote returns -1.5, USDT and unread quotes null", depegFor(dr, "USDC") === -1.5 && depegFor(dr, "USDT") === null && depegFor(dr, "BTC") === null && depegFor(undefined, "USDC") === null && depegFor(dr, undefined) === null);
+  ok("depegFor: a reading against a non-USDT reference is ignored", depegFor([{ coin: "USDC", reference: "EUR", deviationPct: 3 }], "USDC") === null);
+  const dpP = createProposal(liveBook(), input({ depegPct: depegFor(dr, "USDC") }), NOW, "d1");
+  ok("depeg reading -1.5 % blocks the proposal; 0.6 % does not", dpP.verdict.reasons.includes("paper.rule.depeg") && !createProposal(liveBook(), input({ depegPct: depegFor(dr, "FDUSD") }), NOW, "d2").verdict.reasons.includes("paper.rule.depeg"));
+
+  // Warnings and leverage.
+  ok("risk per trade > 1% warns", ev({}, {}, { riskPerTradePct: 1.5 }).warnings.includes("paper.warn.riskAbove1") && !ev().warnings.length);
+  ok("leverage capped at 1 until liquidation is modelled", validateSettings({ ...S, maxLeverage: 2 }).includes("maxLeverage"));
+}
+
+console.log("Journal honesty (WP19): Wilson range, R histogram, MAE/MFE, reason and tag");
+{
+  const J = (pnl, r, t, extra = {}) => ({ id: `t${t}`, openedAt: t - 1, closedAt: t, pair: "X", src: "binance", tf: "4h", side: "long", size: 1, entry: 1, exit: 1, stop: 0.9, target: 1.2, fees: 0, funding: 0, pnl, r, reason: "stop", configId: "c", proposalId: "p", approvedAt: t - 2, approvedBy: "owner", ...extra });
+  const mkJ = (n, wins) => Array.from({ length: n }, (_, i) => (i < wins ? J(10, 1.5, i + 1) : J(-10, -1, i + 1)));
+  const s7 = journalStats(mkJ(10, 7), 10_000);
+  const w = wilson(7, 10);
+  ok("winRateCI equals wilson(wins, n)", near(s7.winRateCI[0], w[0]) && near(s7.winRateCI[1], w[1]) && s7.winRateCI[0] < 0.7 && s7.winRateCI[1] > 0.7);
+  ok("empty journal: CI is NaN, no NaN leaks into histogram", Number.isNaN(journalStats([], 1).winRateCI[0]) && journalStats([], 1).rHistogram.every((b) => b.count === 0));
+  ok("29 trades → tooFewTrades true", journalStats(mkJ(29, 15), 10_000).tooFewTrades === true);
+  ok("30 trades → tooFewTrades false", journalStats(mkJ(30, 15), 10_000).tooFewTrades === false);
+  const h = journalStats([J(1, -7, 1), J(1, -3, 2), J(1, -0.2, 3), J(1, 0, 4), J(1, 0.49, 5), J(1, 0.5, 6), J(1, 4.9, 7), J(1, 9, 8)], 10_000).rHistogram;
+  ok("histogram: 16 bins of 0.5 R from -3, edges -3 … 4.5", h.length === 16 && h[0].edge === -3 && h[15].edge === 4.5 && h.every((b, i) => near(b.edge, -3 + i * 0.5)));
+  const at = (e) => h.find((b) => b.edge === e).count;
+  ok("histogram: ends clamp, bins are [edge, edge+0.5)", at(-3) === 2 && at(-0.5) === 1 && at(0) === 2 && at(0.5) === 1 && at(4.5) === 2 && h.reduce((a, b) => a + b.count, 0) === 8);
+  const old = journalStats([J(10, 1, 1), J(-10, -1, 2, { mae: -0.5, mfe: 0.2 })], 10_000);
+  ok("old entries without mae/mfe: averages use only known values, never NaN from missing", near(old.avgMae, -0.5) && near(old.avgMfe, 0.2) && Number.isNaN(journalStats([J(10, 1, 1)], 1).avgMae));
+
+  // MAE / MFE follow bar extremes in R (SOLUSDT long, entry 100 + slippage; zero costs for clean numbers).
+  const zero = { feeBps: 0, slipBps: 0, fundingBpsPer8h: 0 };
+  const b0 = liveBook();
+  const p = createProposal(b0, input(), NOW, "m1");
+  const appr = approveProposal(b0, p, "m1", NOW, { reason: "retest of the 4h range high", tag: "breakout" });
+  const pos0 = appr.book.positions[0];
+  ok("new position starts at mae 0 / mfe 0 and carries reason and tag", pos0.mae === 0 && pos0.mfe === 0 && pos0.preReason === "retest of the 4h range high" && pos0.tag === "breakout");
+  const oneR = pos0.plannedRisk / pos0.size;
+  const m1 = processBars(appr.book, "binance", "4h", { SOLUSDT: [bar(T0 + 2 * I, 100, 101, 99.2, 100.5)] }, T0 + 3 * I, zero).book.positions[0];
+  ok("fill bar: mae = (low − entry) ÷ 1R, mfe = (high − entry) ÷ 1R", near(m1.mae, (99.2 - 100) / oneR) && near(m1.mfe, 1 / oneR), `${m1.mae} ${m1.mfe} ${oneR}`);
+  const m2 = processBars({ ...appr.book, positions: [m1] }, "binance", "4h", { SOLUSDT: [bar(T0 + 3 * I, 100.5, 100.9, 99.9, 100.3)] }, T0 + 4 * I, zero).book.positions[0];
+  ok("excursions only ever widen (a calmer bar changes nothing)", m2.mae === m1.mae && m2.mfe === m1.mfe);
+  const m3 = processBars({ ...appr.book, positions: [m2] }, "binance", "4h", { SOLUSDT: [bar(T0 + 4 * I, 100.3, 100.4, 95, 96)] }, T0 + 5 * I, zero);
+  const je = m3.closed[0];
+  ok("journal entry carries mfe from earlier bars and preReason/tag", je && near(je.mfe, m1.mfe) && je.preReason === "retest of the 4h range high" && je.tag === "breakout" && je.mae <= m1.mae);
+
+  // Reason / tag validation at approval.
+  const long = approveProposal(liveBook(), createProposal(liveBook(), input(), NOW, "m2"), "m2", NOW, { reason: "x".repeat(400), tag: "yolo" }).book.positions[0];
+  ok("reason capped at 280 chars; unknown tag dropped", long.preReason.length === 280 && long.tag === undefined);
+  const none = approveProposal(liveBook(), createProposal(liveBook(), input(), NOW, "m3"), "m3", NOW).book.positions[0];
+  ok("reason and tag are optional", none.preReason === undefined && none.tag === undefined);
+  ok("tag enum", SETUP_TAGS.join() === "breakout,trend,reversal,range,other");
+
+  // CSV.
+  const base = PAPER_JOURNAL_COLUMNS.slice(0, 22).join();
+  ok("v2.7 CSV columns unchanged, five appended", base === "id,opened_utc,closed_utc,source,timeframe,pair,side,size,entry,exit,stop,target,fees,funding,pnl,r_multiple,reason,config_id,proposal_id,approved_utc,approved_by,simulated" && PAPER_JOURNAL_COLUMNS.slice(22).join() === "mae,mfe,pre_trade_reason,setup_tag,notes");
+  const row = journalRowValues(J(10, 1, 1, { mae: -0.4321, mfe: 1.5, preReason: "range break, volume up", tag: "range", notes: "ok" }));
+  ok("CSV round-trip keeps mae, mfe, reason, tag, notes", row.length === PAPER_JOURNAL_COLUMNS.length && row[22] === -0.432 && row[23] === 1.5 && row[24] === "range break, volume up" && row[25] === "range" && row[26] === "ok");
+  const evil = journalRowValues(J(10, 1, 1, { preReason: "=cmd|' /C calc'!A0", notes: "@SUM(1)" }));
+  ok('"=cmd" reason and "@" notes are neutralised', evil[24] === "'=cmd|' /C calc'!A0" && evil[26] === "'@SUM(1)");
+  const oldRow = journalRowValues(J(10, 1, 1));
+  ok("old entry: mae/mfe/reason/tag/notes cells are empty, never NaN", oldRow.slice(22).every((v) => v === ""));
+  // Journal TABLE columns stay as v2.7 (read from the dialog source).
+  const dlg = readFileSync(join(process.cwd(), "src", "components", "paper-dialog.tsx"), "utf8");
+  const t0 = dlg.indexOf('<table className="w-full min-w-[44rem]', dlg.indexOf('id="paper-journal"'));
+  const head = dlg.slice(t0, dlg.indexOf("</thead>", t0));
+  const cols = [...head.matchAll(/\{t\("(paper\.col\.[a-z]+)"\)\}|>(R)</g)].map((m) => m[1] ?? m[2]);
+  ok("journal table column list unchanged from v2.7", cols.join() === "paper.col.closed,paper.col.pair,paper.col.side,paper.col.entry,paper.col.exit,paper.col.fees,paper.col.pnl,R,paper.col.reason", cols.join());
+}
+console.log("WP19 — rejected proposals keep their reason and a later bracket outcome");
+{
+  const costs = { feeBps: 10, slipBps: 5, fundingBpsPer8h: 0 };
+  const at = T0 + I; // decided at the signal bar's close → the bracket fills at the next open, like an approval
+  const mk = () => { const b = liveBook(at); return { b, p: createProposal(b, input(), at, "w1") }; };
+  const { b, p } = mk();
+  const rj = rejectProposal(b, p, "w1", at, { reason: "  chasing a spike \u0007 ", tag: "breakout" });
+  const rec = (rj.book.account.rejected ?? [])[0];
+  ok("reject stores { reason, bracketOutcome } (pending) on the account", rj.ok && !!rec && rec.reason === "chasing a spike" && rec.tag === "breakout" && rec.bracketOutcome === null && rec.proposalId === p.id, JSON.stringify(rec));
+  ok("reject without a reason is still recorded (reason absent)", (rejectProposal(mk().b, mk().p, "w1", at).book.account.rejected ?? [])[0]?.reason === undefined && (rejectProposal(mk().b, mk().p, "w1", at).book.account.rejected ?? []).length === 1);
+  ok("a refused reject (bad nonce) records nothing", (rejectProposal(b, p, "bad", at).book.account.rejected ?? []).length === 0);
+  const bars = [bar(T0 + I, 100, 100.6, 99.6, 100.2), bar(T0 + 2 * I, 100.2, 103, 99.8, 102.5), bar(T0 + 3 * I, 102.5, 109, 102, 108.5)];
+  const r1 = processBars(rj.book, "binance", "4h", { SOLUSDT: bars.slice(0, 2) }, T0 + 3 * I, costs);
+  ok("still pending while the bracket is open", (r1.book.account.rejected ?? [])[0]?.bracketOutcome === null && r1.book.positions.length === 0 && r1.closed.length === 0);
+  const r2 = processBars(r1.book, "binance", "4h", { SOLUSDT: bars }, T0 + 4 * I, costs);
+  const out = (r2.book.account.rejected ?? [])[0]?.bracketOutcome;
+  // The same proposal approved at the same instant, on the same bars.
+  const ap = approveProposal(b, p, "w1", at);
+  const j = processBars(processBars(ap.book, "binance", "4h", { SOLUSDT: bars.slice(0, 2) }, T0 + 3 * I, costs).book, "binance", "4h", { SOLUSDT: bars }, T0 + 4 * I, costs).closed[0];
+  ok("resolved later by the same ATR bracket: R equals the approved trade's R", !!out && !!j && near(out.r, j.r) && out.reason === j.reason && out.closedAt === j.closedAt, JSON.stringify({ out, r: j?.r }));
+  ok("a resolved outcome never changes and the realised balance is untouched", JSON.stringify(processBars(r2.book, "binance", "4h", { SOLUSDT: [...bars, bar(T0 + 4 * I, 108, 108, 50, 60)] }, T0 + 5 * I, costs).book.account.rejected?.[0]?.bracketOutcome) === JSON.stringify(out) && r2.book.account.balance === 10_000 && r2.book.journal.length === 0);
+  const store = createPaperStore(memoryPaperPort());
+  await store.save(r2.book);
+  const back = await store.load(T0 + 5 * I);
+  ok("rejected records survive a store round-trip", !!back.account.rejected?.length && JSON.stringify(back.account.rejected) === JSON.stringify(r2.book.account.rejected));
+}
+
+// Final review (Task 5 deferred minor): the journal CSV Notes column is filled from the trade's saved annotation.
+{
+  const ps = await import("./paper-store.ts");
+  const J = (extra = {}) => ({ id: "t10", openedAt: 9, closedAt: 10, pair: "X", src: "binance", tf: "4h", side: "long", size: 1, entry: 1, exit: 1, stop: 0.9, target: 1.2, fees: 0, funding: 0, pnl: 1, r: 1, reason: "stop", configId: "c", proposalId: "p", approvedAt: 8, approvedBy: "owner", ...extra });
+  const j = J();
+  ok("notes CSV: annotation id is the key the trade-annotation form saves under", ps.paperNoteId?.(j) === "paper-note:p:9:10", String(ps.paperNoteId?.(j)));
+  const note = ps.annotationNote?.({ tags: ["breakout", "news"], notes: "late entry" });
+  ok("notes CSV: saved notes and tags fill the Notes cell", journalRowValues(j, note)[26] === "late entry [breakout, news]", String(note));
+  ok("notes CSV: tags alone, notes alone", ps.annotationNote?.({ tags: ["range"], notes: "" }) === "[range]" && ps.annotationNote?.({ notes: "  ok  " }) === "ok");
+  ok("notes CSV: a formula-like note is neutralised", journalRowValues(j, ps.annotationNote?.({ notes: "=1+1" }))[26] === "'=1+1");
+  ok("notes CSV: no or malformed annotation → empty cell", ps.annotationNote?.(null) === "" && ps.annotationNote?.({ tags: "x", notes: 5 }) === "" && journalRowValues(j, "")[26] === "" && journalRowValues(j)[26] === "");
+  const dlgSrc = readFileSync(join(process.cwd(), "src", "components", "paper-dialog.tsx"), "utf8");
+  const exportFn = dlgSrc.slice(dlgSrc.indexOf("const exportCsv"), dlgSrc.indexOf("/* --------------------------- render"));
+  ok("notes CSV: the export joins each trade's annotation", /paperNoteId\(/.test(exportFn) && /annotationNote\(/.test(exportFn) && /journalRowValues\(j, /.test(exportFn));
+  const annSrc = readFileSync(join(process.cwd(), "src", "components", "trade-annotation.tsx"), "utf8");
+  ok("notes CSV: the annotation form saves under paperNoteId", /paperNoteId\(trade\)/.test(annSrc));
+}
+
+// Final review I-3 / M-5: a pair holding a paper position always feeds the paper book, even when the liquidity
+// floor keeps it off the scanned list; a pair that still cannot be fed is named with labels, never "binance|4h".
+console.log("Paper — held pairs below the liquidity floor");
+{
+  const feed = await import("./paper-feed.ts").catch(() => ({}));
+  const { passesLiquidityFloor, DEFAULT_LIQUIDITY_FLOOR_USD } = await import("./market-client.ts");
+  const zero = { feeBps: 0, slipBps: 0, fundingBpsPer8h: 0 };
+  // One open THIN long on binance|4h (filled at 100, stop 96), one pending PEND on binance|4h, one open ETH on bybit-spot|4h.
+  const b0 = liveBook();
+  const pr = createProposal(b0, input({ pair: "THINUSDT" }), NOW, "th1");
+  let b = processBars(approveProposal(b0, pr, "th1", NOW).book, "binance", "4h", { THINUSDT: [bar(T0 + 2 * I, 100, 100.5, 99.5, 100)] }, T0 + 3 * I, zero).book;
+  const thin = b.positions[0];
+  const pend = { ...thin, id: "pos-pend", proposalId: "pend", pair: "PENDUSDT", status: "pending", entry: null, openedAt: null };
+  const eth = { ...thin, id: "pos-eth", proposalId: "eth", pair: "ETHUSDT", src: "bybit-spot" };
+  b = { ...b, positions: [thin, pend, eth] };
+  ok("setup: THIN is open with its stop at 96", thin.status === "open" && near(thin.stop, 96), `${thin.status} ${thin.stop}`);
+
+  // The scan: THIN has $50k of 24 h volume, below the default floor, so it is not in the scanned (scored) list.
+  const tickers = [{ symbol: "BTCUSDT", qvUsd: 9e9 }, { symbol: "THINUSDT", qvUsd: 50_000 }, { symbol: "PENDUSDT", qvUsd: 10_000 }];
+  const scanned = tickers.filter((x) => passesLiquidityFloor(x.qvUsd, DEFAULT_LIQUIDITY_FLOOR_USD, "binance")).map((x) => x.symbol);
+  ok("setup: the floor keeps THIN and PEND off the scanned list", scanned.join() === "BTCUSDT", scanned.join());
+
+  const missing = feed.missingHeldPairs?.(b, "binance", "4h", scanned) ?? [];
+  ok("held pairs missing from the scan are found (open and pending; only this series)", missing.join() === "PENDUSDT,THINUSDT", missing.join());
+  const asked = [];
+  const stopBars = [bar(T0 + 3 * I, 99, 99.5, 95, 95.5)];
+  const got = await (feed.fetchHeldBars?.(missing, async (pair) => { asked.push(pair); if (pair === "PENDUSDT") throw new Error("HTTP 500"); return stopBars; }) ?? { bars: {}, failed: [] });
+  ok("bars are fetched for every missing held pair; a feed error is reported, not thrown", asked.join() === "PENDUSDT,THINUSDT" && Object.keys(got.bars).join() === "THINUSDT" && got.failed.join() === "PENDUSDT", JSON.stringify({ asked, failed: got.failed }));
+  const res = processBars(b, "binance", "4h", got.bars, T0 + 4 * I, zero);
+  ok("a held pair below the liquidity floor still closes at its stop", res.closed.length === 1 && res.closed[0].pair === "THINUSDT" && res.closed[0].reason === "stop" && near(res.closed[0].exit, 96), JSON.stringify(res.closed.map((j) => [j.pair, j.reason, j.exit])));
+  ok("scanned pairs are not fetched again", (feed.missingHeldPairs?.(b, "binance", "4h", ["THINUSDT", "PENDUSDT"]) ?? ["x"]).length === 0);
+
+  // RESET waiting text: labels and the localised timeframe, never raw series keys (M-5).
+  const label = (src, tf) => `${{ binance: "Binance", "bybit-spot": "Bybit Spot" }[src] ?? src} · ${{ "4h": "4 hours" }[tf] ?? tf}`;
+  const text = feed.waitingText?.(res.book, label) ?? "";
+  ok("waiting text names each pair with the source label and timeframe", text === "Binance · 4 hours: PENDUSDT; Bybit Spot · 4 hours: ETHUSDT", text);
+  ok("waiting text has no raw src|tf key", !/\|/.test(text) && !/binance\|4h/.test(text));
+  ok("waiting text is empty when nothing is held", feed.waitingText?.({ ...res.book, positions: [] }, label) === "");
+  const failedText = feed.pairsText?.(["PENDUSDT"], "binance", "4h", label) ?? "";
+  ok("a pair that cannot be fed is named with labels", failedText === "Binance · 4 hours: PENDUSDT", failedText);
+
+  // Wiring: the dialog fetches missing held pairs on every scan and shows labelled text; the page passes the fetcher.
+  const dlgSrc = readFileSync(join(process.cwd(), "src", "components", "paper-dialog.tsx"), "utf8");
+  const pageSrc = readFileSync(join(process.cwd(), "src", "app", "page.tsx"), "utf8");
+  ok("dialog feeds missing held pairs and labels the waiting text", /runHeldFeed\(/.test(dlgSrc) && /waitingText\(/.test(dlgSrc) && !/waitingSeries\(book\)\.join/.test(dlgSrc));
+  ok("page passes a kline fetcher for held pairs", /fetchKlines=\{/.test(pageSrc.slice(pageSrc.indexOf("<PaperDialog"), pageSrc.indexOf("/>", pageSrc.indexOf("<PaperDialog")))));
+}
+
+// Fix-wave re-review N-1 / N-4: the paper-only held-pair fetch respects the 429/418 halt and cooldown, stops on a
+// rate-limit error, and drops a result whose view (source|tf) changed or whose scan was aborted.
+console.log("Paper — held-pair fetch: rate limits and stale results");
+{
+  const feed = await import("./paper-feed.ts");
+  const mc = await import("./market-client.ts");
+  const zero = { feeBps: 0, slipBps: 0, fundingBpsPer8h: 0 };
+  const b0 = liveBook();
+  let b = processBars(approveProposal(b0, createProposal(b0, input({ pair: "THINUSDT" }), NOW, "rl1"), "rl1", NOW).book, "binance", "4h", { THINUSDT: [bar(T0 + 2 * I, 100, 100.5, 99.5, 100)] }, T0 + 3 * I, zero).book;
+  const thin = b.positions[0];
+  b = { ...b, positions: [thin, { ...thin, id: "pos-low", proposalId: "low", pair: "LOWUSDT" }] };
+  const label = (src, tf) => `${{ binance: "Binance" }[src] ?? src} · ${{ "4h": "4 hours" }[tf] ?? tf}`;
+  const stopBars = [bar(T0 + 3 * I, 99, 99.5, 95, 95.5)];
+  const rateLimit = () => Object.assign(new Error("Exchange rate limit"), { name: "RateLimitError", reason: "RATE_LIMIT", retryAfterMs: 60_000 });
+
+  // Cooldown active: zero requests, every held pair reported as not loaded.
+  let calls = 0;
+  const cooled = await feed.fetchHeldBars(["LOWUSDT", "THINUSDT"], async () => { calls++; return stopBars; }, undefined, { cooldownMs: () => 30_000 });
+  ok("cooldown: fetchHeldBars makes zero requests while the source is cooling down", calls === 0, String(calls));
+  ok("cooldown: every held pair is reported as not loaded (halted)", cooled.failed?.join() === "LOWUSDT,THINUSDT" && Object.keys(cooled.bars ?? {}).length === 0 && cooled.halted === true, JSON.stringify(cooled));
+  ok("cooldown: the RESET / feed-failed text names those pairs with labels", feed.pairsText(cooled.failed ?? [], "binance", "4h", label) === "Binance · 4 hours: LOWUSDT, THINUSDT");
+
+  // RateLimitError on the first pair stops the loop.
+  calls = 0;
+  const limited = await feed.fetchHeldBars(["LOWUSDT", "THINUSDT"], async () => { calls++; throw rateLimit(); });
+  ok("rate limit: a RateLimitError on the first held pair stops the loop (no second request)", calls === 1, String(calls));
+  ok("rate limit: the remaining held pairs are reported as not loaded", limited.failed?.join() === "LOWUSDT,THINUSDT" && limited.halted === true, JSON.stringify(limited));
+
+  // The market-client entry point used for held pairs honours the venue cooldown (reviewer's 418 probe).
+  const realFetch = globalThis.fetch;
+  let net = 0;
+  globalThis.fetch = async () => { net++; return new Response("banned", { status: 418, headers: { "retry-after": "600" } }); };
+  try {
+    mc.resetRateLimitForTests();
+    await mc.fetchSymbolKlines("binance", "4h", "THINUSDT", 200).catch(() => undefined);
+    ok("probe: a 418 starts the Binance cooldown", mc.rateLimitCooldown("binance") > 0 && net === 1, `${mc.rateLimitCooldown("binance")} ${net}`);
+    const guarded = mc.fetchPaperHeldKlines;
+    let err = null;
+    await (guarded ? guarded("binance", "4h", "THINUSDT", 200) : Promise.reject(new Error("fetchPaperHeldKlines missing"))).catch((e) => { err = e; });
+    ok("guarded held fetch: no network request during the cooldown, RateLimitError thrown", net === 1 && err?.name === "RateLimitError", `${net} ${err?.name} ${err?.message}`);
+  } finally { globalThis.fetch = realFetch; mc.resetRateLimitForTests(); }
+  const pageSrc = readFileSync(join(process.cwd(), "src", "app", "page.tsx"), "utf8");
+  ok("page: held pairs use the guarded fetch and pass the cooldown", /fetchPaperHeldKlines\(dataSource, timeframe, pair, 200, signal\)/.test(pageSrc) && /rateLimitCooldown\(dataSource\)/.test(pageSrc) && !/fetchSymbolKlines\(dataSource/.test(pageSrc));
+
+  // Stale results: view changed or scan aborted before the fetch returned → nothing is applied.
+  let view = "binance|4h";
+  let ingested = 0;
+  const base = { book: b, src: "binance", tf: "4h", scanned: [], currentView: () => view, ingest: () => { ingested++; } };
+  const r1 = await feed.runHeldFeed?.({ ...base, fetcher: async () => { view = "bybit-spot|4h"; return stopBars; } });
+  ok("stale: a result whose view changed while fetching is dropped", r1?.stale === true && ingested === 0, JSON.stringify(r1));
+  view = "binance|4h";
+  const ac = new AbortController();
+  const r2 = await feed.runHeldFeed?.({ ...base, signal: ac.signal, fetcher: async () => { ac.abort(); return stopBars; } });
+  ok("stale: a result whose scan was aborted is dropped", r2?.stale === true && ingested === 0, JSON.stringify(r2));
+  let got = null;
+  const r3 = await feed.runHeldFeed?.({ ...base, ingest: (bars) => { got = bars; }, fetcher: async (pair) => { if (pair === "LOWUSDT") throw new Error("HTTP 500"); return stopBars; } });
+  ok("current: a fresh result is applied and the failed pair reported", r3?.stale === false && got && Object.keys(got).join() === "THINUSDT" && r3.failed.join() === "LOWUSDT", JSON.stringify(r3));
+  const r4 = await feed.runHeldFeed?.({ ...base, cooldownMs: () => 1000, fetcher: async () => { throw new Error("must not be called"); } });
+  ok("cooldown through runHeldFeed: nothing fetched, both pairs not loaded", r4?.stale === false && r4.failed.join() === "LOWUSDT,THINUSDT" && r4.halted === true, JSON.stringify(r4));
+  const dlgSrc = readFileSync(join(process.cwd(), "src", "components", "paper-dialog.tsx"), "utf8");
+  ok("dialog: held feed goes through runHeldFeed with the current view and the cooldown", /runHeldFeed\(/.test(dlgSrc) && /currentView:/.test(dlgSrc) && /cooldownMs/.test(dlgSrc));
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

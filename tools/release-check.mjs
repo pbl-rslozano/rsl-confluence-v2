@@ -2,7 +2,8 @@
 /**
  * release-check.mjs — release gate for rsL Confluence Terminal (builder skill §8–§9).
  *
- *   node tools/release-check.mjs [--with-tests] [--require-build]   (R17/R18 run when out/ is built; --require-build makes a missing build fail)
+ *   node tools/release-check.mjs [--with-tests] [--require-build] [--release]   (R17/R18 run when out/ is built; --require-build makes a missing build fail;
+ *   --release is passed by CI only on release builds — tags, workflow_dispatch, [release…] commits on main — and turns on R25)
  *
  * Fails (exit 1) on any of:
  *   R1  private-key material or key files anywhere in the source tree
@@ -13,7 +14,7 @@
  *   R6  Tauri: CSP weakened (unsafe-eval, wildcard), isolation/freezePrototype off, wildcard capability
  *   R7  Capacitor: web debugging or mixed content enabled
  *   R8  CSP connect-src hosts not in the ADR-0003 allowlist
- *   R9  SBOM for this version missing
+ *   R9  SBOM for this version missing, or a component without licences and scope (v2.8 WP20)
  *   R10 (--with-tests) any unit / regression / catalog test failing
  *   R11 recorder / MCP / tools egress outside tools/egress-manifest.json (ADR-0003, ADR-0008)
  *   R12 paper / MCP boundary: an order endpoint or private-API import in the paper or MCP code
@@ -31,6 +32,12 @@
  *       source tree or the built web output (tools/checks/no-org-ids.mjs; salted word hashes)
  *   R21 display only (v2.7, ADR-0015): fx-rates.ts is imported by display code only, and fetches only table hosts
  *   R20 keyless public sources (v2.6): no keys/signatures in public sources, Coins.ph paths only from the read allowlist, no private profile
+ *   R24 licence policy (v2.8 WP20, licence audit): every shipped npm package and Rust crate under an allowed licence
+ *       (tools/licence-policy.json; MPL-2.0 only with a notice entry), third-party notices complete
+ *       (tools/third-party-notices.mjs --check), private workspace packages UNLICENSED, no Binance Vision archive
+ *       file (CC BY-NC-SA 4.0) tracked and .gitignore keeps them out
+ *   R25 (--release) tier-1 translations reviewed (final review I-1): no tier-1 catalog string still flagged
+ *       @pendingReview (machine drafts). A merge run reports the count as SKIP and does not fail.
  */
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -147,7 +154,12 @@ check("R8", "connect-src = the public-host table (desktop CSP + web meta CSP), e
 /* R9 — SBOM */
 const ver = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version.replace(/\.0$/, "");
 const sbom = join(ROOT, "dist", `rsL-Confluence-v${ver}-2026-sbom.cdx.json`);
-check("R9", "CycloneDX SBOM present for this version", existsSync(sbom) && JSON.parse(readFileSync(sbom, "utf8")).bomFormat === "CycloneDX", rel(sbom));
+{
+  const bom = existsSync(sbom) ? JSON.parse(readFileSync(sbom, "utf8")) : null;
+  const bare = bom ? (bom.components ?? []).filter((c) => !c.licenses?.length || !c.scope).map((c) => c["bom-ref"]) : [];
+  check("R9", "CycloneDX SBOM present for this version, licences and scope on every component", bom?.bomFormat === "CycloneDX" && bare.length === 0,
+    bare.length ? `${bare.length} components without licences/scope (pnpm sbom): ${bare.slice(0, 3).join(", ")}` : rel(sbom));
+}
 
 /* R10 — tests */
 if (process.argv.includes("--with-tests")) {
@@ -180,7 +192,7 @@ if (process.argv.includes("--with-tests")) {
       if (ORDER.test(readFileSync(f, "utf8"))) bad.push(`${r}: order endpoint`);
     }
   }
-  const paper = ["apps/confluence/web/src/lib/risk-engine.ts", "apps/confluence/web/src/lib/paper-broker.ts", "apps/confluence/web/src/lib/paper-store.ts", "apps/confluence/web/src/components/paper-dialog.tsx"];
+  const paper = ["apps/confluence/web/src/lib/risk-engine.ts", "apps/confluence/web/src/lib/paper-broker.ts", "apps/confluence/web/src/lib/paper-store.ts", "apps/confluence/web/src/lib/paper-feed.ts", "apps/confluence/web/src/components/paper-dialog.tsx"];
   const boundary = [...paper];
   const mcpDir = join(ROOT, "apps/confluence/mcp/src");
   if (existsSync(mcpDir)) for (const f of readdirSync(mcpDir)) if (/\.m?[jt]s$/.test(f)) boundary.push(`apps/confluence/mcp/src/${f}`);
@@ -316,6 +328,27 @@ if (process.argv.includes("--with-tests")) {
     built && !/<meta name="robots" content="noindex/.test(built) && "out/index.html has no robots noindex meta",
   ].filter(Boolean);
   check("R23", "Personal site: noindex on every page and file; robots.txt lets search engines read it, blocks other crawlers", problems.length === 0, problems.join("; ") || (built ? "headers, meta, robots.txt, built page" : "headers, meta, robots.txt"));
+}
+
+/* R24 — licence policy and third-party notices (v2.8 WP20, licence audit 14 Nov 2026) */
+{
+  const { checkLicencePolicy } = await import("./checks/licence-policy.mjs");
+  const { checkNotices } = await import("./third-party-notices.mjs");
+  const r = checkLicencePolicy({ root: ROOT });
+  const n = checkNotices({ root: ROOT });
+  const web = join(ROOT, "apps", "confluence", "web", "out");
+  const builtMissing = existsSync(join(web, "index.html")) && !existsSync(join(web, "THIRD-PARTY-NOTICES.txt")) ? ["out/THIRD-PARTY-NOTICES.txt missing from the build"] : [];
+  const findings = [...r.findings, ...n.findings, ...builtMissing];
+  check("R24", "Licence policy: shipped components allowed (MPL only with notice), notices complete, workspace UNLICENSED, no archive CSV tracked", findings.length === 0,
+    findings.length ? findings.slice(0, 6).join("; ") + (findings.length > 6 ? ` … ${findings.length - 6} more` : "") : `${r.summary}; ${n.summary}`);
+}
+
+/* R25 — tier-1 translations reviewed before a release (final review I-1). Merge runs report only. */
+{
+  const { checkTranslationReview } = await import("./checks/translation-review.mjs");
+  const r = checkTranslationReview(ROOT, { release: process.argv.includes("--release") });
+  if (process.argv.includes("--release")) check("R25", "Tier-1 translations reviewed: no string pending native-speaker review", r.ok, r.ok ? r.summary : r.findings.join("; "));
+  else console.log(`SKIP  R25  Tier-1 translation review — release builds only (--release): ${r.summary}`);
 }
 
 const failed = results.filter((r) => !r.ok).length;

@@ -26,6 +26,12 @@ export interface ScanJob {
    * instead of a live score. Fills the holes left while the app was closed.
    */
   catchUp?: { since: number; max: number; ctx: Omit<RowContext, "closeTime" | "underlyingClosed"> };
+  /**
+   * v2.8 (WP27): an instant-start row drawn from on-device history (display only, never recorded). Scored the
+   * same way; the analogue Pattern (≈100 ms per series) is reused only when it was computed on exactly these bars,
+   * otherwise left for the fresh series, so history rows do not delay the fresh ones in the worker.
+   */
+  displayOnly?: boolean;
 }
 
 export function packKlines(k: Kline[]): Float64Array {
@@ -122,6 +128,7 @@ export function runScanJob(job: ScanJob): ScanJobResult {
   if (prior && prior.lastTime === lastTime && prior.length === klines.length) {
     return { key: job.key, score, pattern: prior.pattern };
   }
+  if (job.displayOnly) return { key: job.key, score, pattern: emptySignal("Updating") };
   const pattern = detectHistoricalPattern(klines, {
     volumeAvailable: job.volumeAvailable,
     intervalMs: job.intervalMs,

@@ -1,0 +1,13 @@
+rsL Confluence Terminal — personal edition
+
+Copyright (c) 2026 rsLozano. All rights reserved.
+
+This software and its source code are the property of rsLozano. No licence is granted to copy, modify, publish,
+distribute, sublicense or sell it, in whole or in part, without the prior written permission of rsLozano.
+
+The software is provided "as is", without warranty of any kind. It is an analysis tool with paper trading only;
+it is not financial advice.
+
+Third-party components are included under their own licences, which this notice does not change. Their licence
+texts and copyright notices are in THIRD-PARTY-NOTICES.txt, shipped next to the app in every build (About →
+Open-source licences), and, for the desktop app's Rust crates, in THIRD-PARTY-NOTICES-rust.txt.

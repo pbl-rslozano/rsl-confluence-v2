@@ -10,7 +10,9 @@
  *      (docs/superpowers/specs/*-v<major.minor>-architecture-design.md) and declares its
  *      user-visible work packages on a line "<!-- user-visible: WP7 WP8 … -->".
  *   3. docs/user-guide/en.md has an anchor "<!-- wp:WPn -->" for each of them.
- *   4. The newest CHANGELOG entry is for this version and names at least one plan WP.
+ *   4. The newest CHANGELOG entry is for this version and names at least one plan WP. v2.8: while the next version is
+ *      being built, its entry may sit on top marked "in progress" (version above BUILD_INFO, naming a WP), directly
+ *      above this version's released entry; a released version never says "in progress".
  *
  * The Arabic guide (docs/user-guide/ar.md) is APPROVED text: a stale Arabic guide is
  * reported as a note for the reviewer, never a failure.
@@ -22,6 +24,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+const cmpVersion = (a, b) => {
+  const [x, y] = [a, b].map((v) => v.split(".").map(Number));
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i];
+  return 0;
+};
 
 export function checkDocsParity(root = ROOT) {
   const findings = [];
@@ -55,9 +63,26 @@ export function checkDocsParity(root = ROOT) {
   }
 
   const changelog = read("CHANGELOG.md");
-  const top = changelog.split(/\n(?=# )/).find((b) => b.startsWith("# ")) ?? "";
-  if (!top.startsWith(`# v${version}`)) findings.push(`CHANGELOG top entry is not v${version}`);
-  else if (!/\bWP\d+\b/.test(top)) findings.push(`CHANGELOG v${version} names no plan work package`);
+  const entries = changelog.split(/\n(?=# )/).filter((b) => b.startsWith("# "));
+  let top = entries[0] ?? "";
+  // v2.8 (Step 1): the next version's entry may sit on top while it is being built, marked "in progress" in its
+  // heading. It must be for a version above BUILD_INFO and name a work package; the released entry of this version
+  // must follow it directly. A released version (BUILD_INFO) never carries "in progress".
+  const head = top.split("\n")[0];
+  const topVersion = /^# v(\d+\.\d+\.\d+)/.exec(head)?.[1];
+  if (topVersion && /\bin progress\b/i.test(head)) {
+    if (cmpVersion(topVersion, version) <= 0) findings.push(`CHANGELOG v${topVersion} is marked in progress but BUILD_INFO is already v${version}`);
+    else {
+      if (!/\bWP\d+\b/.test(top)) findings.push(`CHANGELOG v${topVersion} (in progress) names no plan work package`);
+      notes.push(`CHANGELOG v${topVersion} in progress above v${version}`);
+      top = entries[1] ?? "";
+      if (!top.startsWith(`# v${version}`)) findings.push(`CHANGELOG entry below v${topVersion} (in progress) is not v${version}`);
+    }
+  }
+  if (!findings.some((f) => f.startsWith("CHANGELOG"))) {
+    if (!top.startsWith(`# v${version}`)) findings.push(`CHANGELOG top entry is not v${version}`);
+    else if (!/\bWP\d+\b/.test(top)) findings.push(`CHANGELOG v${version} names no plan work package`);
+  }
 
   const ar = read("docs/user-guide/ar.md");
   if (ar && !ar.includes(`v${mm}`)) notes.push(`Arabic guide not yet updated to v${mm} (reviewer)`);

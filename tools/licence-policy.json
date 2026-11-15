@@ -1,0 +1,11 @@
+{
+  "@note": "Release check R24 (v2.8 WP20, licence audit 14 Nov 2026): licences allowed for components shipped in any bundle. An SPDX expression passes when one OR-branch has only allowed licences. MPL-2.0 is allowed only for a component with an entry in the third-party notices (licence text + source location). Build-only components (SBOM scope 'excluded') are not distributed and are not judged. @rsl/* and the desktop crate are first-party (UNLICENSED, all rights reserved).",
+  "allow": [
+    "MIT", "ISC", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0", "0BSD", "Zlib", "Unicode-3.0", "BSL-1.0", "CC0-1.0",
+    "Unlicense", "OFL-1.1", "CDLA-Permissive-2.0"
+  ],
+  "withNotice": ["MPL-2.0"],
+  "exceptions": ["LLVM-exception"],
+  "firstParty": { "npmScope": "@rsl/", "crates": ["rsl-confluence-desktop"], "licence": "UNLICENSED" },
+  "neverAllowed": ["GPL-*", "AGPL-*", "LGPL-* (as the only option)", "SSPL-*", "CC-BY-NC-*", "missing or unparseable licence"]
+}

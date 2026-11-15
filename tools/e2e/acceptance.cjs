@@ -12,6 +12,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const BASE = process.argv[2] || "http://127.0.0.1:8770/";
+// v2.8 (WP27): `--capture-ds1 <file>` / `--capture-ds2 <file>` only record the DS-1 / DS-2 layout snapshot of BASE
+// (used on the v2.7.0-web release build); `--ds-only` runs just DS-1 and DS-2.
+const argAfter = (flag) => (process.argv.includes(flag) ? process.argv[process.argv.indexOf(flag) + 1] : null);
+const CAPTURE_DS1 = argAfter("--capture-ds1");
+const CAPTURE_DS2 = argAfter("--capture-ds2");
+const DS_ONLY = process.argv.includes("--ds-only");
 const OUT = path.join(__dirname, "evidence");
 fs.mkdirSync(OUT, { recursive: true });
 const AXE = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
@@ -29,8 +35,8 @@ function stepOf(u) {
   const map = { "1m": 60e3, "5m": 3e5, "15m": H15, "1h": 36e5, "4h": 144e5, "1d": 864e5, "60": 36e5, "240": 144e5, "15": H15, D: 864e5, "15min": H15, "1day": 864e5, "1Dutc": 864e5, "4H": 144e5, "1H": 36e5 };
   return map[v] ?? H15;
 }
-function klines(sym, n = 200, step = H15) {
-  const start = Math.floor(Date.now() / step) * step - n * step;
+function klines(sym, n = 200, step = H15, now = Date.now()) {
+  const start = Math.floor(now / step) * step - n * step;
   let px = 100, s = [...sym].reduce((a, c) => a + c.charCodeAt(0), 7);
   const r = () => { s = (s * 16807) % 2147483647; return s / 2147483647 - 0.5; };
   const drift = sym.startsWith("BTC") ? 0.004 : sym.startsWith("ETH") ? -0.004 : 0;
@@ -40,11 +46,12 @@ function klines(sym, n = 200, step = H15) {
 }
 async function mockExchanges(ctx, seen, opts = {}) {
   let klineCalls = 0;
-  await ctx.route(/^https:\/\/(data-api\.binance\.vision|api\.bybit\.com|api\.bitget\.com)\//, (route) => {
+  await ctx.route(/^https:\/\/(data-api\.binance\.vision|api\.bybit\.com|api\.bitget\.com)\//, async (route) => {
     const u = new URL(route.request().url());
     seen && seen.push(u.host + u.pathname + (u.searchParams.get("limit") ? `?limit=${u.searchParams.get("limit")}` : ""));
     const headers = { "access-control-allow-origin": "*", "content-type": "application/json" };
     if (u.pathname.endsWith("/ticker/24hr")) {
+      if (opts.tickers) return route.fulfill({ status: 200, headers, body: JSON.stringify(opts.tickers) });
       // v2.2: tokenised stock, gold and an FX stablecoin pair alongside crypto; USDC is excluded.
       const t = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "USDCUSDT", "PAXGUSDT", "TSLABUSDT", "EURUSDT"].map((sym, i) => ({ symbol: sym, openPrice: "100", lastPrice: "101", quoteVolume: String(1e9 - i) }));
       return route.fulfill({ status: 200, headers, body: JSON.stringify(t) });
@@ -54,6 +61,8 @@ async function mockExchanges(ctx, seen, opts = {}) {
       return route.fulfill({ status: 200, headers, body: JSON.stringify({ bids: [["100.9", "50"], ["100.8", "100"]], asks: [["101.1", "50"], ["101.2", "100"]] }) });
     }
     klineCalls++;
+    // v2.8 (WP27): a throttled network (PG-1) answers candle requests late.
+    if (opts.klineDelayMs) await new Promise((ok) => setTimeout(ok, opts.klineDelayMs));
     if (opts.failSymbol && u.searchParams.get("symbol") === opts.failSymbol) {
       return route.fulfill({ status: 500, headers, body: JSON.stringify({ code: -1, msg: "upstream error" }) });
     }
@@ -61,7 +70,7 @@ async function mockExchanges(ctx, seen, opts = {}) {
       return route.fulfill({ status: 429, headers: { ...headers, "retry-after": "45" }, body: JSON.stringify({ code: -1003, msg: "Too many requests" }) });
     }
     const limit = Math.min(1000, Number(u.searchParams.get("limit") || 200));
-    return route.fulfill({ status: 200, headers, body: JSON.stringify(klines(u.searchParams.get("symbol") || "X", limit, stepOf(u))) });
+    return route.fulfill({ status: 200, headers, body: JSON.stringify(klines(u.searchParams.get("symbol") || "X", limit, stepOf(u), opts.now)) });
   });
 }
 
@@ -90,8 +99,202 @@ async function completeFirstRun(page, { name = "rsLozano — Personal trading de
 }
 async function waitRows(page) { await page.waitForFunction(() => document.querySelectorAll("tbody tr").length >= 4, null, { timeout: 20000 }); }
 
+/* ---------- v2.8 (WP27) DS-1 / DS-2: layout at rest vs v2.7.0 (spec §3 design-unchanged rule, "Guard") ---------- */
+// Fixed clock (page.clock + the mocked candles), FX hosts mocked, default settings, 1366 × 768, English. Theme is
+// "System", which headless Chromium resolves to light — acceptable for the guard (both builds are measured the same way).
+// The mocked exchange tickers carry 24 h quote volumes of ~1e9 USD, far above the 1M liquidity floor, so it removes no row.
+const DS_NOW = Date.UTC(2026, 10, 11, 9, 7, 0);
+const DS_TOLERANCE_PX = 2;
+// Text masking (spec: "with text and live numbers masked"): right before measuring, every non-blank text node becomes
+// the same placeholder and input values/placeholders too, so a box's size comes from its padding, font and structure,
+// never from the wording or a live number. The context is closed (or the dialog closed) afterwards.
+async function dsInstall(page) {
+  await page.evaluate(() => {
+    const mask = (root) => {
+      const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let n = w.nextNode(); n; n = w.nextNode()) {
+        const parent = n.parentElement;
+        if (!parent || parent.tagName === "SCRIPT" || parent.tagName === "STYLE") continue;
+        if (n.nodeValue.trim()) n.nodeValue = "Xxxx";
+      }
+      root.querySelectorAll("input, textarea").forEach((el) => {
+        if (el.placeholder) el.placeholder = "Xxxx";
+        if (el.type !== "checkbox" && el.type !== "radio" && el.value) el.value = "Xxxx";
+      });
+    };
+    // Structural snapshot of `root`: every element keyed by its path (tag + index among the shown children), with its
+    // box [x, y, w, h] and its colours. `exclude` = the §3 allowed additions, hidden first so they neither count nor
+    // move what follows. `topUntil`: stop after that element's subtree (the "top of the sheet"); its ancestors get an
+    // open height (null), since their height depends on the sections below. SVGs: the svg and its direct children
+    // (the chart's layers) with their element counts.
+    const measure = (root, { exclude = [], topUntil = null } = {}) => {
+      for (const sel of exclude) root.querySelectorAll(sel).forEach((el) => el.style.setProperty("display", "none", "important"));
+      mask(root);
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+      const stop = topUntil ? root.querySelector(topUntil) : null;
+      const boxes = {}, colours = {}, counts = {};
+      let done = false;
+      const rec = (el, key) => {
+        const b = el.getBoundingClientRect();
+        const open = stop && el !== stop && el.contains(stop);
+        boxes[key] = [Math.round(b.x), Math.round(b.y), Math.round(b.width), open ? null : Math.round(b.height)];
+        const cs = getComputedStyle(el);
+        colours[key] = el instanceof SVGElement ? `${cs.fill}|${cs.stroke}` : `${cs.backgroundColor}|${cs.color}|${cs.borderTopColor}`;
+      };
+      const walk = (el, key) => {
+        rec(el, key);
+        if (el.tagName.toLowerCase() === "svg") {
+          [...el.children].forEach((ch, i) => { const k = `${key}/${i}:${ch.tagName.toLowerCase()}`; rec(ch, k); counts[k] = ch.querySelectorAll("*").length; });
+          if (el === stop) done = true;
+          return;
+        }
+        let i = 0;
+        for (const ch of el.children) {
+          if (getComputedStyle(ch).display === "none") continue;
+          walk(ch, `${key}/${i++}:${ch.tagName.toLowerCase()}`);
+          if (done) return;
+        }
+        if (el === stop) done = true;
+      };
+      walk(root, root.tagName.toLowerCase());
+      return { boxes, colours, counts };
+    };
+    window.__ds = { mask, measure };
+  });
+}
+async function dsContext(browser) {
+  const c = await newContext(browser);
+  const seen = [];
+  await mockExchanges(c, seen, { now: DS_NOW });
+  await c.route(/^https:\/\/(api\.frankfurter\.dev|cdn\.jsdelivr\.net|latest\.currency-api\.pages\.dev|open\.er-api\.com|data-api\.ecb\.europa\.eu)\//, (route) => route.fulfill({ status: 503, body: "" }));
+  await c.route("**/updates/latest.json", (route) => route.fulfill({ status: 404, body: "" }));
+  const p = await c.newPage();
+  await p.clock.setFixedTime(DS_NOW);
+  await p.goto(BASE, { waitUntil: "domcontentloaded" });
+  await completeFirstRun(p, { operator: "R" });
+  await waitRows(p);
+  // At rest: the scan has finished (no progress bar, no spinner), background requests (depth sample, other timeframes of
+  // the priority rows) have stopped for 1.5 s, and the pointer hovers nothing.
+  await p.waitForFunction(() => !document.querySelector("header div.h-full.bg-gradient-to-r") && !document.querySelector("header .animate-spin"), null, { timeout: 30000 });
+  await dsQuiet(p, seen);
+  await p.mouse.move(1, 1);
+  return { c, p, seen };
+}
+async function dsQuiet(p, seen) {
+  for (let n = seen.length, quiet = 0, t = 0; quiet < 1500 && t < 30000; t += 250) {
+    await p.waitForTimeout(250);
+    if (seen.length === n) quiet += 250; else { n = seen.length; quiet = 0; }
+  }
+}
+async function ds1Snapshot(browser) {
+  const { c, p } = await dsContext(browser);
+  await dsInstall(p);
+  const snap = await p.evaluate(() => {
+    window.__ds.mask(document.body);
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    const box = (el) => { const b = el.getBoundingClientRect(); return [Math.round(b.x), Math.round(b.y), Math.round(b.width), Math.round(b.height)]; };
+    const boxes = {};
+    const add = (name, el) => { if (el) boxes[name] = box(el); };
+    add("header", document.querySelector("header"));
+    document.querySelectorAll("header button, header [role=combobox], header input").forEach((el, i) => add(`header.control.${i}`, el));
+    add("main", document.querySelector("main"));
+    add("list.toolbar", document.querySelector("main > div > div"));
+    add("table", document.querySelector("table.market-table"));
+    document.querySelectorAll("thead th").forEach((el, i) => add(`th.${i}`, el));
+    document.querySelectorAll("tbody tr").forEach((tr, i) => { add(`row.${i}`, tr); tr.querySelectorAll("td").forEach((td, j) => add(`row.${i}.td.${j}`, td)); });
+    add("footer", document.querySelector("footer"));
+    const bg = (sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).backgroundColor : null; };
+    const fg = (sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).color : null; };
+    const colours = { body: bg("body"), header: bg("header"), thead: bg("thead"), footer: bg("footer"), th: fg("thead th"), rowText: fg("tbody tr td:nth-child(3)") };
+    return { boxes, colours };
+  });
+  await c.close();
+  return snap;
+}
+// DS-2 excluded regions = exactly the spec §3 allowed additions that exist in this build (hidden before measuring):
+//   paper  §3.6  "More limits" (collapsed, after the existing settings grid)      [data-testid=paper-more-limits]
+//          §3.6  "More statistics" (collapsed)                                    [data-testid=paper-more-stats]
+//          §3.6  "Add a note" (collapsed, per proposal)                           [data-testid=paper-add-note]
+//          §3.6  drawdown badge and RESET — only while that lock is active        [data-testid=paper-lock-drawdown], [data-testid=paper-drawdown]
+//          §3.7  the risk > 1 % warning (text inside the proposal box)            [data-testid=paper-warning]
+//   detail §3.1  Scenarios (WP22) and §3.8 "View on [exchange]" (WP26): not built yet — add their selectors with those WPs.
+//   ledger §3.4  collapsed Scenario check at the end (WP22): not built yet — add its selector with WP22.
+// §3.5 block reasons and §3.7 text inside existing boxes need no exclusion (text is masked). Never add a selector for
+// anything that is not on the §3 list.
+const DS2_ALLOWED = {
+  detail: [],
+  paper: ['[data-testid="paper-more-limits"]', '[data-testid="paper-more-stats"]', '[data-testid="paper-add-note"]', '[data-testid="paper-lock-drawdown"]', '[data-testid="paper-drawdown"]', '[data-testid="paper-warning"]'],
+  ledger: [],
+};
+async function ds2Snapshot(browser) {
+  const { c, p, seen } = await dsContext(browser);
+  const dialog = p.locator('[role="dialog"]').first();
+  const measure = async (opts) => { await dsInstall(p); await p.mouse.move(1, 1); return p.evaluate((o) => window.__ds.measure(document.querySelector('[role="dialog"]'), o), opts); };
+  const close = async () => { await p.keyboard.press("Escape"); await p.waitForFunction(() => !document.querySelector('[role="dialog"]'), null, { timeout: 10000 }); };
+  const settle = async () => {
+    await dsQuiet(p, seen);
+    for (let last = "", same = 0, t = 0; same < 1000 && t < 20000; t += 250) {
+      await p.waitForTimeout(250);
+      const html = await dialog.evaluate((d) => d.innerHTML.length + ":" + d.textContent);
+      if (html === last) same += 250; else { last = html; same = 0; }
+    }
+  };
+  const snap = {};
+  // Detail sheet: the top of the sheet through the price chart (its default layers).
+  await p.getByRole("button", { name: /^BTC/ }).first().click();
+  await p.getByTestId("price-chart").waitFor({ timeout: 15000 });
+  await settle();
+  snap.detail = await measure({ exclude: DS2_ALLOWED.detail, topUntil: '[data-testid="price-chart"]' });
+  await close();
+  // Paper dialog layout.
+  await p.getByRole("button", { name: /Paper — Paper trading/ }).click();
+  await p.waitForSelector("text=simulated, no orders are sent", { timeout: 10000 });
+  await settle();
+  snap.paper = await measure({ exclude: DS2_ALLOWED.paper });
+  await close();
+  // Ledger dialog: its existing sections.
+  await p.getByRole("button", { name: /Signal ledger \(forward test\)/ }).click();
+  await dialog.waitFor({ timeout: 10000 });
+  await settle();
+  snap.ledger = await measure({ exclude: DS2_ALLOWED.ledger });
+  await close();
+  await c.close();
+  return snap;
+}
+function dsCompare(base, now, prefix = "") {
+  const diffs = [];
+  const near = (b, n) => b.every((v, i) => v === null || n[i] === null ? v === n[i] : Math.abs(v - n[i]) <= DS_TOLERANCE_PX);
+  for (const [k, b] of Object.entries(base.boxes)) {
+    const n = now.boxes[k];
+    if (!n) { diffs.push(`${prefix}${k}: missing`); continue; }
+    if (!near(b, n)) diffs.push(`${prefix}${k}: ${b.join(",")} → ${n.join(",")}`);
+  }
+  for (const k of Object.keys(now.boxes)) if (!(k in base.boxes)) diffs.push(`${prefix}${k}: new`);
+  for (const [k, v] of Object.entries(base.colours)) if (k in now.colours && now.colours[k] !== v) diffs.push(`${prefix}colour ${k}: ${v} → ${now.colours[k]}`);
+  for (const [k, v] of Object.entries(base.counts || {})) if (k in (now.counts || {}) && now.counts[k] !== v) diffs.push(`${prefix}count ${k}: ${v} → ${now.counts[k]}`);
+  return diffs;
+}
+
 (async () => {
   const browser = await chromium.launch();
+  if (CAPTURE_DS1 || CAPTURE_DS2) {
+    const note = `main screen at rest, 1366x768, en, default settings (theme System = light in headless Chromium), text masked; clock ${new Date(DS_NOW).toISOString()}, exchange and FX hosts mocked; captured from ${BASE}`;
+    if (CAPTURE_DS1) {
+      const snap = await ds1Snapshot(browser);
+      fs.mkdirSync(path.dirname(path.resolve(CAPTURE_DS1)), { recursive: true });
+      fs.writeFileSync(CAPTURE_DS1, JSON.stringify({ "@note": `DS-1 baseline: ${note}`, ...snap }, null, 2) + "\n");
+      console.log(`DS-1 baseline: ${Object.keys(snap.boxes).length} boxes → ${CAPTURE_DS1}`);
+    }
+    if (CAPTURE_DS2) {
+      const snap = await ds2Snapshot(browser);
+      fs.mkdirSync(path.dirname(path.resolve(CAPTURE_DS2)), { recursive: true });
+      fs.writeFileSync(CAPTURE_DS2, JSON.stringify({ "@note": `DS-2 baseline (detail sheet top + chart layers, paper dialog, ledger dialog; ${note.replace("main screen at rest", "each at rest")})`, ...snap }, null, 1) + "\n");
+      console.log(`DS-2 baseline: ${Object.entries(snap).map(([k, v]) => `${k} ${Object.keys(v.boxes).length}`).join(", ")} boxes → ${CAPTURE_DS2}`);
+    }
+    await browser.close();
+    return;
+  }
+  if (!DS_ONLY) {
   const requests = [];
 
   /* ===== A. First run, legacy migration, brand, CNR ===== */
@@ -152,6 +355,23 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
   await page.screenshot({ path: path.join(OUT, "04-about-1366.png") });
   const { findGuarded } = await import(path.join(__dirname, "..", "checks", "no-org-ids.mjs"));
   record("ID-2.4", "About ends with personal credit, no organisation details (R22 word list)", /Created by rsLozano/.test(about) && findGuarded(about).length === 0 && !/Confidential|Department Head/i.test(about));
+  // v2.8 WP20 — About → Open-source licences (collapsed, above the credit): the link opens the third-party notices
+  // (served next to index.html, 200, not empty) and the trademark line sits inside the collapsed section.
+  {
+    const sec = page.getByTestId("about-licences");
+    const closedAtRest = (await sec.getAttribute("open")) === null;
+    await sec.locator("summary").click();
+    const link = page.getByTestId("about-licences-link");
+    const href = await link.getAttribute("href").catch(() => null);
+    const got = href ? await page.evaluate(async (h) => { const r = await fetch(h); const t = await r.text(); return { status: r.status, len: t.length, head: t.slice(0, 48) }; }, href) : null;
+    await link.click();
+    const shown = (await page.getByTestId("about-licences-text").textContent({ timeout: 10000 }).catch(() => "")) ?? "";
+    const tm = (await page.getByTestId("about-trademarks").textContent().catch(() => "")) ?? "";
+    const tmInside = await page.locator('[data-testid="about-licences"] [data-testid="about-trademarks"]').count();
+    record("ID-2.5", "About → Open-source licences (collapsed): link opens the third-party notices (200, not empty); trademark line inside the section",
+      closedAtRest && !!got && got.status === 200 && got.len > 10000 && /third-party notices/.test(shown) && /react@/.test(shown) && /Bollinger Bands®/.test(tm) && tmInside === 1,
+      { closedAtRest, href, ...got, shown: shown.length });
+  }
 
   // Backup export → restore round trip + tamper refusal (builder §9.4-5)
   const [dl] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Export backup" }).click()]);
@@ -869,7 +1089,7 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
     await p.waitForSelector("text=Signals recorded");
     const ledgerText = await p.locator('[role="dialog"]').textContent();
     const recorded = Number((ledgerText.match(/Signals recorded: (\d+)/) || [])[1]);
-    record("M-8b", "Browser engine id equals the Node/replay engine id (bundle-independent)", ledgerText.includes("Engine 2c1a18ad8a61e9ab"), (ledgerText.match(/Engine [0-9a-f]{16}/) || ["none"])[0] + " vs 2c1a18ad8a61e9ab");
+    record("M-8b", "Browser engine id equals the Node/replay engine id (bundle-independent)", ledgerText.includes("Engine 5c30b5c39f5ba3f2"), (ledgerText.match(/Engine [0-9a-f]{16}/) || ["none"])[0] + " vs 5c30b5c39f5ba3f2");
     record("M-8", "Signal ledger records every scored series (one row per bar, deduplicated)", recorded >= 4 && recorded <= 12, `recorded ${recorded}; ${/Engine [0-9a-f]{16}/.test(ledgerText) ? "engine id shown" : "no engine id"}`);
     await p.screenshot({ path: path.join(OUT, "11-ledger-1366.png") });
     const [dl] = await Promise.all([p.waitForEvent("download"), p.getByRole("button", { name: "Export CSV" }).click()]);
@@ -1124,7 +1344,7 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
     record("SP-H", "Profile change cancels an older-history request without reopening stale detail", await p.getByRole("dialog").count() === 0);
     const config = await editor.locator("code").textContent();
     record("SP-1", "A custom scoring profile gets a distinct active engine ID",
-      /^[a-f0-9]{16}$/.test(config) && config !== "2c1a18ad8a61e9ab");
+      /^[a-f0-9]{16}$/.test(config) && config !== "5c30b5c39f5ba3f2");
     const [download] = await Promise.all([p.waitForEvent("download"), editor.getByRole("button", { name: "Export scoring profile" }).click()]);
     const profile = JSON.parse(fs.readFileSync(await download.path(), "utf8"));
     record("SP-2", "Export records the enabled voting IDs", profile.version === 1 && !profile.enabled.includes("sma") && profile.enabled.length === 17);
@@ -1143,7 +1363,7 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
     await editor.getByRole("button", { name: "Apply scoring profile" }).click();
     await waitRows(p);
     await p.getByRole("button", { name: "Scoring profile · Default", exact: true }).waitFor();
-    record("SP-5", "Reset restores the shipped scoring identity", await editor.locator("code").textContent() === "2c1a18ad8a61e9ab");
+    record("SP-5", "Reset restores the shipped scoring identity", await editor.locator("code").textContent() === "5c30b5c39f5ba3f2");
     await c.close();
   }
 
@@ -1281,9 +1501,10 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
     await dlg.getByText("European Central Bank", { exact: true }).click();
     const fxBefore = fxHits.length;
     await dlg.getByTestId("fx-update").click();
-    await p.waitForFunction(() => /European Central Bank/.test(document.querySelector('[data-testid="fx-info"]')?.textContent ?? ""), null, { timeout: 15000 }).catch(() => null);
+    // v2.8 WP20: the info line now says "derived from ECB euro reference rates · Source: ECB statistics (rebased to USD by this app)".
+    await p.waitForFunction(() => /ECB/.test(document.querySelector('[data-testid="fx-info"]')?.textContent ?? ""), null, { timeout: 15000 }).catch(() => null);
     const info2 = (await p.getByTestId("fx-info").textContent().catch(() => "")) ?? "";
-    record("FX-15", "Choosing the ECB converts SAR at the ECB's own cross rate and names it", /European Central Bank/.test(info2) && /1 USD = 3\.75 SAR/.test(info2) && fxHits.length === fxBefore, info2.slice(0, 160));
+    record("FX-15", "Choosing the ECB converts SAR at the ECB's own cross rate and names it", /ECB euro reference rates/.test(info2) && /Source: ECB statistics \(rebased to USD by this app\)/.test(info2) && /1 USD = 3\.75 SAR/.test(info2) && fxHits.length === fxBefore, info2.slice(0, 200));
     await p.keyboard.press("Escape");
     await p.locator('[data-testid="fx-sources"]').waitFor({ state: "detached", timeout: 10000 }).catch(() => null);
 
@@ -1381,6 +1602,119 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
       after < before && await p.evaluate(() => (window.visualViewport?.scale ?? 1) === 1), `${before} → ${after}`);
     await p.screenshot({ path: path.join(OUT, "v27-phone-chart.png") });
     await c.close();
+  }
+
+  /* ===== v2.8 WP20: rate-source credit wherever its rates are on screen ===== */
+  /* acceptance-ids: FX-16 */
+  {
+    const c = await newContext(browser);
+    await mockExchanges(c, null);
+    const cors = { "access-control-allow-origin": "*", "content-type": "application/json" };
+    const rates = { SAR: 3.75, PHP: 63, EUR: 0.89234, AED: 3.6725, JPY: 158.24, GBP: 0.7612, INR: 88.71, CNY: 7.11, SGD: 1.3, AUD: 1.52, CAD: 1.39 };
+    await c.route(/^https:\/\/api\.frankfurter\.dev\/v2\//, (route) => {
+      const u = new URL(route.request().url());
+      if (u.pathname.endsWith("/currencies")) return route.fulfill({ status: 200, headers: cors, body: JSON.stringify([...Object.keys(rates), "USD"].map((iso_code) => ({ iso_code, name: iso_code, type: "currency" }))) });
+      return route.fulfill({ status: 200, headers: cors, body: JSON.stringify(Object.entries(rates).map(([quote, rate]) => ({ date: "2026-11-11", base: "USD", quote, rate }))) });
+    });
+    await c.route(/^https:\/\/open\.er-api\.com\//, (route) => route.fulfill({ status: 200, headers: cors,
+      body: JSON.stringify({ result: "success", base_code: "USD", time_last_update_unix: 1794355352, rates: { USD: 1, ...rates } }) }));
+    const p = await c.newPage();
+    await p.goto(BASE, { waitUntil: "domcontentloaded" });
+    await completeFirstRun(p, { operator: "R" });
+    await waitRows(p);
+    await p.getByRole("combobox", { name: "Display currency" }).click();
+    await p.getByRole("option", { name: /^SAR/ }).first().click();
+    await p.waitForFunction(() => /Frankfurter/.test(document.querySelector('[data-testid="fx-info"]')?.textContent ?? ""), null, { timeout: 20000 }).catch(() => null);
+    // Default source (Frankfurter) needs no credit: nothing extra in the expanded toolbar.
+    await p.getByTestId("list-expand").click();
+    const defaultExpanded = await p.getByTestId("fx-credit-expanded").count();
+    await p.getByTestId("list-expand").click();
+    // Choose ExchangeRate-API.
+    await p.getByTestId("fx-sources-open").first().click();
+    const dlg = p.getByTestId("fx-sources");
+    await dlg.waitFor({ timeout: 10000 });
+    await dlg.getByText("ExchangeRate-API (open access)", { exact: true }).click();
+    await dlg.getByTestId("fx-update").click();
+    await p.waitForFunction(() => /Rates By Exchange Rate API/.test(document.querySelector('[data-testid="fx-info"]')?.textContent ?? ""), null, { timeout: 15000 }).catch(() => null);
+    await p.keyboard.press("Escape");
+    await dlg.waitFor({ state: "detached", timeout: 10000 }).catch(() => null);
+    const credit = (loc) => loc.evaluate((a) => ({ text: a.textContent, href: a.getAttribute("href"), visible: !!(a.offsetWidth || a.offsetHeight) })).catch(() => null);
+    const normal = await credit(p.locator('[data-testid="fx-info"] a[href="https://www.exchangerate-api.com"]'));
+    await p.getByTestId("list-expand").click();
+    const expanded = await credit(p.getByTestId("fx-credit-expanded"));
+    await p.getByTestId("list-expand").click();
+    await p.getByRole("button", { name: /^BTC/ }).first().click();
+    const detailLink = p.locator('[data-testid="fx-credit-detail"] a');
+    await detailLink.waitFor({ timeout: 15000 }).catch(() => null);
+    await detailLink.scrollIntoViewIfNeeded().catch(() => null);
+    const detail = await credit(detailLink);
+    // Review round 1: the credit stays while chart replay is open in the sheet.
+    await p.getByRole("button", { name: "Open chart replay" }).click().catch(() => null);
+    await p.getByRole("button", { name: "Close chart replay" }).waitFor({ timeout: 10000 }).catch(() => null);
+    await detailLink.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => null);
+    const replay = await credit(p.locator('[data-testid="fx-credit-detail"] a'));
+    const okCredit = (x) => x && x.visible && x.text === "Rates By Exchange Rate API" && x.href === "https://www.exchangerate-api.com";
+    record("FX-16", "ExchangeRate-API + SAR: \"Rates By Exchange Rate API\" link in normal mode, expanded list, the detail sheet and with chart replay open; none for the default source",
+      defaultExpanded === 0 && okCredit(normal) && okCredit(expanded) && okCredit(detail) && okCredit(replay), { defaultExpanded, normal, expanded, detail, replay });
+    await p.keyboard.press("Escape");
+    await c.close();
+  }
+
+  /* ===== v2.8 WP27: smooth loading — progressive rows; layout at rest unchanged ===== */
+  /* acceptance-ids: PG-1, PG-2 */
+  {
+    // 30 crypto pairs, each candle request answered after 600 ms (throttled network): five batches of six.
+    const tickers = Array.from({ length: 30 }, (_, i) => ({ symbol: `PG${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + Math.floor(i / 26))}USDT`, openPrice: "100", lastPrice: "101", quoteVolume: String(1e9 - i * 1e6) }));
+    const c = await newContext(browser);
+    const mock = { tickers, klineDelayMs: 600 };
+    await mockExchanges(c, null, mock);
+    const p = await c.newPage();
+    await p.goto(BASE, { waitUntil: "domcontentloaded" });
+    await completeFirstRun(p, { operator: "R" });
+    const early = await p.waitForFunction(() => {
+      const bar = document.querySelector('[data-testid="scan-progress"]');
+      const rowsShown = document.querySelectorAll("tbody tr:has(td button)").length;
+      return bar && rowsShown > 0 && Number(bar.dataset.done) < Number(bar.dataset.total)
+        ? { rows: rowsShown, done: Number(bar.dataset.done), total: Number(bar.dataset.total), width: bar.style.width } : null;
+    }, null, { timeout: 30000, polling: 50 }).then((h) => h.jsonValue(), () => null);
+    await p.waitForFunction(() => document.querySelectorAll("tbody tr:has(td button)").length === 30 && !document.querySelector('[data-testid="scan-progress"]'), null, { timeout: 30000 }).catch(() => null);
+    const final = await p.evaluate(() => ({ rows: document.querySelectorAll("tbody tr").length, badges: document.querySelectorAll('[data-testid="row-freshness"]').length }));
+    record("PG-1", "Throttled network: rows appear while the scan runs (before the progress bar reaches 100 %); at rest every row is live (no badge)",
+      !!early && early.rows >= 1 && early.done < early.total && final.rows === 30 && final.badges === 0, { early, final });
+    // PG-2: reopen — rows come at once from on-device history marked "updating", before any candle arrives; a pair
+    // whose fetch fails this time says "not updated" with its bar time once the scan is at rest.
+    await p.waitForTimeout(1500); // history writes settle
+    mock.failSymbol = "PGCAUSDT";
+    await p.reload({ waitUntil: "domcontentloaded" });
+    const instant = await p.waitForFunction(() => {
+      const bar = document.querySelector('[data-testid="scan-progress"]');
+      const updating = document.querySelectorAll('[data-testid="row-freshness"][data-state="updating"]').length;
+      return bar && updating > 0 && Number(bar.dataset.done) === 0 ? { updating, text: document.querySelector('[data-testid="row-freshness"]').textContent } : null;
+    }, null, { timeout: 30000, polling: 50 }).then((h) => h.jsonValue(), () => null);
+    await p.waitForFunction(() => !document.querySelector('[data-testid="scan-progress"]') && !document.querySelector('[data-testid="row-freshness"][data-state="updating"]'), null, { timeout: 40000 }).catch(() => null);
+    const rest = await p.evaluate(() => [...document.querySelectorAll('[data-testid="row-freshness"]')].map((b) => ({ state: b.dataset.state, text: b.textContent, row: b.closest("tr")?.querySelector("button > span:nth-child(2)")?.textContent })));
+    record("PG-2", "Reopen: rows appear at once from on-device history marked \"updating · bar time\" before any candle arrives; at rest only the pair whose fetch failed says \"not updated · bar time\"",
+      !!instant && instant.updating >= 10 && /^updating · \d/.test(instant.text) && rest.length === 1 && rest[0].state === "stale" && /^not updated · \d/.test(rest[0].text) && rest[0].row === "PGCAUSDT",
+      { instant, rest });
+    await c.close();
+  }
+  } // end of the full run (skipped with --ds-only)
+  /* acceptance-ids: DS-1, DS-2 — layout at rest vs the v2.7.0-web baselines in tools/e2e/baselines/ */
+  {
+    const baseFile = path.join(__dirname, "baselines", "ds-1.json");
+    const base = fs.existsSync(baseFile) ? JSON.parse(fs.readFileSync(baseFile, "utf8")) : null;
+    const now = await ds1Snapshot(browser);
+    const diffs = base ? dsCompare(base, now) : ["no baseline"];
+    record("DS-1", `Main screen at rest: header, controls, list toolbar, columns, rows and footer within ±${DS_TOLERANCE_PX} px of v2.7.0; default colours unchanged (text masked, clock frozen, FX mocked)`,
+      diffs.length === 0, diffs.length ? diffs.slice(0, 12).join(" | ") : `${Object.keys(now.boxes).length} boxes`);
+  }
+  {
+    const baseFile = path.join(__dirname, "baselines", "ds-2.json");
+    const base = fs.existsSync(baseFile) ? JSON.parse(fs.readFileSync(baseFile, "utf8")) : null;
+    const now = await ds2Snapshot(browser);
+    const diffs = base ? ["detail", "paper", "ledger"].flatMap((k) => (base[k] ? dsCompare(base[k], now[k], `${k} `) : [`${k}: no baseline`])) : ["no baseline"];
+    record("DS-2", `Detail sheet (top + chart layers), paper dialog and ledger dialog at rest within ±${DS_TOLERANCE_PX} px of v2.7.0; default colours unchanged; only the §3 allowed additions excluded (text masked, clock frozen, FX mocked)`,
+      diffs.length === 0, diffs.length ? `${diffs.length} differences: ${diffs.slice(0, 12).join(" | ")}` : ["detail", "paper", "ledger"].map((k) => `${k} ${Object.keys(now[k].boxes).length}`).join(", ") + " boxes");
   }
 
   await browser.close();

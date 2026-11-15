@@ -35,3 +35,5 @@ credential-free (ADR-0003, ADR-0004). Research (`docs/research/Philippine exchan
   source shows "Blocked or unreachable".
 - Coins.ph API terms of use and fee schedule are not yet reviewed [unverified]; the ledger fee for this source stays
   configurable and conservative until they are.
+- (v2.8 WP20, licence audit) Because those terms are [unverified], the Netlify rewrite relays Coins.ph public market data
+  for the owner's personal use only, until Coins.ph confirms in writing that its public market data may be relayed.
