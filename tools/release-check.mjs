@@ -288,7 +288,7 @@ if (process.argv.includes("--with-tests")) {
 {
   const { checkKeylessSources } = await import("./checks/keyless-sources.mjs");
   const r = checkKeylessSources(ROOT);
-  check("R20", "Public sources keyless; Coins.ph and Upbit paths only from their read allowlists; no private profile", r.ok, r.ok ? "coinsph, public-hosts, native-relay, okx, adapters; okx/okx-perp keyless" : r.findings.join("; "));
+  check("R20", "Public sources keyless; Coins.ph and Upbit paths only from their read allowlists; no private profile", r.ok, r.ok ? "coinsph, public-hosts, native-relay, okx, coinbase, adapters; okx/okx-perp/coinbase keyless" : r.findings.join("; "));
 }
 
 /* R21 — display currency is display only (v2.7, plan WP13.2) */

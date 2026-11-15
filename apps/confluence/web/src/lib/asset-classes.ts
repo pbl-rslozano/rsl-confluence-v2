@@ -143,8 +143,11 @@ export function classifySymbol(source: string, symbol: string, venueType?: strin
   if (!s.endsWith("USDT")) {
     const { base, quote } = splitPair(s, source);
     const q = stableQuote(quote);
-    if (q && base) {
-      if (q.peg === "USD" && USD_STABLE_ASSETS.has(base)) return "excluded";
+    // v2.8 (WP26): Coinbase's plain USD books are treated like a USD-pegged quote (PAXG-USD is a commodity,
+    // USDT-USD is a flat stablecoin pair).
+    const usdBook = source === "coinbase" && quote === "USD";
+    if ((q || usdBook) && base) {
+      if ((usdBook || q?.peg === "USD") && USD_STABLE_ASSETS.has(base)) return "excluded";
       return classifySymbol(source, `${base}USDT`, venueType);
     }
   }

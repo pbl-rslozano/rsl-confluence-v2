@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { checkKeylessSources, ROOT } from "./checks/keyless-sources.mjs";
 
 const LIB = "apps/confluence/web/src/lib";
-const FILES = [`${LIB}/coinsph.ts`, `${LIB}/public-hosts.ts`, `${LIB}/native-relay.ts`, `${LIB}/okx.ts`, `${LIB}/market-client.ts`, `${LIB}/private-api.ts`];
+const FILES = [`${LIB}/coinsph.ts`, `${LIB}/public-hosts.ts`, `${LIB}/native-relay.ts`, `${LIB}/okx.ts`, `${LIB}/coinbase.ts`, `${LIB}/market-client.ts`, `${LIB}/private-api.ts`];
 
 function withFixture(files, fn) {
   const dir = mkdtempSync(join(tmpdir(), "r20-"));
@@ -90,4 +90,29 @@ test("R20 flags key handling in the OKX module", () =>
     writeFileSync(p, readFileSync(p, "utf8") + '\nconst h = { "OK-ACCESS-SIGN": sign(secret) };\n');
     const r = checkKeylessSources(dir);
     assert.ok(r.findings.includes(`${LIB}/okx.ts: key/signature/auth handling in a public source`), r.findings.join("\n"));
+  }));
+
+// v2.8 (WP26, Task 4): Coinbase joins the public-source modules and must exist without a private profile.
+test("R20 flags key handling in the Coinbase module", () =>
+  withFixture({}, (r0, dir) => {
+    const p = join(dir, `${LIB}/coinbase.ts`);
+    writeFileSync(p, readFileSync(p, "utf8") + '\nconst h = { "CB-ACCESS-SIGN": sign(secret) };\n');
+    const r = checkKeylessSources(dir);
+    assert.ok(r.findings.includes(`${LIB}/coinbase.ts: key/signature/auth handling in a public source`), r.findings.join("\n"));
+  }));
+
+test("R20 flags a privateApi profile on the Coinbase source", () =>
+  withFixture({}, (r0, dir) => {
+    const p = join(dir, `${LIB}/market-client.ts`);
+    writeFileSync(p, readFileSync(p, "utf8").replace('label: "Coinbase (US)",', 'label: "Coinbase (US)",\n    privateApi: "coinbase",'));
+    const r = checkKeylessSources(dir);
+    assert.ok(r.findings.includes("market-client.ts: coinbase has a privateApi profile"), r.findings.join("\n"));
+  }));
+
+test("R20 requires the Coinbase source entry", () =>
+  withFixture({}, (r0, dir) => {
+    const p = join(dir, `${LIB}/market-client.ts`);
+    writeFileSync(p, readFileSync(p, "utf8").replace('value: "coinbase",', 'value: "coinbase-gone",'));
+    const r = checkKeylessSources(dir);
+    assert.ok(r.findings.includes("market-client.ts: coinbase source entry not found"), r.findings.join("\n"));
   }));

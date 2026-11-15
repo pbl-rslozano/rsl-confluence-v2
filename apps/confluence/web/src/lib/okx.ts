@@ -26,6 +26,7 @@ import type { Kline } from "./indicators";
 import { inClass, type AssetClassFilter } from "./asset-classes";
 import { DEFAULT_QUOTE, rememberPairs, type QuoteMode } from "./quotes";
 import { venueIdOf, venueSymbol } from "./venue-ids";
+import { createRateGate, realClock, type RateClock } from "./rate-gate";
 import {
   INSTRUMENT_TTL_MS, INTERVAL_MS, OKX_BASE, RateLimitError, SYNTHETIC_DAY_INTERVALS, aggregateKlines, assertFresh,
   assertNotCoolingDown, byUsdDesc, clampLimit, contiguousTail, dropUnclosed, fetchJson, filterTickers, passesTurnoverFloor,
@@ -93,46 +94,10 @@ export function parseOkxCandles(json: unknown, perp = false): { k: Kline[]; open
 
 /* ---------------- shared pacing ---------------- */
 
-/** Time source for the OKX pacing (injectable for tests). `sleep` resolves early when `signal` aborts. */
-export interface OkxClock { now(): number; sleep(ms: number, signal?: AbortSignal): Promise<void> }
-const realClock: OkxClock = {
-  now: () => Date.now(),
-  sleep: (ms, signal) => {
-    if (!(ms > 0) || signal?.aborted) return Promise.resolve();
-    return new Promise((resolve) => {
-      const done = () => { clearTimeout(id); signal?.removeEventListener("abort", done); resolve(); };
-      const id = setTimeout(done, ms);
-      signal?.addEventListener("abort", done, { once: true });
-    });
-  },
-};
+/** Time source for the OKX pacing (injectable for tests); the gate itself lives in rate-gate.ts (shared with Coinbase). */
+export type OkxClock = RateClock;
+export { createRateGate };
 let clock: OkxClock = realClock;
-
-/**
- * A token bucket whose tokens come back exactly `windowMs` after they are spent (a sliding-window log): at
- * most `limit` grants in ANY window of `windowMs`, with no burst above it (a classic bucket of `limit`
- * tokens refilled at `limit`/s could grant 2 × limit within one second). Waiters are served in order.
- * An aborted waiter rejects with AbortError and takes no grant.
- */
-export function createRateGate(limit: number, windowMs: number, time: OkxClock = realClock) {
-  const spent: number[] = [];
-  let queue: Promise<void> = Promise.resolve();
-  return {
-    take(signal?: AbortSignal): Promise<void> {
-      const turn = queue.then(async () => {
-        for (;;) {
-          if (signal?.aborted) throw new DOMException("OKX request cancelled", "AbortError");
-          const now = time.now();
-          while (spent.length && spent[0] <= now - windowMs) spent.shift();
-          if (spent.length < limit) { spent.push(now); return; }
-          await time.sleep(spent[0] + windowMs - now, signal);
-        }
-      });
-      queue = turn.catch(() => undefined);
-      return turn;
-    },
-  };
-}
 
 /** One gate per OKX path, shared by every caller and by both sources (one IP, one limit). */
 let gates = { candles: createRateGate(OKX_CANDLES_PER_S, 1000, clock), history: createRateGate(OKX_HISTORY_PER_S, 1000, clock) };

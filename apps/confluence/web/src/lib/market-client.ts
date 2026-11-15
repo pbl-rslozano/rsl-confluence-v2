@@ -104,6 +104,10 @@ import { normalizePublicTrades, type PublicTrade } from "./order-flow";
  * 23. OKX SPOT AND PERPETUAL (sources "okx", "okx-perp", okx.ts). Candles are paged 300 at a time (newest
  *     page /market/candles, then /market/history-candles?after=), bars flagged open are dropped, and a 429
  *     mid-paging rejects the whole series (no partial series) and halts the scan.
+ * 24. COINBASE SPOT (source "coinbase", coinbase.ts). USD (default) and USDT books; candles in 300-bar
+ *     start/end windows walking back from the last closed bar (at most 16 per series), open bars dropped by
+ *     close time, gaps cut to the newest contiguous run; 4h, 8h, 12h, 1w and 1M are built from shorter candles.
+ *     One gate keeps every Coinbase request at 8/s (80 % of the documented 10/s per IP).
  *
  * 10. VOLUME IS DETECTED, NOT ASSUMED. `volumeBySymbol` reports whether each
  *     series carries real traded volume (tokenised assets and thin pairs
@@ -120,6 +124,11 @@ import {
 } from "./coinsph";
 // v2.8 (WP26): OKX lives in okx.ts, which imports the shared helpers below (an import cycle; see okx.ts).
 import { OKX_CONCURRENCY, OKX_PAUSE_MS, OKX_RATE_LIMIT_CODE, fetchOkxHistoryPage, fetchOkxKlines, fetchOkxOrderBook, fetchOkxTickers, okxBar } from "./okx";
+// v2.8 (WP26): Coinbase lives in coinbase.ts (the same import cycle as okx.ts).
+import {
+  COINBASE_CONCURRENCY, COINBASE_MAX_LIMIT, COINBASE_PAUSE_MS, aggregateCoinbase, coinbaseGranularity, fetchCoinbaseHistoryPage,
+  fetchCoinbaseKlines, fetchCoinbaseOrderBook, fetchCoinbaseTickers,
+} from "./coinbase";
 export type { AssetClassFilter } from "./asset-classes";
 import {
   BEST, DEFAULT_QUOTE, type DepegReading, type PriceCurrency, type QuoteMode, baseFromInput, baseOf, depegLevel, normalizeQuoteMode,
@@ -131,6 +140,8 @@ const BYBIT_BASE = "https://api.bybit.com";
 const BITGET_BASE = "https://api.bitget.com";
 /** v2.8 (WP26): OKX public market data, spot and perpetual (ADR-0003 v2.8; probe wp26-venues-probe-2026-11-15.json). */
 export const OKX_BASE = "https://www.okx.com";
+/** v2.8 (WP26): Coinbase Exchange public market data (ADR-0003 v2.8; probe wp26-venues-probe-2026-11-15.json). */
+export const COINBASE_BASE = "https://api.exchange.coinbase.com";
 
 /**
  * Leveraged tokens and USD-pegged pairs are excluded and every other symbol is
@@ -200,6 +211,13 @@ export const DATA_SOURCES = [
     label: "OKX Perpetual",
     note: "Public USDT-margined perpetual tickers and OHLCV candles.",
     maxAssets: 200,
+  },
+  // v2.8 (WP26): public data only — no privateApi, never offered under 🔑 (R20). coinbase.ts.
+  {
+    value: "coinbase",
+    label: "Coinbase (US)",
+    note: "Public USD spot tickers and OHLCV candles; 4h and longer are built from shorter candles.",
+    maxAssets: 100,
   },
 ] as const;
 
@@ -586,7 +604,7 @@ function venueOfUrl(url: string): Venue {
   if (url.startsWith(BITGET_BASE)) return "bitget";
   // v2.8 (WP26) hosts, fixed by the plan; the fetchers arrive in Tasks 3-5.
   if (url.startsWith(OKX_BASE)) return "okx";
-  if (url.startsWith("https://api.exchange.coinbase.com")) return "coinbase";
+  if (url.startsWith(COINBASE_BASE)) return "coinbase";
   if (url.startsWith("https://api.upbit.com")) return "upbit";
   return "binance";
 }
@@ -1302,6 +1320,7 @@ export function deltaSupported(source: DataSource, interval: string): boolean {
   if (source === "binance" || source === "coinsph") return !SYNTHETIC_DAY_INTERVALS[interval];
   if (source === "bybit-spot" || source === "bybit-perp") return !bybitInterval(interval).aggregate;
   if (source === "okx" || source === "okx-perp") { const m = okxBar(interval); return !!m && !m.aggregate; }
+  if (source === "coinbase") { const m = coinbaseGranularity(interval); return !!m && !m.aggregate; }
   return !(source === "bitget-perp" ? bitgetPerpGranularity(interval) : bitgetGranularity(interval)).aggregate;
 }
 
@@ -1312,6 +1331,7 @@ export function fetchSymbolKlines(source: DataSource, interval: string, symbol: 
   if (source === "bybit-spot") return fetchBybitKlines("spot", symbol, interval, signal, bars, delta);
   if (source === "bybit-perp") return fetchBybitKlines("linear", symbol, interval, signal, bars, delta);
   if (source === "okx" || source === "okx-perp") return fetchOkxKlines(source, symbol, interval, signal, bars, delta);
+  if (source === "coinbase") return fetchCoinbaseKlines(symbol, interval, signal, bars, delta);
   return fetchBitgetKlines(symbol, interval, signal, bars, source === "bitget-perp", delta);
 }
 
@@ -1373,7 +1393,7 @@ export async function fetchDirectMarketData(
   const klines: Record<string, Kline[]> = {};
   const errors: FetchError[] = [];
   // Coins.ph: one request at a time; coinsph.ts spaces and budgets them. OKX pages each series (okx.ts).
-  const concurrency = source === "coinsph" ? 1 : source === "okx" || source === "okx-perp" ? OKX_CONCURRENCY : 6;
+  const concurrency = source === "coinsph" ? 1 : source === "okx" || source === "okx-perp" ? OKX_CONCURRENCY : source === "coinbase" ? COINBASE_CONCURRENCY : 6;
 
   let set: TickerSet;
   let coinsph: CoinsphTickerSet | null = null;
@@ -1382,6 +1402,7 @@ export async function fetchDirectMarketData(
   else if (source === "bybit-spot") set = await fetchBybitTickers("spot", assets, limit, signal, assetClass, quote, floorUsd);
   else if (source === "bybit-perp") set = await fetchBybitTickers("linear", assets, limit, signal, assetClass, quote, floorUsd);
   else if (source === "okx" || source === "okx-perp") set = await fetchOkxTickers(source, assets, limit, signal, assetClass, quote, floorUsd);
+  else if (source === "coinbase") set = await fetchCoinbaseTickers(assets, limit, signal, assetClass, quote, floorUsd);
   else set = await fetchBitgetTickers(assets, limit, signal, assetClass, source === "bitget-perp", quote, floorUsd);
   const tickers = set.tickers;
   // Everything the scan line and banners need that is known once the list is chosen (PH premium comes at the end).
@@ -1414,7 +1435,7 @@ export async function fetchDirectMarketData(
     concurrency,
     signal,
     // Bitget allows ~20 public requests/s per IP; pace it harder (review S1). Coins.ph paces itself.
-    pauseMs: source === "coinsph" ? 0 : source === "bitget" || source === "bitget-perp" ? 350 : source === "okx" || source === "okx-perp" ? OKX_PAUSE_MS : 120,
+    pauseMs: source === "coinsph" ? 0 : source === "bitget" || source === "bitget-perp" ? 350 : source === "okx" || source === "okx-perp" ? OKX_PAUSE_MS : source === "coinbase" ? COINBASE_PAUSE_MS : 120,
     isHalt: (e) => e instanceof RateLimitError,
     onResult: (symbol, value) => {
       klines[symbol] = value;
@@ -1493,7 +1514,16 @@ const HISTORY_BITGET: Record<string, string> = {
   "6h": "6Hutc", "12h": "12Hutc", "1d": "1Dutc", "1w": "1Wutc", "1M": "1Mutc",
 };
 
-function historyMapping(source: DataSource, interval: string) {
+function historyMapping(source: DataSource, interval: string): { upstream: string; baseMs: number; group: number; pageSize: number; aggregate?: (k: Kline[]) => Kline[] } {
+  // v2.8 (WP26): Coinbase builds 4h/8h/12h/1w/1M and 2d/4d from shorter candles (Monday weeks, calendar months).
+  if (source === "coinbase") {
+    const m = coinbaseGranularity(interval);
+    if (!m) throw new Error(`Coinbase has no ${interval} candles`);
+    return {
+      upstream: String(m.granularity), baseMs: m.baseMs, group: interval === "1M" ? 31 : m.aggregate ?? 1, pageSize: COINBASE_MAX_LIMIT,
+      ...(m.aggregate ? { aggregate: (k: Kline[]) => aggregateCoinbase(k, interval, m.baseMs) } : {}),
+    };
+  }
   // Binance and Coins.ph serve 8h natively.
   const special = (source === "binance" || source === "coinsph") && interval === "8h" ? undefined : HISTORY_SYNTHETIC[interval];
   const base = special?.base ?? interval;
@@ -1536,6 +1566,8 @@ async function historyPage(
   }
   // OKX drops rows flagged open (confirm "0"); `rows` keeps the raw count for the end-of-history test.
   if (source === "okx" || source === "okx-perp") return fetchOkxHistoryPage(source, symbol, upstream, endTime, signal);
+  // Coinbase: one 300-bar window ending at `endTime`; open bars removed (no flag — by close time).
+  if (source === "coinbase") return fetchCoinbaseHistoryPage(symbol, Number(upstream), endTime, signal);
   let url: string;
   if (source === "binance") {
     url = `${BINANCE_BASE}/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${upstream}&endTime=${endTime}&limit=1000`;
@@ -1593,7 +1625,7 @@ export async function fetchHistory(
     await sleep(120);
   }
   const closed = dropUnclosed([...all.values()], mapped.baseMs);
-  const final = mapped.group > 1 ? aggregateKlines(closed, mapped.group, mapped.baseMs) : closed;
+  const final = mapped.aggregate ? mapped.aggregate(closed) : mapped.group > 1 ? aggregateKlines(closed, mapped.group, mapped.baseMs) : closed;
   return { klines: final.slice(-Math.min(MAX_HISTORY_BARS, limit)), complete: exhausted };
 }
 
@@ -1628,7 +1660,7 @@ export async function fetchHistoryRange(
     await sleep(pauseMs);
   }
   const closed = dropUnclosed([...all.values()], mapped.baseMs).filter((b) => b.time <= toMs);
-  return mapped.group > 1 ? aggregateKlines(closed, mapped.group, mapped.baseMs) : closed;
+  return mapped.aggregate ? mapped.aggregate(closed) : mapped.group > 1 ? aggregateKlines(closed, mapped.group, mapped.baseMs) : closed;
 }
 
 /* ========================================================================== *
@@ -1685,6 +1717,7 @@ export async function fetchOrderBook(source: DataSource, symbol: string, signal?
     return { bids: toLevels(j.bids), asks: toLevels(j.asks) };
   }
   if (source === "okx" || source === "okx-perp") return fetchOkxOrderBook(source, symbol, signal);
+  if (source === "coinbase") return fetchCoinbaseOrderBook(symbol, signal);
   if (source === "bybit-spot" || source === "bybit-perp") {
     const cat = source === "bybit-perp" ? "linear" : "spot";
     const j = (await fetchJson(`${BYBIT_BASE}/v5/market/orderbook?category=${cat}&symbol=${s}&limit=50`, `Bybit depth ${symbol}`, signal)) as { result?: { b?: unknown; a?: unknown } };

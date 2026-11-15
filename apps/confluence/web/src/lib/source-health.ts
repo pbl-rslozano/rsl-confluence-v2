@@ -20,10 +20,11 @@ export interface SourceHealth {
 
 /**
  * A scan slower than this is "slow" (Coins.ph is paced deliberately, so it gets more room; v2.8 WP26: OKX pages
- * a 1,000-bar warm start in 4 requests per series at 4 series at a time, so it gets 60 s).
+ * a 1,000-bar warm start in 4 requests per series at 4 series at a time, so it gets 60 s; Coinbase pages 300-bar
+ * windows behind one 8 requests/s gate and builds 4h and longer from shorter candles, so it gets 90 s).
  */
 export function slowAfterMs(source: string): number {
-  return source === "coinsph" ? 90_000 : source === "okx" || source === "okx-perp" ? 60_000 : 20_000;
+  return source === "coinsph" ? 90_000 : source === "okx" || source === "okx-perp" ? 60_000 : source === "coinbase" ? 90_000 : 20_000;
 }
 
 export function healthFromScan(
