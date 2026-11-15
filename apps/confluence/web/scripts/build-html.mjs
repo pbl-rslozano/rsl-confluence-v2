@@ -45,6 +45,19 @@ try {
 // Stamp the target so packaging can refuse a mismatched out/ (e.g. zipping a Tauri build as the PWA).
 if (exitCode === 0) writeFileSync("out/.rsl-target", `${target}\n`);
 
+// v2.8 WP20 (licence audit): the third-party notices ship next to index.html in every bundle (About → Open-source
+// licences). Written before protect-build so the build manifest lists it (R17); a component without a licence
+// text fails the build.
+if (exitCode === 0) {
+  const result = spawnSync(process.execPath, [
+    join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "tools", "third-party-notices.mjs"),
+    "--out", join("out", "THIRD-PARTY-NOTICES.txt"),
+    "--target", target,
+  ], { stdio: "inherit" });
+  exitCode = result.status ?? 1;
+  if (exitCode !== 0) rmSync("out/.rsl-target", { force: true });
+}
+
 // v2.6 WP8: obfuscate the app's own chunks, delete source maps, write build-manifest.json (next to out/, never
 // inside). Runs here, before Capacitor/Tauri copy out/ and before package-pwa/publish-update zip or deploy it.
 // The service worker's CACHE_VERSION is a source constant (R15) and sw.js precaches no hashed chunks, so it stays

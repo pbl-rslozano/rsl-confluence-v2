@@ -54,6 +54,8 @@ jobs:
           python3 -m pip install --quiet pillow==12.3.0 fonttools==4.67.0 brotli==1.1.0 || python3 -m pip install --quiet --break-system-packages pillow==12.3.0 fonttools==4.67.0 brotli==1.1.0
           python3 tools/check-icons.test.py
           python3 tools/build-menu-fonts.py --check
+      - name: Third-party notices complete (WP20) — every shipped component has a licence text
+        run: node tools/third-party-notices.mjs --check
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm sbom
