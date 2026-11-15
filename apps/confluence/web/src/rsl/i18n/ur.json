@@ -86,7 +86,7 @@
   "notice.session": "اس ڈیوائس پر اسٹوریج بلاک ہے۔ آپ کی ترتیبات صرف ایپ بند کرنے تک محفوظ رہیں گی۔ بند کرنے سے پہلے بیک اپ ایکسپورٹ کریں۔",
   "notice.backupDue": "{days, plural, =0 {آپ نے ابھی تک کوئی بیک اپ ایکسپورٹ نہیں کیا۔} one {آخری بیک اپ # دن پہلے۔} other {آخری بیک اپ # دن پہلے۔}} «تعارف» سے ایک ایکسپورٹ کریں۔",
   "about.title": "تعارف",
-  "about.edition": "ذاتی بلڈ — لائسنس درکار نہیں",
+  "about.edition": "Personal build — no licence key required",
   "about.platform": "پلیٹ فارم",
   "about.storage": "اسٹوریج",
   "about.audit": "آڈٹ ٹریل",
@@ -460,7 +460,7 @@
   "fx.customRequest": "ڈویلپر کو تحریری درخواست بھیجیں",
   "fx.customImported": "{n, number} کرنسیاں درآمد ہوئیں",
   "fx.customBad": "اس فائل میں ایسی کوئی شرحِ تبادلہ نہیں جو ایپ پڑھ سکے۔",
-  "fx.src.ecb": "یورپی مرکزی بینک کی حوالہ جاتی شرحیں",
+  "fx.src.ecb": "derived from ECB euro reference rates",
   "fx.src.erapi": "ExchangeRate-API (کھلی رسائی)",
   "fx.src.floatrates": "FloatRates (طریقہ شائع نہیں)",
   "fx.src.custom": "اپنا ذریعہ (غیر جانچا شدہ)",
@@ -529,5 +529,9 @@
   "liq.thin": "{n, number} thin pairs under {floor}/day are not scored",
   "ledger.longAvoided": "long avoided",
   "reversal.clueNote": "HIGH, MOD and LOW count net clues (three or more, two, one). They are not probabilities.",
-  "pattern.tooFew": "Too few analogues"
+  "pattern.tooFew": "Too few analogues",
+  "about.licences": "Open-source licences",
+  "about.licencesNote": "This app includes open-source software. Each component's licence and copyright notice is in the third-party notices.",
+  "about.licencesOpen": "Third-party notices (THIRD-PARTY-NOTICES.txt)",
+  "about.trademarks": "Bollinger Bands® is a registered trademark of John Bollinger. Exchange and token names and logos belong to their owners and only identify the market; no affiliation or endorsement."
 }

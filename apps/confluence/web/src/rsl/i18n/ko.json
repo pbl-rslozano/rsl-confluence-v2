@@ -86,7 +86,7 @@
   "notice.session": "이 기기에서 저장소가 차단되었습니다. 설정은 앱을 닫을 때까지만 유지됩니다. 닫기 전에 백업을 내보내세요.",
   "notice.backupDue": "{days, plural, =0 {아직 백업을 내보낸 적이 없습니다.} other {마지막 백업: #일 전.}} 정보 화면에서 백업을 내보내세요.",
   "about.title": "정보",
-  "about.edition": "개인용 빌드 — 라이선스 불필요",
+  "about.edition": "Personal build — no licence key required",
   "about.platform": "플랫폼",
   "about.storage": "저장소",
   "about.audit": "감사 기록",
@@ -460,7 +460,7 @@
   "fx.customRequest": "개발자에게 서면 요청 보내기",
   "fx.customImported": "통화 {n, number}개를 가져왔습니다",
   "fx.customBad": "이 파일에는 앱이 읽을 수 있는 환율이 없습니다.",
-  "fx.src.ecb": "유럽중앙은행 기준 환율",
+  "fx.src.ecb": "derived from ECB euro reference rates",
   "fx.src.erapi": "ExchangeRate-API (공개 접근)",
   "fx.src.floatrates": "FloatRates (산출 방식 미공개)",
   "fx.src.custom": "사용자 출처 (검증되지 않음)",
@@ -529,5 +529,9 @@
   "liq.thin": "{n, number} thin pairs under {floor}/day are not scored",
   "ledger.longAvoided": "long avoided",
   "reversal.clueNote": "HIGH, MOD and LOW count net clues (three or more, two, one). They are not probabilities.",
-  "pattern.tooFew": "Too few analogues"
+  "pattern.tooFew": "Too few analogues",
+  "about.licences": "Open-source licences",
+  "about.licencesNote": "This app includes open-source software. Each component's licence and copyright notice is in the third-party notices.",
+  "about.licencesOpen": "Third-party notices (THIRD-PARTY-NOTICES.txt)",
+  "about.trademarks": "Bollinger Bands® is a registered trademark of John Bollinger. Exchange and token names and logos belong to their owners and only identify the market; no affiliation or endorsement."
 }

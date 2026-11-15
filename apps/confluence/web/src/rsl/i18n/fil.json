@@ -86,7 +86,7 @@
   "notice.session": "Naka-block ang imbakan sa device na ito. Itatago lamang ang iyong mga setting hanggang isara mo ang app. Mag-export ng backup bago isara.",
   "notice.backupDue": "{days, plural, =0 {Hindi ka pa nakapag-export ng backup.} one {Huling backup: # araw na ang nakalipas.} other {Huling backup: # araw na ang nakalipas.}} Mag-export mula sa Tungkol.",
   "about.title": "Tungkol",
-  "about.edition": "Personal na build — walang kailangang lisensya",
+  "about.edition": "Personal build — no licence key required",
   "about.platform": "Platform",
   "about.storage": "Imbakan",
   "about.audit": "Talaan ng audit",
@@ -460,7 +460,7 @@
   "fx.customRequest": "Magpadala ng nakasulat na kahilingan sa developer",
   "fx.customImported": "{n, number} currency ang na-import",
   "fx.customBad": "Walang exchange rate sa file na ito na mababasa ng app.",
-  "fx.src.ecb": "Mga reference rate ng European Central Bank",
+  "fx.src.ecb": "derived from ECB euro reference rates",
   "fx.src.erapi": "ExchangeRate-API (open access)",
   "fx.src.floatrates": "FloatRates (hindi inilathala ang paraan)",
   "fx.src.custom": "sariling pinagmulan (hindi nasubok)",
@@ -529,5 +529,9 @@
   "liq.thin": "{n, number} thin pairs under {floor}/day are not scored",
   "ledger.longAvoided": "long avoided",
   "reversal.clueNote": "HIGH, MOD and LOW count net clues (three or more, two, one). They are not probabilities.",
-  "pattern.tooFew": "Too few analogues"
+  "pattern.tooFew": "Too few analogues",
+  "about.licences": "Open-source licences",
+  "about.licencesNote": "This app includes open-source software. Each component's licence and copyright notice is in the third-party notices.",
+  "about.licencesOpen": "Third-party notices (THIRD-PARTY-NOTICES.txt)",
+  "about.trademarks": "Bollinger Bands® is a registered trademark of John Bollinger. Exchange and token names and logos belong to their owners and only identify the market; no affiliation or endorsement."
 }

@@ -86,7 +86,7 @@
   "notice.session": "L’archiviazione è bloccata su questo dispositivo. Le impostazioni restano solo fino alla chiusura dell’app. Esporta un backup prima di chiudere.",
   "notice.backupDue": "{days, plural, =0 {Non hai ancora esportato un backup.} one {Ultimo backup # giorno fa.} many {Ultimo backup # giorni fa.} other {Ultimo backup # giorni fa.}} Esportane uno da Info.",
   "about.title": "Info",
-  "about.edition": "Build personale — nessuna licenza richiesta",
+  "about.edition": "Personal build — no licence key required",
   "about.platform": "Piattaforma",
   "about.storage": "Archiviazione",
   "about.audit": "Registro di audit",
@@ -460,7 +460,7 @@
   "fx.customRequest": "Invia una richiesta scritta allo sviluppatore",
   "fx.customImported": "{n, number} valute importate",
   "fx.customBad": "Questo file non contiene cambi leggibili dall'app.",
-  "fx.src.ecb": "cambi di riferimento della Banca centrale europea",
+  "fx.src.ecb": "derived from ECB euro reference rates",
   "fx.src.erapi": "ExchangeRate-API (accesso aperto)",
   "fx.src.floatrates": "FloatRates (metodo non pubblicato)",
   "fx.src.custom": "fonte personale (non testata)",
@@ -529,5 +529,9 @@
   "liq.thin": "{n, number} thin pairs under {floor}/day are not scored",
   "ledger.longAvoided": "long avoided",
   "reversal.clueNote": "HIGH, MOD and LOW count net clues (three or more, two, one). They are not probabilities.",
-  "pattern.tooFew": "Too few analogues"
+  "pattern.tooFew": "Too few analogues",
+  "about.licences": "Open-source licences",
+  "about.licencesNote": "This app includes open-source software. Each component's licence and copyright notice is in the third-party notices.",
+  "about.licencesOpen": "Third-party notices (THIRD-PARTY-NOTICES.txt)",
+  "about.trademarks": "Bollinger Bands® is a registered trademark of John Bollinger. Exchange and token names and logos belong to their owners and only identify the market; no affiliation or endorsement."
 }

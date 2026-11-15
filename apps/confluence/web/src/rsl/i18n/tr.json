@@ -86,7 +86,7 @@
   "notice.session": "Bu cihazda depolama engellendi. Ayarlarınız yalnızca uygulamayı kapatana kadar saklanır. Kapatmadan önce yedek dışa aktarın.",
   "notice.backupDue": "{days, plural, =0 {Henüz yedek dışa aktarmadınız.} one {Son yedek # gün önce.} other {Son yedek # gün önce.}} Hakkında bölümünden dışa aktarın.",
   "about.title": "Hakkında",
-  "about.edition": "Kişisel sürüm — lisans gerekmez",
+  "about.edition": "Personal build — no licence key required",
   "about.platform": "Platform",
   "about.storage": "Depolama",
   "about.audit": "Denetim kaydı",
@@ -460,7 +460,7 @@
   "fx.customRequest": "Geliştiriciye yazılı talep gönder",
   "fx.customImported": "{n, number} para birimi içe aktarıldı",
   "fx.customBad": "Bu dosyada uygulamanın okuyabileceği kur yok.",
-  "fx.src.ecb": "Avrupa Merkez Bankası referans kurları",
+  "fx.src.ecb": "derived from ECB euro reference rates",
   "fx.src.erapi": "ExchangeRate-API (açık erişim)",
   "fx.src.floatrates": "FloatRates (yöntem yayımlanmamış)",
   "fx.src.custom": "özel kaynak (test edilmedi)",
@@ -529,5 +529,9 @@
   "liq.thin": "{n, number} thin pairs under {floor}/day are not scored",
   "ledger.longAvoided": "long avoided",
   "reversal.clueNote": "HIGH, MOD and LOW count net clues (three or more, two, one). They are not probabilities.",
-  "pattern.tooFew": "Too few analogues"
+  "pattern.tooFew": "Too few analogues",
+  "about.licences": "Open-source licences",
+  "about.licencesNote": "This app includes open-source software. Each component's licence and copyright notice is in the third-party notices.",
+  "about.licencesOpen": "Third-party notices (THIRD-PARTY-NOTICES.txt)",
+  "about.trademarks": "Bollinger Bands® is a registered trademark of John Bollinger. Exchange and token names and logos belong to their owners and only identify the market; no affiliation or endorsement."
 }

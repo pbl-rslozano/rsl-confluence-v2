@@ -86,7 +86,7 @@
   "notice.session": "Penyimpanan diblokir di perangkat ini. Pengaturan Anda hanya disimpan sampai aplikasi ditutup. Ekspor cadangan sebelum menutup.",
   "notice.backupDue": "{days, plural, =0 {Anda belum pernah mengekspor cadangan.} other {Cadangan terakhir # hari lalu.}} Ekspor dari menu Tentang.",
   "about.title": "Tentang",
-  "about.edition": "Versi pribadi — tanpa lisensi",
+  "about.edition": "Personal build — no licence key required",
   "about.platform": "Platform",
   "about.storage": "Penyimpanan",
   "about.audit": "Jejak audit",
@@ -460,7 +460,7 @@
   "fx.customRequest": "Kirim permintaan tertulis kepada pengembang",
   "fx.customImported": "{n, number} mata uang diimpor",
   "fx.customBad": "File ini tidak berisi kurs yang dapat dibaca aplikasi.",
-  "fx.src.ecb": "kurs acuan Bank Sentral Eropa",
+  "fx.src.ecb": "derived from ECB euro reference rates",
   "fx.src.erapi": "ExchangeRate-API (akses terbuka)",
   "fx.src.floatrates": "FloatRates (metode tidak dipublikasikan)",
   "fx.src.custom": "sumber sendiri (belum diuji)",
@@ -529,5 +529,9 @@
   "liq.thin": "{n, number} thin pairs under {floor}/day are not scored",
   "ledger.longAvoided": "long avoided",
   "reversal.clueNote": "HIGH, MOD and LOW count net clues (three or more, two, one). They are not probabilities.",
-  "pattern.tooFew": "Too few analogues"
+  "pattern.tooFew": "Too few analogues",
+  "about.licences": "Open-source licences",
+  "about.licencesNote": "This app includes open-source software. Each component's licence and copyright notice is in the third-party notices.",
+  "about.licencesOpen": "Third-party notices (THIRD-PARTY-NOTICES.txt)",
+  "about.trademarks": "Bollinger Bands® is a registered trademark of John Bollinger. Exchange and token names and logos belong to their owners and only identify the market; no affiliation or endorsement."
 }

@@ -86,7 +86,7 @@
   "notice.session": "この端末ではストレージがブロックされています。設定はアプリを閉じるまでしか保持されません。閉じる前にバックアップをエクスポートしてください。",
   "notice.backupDue": "{days, plural, =0 {まだバックアップをエクスポートしていません。} other {最後のバックアップは # 日前です。}}「情報」からエクスポートしてください。",
   "about.title": "情報",
-  "about.edition": "個人用ビルド — ライセンス不要",
+  "about.edition": "Personal build — no licence key required",
   "about.platform": "プラットフォーム",
   "about.storage": "ストレージ",
   "about.audit": "監査証跡",
@@ -460,7 +460,7 @@
   "fx.customRequest": "開発者に書面で依頼する",
   "fx.customImported": "{n, number} 通貨を取り込みました",
   "fx.customBad": "このファイルにはアプリが読める為替レートがありません。",
-  "fx.src.ecb": "欧州中央銀行の参照レート",
+  "fx.src.ecb": "derived from ECB euro reference rates",
   "fx.src.erapi": "ExchangeRate-API（オープンアクセス）",
   "fx.src.floatrates": "FloatRates（算出方法は非公開）",
   "fx.src.custom": "カスタム出典（未検証）",
@@ -529,5 +529,9 @@
   "liq.thin": "{n, number} thin pairs under {floor}/day are not scored",
   "ledger.longAvoided": "long avoided",
   "reversal.clueNote": "HIGH, MOD and LOW count net clues (three or more, two, one). They are not probabilities.",
-  "pattern.tooFew": "Too few analogues"
+  "pattern.tooFew": "Too few analogues",
+  "about.licences": "Open-source licences",
+  "about.licencesNote": "This app includes open-source software. Each component's licence and copyright notice is in the third-party notices.",
+  "about.licencesOpen": "Third-party notices (THIRD-PARTY-NOTICES.txt)",
+  "about.trademarks": "Bollinger Bands® is a registered trademark of John Bollinger. Exchange and token names and logos belong to their owners and only identify the market; no affiliation or endorsement."
 }

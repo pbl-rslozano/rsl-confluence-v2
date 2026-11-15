@@ -5,7 +5,7 @@ import {
   parseFrankfurterRates, parseFrankfurterCurrencies, parseFawazRates, pegTable, convert, canConvert, isStale,
   usdtDeviationPct, rateKind, autoCurrency, refreshRates, FRANKFURTER_RATES, FAWAZ_URLS, FX_HOSTS,
   parseEcbRates, parseErApiRates, parseFloatRates, parseCustomRates, FX_SOURCES, verifyUrl, saveCustomTable, cachedTable,
-  ECB_RATES, ERAPI_RATES, FLOATRATES_RATES,
+  ECB_RATES, ERAPI_RATES, FLOATRATES_RATES, fxCredit,
 } from "./fx-rates.ts";
 import { formatMoney, formatMoneyCompact, minorUnits } from "./money.ts";
 
@@ -142,5 +142,22 @@ ok("FX-10 when the chosen source fails, its last table is kept (no silent switch
 seen.length = 0;
 chosen = await refreshRates({ choice: "floatrates", force: true, fetcher: async (u) => { seen.push(u); return resp({}, 500); }, now: 70_000 });
 ok("FX-11 a chosen source that never answered → pegs, not another provider", chosen.source === "peg" && seen.every((u) => u === FLOATRATES_RATES));
+/* v2.8 WP20 (licence audit): source terms and credits */
+const src = (id) => FX_SOURCES.find((x) => x.id === id);
+ok("WP20 Frankfurter terms are its published terms (not \"MIT licence …\")", !src("frankfurter").terms.startsWith("MIT licence") &&
+  src("frankfurter").terms === "free, no key, no quotas (rate-limited against abuse); code MIT; rates are public data under each central bank's terms", src("frankfurter").terms);
+ok("WP20 ECB: method, 29 currencies (PHP included; no SAR or AED), credit rebased to USD",
+  src("ecb").method === "Official euro reference rates, published around 16:00 CET on TARGET working days, for information only; this app divides them by the EUR/USD rate to show a US-dollar base." &&
+  src("ecb").coverage === "29 currencies (PHP included; no SAR or AED)" &&
+  src("ecb").attribution?.text === "Source: ECB statistics (rebased to USD by this app)" && src("ecb").attribution?.url === "https://data.ecb.europa.eu/main-figures/ecb-reference-rates");
+ok("WP20 fawazahmed0: single-maintainer project, licence not verified by us",
+  src("fawazahmed0").method === "Single-maintainer project; the method and the sources are not published." &&
+  src("fawazahmed0").terms === "free, no key; licence not verified by us — see the repository");
+const tbl = (source) => ({ rates: { USD: 1, SAR: 3.75, PHP: 63 }, dates: {}, source, asOf: D, fetchedAt: 1 });
+ok("WP20 fxCredit: ExchangeRate-API credited whenever its rates convert what is on screen",
+  fxCredit(tbl("erapi"), "USD", "SAR")?.text === "Rates By Exchange Rate API" && fxCredit(tbl("erapi"), "PHP", "USD")?.url === "https://www.exchangerate-api.com");
+ok("WP20 fxCredit: nothing when no value is converted, or the source needs no credit (default Frankfurter)",
+  fxCredit(tbl("erapi"), "USD", "USD") === undefined && fxCredit(tbl("frankfurter"), "USD", "SAR") === undefined && fxCredit(null, "USD", "SAR") === undefined &&
+  fxCredit(tbl("ecb"), "USD", "SAR")?.text === "Source: ECB statistics (rebased to USD by this app)");
 console.log(`\nFX suite: ${passed}/${passed + failed} passed`);
 if (failed) process.exit(1);

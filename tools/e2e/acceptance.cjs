@@ -152,6 +152,23 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
   await page.screenshot({ path: path.join(OUT, "04-about-1366.png") });
   const { findGuarded } = await import(path.join(__dirname, "..", "checks", "no-org-ids.mjs"));
   record("ID-2.4", "About ends with personal credit, no organisation details (R22 word list)", /Created by rsLozano/.test(about) && findGuarded(about).length === 0 && !/Confidential|Department Head/i.test(about));
+  // v2.8 WP20 — About → Open-source licences (collapsed, above the credit): the link opens the third-party notices
+  // (served next to index.html, 200, not empty) and the trademark line sits inside the collapsed section.
+  {
+    const sec = page.getByTestId("about-licences");
+    const closedAtRest = (await sec.getAttribute("open")) === null;
+    await sec.locator("summary").click();
+    const link = page.getByTestId("about-licences-link");
+    const href = await link.getAttribute("href").catch(() => null);
+    const got = href ? await page.evaluate(async (h) => { const r = await fetch(h); const t = await r.text(); return { status: r.status, len: t.length, head: t.slice(0, 48) }; }, href) : null;
+    await link.click();
+    const shown = (await page.getByTestId("about-licences-text").textContent({ timeout: 10000 }).catch(() => "")) ?? "";
+    const tm = (await page.getByTestId("about-trademarks").textContent().catch(() => "")) ?? "";
+    const tmInside = await page.locator('[data-testid="about-licences"] [data-testid="about-trademarks"]').count();
+    record("ID-2.5", "About → Open-source licences (collapsed): link opens the third-party notices (200, not empty); trademark line inside the section",
+      closedAtRest && !!got && got.status === 200 && got.len > 10000 && /third-party notices/.test(shown) && /react@/.test(shown) && /Bollinger Bands®/.test(tm) && tmInside === 1,
+      { closedAtRest, href, ...got, shown: shown.length });
+  }
 
   // Backup export → restore round trip + tamper refusal (builder §9.4-5)
   const [dl] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Export backup" }).click()]);
@@ -1281,9 +1298,10 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
     await dlg.getByText("European Central Bank", { exact: true }).click();
     const fxBefore = fxHits.length;
     await dlg.getByTestId("fx-update").click();
-    await p.waitForFunction(() => /European Central Bank/.test(document.querySelector('[data-testid="fx-info"]')?.textContent ?? ""), null, { timeout: 15000 }).catch(() => null);
+    // v2.8 WP20: the info line now says "derived from ECB euro reference rates · Source: ECB statistics (rebased to USD by this app)".
+    await p.waitForFunction(() => /ECB/.test(document.querySelector('[data-testid="fx-info"]')?.textContent ?? ""), null, { timeout: 15000 }).catch(() => null);
     const info2 = (await p.getByTestId("fx-info").textContent().catch(() => "")) ?? "";
-    record("FX-15", "Choosing the ECB converts SAR at the ECB's own cross rate and names it", /European Central Bank/.test(info2) && /1 USD = 3\.75 SAR/.test(info2) && fxHits.length === fxBefore, info2.slice(0, 160));
+    record("FX-15", "Choosing the ECB converts SAR at the ECB's own cross rate and names it", /ECB euro reference rates/.test(info2) && /Source: ECB statistics \(rebased to USD by this app\)/.test(info2) && /1 USD = 3\.75 SAR/.test(info2) && fxHits.length === fxBefore, info2.slice(0, 200));
     await p.keyboard.press("Escape");
     await p.locator('[data-testid="fx-sources"]').waitFor({ state: "detached", timeout: 10000 }).catch(() => null);
 
@@ -1380,6 +1398,57 @@ async function waitRows(page) { await page.waitForFunction(() => document.queryS
     record("CH-6", "Phone: pinching out on the chart zooms in (fewer bars), the page does not zoom",
       after < before && await p.evaluate(() => (window.visualViewport?.scale ?? 1) === 1), `${before} → ${after}`);
     await p.screenshot({ path: path.join(OUT, "v27-phone-chart.png") });
+    await c.close();
+  }
+
+  /* ===== v2.8 WP20: rate-source credit wherever its rates are on screen ===== */
+  /* acceptance-ids: FX-16 */
+  {
+    const c = await newContext(browser);
+    await mockExchanges(c, null);
+    const cors = { "access-control-allow-origin": "*", "content-type": "application/json" };
+    const rates = { SAR: 3.75, PHP: 63, EUR: 0.89234, AED: 3.6725, JPY: 158.24, GBP: 0.7612, INR: 88.71, CNY: 7.11, SGD: 1.3, AUD: 1.52, CAD: 1.39 };
+    await c.route(/^https:\/\/api\.frankfurter\.dev\/v2\//, (route) => {
+      const u = new URL(route.request().url());
+      if (u.pathname.endsWith("/currencies")) return route.fulfill({ status: 200, headers: cors, body: JSON.stringify([...Object.keys(rates), "USD"].map((iso_code) => ({ iso_code, name: iso_code, type: "currency" }))) });
+      return route.fulfill({ status: 200, headers: cors, body: JSON.stringify(Object.entries(rates).map(([quote, rate]) => ({ date: "2026-11-11", base: "USD", quote, rate }))) });
+    });
+    await c.route(/^https:\/\/open\.er-api\.com\//, (route) => route.fulfill({ status: 200, headers: cors,
+      body: JSON.stringify({ result: "success", base_code: "USD", time_last_update_unix: 1794355352, rates: { USD: 1, ...rates } }) }));
+    const p = await c.newPage();
+    await p.goto(BASE, { waitUntil: "domcontentloaded" });
+    await completeFirstRun(p, { operator: "R" });
+    await waitRows(p);
+    await p.getByRole("combobox", { name: "Display currency" }).click();
+    await p.getByRole("option", { name: /^SAR/ }).first().click();
+    await p.waitForFunction(() => /Frankfurter/.test(document.querySelector('[data-testid="fx-info"]')?.textContent ?? ""), null, { timeout: 20000 }).catch(() => null);
+    // Default source (Frankfurter) needs no credit: nothing extra in the expanded toolbar.
+    await p.getByTestId("list-expand").click();
+    const defaultExpanded = await p.getByTestId("fx-credit-expanded").count();
+    await p.getByTestId("list-expand").click();
+    // Choose ExchangeRate-API.
+    await p.getByTestId("fx-sources-open").first().click();
+    const dlg = p.getByTestId("fx-sources");
+    await dlg.waitFor({ timeout: 10000 });
+    await dlg.getByText("ExchangeRate-API (open access)", { exact: true }).click();
+    await dlg.getByTestId("fx-update").click();
+    await p.waitForFunction(() => /Rates By Exchange Rate API/.test(document.querySelector('[data-testid="fx-info"]')?.textContent ?? ""), null, { timeout: 15000 }).catch(() => null);
+    await p.keyboard.press("Escape");
+    await dlg.waitFor({ state: "detached", timeout: 10000 }).catch(() => null);
+    const credit = (loc) => loc.evaluate((a) => ({ text: a.textContent, href: a.getAttribute("href"), visible: !!(a.offsetWidth || a.offsetHeight) })).catch(() => null);
+    const normal = await credit(p.locator('[data-testid="fx-info"] a[href="https://www.exchangerate-api.com"]'));
+    await p.getByTestId("list-expand").click();
+    const expanded = await credit(p.getByTestId("fx-credit-expanded"));
+    await p.getByTestId("list-expand").click();
+    await p.getByRole("button", { name: /^BTC/ }).first().click();
+    const detailLink = p.locator('[data-testid="fx-credit-detail"] a');
+    await detailLink.waitFor({ timeout: 15000 }).catch(() => null);
+    await detailLink.scrollIntoViewIfNeeded().catch(() => null);
+    const detail = await credit(detailLink);
+    const okCredit = (x) => x && x.visible && x.text === "Rates By Exchange Rate API" && x.href === "https://www.exchangerate-api.com";
+    record("FX-16", "ExchangeRate-API + SAR: \"Rates By Exchange Rate API\" link in normal mode, expanded list and the detail sheet; none for the default source",
+      defaultExpanded === 0 && okCredit(normal) && okCredit(expanded) && okCredit(detail), { defaultExpanded, normal, expanded, detail });
+    await p.keyboard.press("Escape");
     await c.close();
   }
 

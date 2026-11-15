@@ -86,7 +86,7 @@
   "notice.session": "本设备已禁止存储。你的设置仅保留到关闭应用为止。关闭前请导出备份。",
   "notice.backupDue": "{days, plural, =0 {你尚未导出过备份。} other {上次备份于 # 天前。}}请在“关于”中导出备份。",
   "about.title": "关于",
-  "about.edition": "个人版 — 无需许可证",
+  "about.edition": "Personal build — no licence key required",
   "about.platform": "平台",
   "about.storage": "存储",
   "about.audit": "审计日志",
@@ -460,7 +460,7 @@
   "fx.customRequest": "向开发者发送书面请求",
   "fx.customImported": "已导入 {n, number} 种货币",
   "fx.customBad": "此文件中没有应用可读取的汇率。",
-  "fx.src.ecb": "欧洲央行参考汇率",
+  "fx.src.ecb": "derived from ECB euro reference rates",
   "fx.src.erapi": "ExchangeRate-API（开放访问）",
   "fx.src.floatrates": "FloatRates（方法未公开）",
   "fx.src.custom": "自定义来源（未经测试）",
@@ -529,5 +529,9 @@
   "liq.thin": "{n, number} thin pairs under {floor}/day are not scored",
   "ledger.longAvoided": "long avoided",
   "reversal.clueNote": "HIGH, MOD and LOW count net clues (three or more, two, one). They are not probabilities.",
-  "pattern.tooFew": "Too few analogues"
+  "pattern.tooFew": "Too few analogues",
+  "about.licences": "Open-source licences",
+  "about.licencesNote": "This app includes open-source software. Each component's licence and copyright notice is in the third-party notices.",
+  "about.licencesOpen": "Third-party notices (THIRD-PARTY-NOTICES.txt)",
+  "about.trademarks": "Bollinger Bands® is a registered trademark of John Bollinger. Exchange and token names and logos belong to their owners and only identify the market; no affiliation or endorsement."
 }

@@ -103,7 +103,7 @@ import { BEST, baseOf as pairBase, normalizeQuoteMode, quoteModesFor, stableQuot
 import { autoCurrency, BANDS, cachedCurrencies, cachedTable, canConvert, convert, impliedUsdtPremiumPct, isStale, loadCurrencies, PEGS, rateKind, refreshRates, usdtDeviationPct, type FiatCurrency, type FxTable } from "@/lib/fx-rates";
 import { formatMoney, formatMoneyCompact } from "@/lib/money";
 import { FxSourcesDialog } from "@/components/fx-sources-dialog";
-import { fxSourceInfo, type FxChoice } from "@/lib/fx-rates";
+import { fxCredit, fxSourceInfo, type FxChoice } from "@/lib/fx-rates";
 import { PrivateApiDialog } from "@/components/private-api-dialog";
 import type { PrivateApiProfile } from "@/lib/private-api";
 import { Button } from "@/components/ui/button";
@@ -1162,6 +1162,8 @@ export default function Home() {
   /* ---- v2.7 (WP13): display currency — formatting only, rows stay in their native currency ---- */
   const nativeCurrency = scanMeta.currency;
   const priceCurrency = canConvert(nativeCurrency, displayCurrency, fx) ? displayCurrency : nativeCurrency;
+  // v2.8 WP20: a rate source's required credit wherever its rates convert values on screen (none for the default source).
+  const rateCredit = fxCredit(fx, nativeCurrency, priceCurrency);
   const volumeCurrency = canConvert("USD", displayCurrency, fx) ? displayCurrency : "USD";
   const showPrice = useCallback((v: number) => formatMoney(convert(v, nativeCurrency, priceCurrency, fx), priceCurrency), [nativeCurrency, priceCurrency, fx]);
   const showVolume = (usd: number) => formatMoneyCompact(convert(usd, "USD", volumeCurrency, fx), volumeCurrency);
@@ -1661,6 +1663,11 @@ export default function Home() {
                 </>
               )}
             </span>
+            {/* v2.8 WP20: the info line is hidden while the list is expanded, so the required rate credit moves here. */}
+            {listExpanded && rateCredit && (
+              <a data-testid="fx-credit-expanded" href={rateCredit.url} target="_blank" rel="noopener noreferrer"
+                className="shrink-0 text-cyan-300/90 hover:underline">{rateCredit.text}</a>
+            )}
             {listExpanded && (
               <Button
                 variant="outline"
@@ -1979,6 +1986,12 @@ export default function Home() {
                 <CategoryIndicatorList indicators={detailAsset.confluence.indicators} />
                 {detailAsset.confluence.warnings.map((warning) => <div key={warning} className="border-t border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">{warning}</div>)}
               </div>
+              {/* v2.8 WP20: required rate credit while converted prices are on screen (none for the default source). */}
+              {rateCredit && (
+                <p data-testid="fx-credit-detail" className="text-[10px] text-zinc-500">
+                  <a href={rateCredit.url} target="_blank" rel="noopener noreferrer" className="text-cyan-300/90 hover:underline">{rateCredit.text}</a>
+                </p>
+              )}
               </>}
             </div>
           )}

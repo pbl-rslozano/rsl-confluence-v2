@@ -86,7 +86,7 @@
   "notice.session": "এই ডিভাইসে স্টোরেজ ব্লক করা আছে। অ্যাপ বন্ধ না করা পর্যন্তই আপনার সেটিংস রাখা হবে। বন্ধ করার আগে ব্যাকআপ এক্সপোর্ট করুন।",
   "notice.backupDue": "{days, plural, =0 {আপনি এখনও কোনো ব্যাকআপ এক্সপোর্ট করেননি।} one {শেষ ব্যাকআপ # দিন আগে।} other {শেষ ব্যাকআপ # দিন আগে।}} “সম্পর্কে” থেকে একটি এক্সপোর্ট করুন।",
   "about.title": "সম্পর্কে",
-  "about.edition": "ব্যক্তিগত বিল্ড — লাইসেন্সের প্রয়োজন নেই",
+  "about.edition": "Personal build — no licence key required",
   "about.platform": "প্ল্যাটফর্ম",
   "about.storage": "স্টোরেজ",
   "about.audit": "অডিট ট্রেইল",
@@ -460,7 +460,7 @@
   "fx.customRequest": "ডেভেলপারকে লিখিত অনুরোধ পাঠান",
   "fx.customImported": "{n, number}টি মুদ্রা আমদানি হয়েছে",
   "fx.customBad": "এই ফাইলে অ্যাপ পড়তে পারে এমন কোনো বিনিময় হার নেই।",
-  "fx.src.ecb": "ইউরোপীয় কেন্দ্রীয় ব্যাংকের রেফারেন্স হার",
+  "fx.src.ecb": "derived from ECB euro reference rates",
   "fx.src.erapi": "ExchangeRate-API (উন্মুক্ত প্রবেশাধিকার)",
   "fx.src.floatrates": "FloatRates (পদ্ধতি প্রকাশিত নয়)",
   "fx.src.custom": "নিজস্ব উৎস (পরীক্ষিত নয়)",
@@ -529,5 +529,9 @@
   "liq.thin": "{n, number} thin pairs under {floor}/day are not scored",
   "ledger.longAvoided": "long avoided",
   "reversal.clueNote": "HIGH, MOD and LOW count net clues (three or more, two, one). They are not probabilities.",
-  "pattern.tooFew": "Too few analogues"
+  "pattern.tooFew": "Too few analogues",
+  "about.licences": "Open-source licences",
+  "about.licencesNote": "This app includes open-source software. Each component's licence and copyright notice is in the third-party notices.",
+  "about.licencesOpen": "Third-party notices (THIRD-PARTY-NOTICES.txt)",
+  "about.trademarks": "Bollinger Bands® is a registered trademark of John Bollinger. Exchange and token names and logos belong to their owners and only identify the market; no affiliation or endorsement."
 }

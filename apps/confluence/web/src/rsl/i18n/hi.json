@@ -86,7 +86,7 @@
   "notice.session": "इस डिवाइस पर स्टोरेज अवरुद्ध है। आपकी सेटिंग्स केवल ऐप बंद करने तक रहेंगी। बंद करने से पहले बैकअप एक्सपोर्ट करें।",
   "notice.backupDue": "{days, plural, =0 {आपने अभी तक कोई बैकअप एक्सपोर्ट नहीं किया है।} one {पिछला बैकअप # दिन पहले।} other {पिछला बैकअप # दिन पहले।}} परिचय से बैकअप एक्सपोर्ट करें।",
   "about.title": "परिचय",
-  "about.edition": "व्यक्तिगत बिल्ड — लाइसेंस आवश्यक नहीं",
+  "about.edition": "Personal build — no licence key required",
   "about.platform": "प्लेटफ़ॉर्म",
   "about.storage": "स्टोरेज",
   "about.audit": "ऑडिट ट्रेल",
@@ -460,7 +460,7 @@
   "fx.customRequest": "डेवलपर को लिखित अनुरोध भेजें",
   "fx.customImported": "{n, number} मुद्राएँ आयात हुईं",
   "fx.customBad": "इस फ़ाइल में ऐसी कोई विनिमय दर नहीं है जिसे ऐप पढ़ सके।",
-  "fx.src.ecb": "यूरोपीय केंद्रीय बैंक की संदर्भ दरें",
+  "fx.src.ecb": "derived from ECB euro reference rates",
   "fx.src.erapi": "ExchangeRate-API (खुली पहुँच)",
   "fx.src.floatrates": "FloatRates (पद्धति प्रकाशित नहीं)",
   "fx.src.custom": "अपना स्रोत (परीक्षित नहीं)",
@@ -529,5 +529,9 @@
   "liq.thin": "{n, number} thin pairs under {floor}/day are not scored",
   "ledger.longAvoided": "long avoided",
   "reversal.clueNote": "HIGH, MOD and LOW count net clues (three or more, two, one). They are not probabilities.",
-  "pattern.tooFew": "Too few analogues"
+  "pattern.tooFew": "Too few analogues",
+  "about.licences": "Open-source licences",
+  "about.licencesNote": "This app includes open-source software. Each component's licence and copyright notice is in the third-party notices.",
+  "about.licencesOpen": "Third-party notices (THIRD-PARTY-NOTICES.txt)",
+  "about.trademarks": "Bollinger Bands® is a registered trademark of John Bollinger. Exchange and token names and logos belong to their owners and only identify the market; no affiliation or endorsement."
 }

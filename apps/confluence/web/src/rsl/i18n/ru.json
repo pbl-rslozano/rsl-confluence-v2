@@ -86,7 +86,7 @@
   "notice.session": "Хранилище на этом устройстве заблокировано. Настройки сохранятся только до закрытия приложения. Экспортируйте резервную копию перед закрытием.",
   "notice.backupDue": "{days, plural, =0 {Вы ещё не экспортировали резервную копию.} one {Последняя копия — # день назад.} few {Последняя копия — # дня назад.} many {Последняя копия — # дней назад.} other {Последняя копия — # дня назад.}} Экспорт — в разделе «О программе».",
   "about.title": "О программе",
-  "about.edition": "Личная сборка — лицензия не требуется",
+  "about.edition": "Personal build — no licence key required",
   "about.platform": "Платформа",
   "about.storage": "Хранилище",
   "about.audit": "Журнал аудита",
@@ -460,7 +460,7 @@
   "fx.customRequest": "Отправить разработчику письменный запрос",
   "fx.customImported": "Импортировано валют: {n, number}",
   "fx.customBad": "В этом файле нет курсов, которые приложение может прочитать.",
-  "fx.src.ecb": "справочные курсы Европейского центрального банка",
+  "fx.src.ecb": "derived from ECB euro reference rates",
   "fx.src.erapi": "ExchangeRate-API (открытый доступ)",
   "fx.src.floatrates": "FloatRates (методика не опубликована)",
   "fx.src.custom": "свой источник (не проверен)",
@@ -529,5 +529,9 @@
   "liq.thin": "{n, number} thin pairs under {floor}/day are not scored",
   "ledger.longAvoided": "long avoided",
   "reversal.clueNote": "HIGH, MOD and LOW count net clues (three or more, two, one). They are not probabilities.",
-  "pattern.tooFew": "Too few analogues"
+  "pattern.tooFew": "Too few analogues",
+  "about.licences": "Open-source licences",
+  "about.licencesNote": "This app includes open-source software. Each component's licence and copyright notice is in the third-party notices.",
+  "about.licencesOpen": "Third-party notices (THIRD-PARTY-NOTICES.txt)",
+  "about.trademarks": "Bollinger Bands® is a registered trademark of John Bollinger. Exchange and token names and logos belong to their owners and only identify the market; no affiliation or endorsement."
 }

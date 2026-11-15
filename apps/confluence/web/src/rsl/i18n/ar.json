@@ -86,7 +86,7 @@
   "notice.session": "التخزين محظور على هذا الجهاز. تُحفَظ إعداداتك حتى إغلاق التطبيق فقط. صدّر نسخة احتياطية قبل الإغلاق.",
   "notice.backupDue": "{days, plural, =0 {لم تصدّر أي نسخة احتياطية بعد.} one {آخر نسخة احتياطية قبل يوم واحد.} two {آخر نسخة احتياطية قبل يومين.} few {آخر نسخة احتياطية قبل # أيام.} many {آخر نسخة احتياطية قبل # يومًا.} other {آخر نسخة احتياطية قبل # يوم.}} صدّر واحدة من نافذة «حول».",
   "about.title": "حول",
-  "about.edition": "إصدار شخصي — لا يتطلب ترخيصًا",
+  "about.edition": "Personal build — no licence key required",
   "about.platform": "المنصّة",
   "about.storage": "التخزين",
   "about.audit": "سجل التدقيق",
@@ -460,7 +460,7 @@
   "fx.customRequest": "أرسل طلبًا مكتوبًا إلى المطوّر",
   "fx.customImported": "تم استيراد {n, number} عملة",
   "fx.customBad": "لا يحتوي هذا الملف على أسعار صرف يمكن للتطبيق قراءتها.",
-  "fx.src.ecb": "الأسعار المرجعية للبنك المركزي الأوروبي",
+  "fx.src.ecb": "derived from ECB euro reference rates",
   "fx.src.erapi": "ExchangeRate-API (وصول مفتوح)",
   "fx.src.floatrates": "FloatRates (المنهجية غير منشورة)",
   "fx.src.custom": "مصدر مخصص (غير مُختبَر)",
@@ -529,5 +529,9 @@
   "liq.thin": "{n, number} thin pairs under {floor}/day are not scored",
   "ledger.longAvoided": "long avoided",
   "reversal.clueNote": "HIGH, MOD and LOW count net clues (three or more, two, one). They are not probabilities.",
-  "pattern.tooFew": "Too few analogues"
+  "pattern.tooFew": "Too few analogues",
+  "about.licences": "Open-source licences",
+  "about.licencesNote": "This app includes open-source software. Each component's licence and copyright notice is in the third-party notices.",
+  "about.licencesOpen": "Third-party notices (THIRD-PARTY-NOTICES.txt)",
+  "about.trademarks": "Bollinger Bands® is a registered trademark of John Bollinger. Exchange and token names and logos belong to their owners and only identify the market; no affiliation or endorsement."
 }
