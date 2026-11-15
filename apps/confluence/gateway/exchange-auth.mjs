@@ -124,7 +124,7 @@ async function fetchPrivate(request) {
   return payload;
 }
 
-export async function verifyCredentials(credentials) {
+export async function verifyCredentials(credentials, fetcher = fetchPrivate) {
   const base = {
     apiKey: credentials.apiKey,
     apiSecret: credentials.apiSecret,
@@ -133,14 +133,14 @@ export async function verifyCredentials(credentials) {
 
   if (credentials.provider === "binance") {
     // Proves the key authenticates (both environments).
-    await fetchPrivate(buildBinanceAccountRequest(base));
+    await fetcher(buildBinanceAccountRequest(base));
     if (credentials.environment !== "mainnet") {
       // Testnet has no key-restrictions endpoint: report "unknown" rather than
       // guessing from account-level flags.
       return { readOnly: null, permissions: ["testnet: key permissions not reported"] };
     }
     try {
-      const restrictions = await fetchPrivate(buildBinanceApiRestrictionsRequest(base));
+      const restrictions = await fetcher(buildBinanceApiRestrictionsRequest(base));
       return binanceKeyPermissions(restrictions);
     } catch {
       return { readOnly: null, permissions: ["key permissions unavailable"] };
@@ -148,7 +148,7 @@ export async function verifyCredentials(credentials) {
   }
 
   if (credentials.provider === "bybit") {
-    const payload = await fetchPrivate(buildBybitProfileRequest(base));
+    const payload = await fetcher(buildBybitProfileRequest(base));
     if (payload.retCode !== 0) throw new Error(`Exchange rejected the credential test: ${safeMessage(payload, "authentication failed")}`);
     const result = payload.result || {};
     const permissions = Object.entries(result.permissions || {})
@@ -158,10 +158,12 @@ export async function verifyCredentials(credentials) {
   }
 
   if (credentials.provider === "bitget") {
-    const payload = await fetchPrivate(buildBitgetProfileRequest({ ...base, passphrase: credentials.passphrase }));
+    const payload = await fetcher(buildBitgetProfileRequest({ ...base, passphrase: credentials.passphrase }));
     if (payload.code !== "00000") throw new Error(`Exchange rejected the credential test: ${safeMessage(payload, "authentication failed")}`);
     const permissions = Array.isArray(payload.data?.authorities) ? payload.data.authorities : [];
     const hasWrite = permissions.some((value) => typeof value === "string" && value.endsWith("w"));
+    // An empty or missing authority list is unknown, never read-only.
+    if (permissions.length === 0) return { readOnly: null, permissions };
     return { readOnly: !hasWrite, permissions };
   }
 
@@ -181,3 +183,16 @@ export function createProfile(credentials, verification) {
   };
 }
 
+export const REFUSAL_MESSAGE = "This key can trade or its permissions are unknown. Create a read-only key.";
+
+/**
+ * Only read-only keys may become profiles. Unknown permissions (readOnly null)
+ * are accepted solely on Binance testnet, which has no restrictions endpoint.
+ */
+export function profileAllowed(credentials, verification) {
+  if (verification?.readOnly === true) return { ok: true };
+  if (verification?.readOnly === null && credentials?.provider === "binance" && credentials?.environment === "testnet") {
+    return { ok: true, label: "permissions not reported" };
+  }
+  return { ok: false };
+}

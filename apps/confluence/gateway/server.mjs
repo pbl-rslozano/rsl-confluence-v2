@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { writeJsonAtomic } from "../recorder/src/store.mjs";
 import { createServer } from "node:http";
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { createProfile, verifyCredentials } from "./exchange-auth.mjs";
+import { REFUSAL_MESSAGE, createProfile, profileAllowed, verifyCredentials } from "./exchange-auth.mjs";
 
 const HOST = "127.0.0.1";
 const PORT = Number.parseInt(process.env.CONFLUENCE_GATEWAY_PORT || "8787", 10);
@@ -221,6 +221,7 @@ const server = createServer(async (request, response) => {
       rateLimitConnect();
       const credentials = validateCredentials(await readJson(request));
       const verification = await verifyCredentials(credentials);
+      if (!profileAllowed(credentials, verification).ok) throw new Error(REFUSAL_MESSAGE);
       const profile = createProfile(credentials, verification);
       profiles.set(profile.id, { ...profile, credentials });
       sendJson(response, 200, { profile }, origin);

@@ -9,6 +9,8 @@ import {
   hmacBase64,
   hmacHex,
   maskApiKey,
+  profileAllowed,
+  verifyCredentials,
 } from "./exchange-auth.mjs";
 
 test("HMAC helpers are deterministic", () => {
@@ -58,4 +60,58 @@ test("Binance key permissions come from apiRestrictions, not account flags (2.02
   assert.deepEqual(binanceKeyPermissions({ enableReading: true, enableSpotAndMarginTrading: true }),
     { readOnly: false, permissions: ["read", "spot-margin-trade"] });
   assert.equal(binanceKeyPermissions({ enableReading: true, enableWithdrawals: true }).readOnly, false);
+});
+
+const fakeFetch = (payload) => async () => payload;
+const bitget = () => ({ provider: "bitget", environment: "mainnet", apiKey: "test-key", apiSecret: "test-secret", passphrase: "test-pass", label: "t" });
+const bitgetPayload = (data) => ({ code: "00000", data });
+
+test("bitget empty authorities refused", async () => {
+  const c = bitget();
+  const v = await verifyCredentials(c, fakeFetch(bitgetPayload({ authorities: [] })));
+  assert.equal(v.readOnly, null);
+  assert.equal(profileAllowed(c, v).ok, false);
+});
+
+test("bitget missing authorities refused", async () => {
+  const c = bitget();
+  const v = await verifyCredentials(c, fakeFetch(bitgetPayload({})));
+  assert.equal(v.readOnly, null);
+  assert.equal(profileAllowed(c, v).ok, false);
+});
+
+test("bitget read-only list allowed", async () => {
+  const c = bitget();
+  const v = await verifyCredentials(c, fakeFetch(bitgetPayload({ authorities: ["spot_r", "wallet_r"] })));
+  assert.equal(v.readOnly, true);
+  assert.equal(profileAllowed(c, v).ok, true);
+});
+
+test("bybit readOnly 1 with empty permissions allowed", async () => {
+  const c = { provider: "bybit", environment: "mainnet", apiKey: "test-key", apiSecret: "test-secret", label: "t" };
+  const v = await verifyCredentials(c, fakeFetch({ retCode: 0, result: { readOnly: 1, permissions: {} } }));
+  assert.equal(v.readOnly, true);
+  assert.equal(profileAllowed(c, v).ok, true);
+});
+
+test("binance testnet null allowed with label", async () => {
+  const c = { provider: "binance", environment: "testnet", apiKey: "test-key", apiSecret: "test-secret", label: "t" };
+  const v = await verifyCredentials(c, fakeFetch({}));
+  assert.equal(v.readOnly, null);
+  assert.deepEqual(profileAllowed(c, v), { ok: true, label: "permissions not reported" });
+});
+
+test("binance mainnet null refused", async () => {
+  const c = { provider: "binance", environment: "mainnet", apiKey: "test-key", apiSecret: "test-secret", label: "t" };
+  let n = 0;
+  const v = await verifyCredentials(c, async () => { if (n++ === 0) return {}; throw new Error("down"); });
+  assert.equal(v.readOnly, null);
+  assert.equal(profileAllowed(c, v).ok, false);
+});
+
+test("write permission refused", async () => {
+  const c = bitget();
+  const v = await verifyCredentials(c, fakeFetch(bitgetPayload({ authorities: ["spot_r", "spot_trader_w"] })));
+  assert.equal(v.readOnly, false);
+  assert.equal(profileAllowed(c, v).ok, false);
 });
