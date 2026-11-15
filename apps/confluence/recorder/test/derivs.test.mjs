@@ -143,3 +143,52 @@ test("v2.8 (WP19): rows log fr / oiChg from an earlier snapshot ≤ 2 h before t
   assert.equal(sol.fr, null, "no valid funding print for SOL");
   assert.equal(sol.oiChg, null);
 });
+
+test("fix round 1: the default once-per-bar 4h loop takes a derivatives-only snapshot before each close, so rows carry fr / oiChg", async (t) => {
+  const dir = tempDir(t);
+  const hour = () => Math.floor(Date.now() / H) * H;
+  const ex = mockExchange({
+    bybitLinear: LINEAR,
+    bybitInstruments: INSTRUMENTS,
+    // Hourly OI readings stamped at the top of the hour (≤ the snapshot time), growing 1 % per hour.
+    openInterest: () => ({ retCode: 0, result: { list: [{ openInterest: String(1000 * 1.01 ** ((hour() - T0) / H)), timestamp: String(hour()) }] } }),
+  });
+  const wakes = [];
+  const ac = new AbortController();
+  const sleepUntil = async (until) => {
+    wakes.push(until);
+    if (wakes.length >= 3) { ac.abort(); return; }
+    mock.timers.setTime(until);
+  };
+  const rec = createRecorder(baseConfig(dir, { source: "bybit-perp", oiTop: 2 }), { ...quiet, sleepUntil, baseFetch: ex.fetch, env: {} });
+  await rec.run(ac.signal);
+  const close = T0 - 30_000 + 4 * H; // 16:00 bar close after the 12:00:30 start
+  assert.equal(wakes[0], close - 15 * 60_000, "derivatives-only wake 15 min before the next close");
+  assert.equal(wakes[1], close + 20_000, "then the regular wake just after the close (grace)");
+  const rows = ["2026-10", "2026-11"].flatMap((m) => readJsonl(join(dir, "ledger", `${m}.jsonl`)));
+  const first = rows.filter((r) => r.tc === T0 - 30_000);
+  const second = rows.filter((r) => r.tc === close);
+  assert.equal(rows.length, 6, "the derivatives-only wake records no ledger rows");
+  assert.ok(first.every((r) => r.fr === null), "the start-up snapshot is taken after that bar's close (look-ahead) → null");
+  const btc = second.find((r) => r.pair === "BTCUSDT");
+  assert.ok(btc, JSON.stringify(second.map((r) => r.pair)));
+  assert.equal(btc.fr, 0.0001);
+  assert.ok(Number.isFinite(btc.oiChg) && Math.abs(btc.oiChg - 100 * (1.01 ** 3 - 1)) < 1e-6, String(btc.oiChg));
+  assert.equal(second.find((r) => r.pair === "ETHUSDT").fr, -0.00025);
+  const snaps = readJsonl(join(dir, "derivs", "2026-10.jsonl"));
+  assert.ok(snaps.some((s) => s.t === close - 15 * 60_000), "the pre-close snapshot is logged like any other");
+});
+
+test("fix round 1: derivsWake — only when no snapshot would fall inside the 2 h before the next close", async () => {
+  const { derivsWake } = await import("../src/schedule.mjs");
+  const at1200 = T0; // 12:00:30, 4h bars → next close 16:00
+  const close = T0 - 30_000 + 4 * H;
+  const win = 2 * H;
+  assert.equal(derivsWake({ now: at1200, wake: close + 20_000, tf: "4h", maxAgeMs: win }), close - 15 * 60_000);
+  assert.equal(derivsWake({ now: close - H, wake: close + 20_000, tf: "4h", maxAgeMs: win }), null, "this cycle's snapshot is already inside the window");
+  assert.equal(derivsWake({ now: at1200, wake: close - H, tf: "4h", maxAgeMs: win }), null, "a regular cycle lands inside the window");
+  assert.equal(derivsWake({ now: at1200, wake: at1200 + 60_000, tf: "4h", maxAgeMs: win }), null, "retry wake first: decided after that cycle");
+  assert.equal(derivsWake({ now: T0, wake: T0 + H, tf: "1h", maxAgeMs: win }), null, "1h bars: every cycle is inside the window");
+  const day = derivsWake({ now: Date.UTC(2026, 9, 31, 0, 0, 30), wake: Date.UTC(2026, 10, 1, 0, 0, 20), tf: "1d", maxAgeMs: win });
+  assert.equal(day, Date.UTC(2026, 9, 31, 23, 45));
+});

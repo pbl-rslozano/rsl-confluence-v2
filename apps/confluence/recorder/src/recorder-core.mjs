@@ -38,7 +38,7 @@ import { createGuardedFetch, installGlobalFetch, loadRecorderManifest, makeRedac
 import { createCandleCache, createJsonlAppender, createLedger, ensureDir, monthOf, readJson, writeJsonAtomic } from "./store.mjs";
 import { createDerivsRecorder, LINEAR_TICKERS_URL } from "./derivs.mjs";
 import { alertConfigFromEnv, createAlerter } from "./alerts.mjs";
-import { cyclePeriodMs, nextWake, staleAfterMs } from "./schedule.mjs";
+import { cyclePeriodMs, derivsWake, nextWake, staleAfterMs } from "./schedule.mjs";
 import { VERSION } from "./config.mjs";
 
 const MAX_ERRORS_KEPT = 20;
@@ -202,6 +202,47 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
   };
 
   /* ================================ one cycle ================================ */
+  /**
+   * Bybit linear snapshot for `symbols` at `at`: logged, added to the in-memory
+   * history used for fr / oiChg; a rate limit pauses every request (cycle and
+   * pre-close snapshot alike). Returns { n, warnings, rateLimitedUntil }.
+   */
+  async function takeDerivs(symbols, at, signal) {
+    const snap = await derivs.snapshot(symbols, at, signal);
+    if (snap.records.length) appendJsonl(join(outDir, "derivs", `${monthOf(at)}.jsonl`), snap.records);
+    derivHistory = [...derivHistory.filter((r) => r.t >= at - DERIV_KEEP_MS), ...snap.records];
+    const warnings = snap.errors.slice(0, 5);
+    let rateLimitedUntil = null;
+    if (snap.rateLimit) {
+      pauseUntil = Date.now() + snap.rateLimit.retryAfterMs;
+      rateLimitedUntil = pauseUntil;
+      warnings.push(`derivatives: ${snap.rateLimit.message}`);
+    }
+    return { n: snap.records.length, warnings, rateLimitedUntil };
+  }
+  /** Universe of the last successful cycle (best rank first) — the pre-close snapshot reuses it. */
+  let derivSymbols = [];
+
+  /**
+   * v2.8 (WP19 fix round 1): derivatives-only wake before a bar close — no candles,
+   * no scoring, no ledger rows; same hosts and pacing as the cycle's snapshot.
+   */
+  async function derivsOnly(signal) {
+    if (!derivsOn || !derivSymbols.length || signal?.aborted) return null;
+    const at = Date.now();
+    if (rateLimitCooldown() > 0 || pauseUntil > at) { log("pre-close derivatives snapshot skipped (rate-limit cooldown)"); return null; }
+    guard.clearMemo();
+    try {
+      const r = await takeDerivs(derivSymbols, at, signal);
+      for (const w of r.warnings) pushError(w);
+      log(`pre-close derivatives snapshot: ${r.n} records${r.rateLimitedUntil ? ", RATE LIMITED" : ""}`);
+      return r;
+    } catch (error) {
+      if (!(error?.name === "AbortError" && signal?.aborted)) pushError(`derivatives: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
   async function cycle(signal) {
     const started = Date.now();
     guard.clearMemo();
@@ -347,17 +388,12 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
       }
 
       // Derivatives: never after a rate limit in this cycle.
+      if (derivsOn) derivSymbols = data.tickers.map((t) => t.symbol);
       if (derivsOn && !result.rateLimitedUntil && !signal?.aborted) {
-        const snap = await derivs.snapshot(data.tickers.map((t) => t.symbol), started, signal);
-        if (snap.records.length) appendJsonl(join(outDir, "derivs", `${monthOf(started)}.jsonl`), snap.records);
-        derivHistory = [...derivHistory.filter((r) => r.t >= started - DERIV_KEEP_MS), ...snap.records];
-        result.derivs = snap.records.length;
-        for (const e of snap.errors.slice(0, 5)) result.warnings.push(e);
-        if (snap.rateLimit) {
-          pauseUntil = Date.now() + snap.rateLimit.retryAfterMs;
-          result.rateLimitedUntil = Math.max(result.rateLimitedUntil ?? 0, pauseUntil);
-          result.warnings.push(`derivatives: ${snap.rateLimit.message}`);
-        }
+        const snap = await takeDerivs(derivSymbols, started, signal);
+        result.derivs = snap.n;
+        result.warnings.push(...snap.warnings);
+        if (snap.rateLimitedUntil) result.rateLimitedUntil = Math.max(result.rateLimitedUntil ?? 0, snap.rateLimitedUntil);
       }
       // A cycle succeeds when at least one series delivered fresh closed bars
       // (a young series that is still too short to score is not a failure).
@@ -432,6 +468,15 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
         hb.status = r.ok ? "sleeping" : "retrying";
         writeHeartbeat();
         log(`next cycle at ${new Date(wake).toISOString()}`);
+        // v2.8 (WP19 fix round 1): on a once-per-bar cadence longer than 2 h, snapshot derivatives shortly
+        // before the close so the next rows can log fr / oiChg (≤ 2 h old, never after the close).
+        const pre = derivsOn && r.ok ? derivsWake({ now: Date.now(), wake, tf, newestBarOpen: r.newestBarOpen, maxAgeMs: DERIV_MAX_AGE_MS }) : null;
+        if (pre !== null) {
+          await sleeper(pre, signal);
+          if (signal?.aborted) return r;
+          await derivsOnly(signal);
+          writeHeartbeat();
+        }
         await sleeper(wake, signal);
         if (signal?.aborted) return r;
       }
