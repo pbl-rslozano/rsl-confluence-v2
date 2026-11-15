@@ -702,6 +702,12 @@ A failed source never borrows another source's candles. Missing rows are listed,
 - **Data credits.** Rates from ExchangeRate-API carry *Rates By Exchange Rate API*; ECB rates carry *Source: ECB
   statistics (rebased to USD by this app)* (section 7). Coins.ph prices relayed on the web are for personal use only
   (section 8).
+
+### Treat the developer to a coffee (optional, v2.8)
+**About → ☕ Treat the developer to a coffee** (collapsed, just above Open-source licences) holds an optional tip card with
+three codes to scan: GCash (QR Ph), PayPal and Bitcoin (on-chain only; **Copy address** copies the Bitcoin address). It is a
+personal thank-you, never a fee: every feature works the same whether you tip or not, and the card never opens by itself.
+Your payment app shows who you are paying before you confirm.
 - **Binance Vision archive (backtesting tool).** The optional `fetch-binance-archive` tool downloads Binance's public
   monthly archives from data.binance.vision. Under the Binance Vision Terms of Use v1.0 (26 Aug 2026) that data is
   CC BY-NC-SA 4.0: personal, non-production backtesting only; credit Binance Vision and keep CC BY-NC-SA 4.0 on anything you
