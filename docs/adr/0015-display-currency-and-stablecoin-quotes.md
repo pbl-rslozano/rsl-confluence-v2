@@ -13,13 +13,14 @@ ledger and paper trading must stay reproducible: converting history at today's r
    alerts, recorder and MCP keep each scan's native currency (USD ≈ USDT, EUR for EUR stablecoins, PHP on Coins.ph).
    Release check R21 enforces the boundary.
 2. **Rate source order:** Frankfurter v2 (`/v2/rates?base=USD`, central-bank blend with per-currency providers, pegs exact,
-   161 fiat currencies, MIT) → fawazahmed0 currency-api via jsDelivr → its `currency-api.pages.dev` mirror (labelled
+   161 fiat currencies; code MIT, rates under each provider's terms) → fawazahmed0 currency-api via jsDelivr → its `currency-api.pages.dev` mirror (labelled
    "community rates, method not published") → built-in official pegs (SAR, AED, QAR, OMR, BHD, JOD). One source per refresh,
    at most every 6 hours, cached on the device; > 3 days old is labelled stale.
 3. **Honesty labels:** the info line names the rate, its kind (official peg + authority, HKD band, "official rate" for
    currencies with parallel markets, otherwise reference rate), the source and the date. Stablecoin prices are shown at
    **1 USDT = 1 USD**, with USDT's own USD price beside it; we do not multiply prices by a stablecoin market price.
-4. **Automatic currency** = the device region's currency (from `navigator.languages`), never from the network or IP.
+4. **Automatic currency** = the device region's currency (device time zone first, then `navigator.languages`), never from the
+   network or IP.
 5. **Stablecoin quotes:** per source, USDT (default, identical to v2.6), any listed stablecoin, or *Best USD stablecoin* (the
    deepest USD-pegged pair per coin, 25 % hysteresis). One real pair's candles per coin — never blended. Volumes are valued
    at the quote's own price on the same venue. Depeg readings (≥ 0.5 / 1 / 2 %) are information only.
@@ -36,19 +37,20 @@ ledger and paper trading must stay reproducible: converting history at today's r
 ## Options considered
 | Option | Verdict |
 |---|---|
-| ECB reference rates directly | Official but 29 currencies (no SAR, AED, PHP is present), XML without CORS → rejected as primary |
+| ECB reference rates directly | Official but 29 currencies (PHP included; no SAR or AED), XML without CORS → rejected as primary |
 | Frankfurter v2 | Central-bank blend with providers, 161 fiat, CORS, keyless → **primary** |
-| open.er-api.com | Keyless, CORS, but attribution on every page and no redistribution; blend method undisclosed → not used |
-| fawazahmed0 | Keyless, CORS, 340 codes, provenance unpublished → **fallback, labelled** |
+| open.er-api.com | Keyless, CORS, but attribution on the pages that use its rates and no redistribution; blend method undisclosed → not used as primary |
+| fawazahmed0 | Keyless, CORS, 340 codes; single-maintainer project, method and sources not published; licence not verified by us — see the repository → **fallback, labelled** |
 | Stablecoin-implied rates (e.g. USDT/PHP) | Market price, not a reference rate → shown as information (Coins.ph USDT premium), never used to convert |
 | Convert candles before scoring | Distorts history, changes engine inputs → rejected |
-| ECB direct (SDMX JSON, CORS) | Official, ~30 currencies → **user-selectable alternative** |
-| open.er-api.com | Attribution shown in the app → **user-selectable alternative** |
+| ECB direct (SDMX JSON, CORS) | Official, 29 currencies (PHP included; no SAR or AED) → **user-selectable alternative**, credited "Source: ECB statistics (rebased to USD by this app)" |
+| open.er-api.com | Attribution ("Rates By Exchange Rate API") shown on the pages that use its rates — info line, expanded list, detail sheet → **user-selectable alternative** |
 | FloatRates | No published method, SAR off the peg → **user-selectable alternative, labelled** |
 | Fetch a user-typed URL | Needs `connect-src *` → rejected; custom sources are imported files |
 
 ## Consequences
-- Three new `connect-src` hosts (ADR-0003 amendment v2.7); R8 now reads one host table.
+- Six new `connect-src` hosts (ADR-0003 amendment v2.7: three for the automatic chain, three user-selectable); R8 now reads
+  one host table. (v2.8 wording fix, licence audit: this line said "Three".)
 - A peso volume shown in PHP is USD volume (valued at Coins.ph's USDT/PHP) converted back at the reference rate, so it can
   differ slightly from Coins.ph's own peso figure; the guide says so.
 - Revisit when: Frankfurter changes its terms or API, a central bank publishes a CORS-enabled feed for a currency the owner

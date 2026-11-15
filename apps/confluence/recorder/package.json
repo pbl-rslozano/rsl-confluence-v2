@@ -2,6 +2,7 @@
   "name": "@rsl/confluence-recorder",
   "version": "2.5.1",
   "private": true,
+  "license": "UNLICENSED",
   "type": "module",
   "description": "Headless forward-test recorder and alerts for rsL Confluence Terminal. Reuses the web engine unchanged; Node built-ins only. Analysis only, never places orders.",
   "author": "rsLozano",

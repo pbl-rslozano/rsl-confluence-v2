@@ -4,6 +4,7 @@
   "description": "rsL Confluence Terminal \u2014 web core (Next.js static export) shared by the Tauri, Capacitor and PWA shells.",
   "author": "rsLozano",
   "private": true,
+  "license": "UNLICENSED",
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",

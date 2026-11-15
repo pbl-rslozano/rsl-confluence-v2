@@ -92,7 +92,7 @@ export function buildBitgetProfileRequest({ apiKey, apiSecret, passphrase, times
   const payload = `${timestamp}GET${requestPath}${suffix}`;
   const signature = hmacBase64(apiSecret, payload);
   return {
-    url: `https://api.bitget.com${requestPath}${suffix}`,
+    url: "https://api.bitget.com" + requestPath + suffix, // host written literally for the egress check (R11)
     options: {
       method: "GET",
       headers: {

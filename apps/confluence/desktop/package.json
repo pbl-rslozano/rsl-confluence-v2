@@ -2,6 +2,7 @@
   "name": "@rsl/confluence-desktop",
   "version": "2.7.0",
   "private": true,
+  "license": "UNLICENSED",
   "description": "rsL Confluence Terminal — Tauri 2 desktop shell (Windows .msi/.exe, macOS .dmg).",
   "scripts": {
     "tauri": "tauri",

@@ -74,6 +74,11 @@ Writes `replay-out/ledger.csv`, `report.json`, `report.md` with in-sample vs out
 
 Survivorship-safe data: `node tools/fetch-binance-archive.mjs --list` lists every symbol ever archived on data.binance.vision and marks the **delisted** ones; `--symbols … --tf 4h --from 2022-01 --to 2026-09 --out ./klines` downloads monthly ZIPs, **verifies each against its SHA-256 `.CHECKSUM`** and unpacks the CSV for `--csv-dir`. Run it on your own computer (this build environment cannot reach the exchanges).
 
+> **Archive data: Binance Vision Terms of Use v1.0 (26 Aug 2026), CC BY-NC-SA 4.0.** Personal non-production backtesting
+> only; credit Binance Vision and keep CC BY-NC-SA 4.0 on any shared derivative; commercial use needs a Binance data
+> licence. The monthly CSV/ZIP files are never committed — `.gitignore` keeps them out wherever `--out` writes them and
+> release check R24 fails if one is tracked (v2.8 WP20).
+
 ## Still open
 - Replay rows still have no historical top-N rank; the universe log fixes this for forward data only.
 - Measured slippage covers the top 10 pairs, refreshed daily; deeper universes use the placeholder.

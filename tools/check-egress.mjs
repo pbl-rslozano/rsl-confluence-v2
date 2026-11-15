@@ -21,7 +21,8 @@
  *
  * Also verifies that the manifest's `web.csp` list matches CONNECT_SRC in
  * apps/confluence/web/src/lib/csp.ts, so the one-page overview cannot drift
- * from what the app actually enforces (release-check R8 guards csp.ts itself).
+ * from what the app actually enforces (release-check R8 guards csp.ts itself),
+ * and (v2.8 WP20, licence audit) that every CSP_HOSTS host is in `web.hosts`.
  *
  * Release-check hook (to be added in tools/release-check.mjs):
  *   const { checkEgress, formatEgressFindings } = await import("./check-egress.mjs");
@@ -59,7 +60,7 @@ function hostOf(authority) {
 /**
  * @param {{ root?: string, manifestPath?: string, processes?: string[], roots?: Record<string, string[]> }} [options]
  *   `roots` overrides a process's source roots (absolute or relative to `root`) — used by tests.
- * @returns {{ ok: boolean, findings: {process: string, file: string, line: number, url: string, host: string, reason: string}[], scanned: number, skippedRoots: string[], cspDrift: string[] }}
+ * @returns {{ ok: boolean, findings: {process: string, file: string, line: number, url: string, host: string, reason: string}[], scanned: number, skippedRoots: string[], cspDrift: string[], webHostDrift: string[] }}
  */
 export function checkEgress({ root = ROOT, manifestPath = join(root, "tools", "egress-manifest.json"), processes, roots = {} } = {}) {
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
@@ -106,6 +107,7 @@ export function checkEgress({ root = ROOT, manifestPath = join(root, "tools", "e
 
   // Overview drift: manifest web.csp must equal CONNECT_SRC in csp.ts (+ Tauri-only ipc entries).
   const cspDrift = [];
+  const webHostDrift = [];
   const cspFile = join(root, "apps", "confluence", "web", "src", "lib", "csp.ts");
   if (procs.web?.csp && existsSync(cspFile)) {
     // v2.7: CONNECT_SRC is built from the public-host table (src/lib/public-hosts.ts CSP_HOSTS).
@@ -116,9 +118,15 @@ export function checkEgress({ root = ROOT, manifestPath = join(root, "tools", "e
     const listed = new Set(procs.web.csp);
     for (const h of fromCsp) if (!listed.has(h)) cspDrift.push(`csp.ts has ${h}, manifest web.csp does not`);
     for (const h of listed) if (!fromCsp.has(h) && h !== "ipc:" && h !== "http://ipc.localhost") cspDrift.push(`manifest web.csp has ${h}, csp.ts does not`);
+    // v2.8 WP20: the host overview (web.hosts, no scheme) names every host the WebView may fetch.
+    const hosts = new Set((procs.web.hosts ?? []).map((h) => h.toLowerCase()));
+    for (const m of table.matchAll(/origin:\s*"([^"]+)"/g)) {
+      const h = m[1].replace(/^https?:\/\//, "").toLowerCase();
+      if (!hosts.has(h)) webHostDrift.push(`${h} is in CSP_HOSTS but not in web.hosts`);
+    }
   }
 
-  return { ok: findings.length === 0 && cspDrift.length === 0, findings, scanned, skippedRoots, cspDrift };
+  return { ok: findings.length === 0 && cspDrift.length === 0 && webHostDrift.length === 0, findings, scanned, skippedRoots, cspDrift, webHostDrift };
 }
 
 export function formatEgressFindings(result) {
@@ -126,6 +134,7 @@ export function formatEgressFindings(result) {
   return [
     ...result.findings.slice(0, 10).map((f) => `${f.file}:${f.line} ${f.url} (${f.reason})`),
     ...result.cspDrift,
+    ...(result.webHostDrift ?? []),
     result.findings.length > 10 ? `… ${result.findings.length - 10} more` : "",
   ].filter(Boolean).join(" | ");
 }
@@ -136,5 +145,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   console.log(`${result.ok ? "PASS" : "FAIL"}  egress  ${formatEgressFindings(result)}`);
   for (const f of result.findings) console.log(`  ${f.process}: ${f.file}:${f.line}  ${f.url}  — ${f.reason}`);
   for (const d of result.cspDrift) console.log(`  web: ${d}`);
+  for (const d of result.webHostDrift) console.log(`  web: ${d}`);
   process.exit(result.ok ? 0 : 1);
 }

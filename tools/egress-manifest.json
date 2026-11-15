@@ -3,7 +3,7 @@
   "description": "Allowed outbound hosts per process (ADR-0003, amended by ADR-0008). tools/check-egress.mjs fails when a source file under a process root contains an http(s) URL whose host is not listed for that process; the recorder also enforces this list at runtime.",
   "processes": {
     "web": {
-      "description": "Browser / Tauri / Capacitor app. Enforced by CSP connect-src (apps/confluence/web/src/lib/csp.ts) and release-check R8; listed here for one overview, not scanned by check-egress. v2.6: nativeHosts are reached outside the CSP (no CORS header) — web through the same-origin rewrite in public/_redirects, Capacitor/Tauri through nativeGet — and only on the read paths in src/lib/public-hosts.ts (release-check R16).",
+      "description": "Browser / Tauri / Capacitor app. Enforced by CSP connect-src (apps/confluence/web/src/lib/csp.ts) and release-check R8; listed here for one overview, not scanned by check-egress. v2.6: nativeHosts are reached outside the CSP (no CORS header) — web through the same-origin rewrite in public/_redirects, Capacitor/Tauri through nativeGet — and only on the read paths in src/lib/public-hosts.ts (release-check R16). v2.8 (WP20): `hosts` lists every CSP_HOSTS host without its scheme, the six display-currency rate hosts included (ADR-0015); tools/check-egress.test.mjs checks it.",
       "roots": [],
       "hosts": [
         "data-api.binance.vision",
@@ -11,7 +11,13 @@
         "api.bitget.com",
         "127.0.0.1:8787",
         "localhost:8787",
-        "effervescent-bubblegum-1e5c03.netlify.app"
+        "effervescent-bubblegum-1e5c03.netlify.app",
+        "api.frankfurter.dev",
+        "cdn.jsdelivr.net",
+        "latest.currency-api.pages.dev",
+        "data-api.ecb.europa.eu",
+        "open.er-api.com",
+        "www.floatrates.com"
       ],
       "csp": [
         "'self'",
@@ -41,6 +47,20 @@
       ],
       "hosts": [
         "api.pro.coins.ph"
+      ],
+      "loopbackListen": true
+    },
+    "gateway": {
+      "description": "Optional local read-only API gateway (apps/confluence/gateway, ADR-0009 / ADR-0003): runs on the user's own computer, listens on loopback, and calls an exchange's account endpoint only when the user connects an API key and asks it to check the key's permissions (read-only; keys with trading or withdrawal permission are refused). Never bundled into the app.",
+      "roots": [
+        "apps/confluence/gateway/exchange-auth.mjs"
+      ],
+      "hosts": [
+        "api.binance.com",
+        "testnet.binance.vision",
+        "api.bybit.com",
+        "api-testnet.bybit.com",
+        "api.bitget.com"
       ],
       "loopbackListen": true
     },

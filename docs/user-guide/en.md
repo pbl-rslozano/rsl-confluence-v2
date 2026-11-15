@@ -41,6 +41,10 @@ The rsL Confluence Terminal is a multi-indicator market scanner. For every asset
 | **iPhone / iPad** | Install the release `.ipa` with Sideloadly. Or open the web version and choose *Share → Add to Home Screen*. |
 | **Web / PWA** | Open the published web app (effervescent-bubblegum-1e5c03.netlify.app) and choose *Install app* (Chrome/Edge) or *Add to Home Screen* (phones). To run it on one computer only, install Node.js LTS once (nodejs.org), unzip the `-pwa.zip` from the web release, start **`Start-Confluence-Terminal.cmd`** (macOS/Linux: `start-confluence-terminal.sh`) and keep its window open. It serves the app on `http://127.0.0.1:8770/`. Opening `index.html` directly does **not** work. The web app is personal: it is kept out of search engines, so keep its address yourself. |
 
+**Android developer verification (v2.8 note).** Google's developer verification applies to sideloaded apps from 2027
+(enforced in Brazil, Indonesia, Singapore and Thailand from 30 Sep 2026). The release `.apk` is installed outside the
+Play Store, so this rule will apply to it.
+
 <!-- wp:WP18 -->
 **Android: moving from v2.6 (once).** v2.7.0 for Android is signed with a new key, so Android refuses to install it over
 v2.6 ("App not installed" or "conflicts with an existing package"). Do this once:
@@ -504,7 +508,7 @@ A failed source never borrows another source's candles. Missing rows are listed,
 - **Restore.** **Restore backup** checks the file (format, checksum, app and version) before it replaces anything, then reloads.
 - **Audit trail.** A tamper-evident log of important actions: app start, settings changes, identity changes, backups, ledger exports and imports, and every paper-trading decision. About shows *intact (n entries)*, or *BROKEN at #k* if an entry was altered.
 - **Identity.** **Edit identity** changes the workspace, logo and your name; **Export identity (JSON)** saves it.
-- **Privacy.** The app only reads public data: market prices (Binance, Bybit, Bitget, Coins.ph — on the web, Coins.ph is reached through the app's own address), the public update file, and — only when a price needs converting, every 6 hours or on **Update now** — exchange rates from the source you chose: `api.frankfurter.dev` (Automatic falls back to `cdn.jsdelivr.net` / `latest.currency-api.pages.dev`), or `data-api.ecb.europa.eu`, `open.er-api.com` or `www.floatrates.com` when you pick them. A custom source is never contacted; you import its file. Nothing about you is sent. No tracking.
+- **Privacy.** The app only reads public data: market prices (Binance, Bybit, Bitget, Coins.ph — on the web, Coins.ph is reached through the app's own address), the public update file, and — only when a price needs converting, every 6 hours or on **Update now** — exchange rates from the source you chose: `api.frankfurter.dev` (Automatic falls back to `cdn.jsdelivr.net` / `latest.currency-api.pages.dev`), or `data-api.ecb.europa.eu`, `open.er-api.com` or `www.floatrates.com` when you pick them. A custom source is never contacted; you import its file. No account, identifier or cookie is sent and there is no tracking; like any web request, each source sees your internet address (for Coins.ph on the web, Netlify's).
 - Market data belongs to each exchange and is shown for personal use. Exchange rates are reference rates for information, not rates you can trade at.
 
 ## 17. Updates

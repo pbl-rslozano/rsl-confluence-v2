@@ -14,8 +14,10 @@
  * Bullish FVG (gap up) on window i-2,i-1,i:  low[i] > high[i-2]; zone = [high[i-2], low[i]].
  * Bearish FVG (gap down):                     high[i] < low[i-2]; zone = [high[i], low[i-2]].
  *
- * This is a 1:1 TypeScript port of the reference implementation validated by a
- * 21-assertion regression suite.
+ * Provenance (v2.8 WP20, licence audit): a 1:1 TypeScript port of the owner's own earlier
+ * FVG code (rsLozano; not a third-party library, no third-party licence applies). That
+ * reference was validated by a 21-assertion regression suite, carried over as the first
+ * 21 checks of src/lib/fvg.test.mjs (v2.6 baseline; WP19 added the ATR-minimum checks).
  *
  * v2.8 (WP19): a gap counts only when it is at least `minGapAtr` (0.5) × ATR(14)
  * measured at the middle candle of the three-bar window. A fixed 0.05 % floor

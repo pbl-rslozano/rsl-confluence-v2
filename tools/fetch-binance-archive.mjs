@@ -16,6 +16,11 @@
 // • Output files are named SYMBOL-INTERVAL-YYYY-MM.csv, the layout
 //   replay.cli.mjs --csv-dir expects (µs timestamps are handled there).
 //
+// Archive data (v2.8 WP20, licence audit): Binance Vision Terms of Use v1.0 (26 Aug 2026), CC BY-NC-SA 4.0.
+// Personal non-production backtesting only; credit Binance Vision and keep CC BY-NC-SA 4.0 on any shared
+// derivative; commercial use needs a Binance data licence. The monthly files are never committed (.gitignore;
+// release check R24).
+//
 // Network: data.binance.vision, the archive bucket listing host and
 // data-api.binance.vision (exchangeInfo for --list). Node tool only — the app
 // never contacts these hosts (ADR-0003 addendum). Not financial advice.
