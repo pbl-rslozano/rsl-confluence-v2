@@ -1726,6 +1726,212 @@ function dsCompare(base, now, prefix = "") {
       { instant, rest });
     await c.close();
   }
+
+  /* ===== v2.8 WP26: OKX Spot, OKX Perpetual, Coinbase (US) and Upbit (KR) on mocked venue data ===== */
+  /* acceptance-ids: EX-1, EX-2, EX-3, EX-4, EX-6 */
+  {
+    // Response shapes are those of docs/research/evidence/wp26-venues-probe-2026-11-15.json (EX-PROBE-1), with the
+    // Upbit ticker and the order books from the venues' docs (see lib/upbit.ts, lib/okx.ts, lib/coinbase.ts). Every
+    // candle mock serves the bar still forming as its newest row: OKX flags it confirm "0"; Coinbase and Upbit give
+    // no flag (the newest row is the forming bar). The scan must never score, record or chart it.
+    const c = await newContext(browser, { timezoneId: "UTC" });
+    await mockExchanges(c, null);
+    const cors = { "access-control-allow-origin": "*", "content-type": "application/json" };
+    // A bar unit is a length in ms, "W" (weeks from Monday 00:00 UTC) or "M" (calendar months, 1st 00:00 UTC).
+    const STEP = { "1m": 60e3, "5m": 3e5, "15m": H15, "1H": 36e5, "4H": 144e5, "6Hutc": 216e5, "12Hutc": 432e5, "1Dutc": 864e5, "1Wutc": "W", "1Mutc": "M" };
+    const MIN = { "1": 60e3, "3": 18e4, "5": 3e5, "10": 6e5, "15": H15, "30": 18e5, "60": 36e5, "240": 144e5 };
+    const WEEK = 6048e5, MONDAY0 = 4 * 864e5;
+    const formingOf = (unit, now = Date.now()) => {
+      if (unit === "M") { const d = new Date(now); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1); }
+      if (unit === "W") return Math.floor((now - MONDAY0) / WEEK) * WEEK + MONDAY0;
+      return Math.floor(now / unit) * unit;
+    };
+    const prevEdge = (unit, t) => {
+      if (unit === "M") { const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1); }
+      return t - (unit === "W" ? WEEK : unit);
+    };
+    const indexOf = (unit, t) => Math.floor(t / (typeof unit === "number" ? unit : 864e5));
+    // Deterministic price per (pair, bar time), so overlapping pages agree; the forming bar jumps 50 % so it is easy to spot.
+    const pxAt = (sym, i) => { const s = [...sym].reduce((a, ch) => a + ch.charCodeAt(0), 7); return 100 * Math.exp(0.03 * Math.sin((i + s) / 9) + 0.02 * Math.sin((i + s) / 37)); };
+    const bar = (sym, t, unit, open) => {
+      const i = indexOf(unit, t), o = pxAt(sym, i), c0 = open ? o * 1.5 : pxAt(sym, i + 1);
+      return { t, o, h: Math.max(o, c0) * 1.002, l: Math.min(o, c0) * 0.998, c: c0, v: 1000 + (i % 97) };
+    };
+    /** Newest first: up to n bars opening before `before` (exclusive), starting at the forming bar (flagged open). */
+    const barsBefore = (sym, unit, before, n) => {
+      const forming = formingOf(unit);
+      const out = [];
+      let t = before > forming ? forming : formingOf(unit, before) === before ? prevEdge(unit, before) : formingOf(unit, before);
+      for (; out.length < n && t > forming - 5000 * 864e5; t = prevEdge(unit, t)) out.push(bar(sym, t, unit, t === forming));
+      return out;
+    };
+    const served = { okx: 0, "okx-perp": 0, coinbase: 0, upbit: 0 };
+    const unknown = [];
+    const OKX_SPOT = ["BTC", "ETH", "SOL", "XRP", "OKB"];
+    const OKX_SWAP = ["BTC", "ETH", "SOL", "XRP", "AVAX"];
+    const okxEnv = (data) => ({ code: "0", msg: "", data }); // OKX v5 envelope [envelope from OKX docs; probe recorded data rows]
+    await c.route(/^https:\/\/www\.okx\.com\//, (route) => {
+      const u = new URL(route.request().url());
+      const q = (k) => u.searchParams.get(k);
+      const json = (b) => route.fulfill({ status: 200, headers: cors, body: JSON.stringify(b) });
+      if (u.pathname === "/api/v5/market/tickers") {
+        const swap = q("instType") === "SWAP";
+        return json(okxEnv((swap ? OKX_SWAP : OKX_SPOT).map((b, i) => ({
+          instId: swap ? `${b}-USDT-SWAP` : `${b}-USDT`, last: "101", open24h: "100", high24h: "102", low24h: "99",
+          // SPOT volCcy24h is quote volume; SWAP volCcy24h is base coin (probe).
+          vol24h: String(swap ? (1e9 - i) / 101 / 0.01 : (1e9 - i) / 101), volCcy24h: String(swap ? (1e9 - i) / 101 : 1e9 - i), ts: String(Date.now()),
+        }))));
+      }
+      if (u.pathname === "/api/v5/public/instruments") {
+        return json(okxEnv(OKX_SWAP.map((b) => ({ instId: `${b}-USDT-SWAP`, ctType: "linear", ctVal: "0.01", ctValCcy: b, settleCcy: "USDT", state: "live" }))));
+      }
+      if (u.pathname === "/api/v5/market/candles" || u.pathname === "/api/v5/market/history-candles") {
+        const step = STEP[q("bar")];
+        if (!step) return route.fulfill({ status: 200, headers: cors, body: JSON.stringify({ code: "51000", msg: "Parameter bar error", data: [] }) });
+        const swap = /-SWAP$/.test(q("instId") || "");
+        const after = q("after") ? Number(q("after")) : Infinity; // strictly older than `after` (probe)
+        const rows = barsBefore(q("instId"), step, after, Math.min(300, Number(q("limit") || 100)));
+        served[swap ? "okx-perp" : "okx"] += rows.filter((r) => r.t === formingOf(step)).length;
+        // [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]: SPOT vol is base; SWAP vol is contracts (ctVal 0.01), volCcy base.
+        return json(okxEnv(rows.map((r) => [String(r.t), String(r.o), String(r.h), String(r.l), String(r.c),
+          String(swap ? r.v / 0.01 : r.v), String(swap ? r.v : r.v * r.c), String(r.v * r.c), r.t === formingOf(step) ? "0" : "1"])));
+      }
+      if (u.pathname === "/api/v5/market/books") {
+        return json(okxEnv([{ asks: [["101.1", "50", "0", "1"], ["101.2", "100", "0", "2"]], bids: [["100.9", "50", "0", "1"], ["100.8", "100", "0", "2"]], ts: String(Date.now()) }]));
+      }
+      unknown.push(u.host + u.pathname);
+      return route.fulfill({ status: 404, headers: cors, body: JSON.stringify({ code: "404", msg: "not mocked" }) });
+    });
+    const CB = ["BTC", "ETH", "SOL", "XRP", "LTC"];
+    await c.route(/^https:\/\/api\.exchange\.coinbase\.com\//, (route) => {
+      const u = new URL(route.request().url());
+      const json = (b) => route.fulfill({ status: 200, headers: cors, body: JSON.stringify(b) });
+      if (u.pathname === "/products") {
+        // BTC-USDC is delisted with trading disabled (probe): never offered.
+        return json([...CB.map((b) => ({ id: `${b}-USD`, base_currency: b, quote_currency: "USD", status: "online", trading_disabled: false })),
+          { id: "BTC-USDC", base_currency: "BTC", quote_currency: "USDC", status: "delisted", trading_disabled: true }]);
+      }
+      if (u.pathname === "/products/stats") {
+        return json(Object.fromEntries(CB.map((b, i) => [`${b}-USD`, { stats_24hour: { open: "100", high: "102", low: "99", last: "101", volume: String((1e9 - i) / 101) } }])));
+      }
+      const candles = u.pathname.match(/^\/products\/([A-Z0-9-]+)\/candles$/);
+      if (candles) {
+        const g = Number(u.searchParams.get("granularity")) * 1000;
+        const start = Date.parse(u.searchParams.get("start")), end = Date.parse(u.searchParams.get("end"));
+        const forming = formingOf(g);
+        // start and end are inclusive (controller live check, 15 Nov 2026). The newest window runs on to the forming
+        // bar (and, for 4h and longer, the closed base bars of the bucket still forming), so the app must drop both.
+        const top = end >= forming - 32 * g ? forming : end;
+        const rows = barsBefore(candles[1], g, top + g, Math.round((top - start) / g) + 1).filter((r) => r.t >= start);
+        served.coinbase += rows.filter((r) => r.t === forming).length;
+        // [time (s), LOW, HIGH, open, close, volume] — low before high (probe).
+        return json(rows.map((r) => [r.t / 1000, r.l, r.h, r.o, r.c, r.v]));
+      }
+      if (/^\/products\/[A-Z0-9-]+\/book$/.test(u.pathname)) {
+        return json({ bids: [["100.9", "50", 1], ["100.8", "100", 2]], asks: [["101.1", "50", 1], ["101.2", "100", 2]], sequence: 1 });
+      }
+      unknown.push(u.host + u.pathname);
+      return route.fulfill({ status: 404, headers: cors, body: JSON.stringify({ message: "not mocked" }) });
+    });
+    // Upbit: the page must use the same-origin /x/upbit rewrite only (EX-6); the real host is aborted and logged.
+    const upbitDirect = [];
+    const upbitProxied = [];
+    await c.route(/^https:\/\/api\.upbit\.com\//, (route) => { upbitDirect.push(route.request().url()); return route.abort(); });
+    const UP = ["BTC", "ETH", "XRP", "SOL", "SAND"];
+    await c.route(/\/x\/upbit\/v1\//, (route) => {
+      const u = new URL(route.request().url());
+      upbitProxied.push(u.pathname);
+      const path0 = u.pathname.replace(/^\/x\/upbit/, "");
+      const json = (b) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
+      if (path0 === "/v1/market/all") return json([...UP.map((b) => ({ market: `KRW-${b}` })), { market: "KRW-USDT" }, { market: "USDT-BTC" }]);
+      if (path0 === "/v1/ticker/all") {
+        const t = (market, price, vol) => ({ market, opening_price: price / 1.01, trade_price: price, prev_closing_price: price / 1.01, signed_change_rate: 0.01, acc_trade_price_24h: vol, timestamp: Date.now() });
+        // KRW-USDT 1377 (controller live probe, 15 Nov 2026) converts KRW volume to USD for the liquidity floor.
+        return json([...UP.map((b, i) => t(`KRW-${b}`, 101, 1e12 - i * 1e9)), t("KRW-USDT", 1377, 5e11), t("USDT-BTC", 65000, 1e7)]);
+      }
+      const minutes = path0.match(/^\/v1\/candles\/minutes\/(\d+)$/);
+      const step = minutes ? MIN[minutes[1]] : { "/v1/candles/days": 864e5, "/v1/candles/weeks": "W", "/v1/candles/months": "M" }[path0];
+      if (step) {
+        const market = u.searchParams.get("market") || "KRW-X";
+        const to = u.searchParams.get("to") ? Date.parse(u.searchParams.get("to")) : Infinity;
+        const count = Math.min(200, Number(u.searchParams.get("count") || 1));
+        const forming = formingOf(step);
+        // `to` is exclusive (docs); the newest page also carries the forming bar as its first row (no flag).
+        const closed = barsBefore(market, step, Math.min(to, forming), count);
+        const rows = to >= forming ? [bar(market, forming, step, true), ...closed.slice(0, count - 1)] : closed;
+        served.upbit += rows.filter((r) => r.t === forming).length;
+        return json(rows.map((r) => ({
+          market, candle_date_time_utc: new Date(r.t).toISOString().slice(0, 19), opening_price: r.o, high_price: r.h, low_price: r.l, trade_price: r.c,
+          timestamp: r.t === forming ? Date.now() : r.t + 1000, candle_acc_trade_price: r.v * r.c, candle_acc_trade_volume: r.v, ...(minutes ? { unit: Number(minutes[1]) } : {}),
+        })));
+      }
+      if (path0 === "/v1/orderbook") {
+        const market = u.searchParams.get("markets") || "KRW-X";
+        return json([{ market, timestamp: Date.now(), orderbook_units: [{ ask_price: 101.1, bid_price: 100.9, ask_size: 50, bid_size: 50 }, { ask_price: 101.2, bid_price: 100.8, ask_size: 100, bid_size: 100 }] }]);
+      }
+      unknown.push(u.pathname);
+      return route.fulfill({ status: 404, contentType: "text/html", body: "<html>Not found</html>" });
+    });
+    const p = await c.newPage();
+    await p.goto(BASE, { waitUntil: "domcontentloaded" });
+    await completeFirstRun(p, { operator: "R" });
+    await waitRows(p);
+    const ledgerRows = (src) => p.evaluate((s) => new Promise((resolve) => {
+      const req = indexedDB.open("rsl-conf-ledger");
+      req.onerror = () => resolve([]);
+      req.onsuccess = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains("ledger")) { db.close(); return resolve([]); }
+        const all = db.transaction("ledger", "readonly").objectStore("ledger").getAll();
+        all.onsuccess = () => { db.close(); resolve(all.result.filter((d) => d && d.src === s).flatMap((d) => (d.rows ?? []).map((r) => ({ t: r.t, tc: r.tc, rec: r.rec, pair: r.pair })))); };
+        all.onerror = () => { db.close(); resolve([]); };
+      };
+    }), src);
+    const venues = [
+      { id: "EX-1", src: "okx", label: "OKX Spot", marker: "OKB" },
+      { id: "EX-2", src: "okx-perp", label: "OKX Perpetual", marker: "AVAX" },
+      { id: "EX-3", src: "coinbase", label: "Coinbase (US)", marker: "LTC" },
+      { id: "EX-4", src: "upbit", label: "Upbit (KR)", marker: "SAND" },
+    ];
+    for (const v of venues) {
+      const proxiedBefore = upbitProxied.length;
+      const t0 = Date.now();
+      await p.locator('header [role="combobox"]').nth(1).click();
+      await p.getByRole("option", { name: v.label, exact: true }).click();
+      // The previous source's rows stay until this scan is scored: wait for this venue's own pair, then for rest.
+      await p.waitForFunction((m) => document.querySelector("tbody")?.textContent?.includes(m) && !document.querySelector('[data-testid="scan-progress"]'), v.marker, { timeout: 120000, polling: 250 }).catch(() => null);
+      const rows = await p.locator("tbody tr:has(td button)").count();
+      const step = 144e5; // default timeframe 4h
+      // The detail chart's newest candle (the readout shows it at rest) must be the last CLOSED 4 h bar.
+      let readout = "", expected = [];
+      const btc = p.getByRole("button", { name: /^BTC/ }).first();
+      if (await btc.count()) {
+        await btc.click();
+        await p.getByTestId("chart-readout").waitFor({ timeout: 20000 }).catch(() => null);
+        readout = ((await p.getByTestId("chart-readout").locator("span").first().textContent().catch(() => "")) ?? "").trim();
+        // Same formatter as the chart (price-chart.tsx fmtTime) in the page's own locale data; either side of a 4 h edge.
+        expected = await p.evaluate((ts) => ts.map((t) => new Date(t).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })), [formingOf(step, t0) - step, formingOf(step) - step]);
+        await p.keyboard.press("Escape");
+        await p.locator('[role="dialog"]').waitFor({ state: "detached", timeout: 10000 }).catch(() => null);
+      }
+      // No row is scored from the open bar: every ledger row this source wrote is a closed bar (t ≤ last closed, closed before it was recorded).
+      let led = [];
+      for (let i = 0; i < 20 && !led.length; i++) { led = await ledgerRows(v.src); if (!led.length) await p.waitForTimeout(500); }
+      const openRows = led.filter((r) => r.t >= formingOf(step, r.rec) || r.tc > r.rec);
+      const tooNew = led.filter((r) => r.t > formingOf(step) - step);
+      record(v.id, `${v.label}: the scan completes with ≥ 3 rows on mocked venue data; the detail chart ends on the last closed bar; no row is scored from the open bar`,
+        rows >= 3 && expected.includes(readout) && led.length >= 3 && openRows.length === 0 && tooNew.length === 0 && served[v.src] > 0,
+        { rows, readout, expected: expected[0], ledgerRows: led.length, openRows: openRows.length, tooNew: tooNew.length, openBarsServed: served[v.src] });
+      if (v.src === "upbit") {
+        const mine = upbitProxied.slice(proxiedBefore);
+        record("EX-6", "Switching the source to Upbit (KR) requests only the same-origin /x/upbit/ relay, never https://api.upbit.com",
+          upbitDirect.length === 0 && mine.some((x) => x.startsWith("/x/upbit/v1/candles/")) && mine.some((x) => x === "/x/upbit/v1/ticker/all"),
+          `${mine.length} via /x/upbit, ${upbitDirect.length} direct`);
+      }
+    }
+    if (unknown.length) console.log(`  note: unmocked venue paths ${[...new Set(unknown)].join(", ")}`);
+    await c.close();
+  }
   } // end of the full run (skipped with --ds-only)
   /* acceptance-ids: DS-1, DS-2 — layout at rest vs the v2.7.0-web baselines in tools/e2e/baselines/ */
   {

@@ -287,10 +287,63 @@ On **Bybit Perpetual** the sheet adds two research panels:
 | Bitget Spot | global spot | USDT, USDC, USD1, USDE, RLUSD, U |
 | Bitget Perpetual | USDT- and USDC-margined perpetuals | USDT, USDC |
 | **Coins.ph (PH)** | Philippine peso market | PHP |
+| **OKX Spot** (v2.8) | global spot | USDT, USDC |
+| **OKX Perpetual** (v2.8) | USDT-margined perpetuals | USDT |
+| **Coinbase (US)** (v2.8) | US dollar spot | USD (default), USDT |
+| **Upbit (KR)** (v2.8) | Korean won spot, plus USDT and BTC markets | KRW (default), USDT, BTC |
 
 All sources are public price data only. The app never signs in to an exchange to scan. The Quote menu shows only the stablecoins the exchange lists at that moment, so a delisted stablecoin disappears from it by itself.
 
 ![The data source menu.](images/source-menu.webp)
+
+<!-- wp:WP26 -->
+### OKX, Coinbase and Upbit (v2.8)
+Choose them under **Data source**. They scan like the other sources: closed candles only, public prices only, no sign-in.
+- **Timeframes built from shorter candles.** When an exchange has no candle of that length, the app builds it from
+  shorter ones and uses only complete bars:
+
+  | Exchange | Built from shorter candles |
+  |---|---|
+  | OKX | 8 hours (from 4 hours), 2 and 4 days |
+  | Coinbase | 4, 8 and 12 hours, 2 and 4 days, weekly (weeks start Monday 00:00 UTC) and monthly (calendar months) |
+  | Upbit | 6, 8 and 12 hours, 2 and 4 days |
+
+  Upbit's own weekly and monthly candles also start on Monday and on the 1st, at 00:00 UTC.
+- **Request cap and "cold" scores.** These exchanges send at most 300 candles (OKX, Coinbase) or 200 (Upbit) per request.
+  A full history of 1,000 bars therefore takes several requests per pair, and the app stops at **16 requests per pair**.
+  Where that is not enough, the pair is scored on the bars it has and counts as **cold** in the ledger (fewer than 1,000
+  bars), for example:
+  - Coinbase 8 hours, weekly and monthly;
+  - Upbit 6 hours and 4 days;
+  - OKX 8 hours, 2 and 4 days, which use at most 1,000 shorter candles.
+
+  A pair listed only recently, or one with hours without trades (Coinbase and Upbit publish no candle for them), is
+  scored cold too. Missing bars are never filled in.
+- **Slow first scans on Coinbase.** Coinbase allows about 10 requests a second, and the app uses 8. A first 4-hour scan
+  of 100 pairs needs about 14 requests per pair and takes about three minutes. The status line may say **Slow** meanwhile
+  (after 90 seconds; 60 seconds for OKX). Later scans ask for far fewer bars, except on timeframes scored cold, which ask
+  for the full window every time. Each exchange's own limits are kept: if one asks the app to wait, only that exchange
+  pauses.
+- **Prices in KRW and BTC (Upbit).**
+  - **KRW** prices follow your display currency, like pesos on Coins.ph.
+  - **BTC-market** prices stay in BTC, and the scan line says *Prices in BTC — not converted to your display currency.*
+  - For the liquidity floor and the ranking, volume is valued in US dollars with Upbit's own USDT market (KRW-USDT,
+    USDT-BTC), never with display rates.
+- **Coinbase** offers USD and USDT pairs. USDC pairs are not offered, because Coinbase Exchange has delisted its USDC books
+  and serves them as USD.
+- **Upbit is reached through a relay.**
+  - The web app and the local launcher read Upbit through their own address (`/x/upbit/…`). The installed apps read it
+    directly, but only Upbit's public price paths.
+  - If the relay is missing or refused (for example when the web files are on another host), Upbit's rows say **Feed
+    unavailable** and the status line shows **Blocked or unreachable**. The other sources keep working, and the app never
+    falls back to calling Upbit directly from the page.
+- **View on [exchange].** The last line of the detail sheet opens the pair's market page on that exchange's own website,
+  in your browser. It is a plain link: there is no referral code and no embedded exchange page. The app never logs in to
+  the exchange and never trades; paper trading stays simulated.
+- **Data sources & thanks.** **About → Data sources & thanks** (collapsed) names every provider the app reads: the
+  exchanges, the Binance Vision archive and the rate sources. For each it says what the app uses and links its public API
+  documentation and terms. Names are in text, with no logos. ExchangeRate-API's required credit *Rates By Exchange Rate
+  API* is shown there too.
 
 <!-- wp:WP12 -->
 ### Quote currency (stablecoins)

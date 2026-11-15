@@ -1,7 +1,8 @@
-# v2.8.0 — in progress, Step 1 (not released; app still reports v2.7.0)
+# v2.8.0 — in progress, Steps 1 and 2 (not released; app still reports v2.7.0)
 
-Step 1 of the v2.8 plan (`docs/superpowers/specs/2026-11-15-v2.8-architecture-design.md`): safety fixes, licence credits
-and smooth loading. Engine 2.4.0 (`5c30b5c39f5ba3f2`); ledger rows of engine 2.3.0 stay and are reported separately.
+Steps 1 and 2 of the v2.8 plan (`docs/superpowers/specs/2026-11-15-v2.8-architecture-design.md`): safety fixes, licence
+credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (Step 2). Engine 2.4.0 (`5c30b5c39f5ba3f2`);
+ledger rows of engine 2.3.0 stay and are reported separately.
 
 - **Paper safety (WP19):** 10% drawdown lock (Stop + close all at the next open of each chart; pending positions cancelled;
   typed RESET restarts the 10% from current equity, disabled while closes are pending); open losses count in the daily and
@@ -22,11 +23,27 @@ and smooth loading. Engine 2.4.0 (`5c30b5c39f5ba3f2`); ledger rows of engine 2.3
   scope, release check **R24** licence policy, Binance Vision archive notice, root `LICENSE`.
 - **Smooth loading (WP27):** rows appear at once from on-device history ("updating" / "not updated" badges, display only),
   watchlist or top 10 first, then batches of 20, delta fetch of new bars only; acceptance PG-1, PG-2.
+- **New exchanges (WP26, ADR-0018):** **OKX Spot**, **OKX Perpetual** (USDT-margined), **Coinbase (US)** (USD, USDT) and
+  **Upbit (KR)** (KRW, USDT, BTC) are scan sources, with public prices only and no keys, orders, referral codes or embedded
+  pages. Closed bars only: OKX's open bar (`confirm "0"`) and the forming row of Coinbase and Upbit are never scored. Pages
+  are merged without duplicates, capped at 16 requests per series and scored cold below 1,000 bars. Each venue is paced
+  at 80 % of its documented limit (OKX candles 16/s and history 8/s; Coinbase 8/s; Upbit 8/s).
+  - Timeframes a venue lacks are built from complete shorter candles: Coinbase weeks start Monday 00:00 UTC and its
+    months are calendar months.
+  - Upbit's KRW prices follow the display currency; its BTC-market prices stay in BTC. Volume is valued with Upbit's own
+    KRW-USDT and USDT-BTC markets (R21).
+  - Hosts: `www.okx.com` and `api.exchange.coinbase.com` are fetched directly (CSP). `api.upbit.com` is reached only
+    through the read-only relay: the `/x/upbit/` rewrite on the web, path-scoped native access in the apps (ADR-0003
+    amendment, R8/R16). A refused relay is "feed unavailable" for Upbit alone.
+- **View on [exchange] and Data sources & thanks (WP26):** the detail sheet ends with a plain link to the pair on the
+  exchange's own site, opening in the browser. About gains a collapsed **Data sources & thanks** listing 13 providers with
+  their API docs and terms, as names in text. Venue terms and link patterns are to be checked by the owner before
+  release (ADR-0018). Acceptance **EX-1**…**EX-6** and **ID-2.6**.
 - **Design unchanged (spec §3):** acceptance **DS-1** (main screen) and **DS-2** (detail sheet top and chart layers, paper
   dialog, ledger dialog) compare the layout at rest with text masked against baselines captured from the v2.7.0-web build.
 - **Languages:** the new and changed v2.8 strings are Arabic drafts awaiting native-speaker review (About shows the count;
   release check **R25** blocks a release until they are reviewed); the other 16 languages show them in English for now.
-- **Docs:** user guide chapters for WP19, WP20 and WP27; R19 accepts this "in progress" entry above the released v2.7.0.
+- **Docs:** user guide chapters for WP19, WP20, WP26 and WP27; ADR-0018 (new venues); R19 accepts this "in progress" entry above the released v2.7.0.
 - **Before going back to v2.7, export the paper journal** (Paper → Export CSV) and note your open positions: v2.7 cannot
   read the v2.8 paper account format and starts a fresh 10,000 USDT account over it on its first scan.
 
