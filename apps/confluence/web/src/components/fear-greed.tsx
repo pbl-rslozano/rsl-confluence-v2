@@ -74,7 +74,7 @@ function Gauge({ value, band, label, updated, ariaLabel }: { value: number; band
   const needle = polar(Math.PI * (1 - value / 100), 90);
   const txt = (extra: object) => ({ fontFamily: "Arial, sans-serif", textAnchor: "middle" as const, ...extra });
   return (
-    <svg data-testid="fng-gauge" role="img" aria-label={ariaLabel} viewBox="0 0 320 240" className="h-auto w-full max-w-[120px] sm:max-w-[320px]">
+    <svg data-testid="fng-gauge" role="img" aria-label={ariaLabel} viewBox="0 0 320 240" preserveAspectRatio="xMidYMin slice" className="aspect-[320/180] h-auto w-full max-w-[120px] sm:aspect-[320/240] sm:max-w-[320px]">
       <path d="M 41 155 A 119 119 0 0 1 279 155" fill="none" strokeWidth={16} style={{ stroke: "var(--color-zinc-700)" }} />
       {BANDS.map((b, i) => {
         const p = polar(Math.PI * (1 - stops[i] / 100), 119);
@@ -83,11 +83,11 @@ function Gauge({ value, band, label, updated, ariaLabel }: { value: number; band
       })}
       <line x1={160} y1={155} x2={needle[0]} y2={needle[1]} strokeWidth={3.5} strokeLinecap="round" style={{ stroke: "var(--color-zinc-100)" }} />
       <circle cx={160} cy={155} r={6.4} style={{ fill: "var(--color-zinc-100)" }} />
-      <text x={160} y={198} fontSize={40} fontWeight={700} className="fng-t-val" style={txt({ fill: "var(--color-zinc-50)" })}>{value}</text>
-      <text x={160} y={216} fontSize={14} fontWeight={700} className="fng-fill fng-t-lbl" style={{ ...css(band), ...txt({}) }}>{label}</text>
-      <text x={38} y={177} fontSize={10} className="fng-t-end" style={txt({ fill: "var(--color-zinc-400)" })}>0</text>
-      <text x={280} y={177} fontSize={10} className="fng-t-end" style={txt({ fill: "var(--color-zinc-400)" })}>100</text>
-      <text x={160} y={234} fontSize={11} className="fng-t-upd" style={txt({ fill: "var(--color-zinc-400)" })}>{updated}</text>
+      <text x={160} y={198} fontSize={40} fontWeight={700} className="max-sm:hidden" style={txt({ fill: "var(--color-zinc-50)" })}>{value}</text>
+      <text x={160} y={216} fontSize={14} fontWeight={700} className="fng-fill max-sm:hidden" style={{ ...css(band), ...txt({}) }}>{label}</text>
+      <text x={38} y={177} fontSize={10} className="max-sm:hidden" style={txt({ fill: "var(--color-zinc-400)" })}>0</text>
+      <text x={280} y={177} fontSize={10} className="max-sm:hidden" style={txt({ fill: "var(--color-zinc-400)" })}>100</text>
+      <text x={160} y={234} fontSize={11} className="max-sm:hidden" style={txt({ fill: "var(--color-zinc-400)" })}>{updated}</text>
     </svg>
   );
 }
@@ -98,7 +98,7 @@ function History({ data, rtl, summary, fmt }: { data: FngData; rtl: boolean; sum
   const W = 310, H = 90, step = W / pts.length, bw = Math.max(2, step - 2);
   return (
     <div>
-      <svg data-testid="fng-history" role="img" aria-label={summary} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-16 w-full sm:h-24">
+      <svg data-testid="fng-history" role="img" aria-label={summary} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-14 w-full sm:h-24">
         <line x1={0} y1={H - 0.5} x2={W} y2={H - 0.5} strokeWidth={1} style={{ stroke: "var(--color-zinc-700)" }} />
         {pts.map((p, i) => {
           const h = Math.max(1.5, (p.value / 100) * (H - 2));
@@ -177,9 +177,16 @@ export function FearGreedPanel({ port }: { port: FngPort }) {
       {!data && failed && <p role="status" className="text-zinc-400">{t("fng.unavailable")}</p>}
       {data && newest && band && (
         <div className="grid grid-cols-[minmax(0,120px)_minmax(0,1fr)] items-start gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,300px)_minmax(0,1fr)] sm:gap-x-6">
-          <div className="col-start-1 row-start-1 min-w-0">
-            <Gauge value={newest.value} band={band} label={bandLabel} updated={t("fng.updated", { date })} ariaLabel={t("fng.gaugeLabel", { value: newest.value, label: bandLabel, date })} />
-            {stale && <p role="status" className="mt-1 text-amber-300">{t("fng.stale", { date })}</p>}
+          {/* Left column from sm up (gauge, then the stale notice under its Updated line). On a phone the gauge's own text is hidden (it would render at 5 to 8 px):
+              the same facts are one readable line of HTML text under the gauge, then the stale notice. */}
+          <div className="contents sm:col-start-1 sm:row-start-1 sm:block sm:min-w-0">
+            <div className="col-start-1 row-start-1 min-w-0">
+              <Gauge value={newest.value} band={band} label={bandLabel} updated={t("fng.updated", { date })} ariaLabel={t("fng.gaugeLabel", { value: newest.value, label: bandLabel, date })} />
+            </div>
+            <div className="col-span-2 row-start-2 min-w-0">
+              <p data-testid="fng-readout" aria-hidden="true" className="text-xs text-zinc-200 sm:hidden"><span className="font-semibold">{newest.value}</span> · {bandLabel} · {t("fng.updated", { date })}</p>
+              {stale && <p role="status" className="text-amber-300 sm:mt-1">{t("fng.stale", { date })}</p>}
+            </div>
           </div>
           {/* Right column from sm up (chart, caption, note stacked); on a phone its parts are placed in the grid: chart beside the gauge, note on the last row. */}
           <div className="contents sm:col-start-2 sm:row-start-1 sm:row-span-2 sm:block sm:min-w-0">
@@ -188,13 +195,13 @@ export function FearGreedPanel({ port }: { port: FngPort }) {
                 <History data={data} rtl={rtl} summary={t("fng.historySummary", fngHistoryStats(data))} fmt={fmt} />
               </div>
             )}
-            <div className="col-span-2 row-start-3 min-w-0">
+            <div className="col-span-2 row-start-4 min-w-0">
               {hasHistory(data) && <p aria-hidden="true" className="text-[11px] text-zinc-400 sm:mt-1">{t("fng.history", { n: data.points.length })}</p>}
               <p className="text-zinc-400 sm:mt-1">{t("fng.note")}</p>
             </div>
           </div>
           {/* The source sits right under the gauge (full width on a phone so it stays on one line, in the gauge's column from sm up). */}
-          <div className="col-span-2 row-start-2 min-w-0 sm:col-span-1 sm:col-start-1">
+          <div className="col-span-2 row-start-3 min-w-0 sm:col-span-1 sm:col-start-1 sm:row-start-2">
             <a
               data-testid="fng-attribution"
               href={FNG_PAGE_URL}

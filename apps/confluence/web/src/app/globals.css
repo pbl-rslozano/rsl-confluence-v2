@@ -329,10 +329,3 @@ body { background-color: var(--color-zinc-950); color: var(--color-zinc-100); }
 .fng-stroke { stroke: var(--fng-c); }
 :root[data-theme="light"] .fng-fill { fill: var(--fng-l); }
 :root[data-theme="light"] .fng-stroke { stroke: var(--fng-l); }
-/* v2.8 (WP29 final review, I-2): on a phone the gauge is drawn about 120 px wide so the panel stays short; its text is enlarged in user units to stay readable. */
-@media (max-width: 639px) {
-  .fng-t-val { font-size: 50px; }
-  .fng-t-lbl { font-size: 22px; }
-  .fng-t-end { font-size: 14px; }
-  .fng-t-upd { font-size: 14px; }
-}

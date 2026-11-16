@@ -3141,8 +3141,8 @@ function dsCompare(base, now, prefix = "") {
       const geo = await p.evaluate(() => {
         const toggles = [...document.querySelectorAll('[data-testid="fng-toggle"]')];
         const t = toggles[0];
-        const row = t?.closest("div.border-t"); // the counts row: [wrapping content (min-w-0 flex-1)] [chip]
-        const chip = row?.firstElementChild?.firstElementChild; // the first StatChip
+        const row = t?.closest("div.border-t"); // the counts row: one wrapping row, the chip is its last item
+        const chip = row?.firstElementChild; // the first StatChip
         const tr = t?.getBoundingClientRect(), rr = row?.getBoundingClientRect(), cr = chip?.getBoundingClientRect();
         const last = row ? [...row.children].filter((el) => getComputedStyle(el).display !== "none").pop() : null;
         return {
@@ -3155,30 +3155,46 @@ function dsCompare(base, now, prefix = "") {
           endOfLine: !!t && tr.right <= rr.right + 0.5 && tr.left > cr.right,
         };
       });
-      // I-3: the chip never changes the counts row's height, at the widths where real scans (liquidity note, long source names) used to wrap it.
-      const wrap = {};
-      for (const w of [1024, 360]) {
-        await p.setViewportSize({ width: w, height: 800 });
-        await p.waitForTimeout(300);
-        wrap[w] = await p.evaluate(() => {
-          const t = document.querySelector('[data-testid="fng-toggle"]');
-          const row = t.closest("div.border-t");
-          const h = () => Math.round(row.getBoundingClientRect().height * 10) / 10;
-          const shown = h(), tr = t.getBoundingClientRect(), rr = row.getBoundingClientRect();
-          const inRow = tr.top >= rr.top - 0.5 && tr.bottom <= rr.bottom + 0.5;
-          t.style.display = "none";
-          const hidden = h();
-          t.style.display = "";
-          return { shown, hidden, inRow };
-        });
-      }
+      // Owner decision 16 Nov 2026: one wrapping row; the chip may take its own line (at most one line, <= 22 px) when the last line has no room, and it never
+      // truncates, hides or covers existing text. Measured with the chip shown and hidden, on the fixture and with the Upbit BTC notice + a watching list + the
+      // liquidity note injected (the strings the app renders for them).
+      const measure = (w, inject) => p.setViewportSize({ width: w, height: 800 }).then(() => p.waitForTimeout(250)).then(() => p.evaluate((inj) => {
+        const t = document.querySelector('[data-testid="fng-toggle"]'), row = t.closest("div.border-t"), tele = row.querySelector('[data-testid="scan-telemetry"]');
+        const added = [];
+        if (inj) {
+          const mk = (cls, text) => { const e = document.createElement("span"); e.className = cls; e.textContent = text; row.insertBefore(e, t); added.push(e); return e; };
+          mk("text-amber-300/80", "Prices in BTC — not converted to your display currency.");
+          mk("text-emerald-400/80", "Watching: BTC, ETH, SOL, XRP, DOGE, ADA");
+          const dot = document.createElement("span"); dot.className = "mx-1.5 text-zinc-700"; dot.textContent = "·"; tele.appendChild(dot); added.push(dot);
+          const liq = document.createElement("span"); liq.textContent = "12 pairs under $250k/day are not scored"; tele.appendChild(liq); added.push(liq);
+        }
+        const h = () => Math.round(row.getBoundingClientRect().height * 10) / 10;
+        const teleInfo = () => ({ text: tele ? tele.textContent : null, over: tele ? tele.scrollWidth > tele.clientWidth + 1 : null, w: tele ? tele.clientWidth : null, shown: tele ? getComputedStyle(tele).display !== "none" : false });
+        const shown = h(), ti = teleInfo(), tr = t.getBoundingClientRect();
+        const covered = [...row.querySelectorAll("*")].filter((e) => e !== t && !t.contains(e) && !e.contains(t) && getComputedStyle(e).display !== "none" && e.getBoundingClientRect().width > 0 && !e.matches("svg *"))
+          .filter((e) => { const r = e.getBoundingClientRect(); return r.left < tr.right - 0.5 && r.right > tr.left + 0.5 && r.top < tr.bottom - 0.5 && r.bottom > tr.top + 0.5; }).length;
+        const docOver = document.documentElement.scrollWidth > innerWidth + 0.5, chipOut = tr.right > innerWidth + 0.5 || tr.left < -0.5;
+        t.style.display = "none";
+        const hidden = h(), th = teleInfo();
+        t.style.display = "";
+        const titled = inj || !tele || tele.title === (tele.textContent || "").replace(/\s+/g, " ").trim();
+        for (const e of added) e.remove();
+        return { shown, hidden, grow: Math.round((shown - hidden) * 10) / 10, sameText: ti.text === th.text, over: ti.over, overHidden: th.over, teleW: ti.w, teleWHidden: th.w, covered, docOver, chipOut, titled, teleShown: ti.shown };
+      }, inject));
+      const wrap = {}, wrapInj = {};
+      for (const w of [1366, 1280, 1024, 900, 640, 360]) wrap[w] = await measure(w, false);
+      for (const w of [900, 700, 640]) wrapInj[w] = await measure(w, true);
       await p.setViewportSize({ width: 1366, height: 768 });
-      const noWrap = [1024, 360].every((w) => Math.abs(wrap[w].shown - wrap[w].hidden) <= 1 && wrap[w].inRow);
+      const noTrunc = [640, 900, 1024, 1280].every((w) => wrap[w].teleShown && !wrap[w].over && wrap[w].sameText && wrap[w].teleW === wrap[w].teleWHidden);
+      const stable = [1366, 360].every((w) => Math.abs(wrap[w].shown - wrap[w].hidden) <= 1);
+      const oneLineMax = [...Object.values(wrap), ...Object.values(wrapInj)].every((r) => r.grow <= 22 && r.titled);
+      const injOk = Object.values(wrapInj).every((r) => !r.docOver && r.covered === 0 && !r.chipOut && r.sameText) && Object.values(wrap).every((r) => !r.docOver && r.covered === 0 && !r.chipOut);
+      const noWrap = noTrunc && stable && oneLineMax && injOk;
       // One line: the row is the StatChip's height plus the row's own vertical padding (py-1 = 8 px), within 1 px.
       const oneLine = geo.rowH !== null && Math.abs(geo.rowH - (geo.statH + 8)) <= 1 && geo.chipH <= geo.statH + 1;
-      record("FG-1", "Fear & Greed at rest: one collapsed chip at the end of the counts line, no panel, no request to api.alternative.me (DS-1 checked separately with the chip excluded per spec §3 item 8)",
+      record("FG-1", "Fear & Greed at rest: one collapsed chip at the end of the counts line, no panel, no request to api.alternative.me; the chip never truncates, hides or covers existing text (it may take its own line, <= 22 px, when the line is full; 1366 px and 360 px unchanged); DS-1 checked separately with the chip excluded per spec §3 item 8",
         geo.toggles === 1 && geo.expanded === "false" && geo.controls === "fng-panel" && /Fear & Greed/.test(geo.text) && geo.inHeader && geo.isLast && geo.hasStat && geo.sameLine && geo.endOfLine && oneLine && noWrap && geo.panels === 0 && hits.length === 0,
-        { geo, wrap, hits });
+        { geo, wrap, wrapInj, noTrunc, stable, oneLineMax, injOk, hits });
       await c.close();
     }
 
@@ -3243,9 +3259,11 @@ function dsCompare(base, now, prefix = "") {
         const mr = document.querySelector("main").getBoundingClientRect();
         const rowsVisible = [...document.querySelectorAll("main tbody tr")].filter((e) => { const b = e.getBoundingClientRect(); return b.top >= mr.top - 0.5 && b.bottom <= mr.bottom + 0.5; }).length;
         return { right: Math.round(r.right), left: Math.round(r.left), iw: innerWidth, ih: innerHeight, docScroll: document.documentElement.scrollWidth, panelScroll: panel.scrollWidth, panelClient: panel.clientWidth, wide,
-          mainH: Math.round(mainH), rowsVisible, rowsBottom: [...document.querySelectorAll("main tbody tr")].slice(0, 5).map((e) => Math.round(e.getBoundingClientRect().bottom - mr.top)), rowH: Math.round(document.querySelector("main tbody tr")?.getBoundingClientRect().height || 0), headH: Math.round(document.querySelector("main thead")?.getBoundingClientRect().height || 0), mainTop: Math.round(mr.top), panelH: Math.round(r.height), gaugeW: Math.round(g.width), chipH: Math.round(tr.height * 10) / 10, hitUp: hit(-11), hitDown: hit(11), hit0: hit(0) };
+          mainH: Math.round(mainH), rowsVisible, rowsBottom: [...document.querySelectorAll("main tbody tr")].slice(0, 5).map((e) => Math.round(e.getBoundingClientRect().bottom - mr.top)), rowH: Math.round(document.querySelector("main tbody tr")?.getBoundingClientRect().height || 0), headH: Math.round(document.querySelector("main thead")?.getBoundingClientRect().height || 0), mainTop: Math.round(mr.top), panelH: Math.round(r.height), gaugeW: Math.round(g.width), chipH: Math.round(tr.height * 10) / 10, hitUp: hit(-11), hitDown: hit(11), hit0: hit(0),
+          readout: (() => { const r = document.querySelector('[data-testid="fng-readout"]'); return r ? { font: parseFloat(getComputedStyle(r).fontSize), text: r.textContent || "", shown: getComputedStyle(r).display !== "none" } : null; })(),
+          svgTextShown: [...document.querySelectorAll('[data-testid="fng-gauge"] text')].filter((e) => getComputedStyle(e).display !== "none").length };
       });
-      const phone = (narrow.mainH >= narrow.ih * 0.4 || narrow.rowsVisible >= 3) && narrow.gaugeW <= 200 && narrow.chipH <= 17 && narrow.hit0 && narrow.hitUp && narrow.hitDown; // I-2: the list keeps 40 % of the screen or at least 3 whole rows; the chip's hit box is at least 24 px tall (+/-11 px around its centre) while it still looks 16 px
+      const phone = (narrow.mainH >= narrow.ih * 0.4 || narrow.rowsVisible >= 3) && narrow.gaugeW <= 200 && narrow.chipH <= 17 && narrow.hit0 && narrow.hitUp && narrow.hitDown && !!narrow.readout && narrow.readout.shown && narrow.readout.font >= 11 && /\b10\b.*Extreme Fear.*\d{1,2} [A-Z][a-z]{2} \d{4}/.test(narrow.readout.text) && narrow.svgTextShown === 0; // I-2: the list keeps 40 % of the screen or at least 3 whole rows; the chip's hit box is at least 24 px tall (+/-11 px around its centre) while it still looks 16 px
       const fits = narrow.right <= narrow.iw && narrow.left >= 0 && narrow.docScroll <= narrow.iw && narrow.panelScroll <= narrow.panelClient + 1 && narrow.wide === 0;
       await c.close();
       // M3: a cache 2 h old and HTTP 500: the cached value shows with the stale notice (under the gauge's Updated line); exactly one request.
@@ -3278,7 +3296,10 @@ function dsCompare(base, now, prefix = "") {
       await one.p.getByTestId("fng-toggle").click();
       await one.p.getByTestId("fng-gauge").waitFor({ timeout: 10000 });
       await one.p.waitForTimeout(500);
-      const oneRow = { history: await one.p.getByTestId("fng-history").count(), caption: /oldest to newest/.test((await one.p.getByTestId("fng-panel").textContent()) || "") };
+      await one.p.setViewportSize({ width: 390, height: 844 });
+      await one.p.waitForTimeout(400);
+      const oneReadout = await one.p.evaluate(() => { const r = document.querySelector('[data-testid="fng-readout"]'); return r ? { font: parseFloat(getComputedStyle(r).fontSize), text: r.textContent || "" } : null; });
+      const oneRow = { readout: oneReadout, readoutOk: !!oneReadout && oneReadout.font >= 11 && /\d{1,2} [A-Z][a-z]{2} \d{4}/.test(oneReadout.text), history: await one.p.getByTestId("fng-history").count(), caption: /oldest to newest/.test((await one.p.getByTestId("fng-panel").textContent()) || "") };
       await one.c.close();
       // HTTP 500 with no cache: a fresh context.
       const bad = await fngContext(500);
@@ -3288,11 +3309,11 @@ function dsCompare(base, now, prefix = "") {
       const badText = await bad.p.getByTestId("fng-panel").textContent();
       const unavailable = /The index is unavailable right now\./.test(badText || "") && (await bad.p.getByTestId("fng-gauge").count()) === 0;
       await bad.c.close();
-      record("FG-2", "Fear & Greed open on mocked data: gauge 10 Extreme Fear with date, 31 history bars, Alternative.me attribution next to the gauge, one request, remembered open with cache on reload, collapsing restores the list position, unavailable state on HTTP 500, fits at 390 px with the list keeping 40 % of the screen and a 24 px chip hit box, stale cache + HTTP 500 shows the cached value with the dated notice and one request, one valid row draws no history, the history text alternative carries the values",
+      record("FG-2", "Fear & Greed open on mocked data: gauge 10 Extreme Fear with date, 31 history bars, Alternative.me attribution next to the gauge, one request, remembered open with cache on reload, collapsing restores the list position, unavailable state on HTTP 500, fits at 390 px with the list keeping at least 40 % of the screen or 3 whole rows, a 24 px chip hit box and the gauge facts as 11 px+ text (also for one valid row), stale cache + HTTP 500 shows the cached value with the dated notice and one request, one valid row draws no history, the history text alternative carries the values",
         open.role === "region" && open.id === "fng-panel" && open.labelled && open.expanded === "true" && below && gaugeOk && open.bars === 31
           && open.attrVisible && open.inPanel && open.nextToGauge && /Alternative\.me/.test(open.attrText || "") && open.href === "https://alternative.me/crypto/fear-and-greed-index/"
           && oneRequest && reloaded.stillOpen && reloaded.expanded === "true" && reloaded.hits === 1
-          && collapsed.panels === 0 && Math.abs(collapsed.top1 - collapsed.top0) <= 2 && unavailable && fits && phone && staleOk && oneRow.history === 0 && !oneRow.caption && histOk,
+          && collapsed.panels === 0 && Math.abs(collapsed.top1 - collapsed.top0) <= 2 && unavailable && fits && phone && staleOk && oneRow.history === 0 && !oneRow.caption && oneRow.readoutOk && histOk,
         { open: { ...open, text: undefined }, below, gaugeOk, oneRequest, reloaded, collapsed, narrow, phone, stale, staleOk, oneRow, histOk, summary, unavailable, badText: (badText || "").slice(0, 120) });
     }
   }
