@@ -12,10 +12,11 @@ const ETF_TICKERS_PER_DAY = 20;
 const ETF_MAX_FLOW_USD = 1e11;
 const ETF_TIMEOUT_MS = 10_000;
 const ETF_CACHE_MS = 60 * 60_000;
+const ETF_FAILURE_CACHE_MS = 5 * 60_000;
 const ETF_UNAVAILABLE = "ETF flows unavailable.";
 
 /** One asset. Returns the kept days, or null when the call failed (so the caller can tell "failed" from "no data"). */
-async function fetchAsset(apiKey, path, fetcher) {
+async function fetchAsset(apiKey, path, fetcher, now) {
   const request = buildCoinglassRequest(apiKey, path);
   let response;
   try {
@@ -30,10 +31,25 @@ async function fetchAsset(apiKey, path, fetcher) {
   const payload = await response.json().catch(() => null);
   if (!payload || payload.code !== "0" || !Array.isArray(payload.data)) return null;
 
-  const days = [];
+  // Do not rely on upstream order: sort ascending, keep the last row per date, take the newest 30, then validate.
+  const earliest = Date.UTC(2015, 0, 1);
+  const latest = now() + 86_400_000;
+  const rows = [];
   for (const row of payload.data) {
-    const stamp = new Date(typeof row?.timestamp === "number" ? row.timestamp : Number.NaN);
-    if (Number.isNaN(stamp.getTime())) continue;
+    const ts = row?.timestamp;
+    if (typeof ts !== "number" || !Number.isFinite(ts) || ts < earliest || ts > latest) continue;
+    const date = new Date(ts).toISOString().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    rows.push({ ts, date, row });
+  }
+  rows.sort((x, y) => x.ts - y.ts);
+  const byDate = new Map();
+  for (const entry of rows) {
+    byDate.delete(entry.date); // later rows win and keep ascending order
+    byDate.set(entry.date, entry);
+  }
+  const days = [];
+  for (const { date, row } of [...byDate.values()].slice(-ETF_DAYS)) {
     const flows = [];
     if (Array.isArray(row.etf_flows)) {
       for (const entry of row.etf_flows) {
@@ -46,31 +62,39 @@ async function fetchAsset(apiKey, path, fetcher) {
         flows.push({ ticker, flowUsd });
       }
     }
-    days.push({ date: stamp.toISOString().slice(0, 10), totalUsd: flows.reduce((sum, f) => sum + f.flowUsd, 0), flows });
+    if (flows.length === 0) continue; // no data for the day is not a zero day
+    days.push({ date, totalUsd: flows.reduce((sum, f) => sum + f.flowUsd, 0), flows });
   }
-  return days.slice(-ETF_DAYS);
+  return days;
 }
 
 /** CoinGlass returns the full history in one call per asset, oldest to newest; the newest 30 days are kept. */
 export async function fetchEtfFlows(apiKey, { fetcher = fetch, now = Date.now } = {}) {
   const [btc, eth] = await Promise.all([
-    fetchAsset(apiKey, "/api/etf/bitcoin/flow-history", fetcher),
-    fetchAsset(apiKey, "/api/etf/ethereum/flow-history", fetcher),
+    fetchAsset(apiKey, "/api/etf/bitcoin/flow-history", fetcher, now),
+    fetchAsset(apiKey, "/api/etf/ethereum/flow-history", fetcher, now),
   ]);
   if (btc === null && eth === null) throw new Error(ETF_UNAVAILABLE);
   return { asOf: now(), btc: btc ?? [], eth: eth ?? [] };
 }
 
-/** In-memory 1 h cache per profile. Entries are dropped when the profile goes. */
-export function createEtfFlowCache({ fetchFlows = fetchEtfFlows, now = Date.now, ttlMs = ETF_CACHE_MS } = {}) {
+/**
+ * In-memory cache per profile: 1 h for a result, 5 min for a both-assets failure (so an outage does not burn the rate
+ * limit). Concurrent misses share one upstream fetch. Entries are dropped when the profile goes.
+ */
+export function createEtfFlowCache({ fetchFlows = fetchEtfFlows, now = Date.now, ttlMs = ETF_CACHE_MS, failureTtlMs = ETF_FAILURE_CACHE_MS } = {}) {
   const entries = new Map();
   return {
-    async get(id, apiKey) {
+    get(id, apiKey) {
       const hit = entries.get(id);
-      if (hit && now() - hit.at < ttlMs) return hit.value;
-      const value = await fetchFlows(apiKey, { now });
-      entries.set(id, { at: now(), value });
-      return value;
+      if (hit && (hit.pending || now() - hit.at < hit.ttl)) return hit.promise;
+      const entry = { at: now(), ttl: ttlMs, pending: true, promise: null };
+      entry.promise = (async () => fetchFlows(apiKey, { now }))().then(
+        (value) => { entry.pending = false; entry.at = now(); return value; },
+        (error) => { entry.pending = false; entry.at = now(); entry.ttl = failureTtlMs; throw error; },
+      );
+      entries.set(id, entry);
+      return entry.promise;
     },
     delete(id) { entries.delete(id); },
     clear() { entries.clear(); },
@@ -84,6 +108,8 @@ const WHALE_MAX_USD = 1e10;
 const WHALE_IDLE_MS = 15 * 60_000;
 const WHALE_KEEP_MS = 24 * 3_600_000;
 const WHALE_KEEP_COUNT = 200;
+const WHALE_SUBSCRIBE_MS = 15_000;
+const WHALE_FUTURE_MS = 5 * 60_000;
 const BACKOFF_START_MS = 5_000;
 const BACKOFF_MAX_MS = 300_000;
 const WORD = /^[A-Za-z0-9 _.-]{1,32}$/;
@@ -102,7 +128,7 @@ function inRange(value) {
 }
 
 /** One Whale Alert frame to a WhaleAlert, or null when it is not a valid alert. */
-function toAlert(message) {
+function toAlert(message, latestMs) {
   if (!message || !Array.isArray(message.amounts)) return null;
   let best = null;
   for (const entry of message.amounts) {
@@ -114,6 +140,7 @@ function toAlert(message) {
   if (typeof message.blockchain !== "string" || !WORD.test(message.blockchain)) return null;
   if (typeof message.transaction_type !== "string" || !WORD.test(message.transaction_type)) return null;
   if (typeof message.timestamp !== "number" || !Number.isFinite(message.timestamp) || message.timestamp <= 0) return null;
+  if (message.timestamp * 1000 > latestMs) return null; // far-future timestamps are dropped
   const hash = message.transaction?.hash;
   return {
     t: message.timestamp * 1000,
@@ -131,7 +158,8 @@ function toAlert(message) {
 /**
  * One lazy Whale Alert stream for one key. The first poll opens the socket; 15 minutes without a poll closes it; a poll
  * with a different clamped minimum reconnects with it. A "not authenticated" frame stops reconnecting until the next poll.
- * poll() returns the last 24 h (at most 200), newest first.
+ * The socket is subscribed at the lowest minimum polled so far; a higher minimum is applied as a filter, a lower one reconnects.
+ * poll() returns the last 24 h (at most 200) at or above the requested minimum, newest first by time.
  */
 export function createWhaleStream({ apiKey, WebSocketCtor = globalThis.WebSocket, now = Date.now, timers = globalThis } = {}) {
   let ws = null;
@@ -140,15 +168,18 @@ export function createWhaleStream({ apiKey, WebSocketCtor = globalThis.WebSocket
   let buffer = [];
   let idleTimer = null;
   let reconnectTimer = null;
+  let subscribeTimer = null;
   let backoff = BACKOFF_START_MS;
   let halted = false; // authentication failed: no reconnect until the next poll
 
   const prune = () => {
     const cutoff = now() - WHALE_KEEP_MS;
-    buffer = buffer.filter((a) => a.t >= cutoff).slice(-WHALE_KEEP_COUNT);
+    buffer = buffer.filter((a) => a.t >= cutoff).sort((x, y) => x.t - y.t).slice(-WHALE_KEEP_COUNT);
   };
 
   const detach = () => {
+    if (subscribeTimer !== null) timers.clearTimeout(subscribeTimer);
+    subscribeTimer = null;
     const old = ws;
     ws = null;
     connected = false;
@@ -181,6 +212,7 @@ export function createWhaleStream({ apiKey, WebSocketCtor = globalThis.WebSocket
       return;
     }
     ws = socket;
+    subscribeTimer = timers.setTimeout(() => { subscribeTimer = null; if (ws === socket && !connected) lost(); }, WHALE_SUBSCRIBE_MS);
     const lost = () => {
       if (ws !== socket) return;
       detach();
@@ -203,15 +235,19 @@ export function createWhaleStream({ apiKey, WebSocketCtor = globalThis.WebSocket
         if (typeof message.error === "string" && /not authenticated/i.test(message.error)) {
           halted = true;
           detach();
+        } else if (!connected) {
+          lost(); // an error before the subscription: retry through the backoff
         }
         return;
       }
       if (message.type === "subscribed_alerts") {
         connected = true;
         backoff = BACKOFF_START_MS;
+        if (subscribeTimer !== null) timers.clearTimeout(subscribeTimer);
+        subscribeTimer = null;
         return;
       }
-      const alert = toAlert(message);
+      const alert = toAlert(message, now() + WHALE_FUTURE_MS);
       if (alert) {
         buffer.push(alert);
         prune();
@@ -237,7 +273,7 @@ export function createWhaleStream({ apiKey, WebSocketCtor = globalThis.WebSocket
     if (idleTimer !== null) timers.clearTimeout(idleTimer);
     idleTimer = timers.setTimeout(close, WHALE_IDLE_MS);
     halted = false;
-    if (wanted !== minUsd) {
+    if (minUsd === null || wanted < minUsd) {
       minUsd = wanted;
       backoff = BACKOFF_START_MS;
       open(); // first poll, or a new minimum: reconnect now
@@ -245,7 +281,7 @@ export function createWhaleStream({ apiKey, WebSocketCtor = globalThis.WebSocket
       open();
     }
     prune();
-    return { connected, alerts: buffer.slice().reverse() };
+    return { connected, alerts: buffer.filter((a) => a.valueUsd >= wanted).reverse() };
   }
 
   return { poll, close };

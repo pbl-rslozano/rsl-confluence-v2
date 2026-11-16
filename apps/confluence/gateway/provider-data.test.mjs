@@ -68,6 +68,33 @@ test("etf flows cap hostile payloads", async () => {
   }
 });
 
+test("etf flows return the newest 30 days even when upstream is newest-first", async () => {
+  const data = Array.from({ length: 60 }, (_, i) => ({ timestamp: Date.UTC(2026, 8, 1) + i * DAY, etf_flows: [{ etf_ticker: "IBIT", flow_usd: i + 1 }] })).reverse();
+  data.push({ timestamp: Date.UTC(2026, 8, 1) + 59 * DAY + 3_600_000, etf_flows: [{ etf_ticker: "IBIT", flow_usd: 999 }] }); // same date, later
+  const fetcher = fakeFetcher({ [BTC]: { code: "0", data }, [ETH]: { code: "0", data: [] } });
+  const live = await fetchEtfFlows(KEY, { fetcher, now: () => T0 });
+  assert.equal(live.btc.length, 30);
+  assert.equal(live.btc[0].date, "2026-10-01");
+  assert.equal(live.btc.at(-1).date, "2026-10-30");
+  assert.equal(live.btc.at(-1).totalUsd, 999); // dedupe keeps the last
+  assert.deepEqual(live.btc.map((d) => d.date), [...live.btc.map((d) => d.date)].sort());
+});
+
+test("etf flows skip days with no kept flows and out-of-range timestamps", async () => {
+  const btc = { code: "0", data: [
+    { timestamp: Date.UTC(2026, 10, 10) }, // no etf_flows
+    { timestamp: Date.UTC(2026, 10, 11), etf_flows: "nope" },
+    { timestamp: Date.UTC(2026, 10, 12), etf_flows: [{ etf_ticker: "IBIT" }, { etf_ticker: "FBTC", flow_usd: null }] },
+    { timestamp: Date.UTC(2026, 10, 13), etf_flows: [{ etf_ticker: "<b>", flow_usd: 1 }] },
+    { timestamp: Date.UTC(2005, 0, 1), etf_flows: [{ etf_ticker: "IBIT", flow_usd: 1 }] }, // before 2015
+    { timestamp: T0 + 3 * DAY, etf_flows: [{ etf_ticker: "IBIT", flow_usd: 1 }] }, // future
+    { timestamp: Date.UTC(2026, 10, 14), etf_flows: [{ etf_ticker: "IBIT", flow_usd: 4 }] },
+  ] };
+  const fetcher = fakeFetcher({ [BTC]: btc, [ETH]: { code: "0", data: [] } });
+  const live = await fetchEtfFlows(KEY, { fetcher, now: () => T0 });
+  assert.deepEqual(live.btc.map((d) => d.date), ["2026-11-14"]);
+});
+
 test("etf flows drop non-finite flows and days with a bad timestamp", async () => {
   const btc = { code: "0", data: [
     { timestamp: "nope", etf_flows: [{ etf_ticker: "IBIT", flow_usd: 1 }] },
@@ -120,6 +147,28 @@ test("etf cache serves for 1 h, then refetches, and drops on delete", async () =
   cache.clear();
   await cache.get("p1", KEY);
   assert.equal(calls, 4);
+});
+
+test("etf cache shares one in-flight fetch and negative-caches a failure for 5 min", async () => {
+  let clock = T0;
+  let calls = 0;
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const cache = createEtfFlowCache({ now: () => clock, fetchFlows: async () => { calls += 1; await gate; return { asOf: clock, btc: [], eth: [] }; } });
+  const both = Promise.all([cache.get("p", KEY), cache.get("p", KEY)]);
+  release();
+  await both;
+  assert.equal(calls, 1);
+
+  let failing = 0;
+  const bad = createEtfFlowCache({ now: () => clock, fetchFlows: async () => { failing += 1; throw new Error("ETF flows unavailable."); } });
+  await assert.rejects(bad.get("p", KEY));
+  clock += 4 * 60_000;
+  await assert.rejects(bad.get("p", KEY));
+  assert.equal(failing, 1);
+  clock += 2 * 60_000;
+  await assert.rejects(bad.get("p", KEY));
+  assert.equal(failing, 2);
 });
 
 // ---- whale stream ----
@@ -230,24 +279,87 @@ test("whale stream keeps only alerts from the last 24 h and at most 200", () => 
   assert.deepEqual(stream.poll(1e6).alerts, []);
 });
 
-test("whale stream reconnects with a new minimum and clamps it", () => {
+test("whale stream reconnects only when the minimum is lowered, and clamps it", () => {
   const { sockets, stream } = harness();
   stream.poll(10); // clamps to 1e6
   sockets[0].open();
   assert.equal(sockets[0].sent[0].min_value_usd, 1e6);
-  stream.poll(1e6); // same clamped value: no reconnect
+  stream.poll(1e6); // same value: no reconnect
+  stream.poll(9e12); // raise (clamped to 1e10): the filter handles it
+  stream.poll(Number.NaN); // back to 1e6: still within the subscription
   assert.equal(sockets.length, 1);
+  assert.equal(sockets[0].closed, false);
+});
+
+test("whale stream: lowering the minimum reconnects once with it", () => {
+  const { sockets, stream } = harness();
   stream.poll(5e6);
+  sockets[0].open();
+  assert.equal(sockets[0].sent[0].min_value_usd, 5e6);
+  stream.poll(2e6);
   assert.equal(sockets[0].closed, true);
   assert.equal(sockets.length, 2);
   sockets[1].open();
-  assert.equal(sockets[1].sent[0].min_value_usd, 5e6);
-  stream.poll(9e12);
-  sockets[2].open();
-  assert.equal(sockets[2].sent[0].min_value_usd, 1e10);
-  stream.poll(Number.NaN);
-  sockets[3].open();
-  assert.equal(sockets[3].sent[0].min_value_usd, 1e6);
+  assert.equal(sockets[1].sent[0].min_value_usd, 2e6);
+  stream.poll(2e6);
+  stream.poll(3e6);
+  assert.equal(sockets.length, 2);
+});
+
+test("whale stream: raising the minimum filters what poll returns without a reconnect", () => {
+  const { sockets, stream, now } = harness();
+  stream.poll(1e6);
+  sockets[0].open();
+  sockets[0].message({ type: "subscribed_alerts" });
+  sockets[0].message(alertAt(now(), { amounts: [{ symbol: "BTC", amount: 1, value_usd: 2_000_000 }], transaction: { hash: "small" } }));
+  sockets[0].message(alertAt(now(), { amounts: [{ symbol: "BTC", amount: 1, value_usd: 8_000_000 }], transaction: { hash: "big" } }));
+  assert.equal(stream.poll(1e6).alerts.length, 2);
+  const raised = stream.poll(5e6);
+  assert.deepEqual(raised.alerts.map((a) => a.hash), ["big"]);
+  assert.equal(sockets.length, 1);
+  assert.equal(raised.connected, true);
+});
+
+test("whale stream rejects far-future alerts and returns newest first by time", () => {
+  const { sockets, stream, now } = harness();
+  stream.poll(1e6);
+  sockets[0].open();
+  sockets[0].message({ type: "subscribed_alerts" });
+  sockets[0].message(alertAt(now() - 60_000, { transaction: { hash: "older" } }));
+  sockets[0].message(alertAt(now() - 5_000, { transaction: { hash: "newer" } }));
+  sockets[0].message(alertAt(now() - 120_000, { transaction: { hash: "oldest" } }));
+  sockets[0].message(alertAt(now() + 10 * 60_000, { transaction: { hash: "future" } }));
+  assert.deepEqual(stream.poll(1e6).alerts.map((a) => a.hash), ["newer", "older", "oldest"]);
+});
+
+test("whale stream reconnects when no subscription confirmation arrives in 15 s", () => {
+  const { timers, sockets, stream } = harness();
+  stream.poll(1e6);
+  sockets[0].open();
+  timers.advance(14_999);
+  assert.equal(sockets[0].closed, false);
+  timers.advance(1);
+  assert.equal(sockets[0].closed, true);
+  timers.advance(5_000);
+  assert.equal(sockets.length, 2);
+  sockets[1].open();
+  sockets[1].message({ type: "subscribed_alerts" });
+  timers.advance(60_000);
+  assert.equal(sockets[1].closed, false); // confirmed: the timeout is cleared
+});
+
+test("whale stream reconnects on a non-auth error before subscription, not after", () => {
+  const { timers, sockets, stream } = harness();
+  stream.poll(1e6);
+  sockets[0].open();
+  sockets[0].message({ error: "something odd" });
+  assert.equal(sockets[0].closed, true);
+  timers.advance(5_000);
+  assert.equal(sockets.length, 2);
+  sockets[1].open();
+  sockets[1].message({ type: "subscribed_alerts" });
+  sockets[1].message({ error: "alert rate limit exceeded" });
+  assert.equal(sockets[1].closed, false);
 });
 
 test("whale stream reconnects with backoff 5 s to 5 min and resets after a subscription", () => {
@@ -264,7 +376,15 @@ test("whale stream reconnects with backoff 5 s to 5 min and resets after a subsc
   assert.equal(sockets.length, 2);
   timers.advance(1);
   assert.equal(sockets.length, 3);
-  for (let i = 0; i < 8; i += 1) { sockets.at(-1).drop(); stream.poll(1e6); timers.advance(300_000); }
+  for (const delay of [20_000, 40_000, 80_000, 160_000, 300_000, 300_000]) {
+    const before = sockets.length;
+    sockets.at(-1).drop();
+    stream.poll(1e6);
+    timers.advance(delay - 1);
+    assert.equal(sockets.length, before);
+    timers.advance(1);
+    assert.equal(sockets.length, before + 1);
+  }
   const n = sockets.length;
   sockets.at(-1).drop();
   stream.poll(1e6);
