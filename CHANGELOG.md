@@ -4,6 +4,13 @@ Steps 1 to 4b of the v2.8 plan (`docs/superpowers/specs/2026-11-15-v2.8-architec
 credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (Step 2); Fund trend (Step 3); Market radar part 1 (Step 4a) and part 2 (Step 4b). Engine 2.4.0 (`5c30b5c39f5ba3f2`);
 ledger rows of engine 2.3.0 stay and are reported separately.
 
+- **Version stamp (KIT-003, owner decision 16 Nov 2026):** the version and build metadata format
+  is SemVer plus the build date everywhere: `2.7.0 (build 20261111)` in the header brand block, `Powered by rsL Confluence
+  Terminal · 2.7.0 · build 20261111` in the footer and About, no leading "v" and no year (was `v2.7 2026 · build 20261111`).
+  rsL Core Kit 1.2.0 (was shown as `v1.1 2026`): `buildStamp()` pads a short version to `MAJOR.MINOR.PATCH`, ignores `year`
+  and `poweredBy()` follows the identity skill's footer form; the Coffee Kit shows `1.1.0` (its data is unchanged); backups
+  record the same stamp in `appVersion`; the user guide, README, release check R19 and the SBOM component use it too.
+  Guard: `tools/semver-stamp.test.mjs`, kit tests, `KIT-MANIFEST.sha256` regenerated (R4). Past entries keep their old format.
 - **Paper safety (WP19):** 10% drawdown lock (Stop + close all at the next open of each chart; pending positions cancelled;
   typed RESET restarts the 10% from current equity, disabled while closes are pending); open losses count in the daily and
   weekly locks; no loosening while a lock is active; costs inside the risk budget (a clean stop-out ≈ −1 R); event

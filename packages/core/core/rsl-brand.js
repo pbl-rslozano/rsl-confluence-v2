@@ -1,5 +1,5 @@
 /**
- * rsl-brand.js — rsL Core Kit · v1.1 2026 (personal edition: no organisation details, KIT-002)
+ * rsl-brand.js — rsL Core Kit · 1.2.0 (personal edition: no organisation details, KIT-002; SemVer build stamp, KIT-003)
  * The rsL identity layer as data + string builders (no framework). Follows
  * "rsL Application Identity System" masterclass v1.0 2026, phase 2.
  * Brand strings are never translated.
@@ -32,10 +32,26 @@ export function monogramSVG({ className = 'rsl-mono', label = 'rsLozano monogram
   return `<svg class="${esc(className)}" viewBox="0 0 420 330"${size} role="img" aria-label="${esc(label)}"><defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0755F5"/><stop offset="1" stop-color="#7524F4"/></linearGradient></defs>${bg}<g transform="translate(40 40)"><g fill="url(#${id})">${MONO_PATHS}</g><path fill="#00D9F5" d="M147 120H190L236 165H193Z"/></g></svg>`;
 }
 
-/** "v1.0 2026 · build 20261029" */
-export const buildStamp = ({ version, year = new Date().getFullYear(), build }) => `v${version} ${year} · build ${build}`;
-/** "Powered by rsL PackOS · v1.0 2026 · build 20261029" */
-export const poweredBy = (app) => `Powered by rsL ${app.name} · ${buildStamp(app)}`;
+/**
+ * SemVer version as MAJOR.MINOR.PATCH (KIT-003): missing parts are padded with ".0", so "1.0" -> "1.0.0" and
+ * "2.7.0" stays "2.7.0". A version that is not plain numeric (for example "2.8.0-rc.1") is shown as given.
+ * @param {string|number} version
+ */
+export const semver = (version) => {
+  const v = String(version).trim();
+  if (!/^\d+(\.\d+){0,2}$/.test(v)) return v;
+  const parts = v.split('.');
+  while (parts.length < 3) parts.push('0');
+  return parts.join('.');
+};
+/**
+ * Version and build date: "1.0.0 (build 20261029)". No leading "v", no year. `year` is still accepted so older
+ * callers keep working, but it is ignored (KIT-003).
+ * @param {{ version:string, year?:number, build:string|number }} app
+ */
+export const buildStamp = ({ version, build }) => `${semver(version)} (build ${build})`;
+/** Identity-skill footer form: "Powered by rsL PackOS · 1.0.0 · build 20261029" */
+export const poweredBy = (app) => `Powered by rsL ${app.name} · ${semver(app.version)} · build ${app.build}`;
 /** mailto for the Contact developer button (shown as selectable text as well; mail links can fail). */
 export const contactMailto = (app, subject = app.name) => `mailto:${BRAND.contactEmail}?subject=${encodeURIComponent(subject)}`;
 

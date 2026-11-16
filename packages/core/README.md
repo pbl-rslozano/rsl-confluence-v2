@@ -1,4 +1,4 @@
-# rsL Core Kit · v1.1 2026
+# rsL Core Kit · 1.2.0
 
 These are the parts every rsL application shares, built once and reused: design tokens, an adaptive shell, the rsL identity, 18-language i18n, Customer Name Recall, one storage API, a hash-chained audit trail, the offline license core, a platform adapter, and export helpers.
 
@@ -119,10 +119,12 @@ Browser-only paths (IndexedDB, Canvas signature, `saveOrShare` fallbacks) are ex
 
 ## Versioning
 
-Kit releases use `vMAJOR.MINOR YEAR` (for example `v1.0 2026`). A change to a public function signature, a storage format (`rsl_docs`, backup `formatVersion`) or the audit entry shape is a major version change. Apps pin the kit version they were tested with.
+Apps show their own version and build date as `buildStamp()` (`1.0.0 (build 20261116)`) and `poweredBy()` (`Powered by rsL AppName · 1.0.0 · build 20261116`). A short version such as `1.0` is padded to `1.0.0`; a non-numeric version is shown as given; the old `year` argument is accepted and ignored.
+
+Kit releases use SemVer `MAJOR.MINOR.PATCH` (for example `1.2.0`), with no leading "v" and no year (KIT-003; the earlier number-plus-year releases are now 1.0.0 and 1.1.0). A change to a public function signature, a storage format (`rsl_docs`, backup `formatVersion`) or the audit entry shape is a major version change. Apps pin the kit version they were tested with.
 
 ---
 
-**Version v1.1 2026**
+**Version 1.2.0**
 
 Created by rsLozano

@@ -1,5 +1,5 @@
 /**
- * rsl-i18n.js — rsL Core Kit · v1.0 2026
+ * rsl-i18n.js — rsL Core Kit · 1.2.0
  * The rsL 18-language registry (fixed order from rsL PackOS v21.9) and a dependency-free
  * message formatter covering the ICU MessageFormat 1 subset the apps use:
  *   {name}   {n, number}   {d, date}   {n, plural, =0 {…} one {# item} other {# items}}   {x, select, a {…} other {…}}

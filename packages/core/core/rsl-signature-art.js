@@ -1,5 +1,5 @@
 /**
- * rsl-signature-art.js — rsL Core Kit · v1.0 2026
+ * rsl-signature-art.js — rsL Core Kit · 1.2.0
  * "Convergent Lattice": the seeded generative signature drawn on every rsL app's splash,
  * About dialog and empty states. Dependency-free Canvas 2D (no p5), deterministic per seed:
  * the same app code always grows the same lattice, on every platform.

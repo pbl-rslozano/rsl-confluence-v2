@@ -1,5 +1,5 @@
 /**
- * rsl-storage.js — rsL Core Kit · v1.0 2026
+ * rsl-storage.js — rsL Core Kit · 1.2.0
  * One StoragePort for every shell. Durable records live in native SQLite (Tauri / Capacitor);
  * IndexedDB is the browser/PWA fallback; memory is the session-only last resort.
  *

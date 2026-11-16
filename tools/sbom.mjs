@@ -111,7 +111,7 @@ const bom = {
   metadata: {
     timestamp: new Date().toISOString(),
     tools: { components: [{ type: "application", name: "rsl-sbom.mjs", version: "1.0" }] },
-    component: { type: "application", name: "rsL Confluence Terminal", version: `${VERSION} ${YEAR}`, "bom-ref": "app", supplier: { name: "rsLozano" }, licenses: [{ license: { name: "UNLICENSED (rsLozano, all rights reserved)" } }] },
+    component: { type: "application", name: "rsL Confluence Terminal", version: pkg.version, "bom-ref": "app", supplier: { name: "rsLozano" }, licenses: [{ license: { name: "UNLICENSED (rsLozano, all rights reserved)" } }] },
   },
   components,
 };

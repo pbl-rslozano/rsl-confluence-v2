@@ -1,4 +1,4 @@
-// rsL Core Kit · v1.0 2026 — unit tests.  Run: node --test
+// rsL Core Kit · 1.2.0 — unit tests.  Run: node --test
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -247,10 +247,28 @@ test('identity: validation, initials, safe logos, recent list', async () => {
   await store.set({ ...store.get(), customer: { legalName: 'Example Trading Co.', shortName: 'ETC', code: 'ETC', site: 'S2' } });
   assert.equal(store.get().recent[0].code, 'PERS', 'the previous (default personal) workspace moves to recent');
 });
+test('brand: SemVer build stamp (KIT-003): MAJOR.MINOR.PATCH, no "v", no year', () => {
+  const stamp = (version, extra = {}) => buildStamp({ version, build: '20261116', ...extra });
+  assert.equal(stamp('1.0'), '1.0.0 (build 20261116)', 'missing PATCH is padded with .0');
+  assert.equal(stamp('1.1'), '1.1.0 (build 20261116)');
+  assert.equal(stamp('2'), '2.0.0 (build 20261116)', 'missing MINOR and PATCH are padded');
+  assert.equal(stamp('2.7.0'), '2.7.0 (build 20261116)', 'a full version stays as it is');
+  assert.equal(stamp('2.8.3'), '2.8.3 (build 20261116)');
+  assert.equal(stamp('1.0', { year: 1999 }), '1.0.0 (build 20261116)', 'year is accepted for compatibility and ignored');
+  assert.equal(stamp('1.0', { year: undefined }), '1.0.0 (build 20261116)');
+  assert.equal(stamp('next'), 'next (build 20261116)', 'a non-numeric version is shown as given');
+  assert.equal(stamp('2.8.0-rc.1'), '2.8.0-rc.1 (build 20261116)', 'a pre-release version is shown as given');
+  assert.ok(!/^v|20\d\d ·/.test(stamp('1.0')), 'no leading v, no year');
+  assert.equal(poweredBy({ name: 'AppName', version: '1.0', build: '20261116' }), 'Powered by rsL AppName · 1.0.0 · build 20261116', 'identity-skill footer form');
+  assert.equal(poweredBy({ name: 'AppName', version: '2.7.0', year: 2026, build: '20261116' }), 'Powered by rsL AppName · 2.7.0 · build 20261116');
+  const html = brandBlockHTML({ name: 'AppName', version: '1.0', year: 2026, build: '20261116' });
+  assert.ok(html.includes('title="AppName 1.0.0 (build 20261116)"'), 'brand block title is "${name} ${stamp}"');
+  assert.ok(html.includes('>1.0.0 (build 20261116)</span>'), 'brand block shows the stamp');
+});
 test('brand: build stamp after brand, credit on the last page only', () => {
   const app = { name: 'PackOS', version: '1.0', year: 2026, build: '20261029' };
-  assert.equal(buildStamp(app), 'v1.0 2026 · build 20261029');
-  assert.equal(poweredBy(app), 'Powered by rsL PackOS · v1.0 2026 · build 20261029');
+  assert.equal(buildStamp(app), '1.0.0 (build 20261029)');
+  assert.equal(poweredBy(app), 'Powered by rsL PackOS · 1.0.0 · build 20261029');
   const html = brandBlockHTML(app);
   const order = ['rsl-mono', 'rsl-r', 'rsl-app', 'rsl-by', 'rsl-build'].map((c) => html.indexOf(c));
   assert.deepEqual([...order].sort((a, b) => a - b), order, 'monogram → rsL → app → byline → build');

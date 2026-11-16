@@ -1,5 +1,5 @@
 /**
- * rsl-export.js — rsL Core Kit · v1.0 2026
+ * rsl-export.js — rsL Core Kit · 1.2.0
  * Export helpers shared by every app: injection-safe CSV, file naming, GS1 check digits.
  * XLSX (SheetJS CE 0.20.3, vendored tarball — the npm "xlsx" 0.18.5 is stale) and DOCX (docx)
  * stay in each app; this module gives them the same safe cell values and names.

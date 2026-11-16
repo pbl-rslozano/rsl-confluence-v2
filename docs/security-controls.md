@@ -1,4 +1,4 @@
-# Security controls — rsL Confluence Terminal v2.1 2026
+# Security controls — rsL Confluence Terminal 2.1.0
 
 Mapped to **OWASP ASVS 5.0** (chapter level) and **OWASP MASVS v2.1** (control ids). Target L2. Gaps are listed honestly at the end.
 

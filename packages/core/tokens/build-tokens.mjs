@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * build-tokens.mjs — rsL Core Kit · v1.0 2026
+ * build-tokens.mjs — rsL Core Kit · 1.2.0
  * Reads DTCG 2025.10 token files and writes rsl-tokens.css (light on :root, dark in the
  * three-state pattern: prefers-color-scheme guarded by :not([data-theme=light]) + [data-theme=dark]).
  * Zero dependencies. Style Dictionary v5 can consume the same .tokens.json files for iOS/Android outputs.

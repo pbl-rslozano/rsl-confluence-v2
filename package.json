@@ -3,7 +3,7 @@
   "version": "2.7.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "rsL Confluence Terminal v2.1 2026 — one web core, Tauri 2 desktop shell, Capacitor 8 mobile shell, PWA.",
+  "description": "rsL Confluence Terminal — one web core, Tauri 2 desktop shell, Capacitor 8 mobile shell, PWA.",
   "author": "rsLozano",
   "packageManager": "pnpm@10.34.9",
   "engines": {
@@ -14,7 +14,7 @@
     "build:pwa": "pnpm --filter @rsl/confluence-web build:static && node tools/package-pwa.mjs",
     "build:desktop": "pnpm --filter @rsl/confluence-desktop tauri build",
     "build:mobile": "pnpm --filter @rsl/confluence-mobile sync",
-    "test": "pnpm --filter @rsl/core-kit test && pnpm --filter @rsl/confluence-web test && pnpm --filter @rsl/confluence-gateway test && pnpm --filter @rsl/confluence-recorder test && pnpm --filter @rsl/confluence-mcp test && node tools/fetch-binance-archive.test.mjs && node --test tools/check-acceptance-ids.test.mjs tools/check-certification-pr.test.mjs tools/no-org-ids.test.mjs tools/third-party-notices.test.mjs tools/licence-policy.test.mjs tools/check-egress.test.mjs tools/public-hosts.test.mjs tools/docs-parity.test.mjs tools/translation-review.test.mjs tools/order-paths.test.mjs tools/keyless-sources.test.mjs && node --experimental-strip-types --no-warnings --test tools/publish-update.test.mjs && node --test tools/native-icons.test.mjs && node tools/check-egress.mjs && pnpm run test:protect",
+    "test": "pnpm --filter @rsl/core-kit test && pnpm --filter @rsl/confluence-web test && pnpm --filter @rsl/confluence-gateway test && pnpm --filter @rsl/confluence-recorder test && pnpm --filter @rsl/confluence-mcp test && node tools/fetch-binance-archive.test.mjs && node --test tools/check-acceptance-ids.test.mjs tools/check-certification-pr.test.mjs tools/no-org-ids.test.mjs tools/third-party-notices.test.mjs tools/licence-policy.test.mjs tools/check-egress.test.mjs tools/public-hosts.test.mjs tools/docs-parity.test.mjs tools/translation-review.test.mjs tools/order-paths.test.mjs tools/keyless-sources.test.mjs && node --experimental-strip-types --no-warnings --test tools/publish-update.test.mjs tools/semver-stamp.test.mjs && node --test tools/native-icons.test.mjs && node tools/check-egress.mjs && pnpm run test:protect",
     "test:protect": "node --test tools/protect-build.test.mjs tools/protect-golden.test.mjs",
     "typecheck": "pnpm --filter @rsl/confluence-web typecheck",
     "lint": "pnpm --filter @rsl/confluence-web lint",

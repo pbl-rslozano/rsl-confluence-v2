@@ -3,8 +3,8 @@
  * docs-parity.mjs — release check R19 (v2.6, owner rule of 7 Nov 2026):
  * every change appears in the architecture plan AND in the user guide.
  *
- *   1. The user guide's title is "rsL Confluence Terminal v<major.minor> <year>" and its
- *      footer carries "v<major.minor> <year> · build <build>", both matching BUILD_INFO
+ *   1. The user guide's title is "rsL Confluence Terminal <version>" and its footer carries
+ *      "<version> · build <build>" (SemVer, no "v", no year; KIT-003), both matching BUILD_INFO
  *      (apps/confluence/web/src/lib/build-info.ts).
  *   2. The architecture plan for this major.minor exists
  *      (docs/superpowers/specs/*-v<major.minor>-architecture-design.md) and declares its
@@ -40,12 +40,12 @@ export function checkDocsParity(root = ROOT) {
   const build = /build:\s*"?(\d{8})"?/.exec(info)?.[1];
   if (!version || !build) return { ok: false, findings: ["build-info.ts: version/build not found"], notes };
   const mm = version.split(".").slice(0, 2).join(".");
-  const year = build.slice(0, 4);
 
   const guide = read("docs/user-guide/en.md");
   const title = guide.split("\n").find((l) => l.startsWith("# ")) ?? "";
-  if (!title.includes(`rsL Confluence Terminal v${mm} ${year}`)) findings.push(`user guide title "${title}" ≠ "rsL Confluence Terminal v${mm} ${year}"`);
-  if (!guide.includes(`v${mm} ${year} · build ${build}`)) findings.push(`user guide footer lacks "v${mm} ${year} · build ${build}"`);
+  // KIT-003 (owner, 16 Nov 2026): SemVer + build date, no leading "v", no year. The title must not run on into a longer number.
+  if (!new RegExp(`rsL Confluence Terminal ${version.replaceAll(".", "\\.")}(?![\\d.])`).test(title)) findings.push(`user guide title "${title}" ≠ "rsL Confluence Terminal ${version}"`);
+  if (!new RegExp(`(?<![\\d.])${version.replaceAll(".", "\\.")} · build ${build}\\b`).test(guide)) findings.push(`user guide footer lacks "${version} · build ${build}"`);
 
   const specs = existsSync(join(root, "docs/superpowers/specs")) ? readdirSync(join(root, "docs/superpowers/specs")) : [];
   const planFile = specs.filter((f) => f.endsWith(`-v${mm}-architecture-design.md`)).sort().pop();
