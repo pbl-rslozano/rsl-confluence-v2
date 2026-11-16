@@ -1,7 +1,7 @@
-# v2.8.0 — in progress, Steps 1 to 3 (not released; app still reports v2.7.0)
+# v2.8.0 — in progress, Steps 1 to 4a (not released; app still reports v2.7.0)
 
-Steps 1 to 3 of the v2.8 plan (`docs/superpowers/specs/2026-11-15-v2.8-architecture-design.md`): safety fixes, licence
-credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (Step 2); Fund trend (Step 3). Engine 2.4.0 (`5c30b5c39f5ba3f2`);
+Steps 1 to 4a of the v2.8 plan (`docs/superpowers/specs/2026-11-15-v2.8-architecture-design.md`): safety fixes, licence
+credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (Step 2); Fund trend (Step 3); Market radar part 1 (Step 4a). Engine 2.4.0 (`5c30b5c39f5ba3f2`);
 ledger rows of engine 2.3.0 stay and are reported separately.
 
 - **Paper safety (WP19):** 10% drawdown lock (Stop + close all at the next open of each chart; pending positions cancelled;
@@ -52,6 +52,20 @@ ledger rows of engine 2.3.0 stay and are reported separately.
   pulse** (3 pulses, Off, Keep pulsing) and an optional **Fund rank** column in Scoring profile. The ledger records `ft`
   and the report adds **Fund trend sign** beside 20-bar momentum; CSV column `fund_trend`. It never votes: engine
   `5c30b5c39f5ba3f2` unchanged. Acceptance **FT-1**…**FT-5**.
+- **Market radar, part 1 (WP25):** a collapsed **Radar** tab on the right edge (left in Arabic and Urdu), key **R**, opens a
+  panel below the header (side panel from 1,024 px, bottom sheet below; remembered per device; no slide with reduced motion).
+  Sections: **Positioning** (Binance USDⓈ-M BTC and ETH funding with 30-day percentile, open interest and 24 h change,
+  long/short, taker ratio, basis), **Buyer pressure** (Binance spot BTC taker-buy share; Asia, Europe and US session
+  shares), **Regional demand** (US, Korea and Philippines premiums against Binance BTCUSDT; the Korea figure leaves out the
+  won's own premium on USDT), **Institutions** (CFTC CME Bitcoin and Ether, asset managers vs leveraged funds; ETF flows
+  from an imported `date,issuer,flow_usd` CSV) and **Alerts** (exchange price break-away with standing premiums, volume
+  spike z ≥ 3, depeg tiers, stablecoin supply jump; thresholds are adjustable starting values). Context, never a vote:
+  no score, signal or paper rule changes and no alert blocks or places a trade. Radar hosts are contacted only while the panel is
+  open or **Record radar context** (Scoring profile, default off) is on: new hosts `fapi.binance.com`,
+  `publicreporting.cftc.gov` and `stablecoins.llama.fi` (ADR-0003 amendment, R8). The ledger gains `rad` and eight
+  `radar_*` CSV columns after `fund_trend` (newest reading at or before the bar's close, at most 2 h old; null when
+  off); the recorder gains `--radar on|off`. Live ETF flows and Whale Alert transfers (desktop-gateway keys),
+  liquidations and the cascade alert are part 2. Acceptance **RD-1**…**RD-7**.
 - **Design unchanged (spec §3):** acceptance **DS-1** (main screen) and **DS-2** (detail sheet top and chart layers, paper
   dialog, ledger dialog) compare the layout at rest with text masked against baselines captured from the v2.7.0-web build.
 - **Languages:** the new and changed v2.8 strings are Arabic drafts awaiting native-speaker review (About shows the count;
@@ -60,7 +74,7 @@ ledger rows of engine 2.3.0 stay and are reported separately.
   licences — the rsL Coffee Kit v1.1 2026 (build 20261115) card images for GCash, PayPal and Bitcoin, copied unchanged
   into `src/rsl/coffee-kit.json` and shown verbatim; optional and never a fee (nothing gated, never opens by itself); only
   Bitcoin has **Copy address**. Unit tests pin the six image hashes and scan for contact details; acceptance **CK-1**.
-- **Docs:** user guide chapters for WP19, WP20, WP21, WP26 and WP27; ADR-0018 (new venues); R19 accepts this "in progress" entry above the released v2.7.0.
+- **Docs:** user guide chapters for WP19, WP20, WP21, WP25 (part 1), WP26 and WP27; ADR-0018 (new venues); R19 accepts this "in progress" entry above the released v2.7.0.
 - **Before going back to v2.7, export the paper journal** (Paper → Export CSV) and note your open positions: v2.7 cannot
   read the v2.8 paper account format and starts a fresh 10,000 USDT account over it on its first scan.
 

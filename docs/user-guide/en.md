@@ -10,6 +10,8 @@ The rsL Confluence Terminal is a multi-indicator market scanner. For every asset
 credits, and a list that **appears at once** from saved history while the scan refreshes it (sections 4, 5, 6, 7, 8, 9, 11, 12, 13, 16, with new
 rows in 20 and 21).
 
+**v2.8 (in progress, Step 4a — WP25, part 1):** a **Market radar** panel (the **Radar** tab, or **R**) with positioning, buyer pressure, regional premiums, CFTC positions, an ETF CSV import and alerts for price break-away, volume spikes, depegs and stablecoin supply jumps: context only, never a vote, and fetched only while it is open or recording is on (sections 10, 11, 16, 19). Liquidations come later.
+
 **New in v2.7:** choose the **stablecoin** each exchange is quoted in (USDT, USDC, FDUSD, USD1 … or the deepest one per coin), show prices in **any currency** at official reference rates, and **zoom, pan and go full screen** on the chart (pinch on phones).
 
 ## In this guide
@@ -369,7 +371,7 @@ Choose them under **Data source**. They scan like the other sources: closed cand
 - **Data sources & thanks.** **About → Data sources & thanks** (collapsed) names every provider the app reads: the
   exchanges, the Binance Vision archive and the rate sources. For each it says what the app uses and links its public API
   documentation and terms. Names are in text, with no logos. ExchangeRate-API's required credit *Rates By Exchange Rate
-  API* is shown there too.
+  API* is shown there too. Since the market radar it also names Binance USDⓈ-M Futures, the CFTC Commitments of Traders and DefiLlama (section 10).
 
 <!-- wp:WP12 -->
 ### Quote currency (stablecoins)
@@ -501,6 +503,44 @@ The alert inbox works with the optional external recorder, which watches the mar
 - Rules apply to a watchlist: start a watchlist scan first (section 9). **Export active watchlist rule** then saves `workspace-rules.json` for the recorder. **Import recorder inbox** loads the alerts it found (the newest 5,000 are kept).
 - **Local gateway sync** exchanges rules and alerts directly with the local gateway (section 13). It works only when the gateway was started with the recorder folder set (`CONFLUENCE_RECORDER_DIR`).
 - Click an alert to see the matching ledger entry.
+
+<!-- wp:WP25 -->
+### Market radar (v2.8)
+The **Radar** answers one question: *is a move building across the world market, and who is pushing it?* It is **context, never a vote**. No radar value changes a score, a signal or a paper-trading rule; no radar alert blocks or places a trade (the paper depeg gate of section 12 is a separate rule and is unchanged); the engine code stays `5c30b5c39f5ba3f2`. The radar is an analysis aid, not financial advice. Everything on it describes the market through **Bitcoin** (the market's reference asset); positioning also shows Ether.
+
+**Where it is.** A small **Radar** tab sits on the right edge of the screen (on the left in Arabic and Urdu, where the page runs right to left). Click it, or press **R**, to open the panel; **Esc**, the close button in the panel or **R** again closes it. The panel opens below the header, so the header controls stay reachable: on a screen **1,024 px wide or more** it is a side panel beside the list, and below that it is a sheet from the bottom edge (a tap outside closes it). The panel is **collapsed by default**. Whether it is open, which sections you collapsed and your alert thresholds are remembered **on this device** (browser storage; they are not in a backup). **R** does nothing while you type in a field or menu or while another dialog is open. With *reduce motion* set on your device the panel appears without sliding.
+
+**When the radar contacts the internet.** Only while the panel is **open**, or while **Record radar context** is on (**Scoring profile**, section 9; default **off**). Otherwise no radar request is made, the timers are stopped and the ledger's radar field stays empty. So the default install contacts no radar host. While it runs, the radar refreshes **every 5 minutes**; the inputs that change once a day (the 30-day premium baselines, the daily volumes, stablecoin supply) are read **once per UTC day**; the CFTC report **at most every 12 hours**. Each venue is paced below its documented limit (**Binance futures** at 80 % of the strictest one, the free **CFTC** and **DefiLlama** hosts at a conservative 2 requests per 10 seconds) and a venue that answers *429* or *418* is left alone until it allows requests again, while the other sections keep refreshing. The panel remembers that it was open, so after a reload it starts contacting the hosts again. A section whose source cannot be reached shows **Unavailable — last value 14:35** (the time that value was good), or just **Unavailable** if it never had one; the other sections are not affected.
+
+**Positioning** (Binance USDⓈ-M perpetual futures, **BTCUSDT** and **ETHUSDT**).
+- **Funding** is the latest funding rate; the **30-day percentile** says how that rate ranks among the last 90 funding payments (30 days at 8 hours): 95 means funding is higher than in 95 % of them. It needs all 90.
+- **Open interest** is the size of open contracts, in coins; the change is against the sample 24 hours earlier.
+- **Long/short accounts** is the ratio of accounts that are long to those that are short (the panel also shows the long share in %), and **Taker buy/sell** is the ratio of volume bought by takers to volume sold by takers, both from the newest 1-hour sample.
+- **Basis** is the perpetual's mark price against its index price, in %. It uses Binance's own perpetual only.
+
+**Buyer pressure** (Binance spot **BTCUSDT**). A small chart of the **taker-buy share** of each hour's volume over the last 24 hours (above 50 % means buyers hit the ask more than sellers hit the bid), and the **session shares** of the last week's traded value by the hour a bar opens, in UTC: **Asia 21:00–07:59** (the evening hours 21:00–23:59 are counted with the Asia session that follows), **Europe 08:00–13:59**, **US 14:00–20:59**. The three shares add up to 100 %.
+
+**Regional demand.** Each region's Bitcoin price against Binance BTCUSDT; positive means the region pays more.
+- **United States:** Coinbase BTC-USD ÷ Binance BTCUSDT − 1.
+- **Korea:** Upbit KRW-BTC ÷ (Upbit KRW-USDT × Binance BTCUSDT) − 1. **Caveat:** it measures Bitcoin's premium over USDT *in won*, so it **leaves out the won's own premium on USDT** — the premium Korean buyers pay for USDT itself is not in the number, and a won that trades dear or cheap against the dollar moves it. Read it as a direction, not an exact arbitrage figure.
+- **Philippines:** Coins.ph BTC-PHP, converted at the Coins.ph USDT-PHP rate (USDC-PHP if USDT is missing), ÷ Binance BTCUSDT − 1 (the same figure as the **PH premium** of section 8).
+
+**Institutions.**
+- **CFTC Commitments of Traders** (Traders in Financial Futures, futures only) for **CME Bitcoin** (contract 133741) and **CME Ether** (146021): for **asset managers** and for **leveraged funds**, each as a group, the long, short and net positions (net = long − short) and the change in net since the previous report. The positions are **as of Tuesday** and are **usually published on Friday at 3:30 p.m. US Eastern time**; the panel shows the report date, so the numbers are always a few days old. They are groups of traders, not any one fund's book.
+- **ETF flows (imported).** The radar does not fetch ETF flows. Choose **Import ETF flows (CSV)** and pick a file; it stays on this device. The first row is the header `date,issuer,flow_usd` (three columns, any letter case), then one row per issuer per day: `date` as `YYYY-MM-DD` (a real calendar date), `issuer` as letters, digits, spaces, `.`, `&` or `-` (up to 40, not starting with `+ - = @`), and `flow_usd` a plain number in US dollars (negative = outflow, at most 100 billion). Example: `2026-11-12,Example Fund,125000000`. The file may be at most **1 MB**. After the import the panel says **Imported n rows · r rejected · d duplicates**: a rejected row is one with the wrong columns, a bad date, issuer or number, or a cell a spreadsheet could read as a formula; for a date and issuer given twice the last row wins and the earlier one counts as a duplicate. Rows already imported are merged (a re-import replaces the same date and issuer), the newest **800 days** are kept, and the panel shows the net flow per day for the last 10 days.
+- **Live ETF flows** and **Large transfers** (Whale Alert) show **Available with a key on the desktop gateway**: paid provider keys will be kept only in the local gateway and are **coming in a later update**; nothing is fetched for them today.
+
+**Alerts.** Each alert says what triggered it, since when, and links its source. **Alert thresholds** are **starting values**, not recommendations: change them in the panel (they are stored on this device, and **Reset to starting values** restores them). A changed threshold re-checks the last fetched data at once, with no new request.
+- **Exchange price break-away.** Bitcoin priced in dollars through each venue's own USDT market (Binance, Bybit, Bitget, OKX, Coinbase, Upbit and Coins.ph). A venue alerts when its price is **at least 1 %** away from the **median of at least two other venues**, on the same side every time, for **at least 2 closed 1-hour bars** in a row, counting back from the latest closed hour (range 0.2–10 % and 1–6 bars). A venue that stands apart for hours can be a sign of an exchange problem such as a withdrawal freeze, but it is only a sign. Upbit (won) and Coins.ph (pesos) always sit at a premium, so each is compared **after removing its own standing premium**: the median of its premium over the last **30 daily closes**, worked out at once from daily bars. A venue with **fewer than 20** of those days is **left out** of the check, and the panel says so. A venue with no prices is left out the same way. The alert code is `BREAKAWAY_<VENUE>`.
+- **Volume spike.** Bitcoin's traded volume of the last closed UTC day, summed over six venues (Binance, Bybit, Bitget, OKX, Coinbase BTC-USD and Upbit KRW-BTC; at least four must answer), is compared with the previous 30 days: it alerts when the **z-score is 3 or more** (z = (day − 30-day mean) ÷ the sample standard deviation, range 1.5–10; a spike up only). Code `VOL_SPIKE`.
+- **Stablecoin depeg.** Read from the stablecoin prices of the **current scan** (no extra request), with the tiers used everywhere in the app: **watch** from 0.5 %, **warning** from 1 %, **severe** from 2 % away from 1:1. Code `DEPEG_<COIN>`. The radar only shows it; the paper depeg gate stays a separate rule.
+- **Stablecoin supply jump.** DefiLlama's total US-dollar stablecoin supply, once a day. It alerts when today's change, up or down, is **larger than the 99th percentile** of the daily changes of the **prior 90 days** (range 90–99.9), and says whether it was a **mint** (supply grew) or a **redemption** (supply shrank). It needs 91 consecutive daily points. Code `SUPPLY_JUMP`.
+- **Hacks.** A link to DefiLlama's hack history opens in your browser; the radar does not read it.
+- **Not in this release:** recent **liquidations** and the **liquidation-cascade** alert, and the **Large transfers** alert (needs a key, see above). They come in later updates.
+
+**Data sources & thanks.** The last section of the panel is the same list as **About → Data sources & thanks**; it now also names **Binance USDⓈ-M Futures**, the **CFTC Commitments of Traders** and **DefiLlama**, each with links to its documentation and terms.
+
+**In the ledger (section 11).** With **Record radar context** on, each new ledger row also keeps the radar's **Bitcoin** values as of its bar close (**rad**): funding percentile, 24-hour open-interest change, long/short ratio, taker-buy share of the newest closed hour, the US, Korea and Philippines premiums and the codes of the active alerts. It takes the **newest radar reading at or before the bar's close and no more than 2 hours old**, never a later one, so it cannot look ahead; a field the radar had no current value for stays empty, and with the setting off (or no reading that recent) the whole field is empty. Radar readings are logged every 5 minutes while the setting is on, even with the panel closed. The CSV export has eight columns after **fund_trend**: `radar_funding_pctl`, `radar_oi_chg_24h`, `radar_long_short`, `radar_taker_share`, `radar_us_premium`, `radar_kr_premium`, `radar_ph_premium` and `radar_alerts` (codes joined by `|`). It is measurement only and never enters the score. The optional recorder does the same with `--radar on` (default off); see `docs/recorder.md`.
 
 ## 11. Signal ledger: measure before you trust
 Every scored closed bar is recorded with the engine version. The ledger shows how those signals actually played out, after costs, for the current source and timeframe. Open it with **Ledger** in the header. Each pair is its own series, so BTCUSDT and BTCUSDC are measured separately; the BTC benchmark is the scan's own BTC pair.
@@ -706,6 +746,7 @@ A failed source never borrows another source's candles. Missing rows are listed,
 - **Audit trail.** A tamper-evident log of important actions: app start, settings changes, identity changes, backups, ledger exports and imports, and every paper-trading decision. About shows *intact (n entries)*, or *BROKEN at #k* if an entry was altered.
 - **Identity.** **Edit identity** changes the workspace, logo and your name; **Export identity (JSON)** saves it.
 - **Privacy.** The app only reads public data: market prices (Binance, Bybit, Bitget, Coins.ph — on the web, Coins.ph is reached through the app's own address), the public update file, and — only when a price needs converting, every 6 hours or on **Update now** — exchange rates from the source you chose: `api.frankfurter.dev` (Automatic falls back to `cdn.jsdelivr.net` / `latest.currency-api.pages.dev`), or `data-api.ecb.europa.eu`, `open.er-api.com` or `www.floatrates.com` when you pick them. A custom source is never contacted; you import its file. No account, identifier or cookie is sent and there is no tracking; like any web request, each source sees your internet address (for Coins.ph on the web, Netlify's). **On Windows**, the desktop app runs on Microsoft's WebView2 Runtime, whose Microsoft Defender SmartScreen (on by default) and automatic updates may contact Microsoft — see the WebView2 notice under **About → Open-source licences**.
+- **Market radar hosts (v2.8).** Only while the **Radar** panel is open, or while **Record radar context** is on, the app also reads: `fapi.binance.com` (Binance USDⓈ-M futures: funding, open interest, long/short and taker ratios, mark and index price; GET only, no keys, no orders, no live stream), `publicreporting.cftc.gov` (weekly CFTC positions, at most every 12 hours), `stablecoins.llama.fi` (DefiLlama total stablecoin supply, once a day), and the exchange prices it already uses: Binance spot, Bybit, Bitget and OKX candles, the Coinbase price, Upbit through the app's own relay (`/x/upbit/…` on the web) and Coins.ph (through the app's own address on the web). With the panel closed and the setting off, none of them is contacted. Nothing about you is sent; each source sees your internet address. An ETF file you import never leaves the device. The radar's remembered state, ETF history and 5-minute log stay on the device and are not part of a backup.
 - Market data belongs to each exchange and is shown for personal use. Exchange rates are reference rates for information, not rates you can trade at.
 
 <!-- wp:WP20 -->
@@ -751,6 +792,8 @@ Without a connection the last scan stays on screen and the footer shows **Offlin
 | Esc | Chart full screen | Leave full screen (the sheet stays open) |
 | Ctrl/⌘ + wheel | Chart | Zoom at the cursor |
 | ↑ ↓ Enter Esc | Language menu | Choose a language |
+| R | Anywhere except in fields, menus and dialogs | Open or close the Radar panel (section 10) |
+| Esc | Radar panel | Close it |
 | Esc | Any dialog | Close it |
 | Ctrl/⌘ + R | Desktop app | Refresh |
 | Ctrl/⌘ + , | Desktop app | Open About (settings) |
@@ -781,6 +824,8 @@ The desktop app also has menus: **File** (Export backup…, Restore backup…), 
 | Saving says *risk can't be loosened until the next UTC day* | A lock is active: limits cannot be loosened until the next UTC day after it clears (section 12). |
 | Ledger says **Not proven yet** | Normal for months, and for a small edge often years rather than weeks (see the power readout in the ledger). Keep scanning and export the ledger weekly. |
 | A paper proposal cannot be approved | Read the reason under it (lock, cluster limit, open-risk cap, stale signal…). Engaged kill switch: reset it with `RESET`. |
+| A Radar section says **Unavailable — last value …** | That source could not be reached or is pausing the app (a rate limit); the last good value and its time are shown, and the other sections still refresh. It retries on the next 5-minute refresh (the CFTC report and the daily inputs wait longer, by design). |
+| The Radar tab does nothing when I press **R** | **R** is ignored while you type, while a menu or another dialog is open, and with Ctrl, Alt or ⌘ held. Close the dialog or click the page first. |
 | Settings disappeared (browser) | The browser cleared its storage. Restore your last backup from About. |
 | The page from the zip shows nothing | Use the included launcher; opening `index.html` directly does not work. |
 
@@ -809,6 +854,12 @@ The desktop app also has menus: **File** (Export backup…, Restore backup…), 
 | **Analogue** | An earlier moment in the same asset's history that looked like now (Pattern). |
 | **Wilson lower bound** | A cautious low estimate of a hit rate from a small sample (95% level). |
 | **MAE / MFE** | Maximum adverse / favourable excursion: how far a trade went against / for you, in R. |
+| **Open interest** | The total size of open futures contracts; a rise means new positions are being opened. |
+| **Long/short ratio** | Accounts that are long divided by accounts that are short, on a perpetual. |
+| **Taker** | The side that trades against a resting order; taker-buy share is the part of volume bought that way. |
+| **Basis** | A perpetual's mark price against its index price, in %. |
+| **COT** | The CFTC's weekly Commitments of Traders report: futures positions by trader group, as of Tuesday. |
+| **Break-away** | One exchange's price standing well apart from the median of the others. |
 | **Reference rate** | An official or central-bank mid rate published for information; not a rate you can trade at. |
 
 ## 22. Help
