@@ -2888,11 +2888,13 @@ function dsCompare(base, now, prefix = "") {
     const liqHost = (u) => (/fstream\.binance\.com/.test(u) ? "binance" : /stream\.bybit\.com/.test(u) ? "bybit" : null);
     const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
     const waitFor = async (fn, ms) => { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return true; await sleep(100); } return !!(await fn()); };
-    const seen = { calls: [], closed: {}, subscribes: [] };
+    const seen = { calls: [], connects: { bybit: 0, binance: 0 }, firstAt: null, closed: {}, subscribes: [] };
     const mockSockets = (c) => c.routeWebSocket(LIQ_WS, (ws) => {
       const url = ws.url();
       const host = liqHost(url);
       seen.calls.push(url);
+      seen.connects[host]++;
+      if (seen.firstAt === null) seen.firstAt = Date.now();
       ws.onClose(() => { seen.closed[host] = Date.now(); });
       const now = Date.now();
       if (host === "bybit") {
@@ -2927,6 +2929,7 @@ function dsCompare(base, now, prefix = "") {
     await b.p.keyboard.press("r");
     await b.p.getByTestId("radar-panel").waitFor({ timeout: 10000 });
     const rowsShown = await waitFor(async () => /long (US)?\$100(K|k|,000)/.test(await txt(b.p, "radar-liq-bybit-row")) && /long (US)?\$3(K|k|,000)\b/.test(await txt(b.p, "radar-liq-binance-row")), 40000);
+    const rowsMs = Date.now() - seen.firstAt; // from the first socket connection to both rows showing
     const ev = {
       bybit: await txt(b.p, "radar-liq-bybit-row"), binance: await txt(b.p, "radar-liq-binance-row"),
       binanceSampled: await b.p.getByTestId("radar-liq-binance-sampled").count(), bybitSampled: await b.p.getByTestId("radar-liq-bybit-sampled").count(),
@@ -2934,20 +2937,25 @@ function dsCompare(base, now, prefix = "") {
     };
     const opened = { urls: seen.calls.slice(), subscribes: seen.subscribes.slice() };
     await b.p.screenshot({ path: path.join(process.env.RD_SHOT_DIR || OUT, "radar-liquidations.png") }).catch(() => null);
-    await b.p.keyboard.press("Escape");
+    // Precondition for (c): both sockets are open (connected once, not closed) right before Escape.
+    const preOpen = { bybit: seen.connects.bybit === 1 && !seen.closed.bybit, binance: seen.connects.binance === 1 && !seen.closed.binance };
     const t0 = Date.now();
-    const closed = await waitFor(async () => !!seen.closed.bybit && !!seen.closed.binance, 2000);
+    await b.p.keyboard.press("Escape");
+    const bothClosed = await waitFor(async () => !!seen.closed.bybit && !!seen.closed.binance, 2000);
     const closeMs = Date.now() - t0;
+    const closedAfterEsc = !!seen.closed.bybit && !!seen.closed.binance && seen.closed.bybit >= t0 && seen.closed.binance >= t0;
+    const oneConnection = seen.connects.bybit === 1 && seen.connects.binance === 1; // no reconnect for either host
+    const closed = preOpen.bybit && preOpen.binance && bothClosed && closedAfterEsc && oneConnection;
     await b.c.close();
 
     record("RD-8", "Liquidations: no websocket at rest; open with mocked Bybit/Binance streams shows last-hour long/short per venue (Binance labelled sampled) and the cascade baseline as collecting; closing the panel closes both sockets",
-      restHits.length === 0 && rowsShown && /^Bybit: long (US)?\$100(K|k|,000) · short (US)?\$0/.test(ev.bybit) && /^Binance: long (US)?\$3(K|k|,000) · short (US)?\$0/.test(ev.binance)
+      restHits.length === 0 && rowsShown && rowsMs <= 4000 && /^Bybit: long (US)?\$100(K|k|,000) · short (US)?\$0/.test(ev.bybit) && /^Binance: long (US)?\$3(K|k|,000) · short (US)?\$0/.test(ev.binance)
         && ev.binanceSampled === 1 && ev.bybitSampled === 0
         && /collecting the baseline \(0 of 720 hours/.test(ev.bybitCascade) && /collecting the baseline \(0 of 720 hours/.test(ev.binanceCascade)
         && opened.urls.some((u) => /fstream\.binance\.com\/market\/ws\/!forceOrder@arr/.test(u)) && opened.urls.some((u) => /stream\.bybit\.com\/v5\/public\/linear/.test(u))
         && opened.subscribes.some((s) => Array.isArray(s) && s.includes("allLiquidation.BTCUSDT") && s.includes("allLiquidation.ETHUSDT"))
         && closed,
-      { restHits, ...ev, opened, closed, closeMs });
+      { restHits, ...ev, opened, rowsMs, preOpen, connects: seen.connects, closed, closeMs });
     }
   }
   } // end of the full run (skipped with --ds-only)

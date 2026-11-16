@@ -120,13 +120,20 @@ export function RadarHost({ port, depeg, depegSource, depegAt, recordRadar = fal
   const thKey = JSON.stringify(ui.thresholds);
   useEffect(() => { runnerRef.current?.rethreshold(); }, [thKey]);
 
-  // While the panel is open, read the feed's view every 5 s (no network work; stops when the panel closes).
+  // While the panel is open, read the feed's view: every 1 s for the first 10 s (the sockets are still connecting), then every 5 s.
+  // No network work; it stops and clears the state when the panel closes (a reopen never shows the old view).
   useEffect(() => {
     if (!ui.open) return;
-    const read = () => { const f = feedRef.current; if (f) setLiq(f.view(Date.now(), live.current.thresholds)); };
+    let n = 0;
+    let h: ReturnType<typeof setTimeout>;
+    const read = () => {
+      const f = feedRef.current;
+      if (f) setLiq(f.view(Date.now(), live.current.thresholds));
+      n++;
+      h = setTimeout(read, n < 10 ? 1000 : 5000);
+    };
     read();
-    const h = setInterval(read, 5000);
-    return () => clearInterval(h);
+    return () => { clearTimeout(h); setLiq(null); };
   }, [ui.open, port, thKey]);
 
   // Only an OPEN by the user moves focus into the panel; closing must not leave the flag set (a later cross-tab open would steal focus).
