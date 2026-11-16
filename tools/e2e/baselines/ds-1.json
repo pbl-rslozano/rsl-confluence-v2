@@ -1,5 +1,5 @@
 {
-  "@note": "DS-1 baseline: main screen at rest, 1366x768, en, default settings (theme System = light in headless Chromium), text masked; clock 2026-11-11T09:07:00.000Z, exchange and FX hosts mocked; pinned: time zone Asia/Riyadh, locale en-US, Chromium --font-render-hinting=none --disable-lcd-text --force-color-profile=srgb, masked text in bundled fonts only (see @env); served locally. Captured from the v2.7.0-web release build (tag v2.7.0-web, commit c268876, built in a temporary worktree) with --capture-ds1/--capture-ds2 on 15 Nov 2026 (fix/ds-ci-stability). Four captures were byte-identical: two in the development container, one under CI conditions (Playwright's stock headless shell without the container's font flags, TZ=UTC, LANG=C.UTF-8) and one with a different system font set (fonts-noto-core added, Inter and DejaVu Sans Mono removed). Boxes are [x, y, width, height] in CSS px (null height = open-ended ancestor of the last measured element); text masked = every non-blank text node replaced by the same placeholder before measuring; @env must match for the comparison to count.",
+  "@note": "DS-1 baseline: main screen at rest, 1366x768, en, default settings (theme System = light in headless Chromium), text masked; clock 2026-11-11T09:07:00.000Z, exchange and FX hosts mocked; pinned: time zone Asia/Riyadh, locale en-US, Chromium --font-render-hinting=none --disable-lcd-text --force-color-profile=srgb, masked text in bundled fonts only (see @env); Boxes are [x, y, width, height] in CSS px; text masked = every non-blank text node replaced by the same placeholder before measuring; @env must match for the comparison to count. RE-CAPTURED 16 Nov 2026 (spec §3 item 9, owner decision 16 Nov 2026: header control ribbon compressed to two lines at >= 1280 px with icon buttons and tooltips) with `node tools/e2e/acceptance.cjs <url> --capture-ds1 tools/e2e/baselines/ds-1.json` from a fresh static build of branch v2.8/header-2-lines (base 2422d8d, WP29), served locally. Against the previous baseline (v2.7.0-web, tag v2.7.0-web, commit c268876, captured 15 Nov 2026) only 27 header.control boxes moved or resized (one more control: the theme button; the three theme radios are 0 x 0 at this width); header, main, list toolbar, table, columns, rows, footer, @env and colours are unchanged within 2 px. DS-2 keeps its v2.7.0-web baseline.",
   "@env": {
     "timeZone": "Asia/Riyadh",
     "languages": "en-US",
@@ -14,45 +14,45 @@
       116
     ],
     "header.control.0": [
-      170,
-      8,
-      150,
-      36
-    ],
-    "header.control.1": [
-      326,
-      8,
-      150,
-      36
-    ],
-    "header.control.2": [
-      482,
-      8,
-      92,
-      36
-    ],
-    "header.control.3": [
-      580,
-      8,
-      128,
-      36
-    ],
-    "header.control.4": [
-      714,
-      8,
-      92,
-      36
-    ],
-    "header.control.5": [
-      812,
+      168,
       8,
       96,
       36
     ],
+    "header.control.1": [
+      268,
+      8,
+      104,
+      36
+    ],
+    "header.control.2": [
+      376,
+      8,
+      78,
+      36
+    ],
+    "header.control.3": [
+      458,
+      8,
+      96,
+      36
+    ],
+    "header.control.4": [
+      558,
+      8,
+      80,
+      36
+    ],
+    "header.control.5": [
+      642,
+      8,
+      84,
+      36
+    ],
     "header.control.6": [
-      914,
+      730,
       10,
-      74,
+      32,
       32
     ],
     "header.control.7": [
@@ -62,114 +62,120 @@
       0
     ],
     "header.control.8": [
-      994,
+      766,
       10,
-      46,
+      32,
       32
     ],
     "header.control.9": [
-      1045,
+      802,
       10,
-      46,
+      32,
       32
     ],
     "header.control.10": [
-      1097,
-      10,
+      12,
+      51,
       74,
       32
     ],
     "header.control.11": [
-      1177,
-      10,
-      46,
+      90,
+      51,
+      32,
       32
     ],
     "header.control.12": [
-      12,
+      126,
       51,
-      128,
+      96,
       32
     ],
     "header.control.13": [
-      146,
+      226,
       51,
       144,
       32
     ],
     "header.control.14": [
-      296,
+      374,
       51,
       46,
       32
     ],
     "header.control.15": [
-      591,
+      762,
       51,
       72,
       32
     ],
     "header.control.16": [
-      669,
+      837,
       51,
       72,
       32
     ],
     "header.control.17": [
-      747,
+      913,
       51,
-      38,
+      32,
       32
     ],
     "header.control.18": [
-      791,
+      949,
       51,
       72,
       32
     ],
     "header.control.19": [
-      868,
+      1025,
       51,
       72,
       32
     ],
     "header.control.20": [
-      946,
+      1101,
       51,
-      72,
+      32,
       32
     ],
     "header.control.21": [
-      1024,
+      1137,
       51,
-      73,
+      32,
       32
     ],
     "header.control.22": [
-      1147,
+      1209,
       51,
-      38,
+      32,
       32
     ],
     "header.control.23": [
-      1194,
-      54,
-      26,
-      26
+      0,
+      0,
+      0,
+      0
     ],
     "header.control.24": [
-      1220,
-      54,
-      26,
-      26
+      0,
+      0,
+      0,
+      0
     ],
     "header.control.25": [
-      1246,
-      54,
-      26,
-      26
+      0,
+      0,
+      0,
+      0
     ],
     "header.control.26": [
+      1245,
+      51,
+      32,
+      32
+    ],
+    "header.control.27": [
       1281,
       51,
       73,

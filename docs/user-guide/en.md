@@ -115,8 +115,26 @@ The first scan starts on its own. New installs scan **Binance Spot**, quoted in 
 | **Language** | Switch language at any time. |
 | ✉ | Write to the developer. |
 | ⓘ | About: version, storage, backup, updates, languages. |
-| Theme | System, Light or Dark. |
+| Theme | System, Light or Dark. From 1280 px wide it is one button (see below). |
 | **Refresh** | Scan now. |
+
+**Two-line header from 1280 px (v2.8).** On screens 1280 px wide or wider (laptops and desktops on Windows, macOS and
+Linux, and the web app) all the controls above fit on **two lines**, and every one is still one click away. To make room,
+these buttons show only an icon; **point at one, or move to it with Tab, to see its name**:
+
+| Icon | Button |
+|---|---|
+| ⇄ | **Rate sources** |
+| Star | **Watchlists** |
+| Inbox tray | **Alert inbox** |
+| Folder | **Saved scans** |
+| Key | **API** (private API) |
+| Flag of your language | **Language** |
+| ✉ | **Contact developer** |
+| ⓘ | **About** |
+| Screen, sun or moon | **Theme** — one button: each click goes **System → Light → Dark** and back to System; its name says the current theme and the next one |
+
+The selects are narrower; every other button keeps its text. Screen readers announce the same names as before. Below 1280 px (tablets, small laptops, phones) the header is unchanged.
 
 ### The summary strip
 Under the header: number of assets scanned, the share that are **Bull**, **Bear** and **Neutral**, reversal counts (**Rev ↑/↓**), your workspace, the source, how long the scan took, errors, when it was updated, and **bar** — the time of the closed bar the signals were computed on. Signals never use the candle that is still forming.

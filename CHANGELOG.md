@@ -1,9 +1,16 @@
 # v2.8.0 — in progress, Steps 1 to 4b (not released; app still reports v2.7.0)
 
 Steps 1 to 4b of the v2.8 plan (`docs/superpowers/specs/2026-11-15-v2.8-architecture-design.md`): safety fixes, licence
-credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (Step 2); Fund trend (Step 3); Market radar part 1 (Step 4a) and part 2 (Step 4b); Fear & Greed widget (WP29). Engine 2.4.0 (`5c30b5c39f5ba3f2`);
+credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (Step 2); Fund trend (Step 3); Market radar part 1 (Step 4a) and part 2 (Step 4b); Fear & Greed widget (WP29); two-line header at ≥ 1280 px (owner decision, 16 Nov 2026). Engine 2.4.0 (`5c30b5c39f5ba3f2`);
 ledger rows of engine 2.3.0 stay and are reported separately.
 
+- **Two-line header (owner decision 16 Nov 2026, spec §3 item 9):** at 1280 px and wider the header's control ribbon
+  takes exactly two lines (it took three at 1280–1366 px). Rate sources, Watchlists, Alert inbox, Saved scans, API,
+  Contact, About and Language (flag only) are icon buttons with their unchanged accessible names and a tooltip on hover
+  and on keyboard focus; the selects are narrower; the System / Light / Dark switch is one button cycling System → Light →
+  Dark (`theme.cycle` in all 18 catalogs; Arabic draft pending review); all other labels keep their text. Below 1280 px
+  the header is unchanged. New acceptance check **HD-1**; the
+  DS-1 baseline is re-captured from this build; theme checks choose a theme through the visible control.
 - **Paper safety (WP19):** 10% drawdown lock (Stop + close all at the next open of each chart; pending positions cancelled;
   typed RESET restarts the 10% from current equity, disabled while closes are pending); open losses count in the daily and
   weekly locks; no loosening while a lock is active; costs inside the risk budget (a clean stop-out ≈ −1 R); event

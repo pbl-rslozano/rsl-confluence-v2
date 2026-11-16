@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { Inbox } from "lucide-react";
+import { HeaderTip } from "@/components/header-tip";
 import type { LedgerRow } from "@/lib/ledger-metrics";
 import type { Watchlist } from "./scanner-watchlists";
 
@@ -127,8 +129,13 @@ export function ScannerInbox({ port, list, timeframe, ledger }: {
 
   return (
     <div className="relative">
-      <button type="button" aria-expanded={open} onClick={() => void toggle()}
-        className="h-8 rounded border border-zinc-700 px-2 text-xs">Alert inbox</button>
+      {/* v2.8 header (owner decision 16 Nov 2026): icon-only at ≥ 1280 px; same accessible name, tooltip on hover and focus. */}
+      <HeaderTip label="Alert inbox">
+        <button type="button" aria-expanded={open} aria-label="Alert inbox" title="Alert inbox" onClick={() => void toggle()}
+          className="h-8 rounded border border-zinc-700 px-2 text-xs xl:inline-flex xl:w-8 xl:items-center xl:justify-center xl:px-0">
+          <Inbox aria-hidden="true" className="hidden h-3.5 w-3.5 xl:block" /><span className="xl:sr-only">Alert inbox</span>
+        </button>
+      </HeaderTip>
       {open && <section aria-label="Alert inbox" className="absolute start-0 top-full z-30 mt-1 grid w-64 gap-2 rounded border border-zinc-700 bg-zinc-900 p-3 text-xs">
         <label className="block">Alert rule
           <select value={rankRule ? "rank-rise" : "score"} onChange={(event) => {

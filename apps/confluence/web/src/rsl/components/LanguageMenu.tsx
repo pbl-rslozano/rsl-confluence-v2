@@ -12,6 +12,7 @@ import { LANGUAGES } from "@rsl/core-kit/core/rsl-i18n.js";
 import { useRsl } from "../RslContext";
 import { Flag } from "./Flags";
 import { useMediaQuery, PHONE_QUERY } from "@/lib/use-media-query";
+import { HeaderTip } from "@/components/header-tip";
 
 export function LanguageMenu({ inline = false, onPicked }: { inline?: boolean; onPicked?: () => void }) {
   const { lang, setLang, t, i18n } = useRsl();
@@ -103,21 +104,26 @@ export function LanguageMenu({ inline = false, onPicked }: { inline?: boolean; o
   );
 
   if (inline) return panel;
+  // v2.8 header (owner decision 16 Nov 2026): at ≥ 1280 px the trigger shows the flag only (it showed the flag and the
+  // native name); same accessible name, tooltip on hover (title) and on keyboard focus. Below 1280 px unchanged.
+  const triggerLabel = `${t("ctl.language")}: ${current.native}`;
   return (
     <div ref={boxRef} className="relative">
+      <HeaderTip label={triggerLabel}>
       <button
         ref={triggerRef}
         type="button"
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={`${t("ctl.language")}: ${current.native}`}
+        aria-label={triggerLabel}
+        title={triggerLabel}
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-xs text-zinc-300 hover:bg-zinc-800"
+        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-xs text-zinc-300 hover:bg-zinc-800 xl:w-8 xl:justify-center xl:px-0"
       >
         <Flag code={current.flag} />
-        <span className="hidden xl:inline">{current.native}</span>
         <Languages className="h-3.5 w-3.5 xl:hidden" />
       </button>
+      </HeaderTip>
       {/* Phones: the sheet is portalled to <body> — the header's backdrop-filter would otherwise contain fixed children. */}
       {open && sheet && createPortal(<><div aria-hidden="true" className="fixed inset-0 z-[60] bg-black/50" onClick={() => setOpen(false)} />{panel}</>, document.body)}
       {open && !sheet && panel}

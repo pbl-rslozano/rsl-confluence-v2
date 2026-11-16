@@ -48,6 +48,7 @@ import { LanguageMenu } from "@/rsl/components/LanguageMenu";
 import { AboutDialog } from "@/rsl/components/AboutDialog";
 import { StatusFooter } from "@/rsl/components/StatusFooter";
 import { UpdateNotice } from "@/rsl/components/UpdateNotice";
+import { HeaderTip } from "@/components/header-tip";
 import {
   type ConfluenceResult,
   type IndicatorResult,
@@ -1566,7 +1567,7 @@ export default function Home() {
   /* v2.5: each control is rendered once — inline on ≥ 640 px, inside "More controls" on phones. */
   const renderAssetClassSelect = (cls = "") => (
       <Select value={assetClass} onValueChange={(v) => setAssetClass(v as AssetClassFilter)}>
-        <SelectTrigger aria-label={t("ctl.assetClass")} className={`h-8 w-auto min-w-[128px] gap-2 border-zinc-800 bg-zinc-900 text-xs ${cls}`}>
+        <SelectTrigger aria-label={t("ctl.assetClass")} className={`h-8 w-auto min-w-[128px] gap-2 border-zinc-800 bg-zinc-900 text-xs xl:min-w-[96px] ${cls}`}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent className="border-zinc-800 bg-zinc-900">
@@ -1576,7 +1577,7 @@ export default function Home() {
   );
   const renderQuoteSelect = (cls = "") => (
       <Select value={quote} onValueChange={setQuote} disabled={quoteModes.length < 2}>
-        <SelectTrigger aria-label={t("ctl.quote")} data-testid="quote-select" className={`h-8 w-auto min-w-[92px] gap-2 border-zinc-800 bg-zinc-900 text-xs ${cls}`}>
+        <SelectTrigger aria-label={t("ctl.quote")} data-testid="quote-select" className={`h-8 w-auto min-w-[92px] gap-2 border-zinc-800 bg-zinc-900 text-xs xl:min-w-[76px] ${cls}`}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent className="border-zinc-800 bg-zinc-900">
@@ -1588,7 +1589,7 @@ export default function Home() {
   );
   const renderCurrencySelect = (cls = "") => (
       <Select value={displayPref} onValueChange={setDisplayPref}>
-        <SelectTrigger aria-label={t("ctl.currency")} data-testid="currency-select" className={`h-8 w-auto min-w-[96px] gap-2 border-zinc-800 bg-zinc-900 text-xs ${cls}`}>
+        <SelectTrigger aria-label={t("ctl.currency")} data-testid="currency-select" className={`h-8 w-auto min-w-[96px] gap-2 border-zinc-800 bg-zinc-900 text-xs xl:min-w-[84px] ${cls}`}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent className="max-h-80 border-zinc-800 bg-zinc-900">
@@ -1600,14 +1601,16 @@ export default function Home() {
       </Select>
   );
   const renderRatesButton = (cls = "") => (
+      <HeaderTip label={t("fx.sources")}>
       <button type="button" data-testid="fx-sources-open" onClick={() => setFxDialog(true)} title={t("fx.sources")}
-        className={`rsl-touch inline-flex h-8 items-center gap-1 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-xs text-zinc-300 hover:bg-zinc-800 ${cls}`}>
-        ⇄ {t("fx.sources")}
+        className={`rsl-touch inline-flex h-8 items-center gap-1 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-xs text-zinc-300 hover:bg-zinc-800 xl:w-8 xl:justify-center xl:px-0 ${cls}`}>
+        ⇄ <span className="xl:sr-only">{t("fx.sources")}</span>
       </button>
+      </HeaderTip>
   );
   const renderUniverseSelect = (cls = "") => (
       <Select value={String(universeLimit)} onValueChange={(value) => setUniverseLimit(Number(value))}>
-        <SelectTrigger aria-label={t("ctl.universe")} className={`h-8 w-auto min-w-[92px] gap-2 border-zinc-800 bg-zinc-900 text-xs ${cls}`}>
+        <SelectTrigger aria-label={t("ctl.universe")} className={`h-8 w-auto min-w-[92px] gap-2 border-zinc-800 bg-zinc-900 text-xs xl:min-w-[80px] ${cls}`}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent className="border-zinc-800 bg-zinc-900">
@@ -1616,31 +1619,43 @@ export default function Home() {
       </Select>
   );
   const renderApiButton = (cls = "") => (
+      <HeaderTip label={`${privateApiProfile ? privateApiProfile.provider : "API"} — ${t("ctl.api")}`}>
       <Button
         variant="outline"
         size="sm"
         onClick={() => setPrivateApiOpen(true)}
         aria-label={`${privateApiProfile ? privateApiProfile.provider : "API"} — ${t("ctl.api")}`}
-        className={`h-8 border-zinc-800 px-2 text-xs ${privateApiProfile ? "text-emerald-400" : "text-zinc-300"} ${cls}`}
+        title={`${privateApiProfile ? privateApiProfile.provider : "API"} — ${t("ctl.api")}`}
+        className={`h-8 border-zinc-800 px-2 text-xs xl:w-8 xl:px-0! ${privateApiProfile ? "text-emerald-400" : "text-zinc-300"} ${cls}`}
       >
         <KeyRound className="h-3.5 w-3.5" />
-        <span className="hidden xl:inline">{privateApiProfile ? privateApiProfile.provider : "API"}</span>
       </Button>
+      </HeaderTip>
   );
   const renderContactButton = (cls = "") => (
-      <Button variant="outline" size="sm" asChild className={`h-8 border-zinc-800 px-2 text-xs text-zinc-300 ${cls}`}>
+      <HeaderTip label={t("ctl.contact")}>
+      <Button variant="outline" size="sm" asChild className={`h-8 border-zinc-800 px-2 text-xs text-zinc-300 xl:w-8 xl:px-0! ${cls}`}>
         <a href={contactMailto({ name: APP.name }, APP.contactSubject)} aria-label={t("ctl.contact")} title={t("ctl.contact")}>
           <Mail className="h-3.5 w-3.5" />
         </a>
       </Button>
+      </HeaderTip>
   );
   const renderAboutButton = (cls = "") => (
-      <Button variant="outline" size="sm" onClick={() => setAboutOpen(true)} aria-label={t("ctl.about")} title={t("ctl.about")} className={`h-8 border-zinc-800 px-2 text-xs text-zinc-300 ${cls}`}>
+      <HeaderTip label={t("ctl.about")}>
+      <Button variant="outline" size="sm" onClick={() => setAboutOpen(true)} aria-label={t("ctl.about")} title={t("ctl.about")} className={`h-8 border-zinc-800 px-2 text-xs text-zinc-300 xl:w-8 xl:px-0! ${cls}`}>
         <Info className="h-3.5 w-3.5" />
       </Button>
+      </HeaderTip>
   );
+  /* v2.8 header (owner decision 16 Nov 2026): below 1280 px the System / Light / Dark radios are unchanged; at ≥ 1280 px
+     they become one button that cycles System → Light → Dark. Its name and tooltip give the current and the next theme. */
+  const THEME_CYCLE: ThemePref[] = ["system", "light", "dark"];
+  const nextThemePref = THEME_CYCLE[(THEME_CYCLE.indexOf(themePref) + 1) % THEME_CYCLE.length];
+  const themeCycleLabel = t("theme.cycle", { current: t(`theme.${themePref}`), next: t(`theme.${nextThemePref}`) });
   const renderThemeButton = (cls = "") => (
-      <div role="radiogroup" aria-label={t("theme.label")} className={`inline-flex h-8 shrink-0 items-center rounded-md border border-zinc-800 bg-zinc-900 p-0.5 ${cls}`}
+      <>
+      <div role="radiogroup" aria-label={t("theme.label")} className={`inline-flex h-8 shrink-0 items-center rounded-md border border-zinc-800 bg-zinc-900 p-0.5 xl:hidden ${cls}`}
         onKeyDown={(e) => {
           const order: ThemePref[] = ["system", "light", "dark"];
           const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
@@ -1659,6 +1674,14 @@ export default function Home() {
           </button>
         ))}
       </div>
+      <HeaderTip label={themeCycleLabel}>
+        <button type="button" data-testid="theme-cycle" data-theme-current={themePref} aria-label={themeCycleLabel} title={themeCycleLabel}
+          onClick={() => applyBackground(toStoredBackground(nextThemePref))}
+          className={`rsl-touch hidden h-8 w-8 shrink-0 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 xl:inline-flex ${cls}`}>
+          {themePref === "system" ? <Monitor className="h-3.5 w-3.5" aria-hidden="true" /> : themePref === "light" ? <Sun className="h-3.5 w-3.5" aria-hidden="true" /> : <Moon className="h-3.5 w-3.5" aria-hidden="true" />}
+        </button>
+      </HeaderTip>
+      </>
   );
 
   /* ========================================================================== *
@@ -1682,8 +1705,10 @@ export default function Home() {
       <header hidden={listExpanded} className="brand-surface relative z-30 shrink-0 border-b border-cyan-400/15 backdrop-blur">
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent" />
         <div className="mx-auto w-full max-w-[1600px] px-3">
-          {/* Row 1 — brand + controls */}
-          <div className="flex flex-wrap items-center gap-1.5 py-1.5">
+          {/* Row 1 — brand + controls. v2.8 (owner decision 16 Nov 2026, spec §3 item 9): at ≥ 1280 px exactly two lines —
+              brand … alert inbox, then scoring profile … Refresh — with icon buttons (tooltips on hover and focus), narrower
+              selects and a 4 px gap; the 6 px line gap comes from the line break after the alert inbox. Below 1280 px unchanged. */}
+          <div data-testid="header-controls" className="flex flex-wrap items-center gap-1.5 py-1.5 xl:gap-x-1 xl:gap-y-0">
             {/* rsL brand block: monogram → rsL Confluence Terminal → by rsLozano → build (fixed order). */}
             <div className="me-2 flex min-w-0 items-center">
               <BrandBlock />
@@ -1692,7 +1717,7 @@ export default function Home() {
             {isPhone && <span className="ms-auto"><CustomerChip onClick={() => setAboutOpen(true)} /></span>}
 
             <Select value={timeframe} onValueChange={(v) => { setDetailAsset(null); setTimeframe(v as TF); }}>
-              <SelectTrigger aria-label={t("ctl.timeframe")} className="h-8 min-w-0 flex-1 border-zinc-800 bg-zinc-900 text-xs sm:w-[150px] sm:flex-none">
+              <SelectTrigger aria-label={t("ctl.timeframe")} className="h-8 min-w-0 flex-1 border-zinc-800 bg-zinc-900 text-xs sm:w-[150px] sm:flex-none xl:w-auto xl:min-w-[96px] xl:max-w-[150px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="border-zinc-800 bg-zinc-900">
@@ -1703,7 +1728,7 @@ export default function Home() {
             </Select>
 
             <Select value={dataSource} onValueChange={(v) => { setDetailAsset(null); setDataSource(v as DataSource); }}>
-              <SelectTrigger aria-label={t("ctl.source")} className="h-8 min-w-0 flex-1 border-zinc-800 bg-zinc-900 text-xs sm:w-[150px] sm:flex-none">
+              <SelectTrigger aria-label={t("ctl.source")} className="h-8 min-w-0 flex-1 border-zinc-800 bg-zinc-900 text-xs sm:w-[150px] sm:flex-none xl:w-auto xl:min-w-[104px] xl:max-w-[150px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="max-h-80 border-zinc-800 bg-zinc-900">
@@ -1756,6 +1781,8 @@ export default function Home() {
                 if (list) setDataSource(list.source);
               }} />
             <ScannerInbox port={rsl.port} list={watchlistScope} timeframe={timeframe} ledger={ledgerStore} />
+            {/* ≥ 1280 px: line break after the alert inbox (its 6 px height is the gap between the two lines). */}
+            <div aria-hidden="true" className="hidden xl:block xl:h-1.5 xl:basis-full" />
             <ScoringProfileEditor profile={scoringProfile} configId={activeConfigId} onApply={applyScoringProfile} disabled={!profileReady}
               liquidityFloorUsd={liquidityFloorUsd} onLiquidityFloor={setLiquidityFloorUsd}
               fundPulse={fundPulse} onFundPulse={setFundPulse} fundRankColumn={fundRankColumn} onFundRankColumn={setFundRankColumn} recordRadar={recordRadar} onRecordRadar={setRecordRadar} t={t} />
@@ -1780,7 +1807,7 @@ export default function Home() {
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={t("ctl.filter")}
                 aria-label={t("ctl.filterLabel")}
-                className="h-8 w-32 border-zinc-800 bg-zinc-900 ps-7 text-xs"
+                className="h-8 w-32 border-zinc-800 bg-zinc-900 ps-7 text-xs xl:w-24"
               />
             </div>
 
@@ -1797,7 +1824,7 @@ export default function Home() {
             </Button>
             </div>
 
-            <div className="ms-auto flex flex-wrap items-center gap-1.5">
+            <div className="ms-auto flex flex-wrap items-center gap-1.5 xl:gap-1">
               {!isPhone && <CustomerChip onClick={() => setAboutOpen(true)} />}
               <Button
                 variant="outline"
@@ -1811,12 +1838,14 @@ export default function Home() {
                 <span className="hidden lg:inline">{autoRefresh ? t("ctl.auto") : t("ctl.manual")}</span>
               </Button>
 
+              <HeaderTip label={t("ctl.alerts", { count: reversalAlert.length })}>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setAlertsOpen(true)}
-                className="relative h-8 border-zinc-800 px-2 text-xs text-zinc-300"
+                className="relative h-8 border-zinc-800 px-2 text-xs text-zinc-300 xl:w-8 xl:px-0!"
                 aria-label={t("ctl.alerts", { count: reversalAlert.length })}
+                title={t("ctl.alerts", { count: reversalAlert.length })}
               >
                 <Bell className="h-3.5 w-3.5" />
                 {reversalAlert.length > 0 && (
@@ -1825,6 +1854,7 @@ export default function Home() {
                   </span>
                 )}
               </Button>
+              </HeaderTip>
 
               <Button
                 variant="outline"
