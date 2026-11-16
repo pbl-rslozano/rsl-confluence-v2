@@ -107,7 +107,7 @@ export async function loadRadarCache(port: RadarPort): Promise<RadarCache> {
  * and supply are saved close together). A failed task never blocks the next one.
  */
 let writeQueue: Promise<unknown> = Promise.resolve();
-function serialised<T>(task: () => Promise<T>): Promise<T> {
+export function serialised<T>(task: () => Promise<T>): Promise<T> {
   const run = writeQueue.then(task, task);
   writeQueue = run.catch(() => undefined);
   return run;
