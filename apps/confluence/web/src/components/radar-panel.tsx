@@ -156,6 +156,7 @@ export function RadarHost({ port, depeg, depegSource, recordRadar = false }: Rad
             "radar-sheet gap-0 overflow-y-auto border-zinc-800 bg-zinc-900 p-0 text-zinc-100 " +
             (desktop ? "w-[420px] max-w-[100vw] sm:max-w-[420px]" : "max-h-[80vh] w-full")
           }
+          aria-labelledby="radar-title"
           aria-describedby="radar-desc"
           onOpenAutoFocus={(e) => {
             e.preventDefault();
@@ -355,7 +356,7 @@ function Row({ sym, label, value, id }: { sym: string; label: string; value: Rea
   return (
     <div className="flex items-baseline justify-between gap-2" data-testid={`radar-${sym}-${id}`}>
       <dt className="text-zinc-400">{label}</dt>
-      <dd className="font-mono text-zinc-100" dir="ltr">{value}</dd>
+      <dd className="font-mono text-zinc-100"><bdi>{value}</bdi></dd>
     </div>
   );
 }
@@ -419,10 +420,10 @@ function CotBlock({ asset, r, staleAt, loaded, t, whole, day, clock }: {
   const group = (label: string, g: CotGroup | null, id: string) => (
     <div className="flex flex-wrap items-baseline justify-between gap-x-2" data-testid={`radar-cot-${asset}-${id}`}>
       <span className="text-zinc-400">{label}</span>
-      <span className="font-mono text-zinc-100" dir="ltr">
-        {g ? (g.netChg !== null
+      <span className="font-mono text-zinc-100">
+        <bdi>{g ? (g.netChg !== null
           ? t("radar.inst.group", { long: whole(g.long), short: whole(g.short), net: sign(g.net), delta: sign(g.netChg) })
-          : t("radar.inst.groupNoDelta", { long: whole(g.long), short: whole(g.short), net: sign(g.net) })) : "—"}
+          : t("radar.inst.groupNoDelta", { long: whole(g.long), short: whole(g.short), net: sign(g.net) })) : "—"}</bdi>
       </span>
     </div>
   );
@@ -566,11 +567,9 @@ function ThresholdField({ id, label, value, t }: { id: keyof RadarThresholds; la
           onBlur={() => setDraft(null)}
         />
       </label>
-      {invalid && (
-        <p id={msgId} role="alert" data-testid={`radar-th-${id}-msg`} className="mt-0.5 text-end text-[11px] text-rose-300">
-          {t(f.int ? "radar.th.invalidWhole" : "radar.th.invalid", { min: f.min, max: f.max })}
-        </p>
-      )}
+      <p id={msgId} aria-live="polite" data-testid={`radar-th-${id}-msg`} className={invalid ? "mt-0.5 text-end text-[11px] text-rose-300" : "sr-only"}>
+        {invalid ? t(f.int ? "radar.th.invalidWhole" : "radar.th.invalid", { min: f.min, max: f.max }) : ""}
+      </p>
     </div>
   );
 }

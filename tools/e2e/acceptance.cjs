@@ -2584,7 +2584,7 @@ function dsCompare(base, now, prefix = "") {
     await c.close();
   }
   /* ===== v2.8 WP25: market radar (tab, panel, gating, alerts) — every radar host mocked, unmocked hosts logged ===== */
-  /* acceptance-ids: RD-1, RD-2, RD-3, RD-4, RD-5, RD-6 */
+  /* acceptance-ids: RD-1, RD-2, RD-3, RD-4, RD-5, RD-6, RD-7 */
   {
     const shotDir = process.env.RD_SHOT_DIR || OUT;
     const radarContext = async (extra = {}) => {
@@ -2651,7 +2651,7 @@ function dsCompare(base, now, prefix = "") {
         const last = btns.sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right)[0].getBoundingClientRect();
         const hit = document.elementFromPoint(Math.min(last.left + last.width / 2, innerWidth - 1), last.top + last.height / 2);
         return { side: el.getAttribute("data-side"), id: el.id, w: Math.round(r.width), rightGap: Math.round(innerWidth - r.right), top: Math.round(r.top), bottom: Math.round(r.bottom), hb, vh: innerHeight, anim: cs.animationName, transProp: cs.transitionProperty, transDur: cs.transitionDuration,
-          focusInside: el.contains(document.activeElement), tabCount: document.querySelectorAll('[data-testid="radar-tab"]').length, headerReachable: !!hit && !el.contains(hit) };
+          focusInside: el.contains(document.activeElement), labelledName: (document.getElementById(el.getAttribute('aria-labelledby') || '')?.textContent || '').trim(), tabCount: document.querySelectorAll('[data-testid="radar-tab"]').length, headerReachable: !!hit && !el.contains(hit) };
       });
       await p.keyboard.press("Escape");
       await panel(p).waitFor({ state: "detached", timeout: 10000 });
@@ -2665,7 +2665,7 @@ function dsCompare(base, now, prefix = "") {
       await p.waitForFunction(() => document.querySelector('[data-testid="radar-panel"]')?.getAttribute("data-side") === "bottom", null, { timeout: 8000 }).catch(() => null);
       const narrow = await p.evaluate(() => { const el = document.querySelector('[data-testid="radar-panel"]'); const r = el.getBoundingClientRect(); return { side: el.getAttribute("data-side"), w: Math.round(r.width), bottomGap: Math.round(innerHeight - r.bottom), h: Math.round(r.height), vh: innerHeight }; });
       record("RD-2", "R opens and Esc closes the panel; R is ignored while typing in the Filter field; the open state survives a reload; with reduced motion there is no slide transition; 800 px wide it is a bottom sheet (≤ 80 vh), 1280 px a 420 px right sheet below the header; opening moves focus into the panel, closing returns it to the tab; the tab is hidden while it is open",
-        ignoredWhileTyping && ignoredInDialog && ignoredWithModifier && /^Radar/.test(tabAttrs.name) && tabAttrs.controls === "radar-panel" && tabAttrs.expanded === "false"
+        ignoredWhileTyping && ignoredInDialog && ignoredWithModifier && desktop.labelledName.length > 0 && /^Radar/.test(tabAttrs.name) && tabAttrs.controls === "radar-panel" && tabAttrs.expanded === "false"
           && desktop.side === "right" && desktop.id === "radar-panel" && desktop.w === 420 && desktop.rightGap === 0 && desktop.top === desktop.hb && desktop.bottom === desktop.vh && desktop.headerReachable
           && desktop.focusInside && desktop.tabCount === 0 && focusBack && remembered
           && desktop.anim === "none" && (desktop.transProp === "none" || desktop.transDur === "0s")
@@ -2802,6 +2802,83 @@ function dsCompare(base, now, prefix = "") {
           && open.side === "left" && open.left === 0 && open.w === 420 && open.top === open.hb && open.titleRight <= open.xLeft && open.xLabel.trim() === "إغلاق رادار السوق" && open.tabs === 0,
         { closed, open, unmockedRadarHosts: unknownRadar(st) });
       await c.close();
+    }
+
+    /* RD-7: Record radar context. Off (default): after scans there is no radar host request and every ledger row has rad null.
+       On (panel closed): the radar hosts are requested and rows recorded afterwards carry rad (newest logged context at or before the bar close, at most 2 h old).
+       The context log entry just before the bar close is written into the device's log first: a real entry is made at the moment recording is switched on,
+       i.e. after the newest closed bar, and a row never takes a later one (no look-ahead), so a test cannot wait for the next bar close. */
+    {
+      const ledgerRows = (p, tf) => p.evaluate((frame) => new Promise((resolve) => {
+        const req = indexedDB.open("rsl-conf-ledger");
+        req.onerror = () => resolve([]);
+        req.onsuccess = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains("ledger")) { db.close(); return resolve([]); }
+          const all = db.transaction("ledger", "readonly").objectStore("ledger").getAll();
+          all.onsuccess = () => { db.close(); resolve(all.result.flatMap((d) => (d && d.rows) || []).filter((r) => r.tf === frame && r.src === "binance").map((r) => ({ pair: r.pair, t: r.t, tc: r.tc, rad: r.rad === undefined ? "absent" : r.rad }))); };
+          all.onerror = () => { db.close(); resolve([]); };
+        };
+      }), tf);
+      const waitLedger = async (p, tf) => { let rows = []; for (let i = 0; i < 80 && rows.length < 3; i++) { rows = await ledgerRows(p, tf); if (rows.length < 3) await p.waitForTimeout(500); } return rows; };
+      const toHourly = async (p) => {
+        await p.getByRole("combobox", { name: "Timeframe" }).click();
+        await p.getByRole("option", { name: "1 hour", exact: true }).click();
+      };
+      const seedLog = (p, entry) => p.evaluate((e) => new Promise((resolve) => {
+        const req = indexedDB.open("rsl-conf");
+        req.onerror = () => resolve(false);
+        req.onsuccess = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains("meta")) { db.close(); return resolve(false); }
+          const id = `radar-log-${new Date(e.t).toISOString().slice(0, 10)}`;
+          const tx = db.transaction("meta", "readwrite"); const store = tx.objectStore("meta");
+          const g = store.get(id);
+          g.onsuccess = () => {
+            const doc = g.result && Array.isArray(g.result.entries) ? g.result : { day: id.slice(10), entries: [] };
+            doc.entries.push(e); doc.entries.sort((a, b) => a.t - b.t);
+            store.put(doc, id);
+          };
+          tx.oncomplete = () => { db.close(); resolve(true); };
+          tx.onerror = () => { db.close(); resolve(false); };
+        };
+      }), entry);
+      const radarFetched = (st) => radarHits(st).filter((r) => r.startsWith("fapi.binance.com/fapi/v1/premiumIndex") || r.startsWith("stablecoins.llama.fi/") || r.startsWith("publicreporting.cftc.gov/"));
+
+      /* off (the default) */
+      const off = await radarContext();
+      const offDefault = await off.p.getByRole("button", { name: /^Scoring profile/ }).click().then(() => off.p.locator('[data-testid="record-radar"]').isChecked());
+      await off.p.getByRole("button", { name: /^Scoring profile/ }).click();
+      const off4 = await waitLedger(off.p, "4h");
+      await toHourly(off.p);
+      const off1 = await waitLedger(off.p, "1h");
+      await off.p.waitForTimeout(3000);
+      const offHits = radarHits(off.st);
+      await off.c.close();
+
+      /* on, panel closed */
+      const on = await radarContext();
+      const on4 = await waitLedger(on.p, "4h"); // recorded before the setting was on: no rad
+      await on.p.getByRole("button", { name: /^Scoring profile/ }).click();
+      await on.p.locator('[data-testid="record-radar"]').check();
+      await on.p.getByRole("button", { name: /^Scoring profile/ }).click();
+      const panelClosed = (await panel(on.p).count()) === 0;
+      let fetched = [];
+      for (let i = 0; i < 120 && fetched.length < 3; i++) { fetched = radarFetched(on.st); if (fetched.length < 3) await on.p.waitForTimeout(500); }
+      const tc1h = Math.floor(Date.now() / 36e5) * 36e5;
+      const seedT = tc1h - 60e3;
+      const seeded = await seedLog(on.p, { t: seedT, frp: 77.7, oi24: 1.5, ls: 1.2, tk: 0.52, usP: 0.1, krP: 0.2, phP: 0.3, al: ["BREAKAWAY_COINBASE"] });
+      await toHourly(on.p);
+      const on1 = await waitLedger(on.p, "1h");
+      const radOn = on1.map((r) => r.rad);
+      const okRad = (r) => r && typeof r === "object" && r.t <= on1[0].tc && on1[0].tc - r.t <= 2 * 36e5 && r.frp >= 0 && r.frp <= 100 && Array.isArray(r.al);
+      await on.c.close();
+
+      record("RD-7", "Record radar context: off by default, after scans there is no radar host request and every ledger row has rad null; switched on (panel closed) the radar hosts are requested and rows recorded afterwards carry rad - the newest logged context at or before the bar close, at most 2 h old (the one just before the close here) - while rows recorded earlier keep rad null",
+        offDefault === false && off4.length >= 3 && off1.length >= 3 && off4.concat(off1).every((r) => r.rad === null) && offHits.length === 0 && unknownRadar(off.st).length === 0
+          && on4.length >= 3 && on4.every((r) => r.rad === null) && panelClosed && fetched.length >= 3 && seeded
+          && on1.length >= 3 && radOn.every(okRad) && radOn.every((r) => r.t === seedT ? r.frp === 77.7 && r.al.join() === "BREAKAWAY_COINBASE" : true),
+        { offDefault, off4: off4.length, off1: off1.length, offRad: [...new Set(off4.concat(off1).map((r) => JSON.stringify(r.rad)))], offHits, on4Rad: [...new Set(on4.map((r) => JSON.stringify(r.rad)))], panelClosed, fetched: fetched.slice(0, 4), seeded, on1: on1.length, radOn: radOn.slice(0, 2), seedT, unmocked: unknownRadar(on.st) });
     }
   }
   } // end of the full run (skipped with --ds-only)

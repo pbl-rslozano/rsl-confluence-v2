@@ -415,5 +415,21 @@ console.log("rethreshold (no request, same t, no log row)");
   ok("back at 1 % it returns (the inputs were kept, not the alerts)", s.runner.latest().alerts.some((x) => x.code === "BREAKAWAY_COINBASE"));
 }
 
+console.log("threshold edit during a running refresh");
+{
+  const lastHour = Math.floor(T0 / H) * H;
+  let th = DEFAULT_THRESHOLDS;
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const s = setup({
+    async breakAway() { await gate; return { closes: { binance: [100, 100], bybit: [100, 100], bitget: [100, 100], okx: [100, 100], coinbase: [101.5, 101.5] }, standing: {}, unavailable: [], closeTimes: [lastHour - H, lastHour], stale: false }; },
+  }, { thresholds: () => th });
+  const p = s.runner.refresh();
+  th = { ...DEFAULT_THRESHOLDS, breakAwayPct: 2 };
+  release();
+  const a = await p;
+  ok("an edit made while fetches are pending is used by the published alerts", !a.alerts.some((x) => x.code === "BREAKAWAY_COINBASE"));
+}
+
 console.log(`\nradar snapshot: ${passed} passed, ${failed} failed`);
 if (failed) process.exitCode = 1;

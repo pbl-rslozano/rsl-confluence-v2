@@ -334,7 +334,7 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
     const signal = ctl.signal;
     try {
       const now = deps.now();
-      const th = sanitizeThresholds(deps.thresholds());
+      sanitizeThresholds(deps.thresholds()); // fail early on bad settings; re-read below, after the fetches
       if (!cache) {
         const loaded = await loadRadarCache(deps.store);
         if (signal.aborted) throw abortError();
@@ -392,7 +392,7 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
       let readings: DepegReading[] = [];
       try { readings = deps.depeg() ?? []; } catch { /* no readings */ }
       const inputs: AlertInputs = { breakaway: kept.breakaway?.v ?? null, vol: volOut.data, readings, source, now, supply: supplyOut.points };
-      const alerts = composeAlerts(inputs, th);
+      const alerts = composeAlerts(inputs, sanitizeThresholds(deps.thresholds()));
 
       for (const k of Object.keys(cotOut.stale)) stale[k] = cotOut.stale[k];
       for (const a of ["BTC", "ETH"] as const) if (!cotOut.cot[a]) unavailable.push(`cot:${a}`);
