@@ -677,5 +677,6 @@
   "radar.th.whaleMinUsd": "Grande transferência (mínimo em US$)",
   "radar.alert.whale": "{amount} {symbol} ({usd}) foram movidos de {from} para {to} em {chain}.",
   "radar.prov.gatewayLost": "O gateway não aceitou o token. Reconecte com o botão API no cabeçalho.",
-  "radar.whale.rejected": "O Whale Alert recusou esta chave. Verifique a assinatura e adicione a chave novamente."
+  "radar.whale.rejected": "O Whale Alert recusou esta chave. Verifique a assinatura e adicione a chave novamente.",
+  "about.uses.fng": "Crypto Fear & Greed Index (optional widget)"
 }

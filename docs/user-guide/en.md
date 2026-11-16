@@ -615,6 +615,10 @@ exchanges' own fee pages (Upbit's come from a 2026 review of the exchange). RWA 
 - In the browser version, press **Keep storage** to ask the browser not to delete the ledger when space is low.
 - **Clear ledger** deletes every recorded signal for **all** sources and timeframes, for good, after a confirmation.
 
+<!-- wp:WP29 -->
+### Fear & Greed (v2.8)
+The **Fear & Greed** widget shows the Crypto Fear & Greed Index from Alternative.me as a gauge, with its last 31 days. It is **collapsed by default**: until you open it from the small chip at the end of the counts line, the app makes no request for it. It is context only and never changes a score, a signal or a paper-trading rule. (This section is completed with the widget itself.)
+
 <!-- wp:WP19 -->
 ## 12. Paper trading
 Paper trading practises the discipline the ledger asks for. STRONG score bands become practice **proposals** (not yet validated by the ledger), a risk engine checks each one, and only you can approve. No order is ever sent to any exchange.

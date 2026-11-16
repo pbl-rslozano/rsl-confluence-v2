@@ -3,7 +3,7 @@
   "description": "Allowed outbound hosts per process (ADR-0003, amended by ADR-0008). tools/check-egress.mjs fails when a source file under a process root contains an http(s) URL whose host is not listed for that process; the recorder also enforces this list at runtime.",
   "processes": {
     "web": {
-      "description": "Browser / Tauri / Capacitor app. Enforced by CSP connect-src (apps/confluence/web/src/lib/csp.ts) and release-check R8; listed here for one overview, not scanned by check-egress. v2.6: nativeHosts are reached outside the CSP (no CORS header) — web through the same-origin rewrite in public/_redirects, Capacitor/Tauri through nativeGet — and only on the read paths in src/lib/public-hosts.ts (release-check R16). v2.8 (WP20): `hosts` lists every CSP_HOSTS host without its scheme, the six display-currency rate hosts included (ADR-0015); tools/check-egress.test.mjs checks it. v2.8 (WP26): www.okx.com and api.exchange.coinbase.com join the CSP hosts; api.upbit.com is a native host (read paths only, like Coins.ph). The Node paths of the app (the server route src/app/api/market, the replay CLI) fetch these venues directly with plain fetch; they run on the user's own computer and use the same hosts. v2.8 (WP25): fapi.binance.com (REST only), publicreporting.cftc.gov and stablecoins.llama.fi join the CSP hosts for the market radar. v2.8 (WP25 part 2): the two liquidation websockets wss://fstream.binance.com and wss://stream.bybit.com join the CSP hosts (web.hosts lists them without the scheme); they are opened only while the radar gate holds.",
+      "description": "Browser / Tauri / Capacitor app. Enforced by CSP connect-src (apps/confluence/web/src/lib/csp.ts) and release-check R8; listed here for one overview, not scanned by check-egress. v2.6: nativeHosts are reached outside the CSP (no CORS header) — web through the same-origin rewrite in public/_redirects, Capacitor/Tauri through nativeGet — and only on the read paths in src/lib/public-hosts.ts (release-check R16). v2.8 (WP20): `hosts` lists every CSP_HOSTS host without its scheme, the six display-currency rate hosts included (ADR-0015); tools/check-egress.test.mjs checks it. v2.8 (WP26): www.okx.com and api.exchange.coinbase.com join the CSP hosts; api.upbit.com is a native host (read paths only, like Coins.ph). The Node paths of the app (the server route src/app/api/market, the replay CLI) fetch these venues directly with plain fetch; they run on the user's own computer and use the same hosts. v2.8 (WP25): fapi.binance.com (REST only), publicreporting.cftc.gov and stablecoins.llama.fi join the CSP hosts for the market radar. v2.8 (WP25 part 2): the two liquidation websockets wss://fstream.binance.com and wss://stream.bybit.com join the CSP hosts (web.hosts lists them without the scheme); they are opened only while the radar gate holds. v2.8 (WP29): api.alternative.me (Crypto Fear & Greed Index, GET only) joins the CSP hosts; it is contacted only while the Fear & Greed widget is open, and the recorder, gateway and MCP never call it.",
       "roots": [],
       "hosts": [
         "data-api.binance.vision",
@@ -23,6 +23,7 @@
         "fapi.binance.com",
         "publicreporting.cftc.gov",
         "stablecoins.llama.fi",
+        "api.alternative.me",
         "fstream.binance.com",
         "stream.bybit.com"
       ],
@@ -47,6 +48,7 @@
         "https://fapi.binance.com",
         "https://publicreporting.cftc.gov",
         "https://stablecoins.llama.fi",
+        "https://api.alternative.me",
         "wss://fstream.binance.com",
         "wss://stream.bybit.com"
       ],

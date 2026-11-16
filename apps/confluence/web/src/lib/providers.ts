@@ -51,6 +51,10 @@ export const PROVIDERS: readonly Provider[] = [
   { id: "binance-vision", name: "Binance Vision (archive)", uses: "about.uses.archive",
     apiDocs: "https://data.binance.vision",
     terms: "https://data.binance.vision" /* Terms of Use v1.0, CC BY-NC-SA 4.0 — see docs/measurement.md */ },
+  // v2.8 WP29: Crypto Fear & Greed Index (optional widget). Terms: the source must be named right next to the data.
+  { id: "alternative-me", name: "Alternative.me", uses: "about.uses.fng",
+    apiDocs: "https://alternative.me/crypto/fear-and-greed-index/",
+    terms: "https://alternative.me/crypto/fear-and-greed-index/" },
   { id: "frankfurter", name: "Frankfurter", uses: "about.uses.rates",
     apiDocs: "https://frankfurter.dev",
     terms: "https://frankfurter.dev" /* [terms URL not verified] */ },

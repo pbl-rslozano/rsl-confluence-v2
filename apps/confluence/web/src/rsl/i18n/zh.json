@@ -677,5 +677,6 @@
   "radar.th.whaleMinUsd": "大额转账（最低金额，US$）",
   "radar.alert.whale": "{amount} {symbol}（{usd}）已在 {chain} 上从 {from} 转至 {to}。",
   "radar.prov.gatewayLost": "网关未接受该令牌。请通过页眉中的 API 按钮重新连接。",
-  "radar.whale.rejected": "Whale Alert 拒绝了此密钥。请检查订阅，然后重新添加密钥。"
+  "radar.whale.rejected": "Whale Alert 拒绝了此密钥。请检查订阅，然后重新添加密钥。",
+  "about.uses.fng": "Crypto Fear & Greed Index (optional widget)"
 }

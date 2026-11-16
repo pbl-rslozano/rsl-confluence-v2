@@ -677,5 +677,6 @@
   "radar.th.whaleMinUsd": "Malaking paglilipat (minimum sa US$)",
   "radar.alert.whale": "Inilipat ang {amount} {symbol} ({usd}) mula {from} papunta sa {to} sa {chain}.",
   "radar.prov.gatewayLost": "Hindi tinanggap ng gateway ang token. Kumonekta muli gamit ang button na API sa header.",
-  "radar.whale.rejected": "Tinanggihan ng Whale Alert ang key na ito. Suriin ang subscription, pagkatapos ay idagdag muli ang key."
+  "radar.whale.rejected": "Tinanggihan ng Whale Alert ang key na ito. Suriin ang subscription, pagkatapos ay idagdag muli ang key.",
+  "about.uses.fng": "Crypto Fear & Greed Index (optional widget)"
 }

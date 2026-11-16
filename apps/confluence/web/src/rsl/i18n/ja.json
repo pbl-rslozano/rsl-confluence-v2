@@ -677,5 +677,6 @@
   "radar.th.whaleMinUsd": "大口送金（最小額、US$）",
   "radar.alert.whale": "{amount} {symbol}（{usd}）が{chain}上で{from}から{to}へ移動しました。",
   "radar.prov.gatewayLost": "ゲートウェイがトークンを受け付けませんでした。ヘッダーのAPIボタンから再接続してください。",
-  "radar.whale.rejected": "Whale Alertがこのキーを拒否しました。サブスクリプションを確認してから、キーをもう一度追加してください。"
+  "radar.whale.rejected": "Whale Alertがこのキーを拒否しました。サブスクリプションを確認してから、キーをもう一度追加してください。",
+  "about.uses.fng": "Crypto Fear & Greed Index (optional widget)"
 }

@@ -677,5 +677,6 @@
   "radar.th.whaleMinUsd": "Крупный перевод (минимум, US$)",
   "radar.alert.whale": "{amount} {symbol} ({usd}) переведены с {from} на {to} в сети {chain}.",
   "radar.prov.gatewayLost": "Шлюз не принял токен. Подключитесь заново кнопкой API в заголовке.",
-  "radar.whale.rejected": "Whale Alert отклонил этот ключ. Проверьте подписку, затем добавьте ключ снова."
+  "radar.whale.rejected": "Whale Alert отклонил этот ключ. Проверьте подписку, затем добавьте ключ снова.",
+  "about.uses.fng": "Crypto Fear & Greed Index (optional widget)"
 }

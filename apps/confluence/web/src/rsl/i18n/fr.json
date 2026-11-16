@@ -677,5 +677,6 @@
   "radar.th.whaleMinUsd": "Gros transfert (minimum en US$)",
   "radar.alert.whale": "{amount} {symbol} ({usd}) ont été transférés de {from} vers {to} sur {chain}.",
   "radar.prov.gatewayLost": "La passerelle n'a pas accepté le jeton. Reconnectez-vous avec le bouton API de l'en-tête.",
-  "radar.whale.rejected": "Whale Alert a refusé cette clé. Vérifiez l'abonnement, puis ajoutez de nouveau la clé."
+  "radar.whale.rejected": "Whale Alert a refusé cette clé. Vérifiez l'abonnement, puis ajoutez de nouveau la clé.",
+  "about.uses.fng": "Crypto Fear & Greed Index (optional widget)"
 }
