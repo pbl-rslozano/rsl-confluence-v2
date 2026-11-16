@@ -32,7 +32,7 @@ Two market-context providers can be connected beside the exchange keys. They are
 
 | Provider | Plan the gateway is meant for | Test call at connect |
 | --- | --- | --- |
-| `coinglass` | CoinGlass Hobbyist (personal use) | `GET https://open-api-v4.coinglass.com/api/bitcoin/etf/list`; HTTP OK and `code` `"0"` |
+| `coinglass` | CoinGlass Hobbyist (personal use; the ETF list is on all plans) | `GET https://open-api-v4.coinglass.com/api/etf/bitcoin/list`; HTTP OK and `code` `"0"` |
 | `whale-alert` | Whale Alert Alerts API, US$29.95 per month (personal use) | open `wss://leviathan.whale-alert.io/ws`, send one `subscribe_alerts`, wait for `subscribed_alerts`, close |
 
 Routes (same token, origin and host checks as the rest):

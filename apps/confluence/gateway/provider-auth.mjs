@@ -29,7 +29,7 @@ export function validateProviderCredentials(value) {
 }
 
 /** CoinGlass v4. The host is written literally so tools/check-egress.mjs can verify it. */
-export function buildCoinglassRequest(apiKey, path = "/api/bitcoin/etf/list") {
+export function buildCoinglassRequest(apiKey, path = "/api/etf/bitcoin/list") {
   return {
     url: "https://open-api-v4.coinglass.com" + path,
     options: { method: "GET", headers: { "CG-API-KEY": apiKey, accept: "application/json" } },
@@ -49,7 +49,10 @@ async function verifyCoinglass({ apiKey }, fetcher, timeoutMs) {
   } catch (error) {
     throw new Error(error?.name === "TimeoutError" || error?.name === "AbortError" ? TIMED_OUT : REJECTED);
   }
-  if (!response?.ok) throw new Error(REJECTED);
+  if (!response?.ok) {
+    try { await response?.body?.cancel(); } catch { /* body already released */ } // free the connection
+    throw new Error(REJECTED);
+  }
   const payload = await response.json().catch(() => null);
   if (!payload || payload.code !== "0") throw new Error(REJECTED);
   return { ok: true };

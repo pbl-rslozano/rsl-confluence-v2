@@ -42,7 +42,7 @@ test("exchange key with write permission is still refused, provider key is accep
 
 test("coinglass request carries the key header only and the fixed host", () => {
   const { url, options } = buildCoinglassRequest(KEY);
-  assert.equal(url, "https://open-api-v4.coinglass.com/api/bitcoin/etf/list");
+  assert.equal(url, "https://open-api-v4.coinglass.com/api/etf/bitcoin/list");
   assert.equal(options.method, "GET");
   assert.equal(options.headers["CG-API-KEY"], KEY);
 });
@@ -63,6 +63,15 @@ test("coinglass bad key is rejected without echoing upstream text", async () => 
     verifyProvider(creds, { fetcher: async () => { throw new Error(`boom ${KEY} https://open-api-v4.coinglass.com`); } }),
     (error) => !error.message.includes(KEY) && !error.message.includes("coinglass"),
   );
+});
+
+test("coinglass non-OK response releases the unread body, even if cancel throws", async () => {
+  const creds = validateProviderCredentials({ provider: "coinglass", apiKey: KEY });
+  let cancelled = 0;
+  const fetcher = (cancel) => async () => ({ ok: false, status: 401, body: { cancel }, json: async () => ({}) });
+  await assert.rejects(verifyProvider(creds, { fetcher: fetcher(async () => { cancelled += 1; }) }), { message: "The provider rejected the key test." });
+  assert.equal(cancelled, 1);
+  await assert.rejects(verifyProvider(creds, { fetcher: fetcher(async () => { throw new Error("cancel failed"); }) }), { message: "The provider rejected the key test." });
 });
 
 test("whale alert verifies on subscribed_alerts and closes the socket", async () => {

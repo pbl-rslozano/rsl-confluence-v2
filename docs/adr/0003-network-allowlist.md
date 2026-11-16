@@ -158,7 +158,7 @@ carries a provider key. Both are on personal-use plans: Whale Alert Alerts API (
 Hobbyist. Both are optional: without a connected provider profile the radar rows say "Available with a key on the
 desktop gateway" and the gateway contacts neither host.
 - **Gateway `hosts` +1:** `open-api-v4.coinglass.com` (https, header `CG-API-KEY`). Test call at connect:
-  `GET https://open-api-v4.coinglass.com/api/bitcoin/etf/list`; the key passes only when the HTTP status is OK and the
+  `GET https://open-api-v4.coinglass.com/api/etf/bitcoin/list`; the key passes only when the HTTP status is OK and the
   response `code` is `"0"`.
 - **Gateway `websocketHosts` +1:** `leviathan.whale-alert.io` (wss, `wss://leviathan.whale-alert.io/ws?api_key=<key>`).
   Test at connect: the gateway opens the socket, sends one `subscribe_alerts` message and waits for the
