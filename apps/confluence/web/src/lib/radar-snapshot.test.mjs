@@ -61,9 +61,15 @@ ok("radarAllowed: closed+off false", radarAllowed({ panelOpen: false, recordRada
 ok("radarAllowed: open true, record true", radarAllowed({ panelOpen: true, recordRadar: false }) === true && radarAllowed({ panelOpen: false, recordRadar: true }) === true);
 {
   const { fetchers, timers, runner } = setup();
-  timers.fire(); timers.fire(); timers.fire();
+  runner.start();
   await settle();
-  ok("no fetch when not allowed: a stopped runner makes 0 fetcher calls across 3 ticks", total(fetchers) === 0 && timers.handles.size === 0);
+  const ticks = [...timers.handles.values()].map((h) => h.fn);
+  runner.stop();
+  const before = total(fetchers);
+  ok("the started runner did fetch", before > 0 && ticks.length === 1);
+  for (let i = 0; i < 3; i++) ticks.forEach((fn) => fn());
+  await settle();
+  ok("no fetch when not allowed: a stopped runner makes 0 new fetcher calls across 3 ticks", total(fetchers) === before && timers.handles.size === 0);
 }
 {
   const { timers, runner, fetchers } = setup();
@@ -98,7 +104,6 @@ console.log("stop aborts and publishes nothing");
   ok("late refresh after stop: rejects with AbortError, publishes and logs nothing", err && err.name === "AbortError" && published === 0 && runner.latest() === null && ![...store.m.keys()].some((k) => k.includes("radar-log")));
 }
 {
-  const { runner, timers } = setup();
   let n = 0;
   let release;
   const gate = new Promise((r) => { release = r; });
@@ -122,7 +127,7 @@ console.log("stale values are marked");
   fail = true; s.clock.t += 5 * MIN;
   const b = await s.runner.refresh();
   ok("positioning keeps refresh 1's value", b.positioning.BTCUSDT && b.positioning.BTCUSDT.asOf === first && b.positioning.ETHUSDT.asOf === first);
-  ok("stale.positioning is refresh 1's asOf", b.stale.positioning === first && a.stale.positioning === undefined, JSON.stringify(b.stale));
+  ok("stale[positioning:SYMBOL] is refresh 1's asOf", b.stale["positioning:BTCUSDT"] === first && b.stale["positioning:ETHUSDT"] === first && a.stale["positioning:BTCUSDT"] === undefined, JSON.stringify(b.stale));
   ok("other sections are not stale", b.stale.regional === undefined && b.regional.asOf === s.clock.t);
   ok("latest() is the newest snapshot", s.runner.latest() === b);
 }
@@ -165,7 +170,7 @@ console.log("daily and CFTC caching");
   let fail = true;
   const s = setup({ async cot() { s.fetchers.calls.cot = (s.fetchers.calls.cot ?? 0) + 1; if (fail) throw new Error("down"); return null; } });
   const a = await s.runner.refresh();
-  ok("cftc failure with nothing cached: null, unavailable", a.cot.BTC === null && a.unavailable.includes("cot"));
+  ok("cftc failure with nothing cached: null, unavailable", a.cot.BTC === null && a.unavailable.includes("cot:BTC") && a.unavailable.includes("cot:ETH"));
   s.clock.t += 5 * MIN; await s.runner.refresh();
   ok("a failed slow input is not retried every tick", s.fetchers.calls.cot === 2);
   s.clock.t += RETRY_MS; await s.runner.refresh();
@@ -247,6 +252,137 @@ console.log("log");
   const readFail = { async get() { throw new Error("read"); }, async put() { wrote++; } };
   await appendRadarContext(readFail, ctx(NOW));
   ok("a failed read never overwrites the day", wrote === 0);
+}
+
+console.log("fix round 1");
+{
+  // I-1: t is the END of the refresh: no value in an entry was observed after t
+  const s = setup({
+    async regional() { s.clock.t += 10 * MIN; return { usPct: 0.1, krPct: 0.2, phPct: 0.3, asOf: s.clock.t, unavailable: [] }; },
+  });
+  const a = await s.runner.refresh();
+  ok("I-1: t is not before any asOf in the snapshot", a.t >= a.regional.asOf && a.t >= a.positioning.BTCUSDT.asOf && a.t === T0 + 10 * MIN, String(a.t - T0));
+  ok("I-1: radarFields(tc between start and end) does not use the entry", radarFields([toRadarContext(a)], T0 + MIN) === null && radarFields([toRadarContext(a)], a.t) !== null);
+}
+{
+  // I-2: stale sections are not logged as current
+  let fail = false;
+  let ba = "alert";
+  const lastHour = Math.floor(T0 / H) * H;
+  const s = setup({
+    async positioning(sym) { if (fail) throw new Error("x"); return { symbol: sym, fundingRate: 0, fundingPctl30d: 50, oi: 1, oiChg24hPct: 3, longShortRatio: 1.4, takerBuySellRatio: 1, basisPct: 0, asOf: s.clock.t }; },
+    async regional() { if (fail) throw new Error("x"); return { usPct: 0.4, krPct: 0.5, phPct: 0.6, asOf: s.clock.t, unavailable: [] }; },
+    async buyer() { if (fail) throw new Error("x"); return { takerShare: [0.6], sessions: { asia: 1, europe: 0, us: 0 }, asOf: s.clock.t }; },
+    async breakAway() {
+      if (ba === "stale") return { closes: {}, standing: {}, unavailable: [], closeTimes: [], stale: true };
+      const f = [100, 100];
+      return { closes: { binance: f, bybit: f, bitget: f, okx: f, coinbase: [101.5, 101.5] }, standing: {}, unavailable: [], closeTimes: [lastHour - H, lastHour], stale: false };
+    },
+  });
+  const a = await s.runner.refresh();
+  ok("I-2: a fresh snapshot logs all fields", (c => c.frp === 50 && c.tk === 0.6 && c.usP === 0.4 && c.al.includes("BREAKAWAY_COINBASE"))(toRadarContext(a)));
+  fail = true; ba = "stale"; s.clock.t += 10 * H;
+  const b = await s.runner.refresh();
+  const c = toRadarContext(b);
+  ok("I-2: the UI snapshot still shows the kept values with their stale time", b.positioning.BTCUSDT.fundingPctl30d === 50 && b.stale["positioning:BTCUSDT"] === T0 && b.alerts.some((x) => x.code === "BREAKAWAY_COINBASE"));
+  ok("I-2: the logged context nulls stale positioning, buyer and regional fields", c.frp === null && c.oi24 === null && c.ls === null && c.tk === null && c.usP === null && c.krP === null && c.phP === null, JSON.stringify(c));
+  ok("I-2: stale break-away codes are dropped from al", !c.al.some((x) => x.startsWith("BREAKAWAY_")), c.al.join());
+}
+{
+  // I-3: daily volumes with latest false are not cached
+  let latest = false;
+  const s = setup({ async dailyVolumes() { s.fetchers.calls.dailyVolumes = (s.fetchers.calls.dailyVolumes ?? 0) + 1; return { volumes: [1, 2, 3], days: [1, 2, 3], latest, unavailable: [] }; } });
+  const a = await s.runner.refresh();
+  ok("I-3: not latest: 'volume' is unavailable", a.unavailable.includes("volume"));
+  s.clock.t += 5 * MIN; await s.runner.refresh();
+  ok("I-3: not retried inside RETRY_MS", s.fetchers.calls.dailyVolumes === 1);
+  latest = true; s.clock.t += RETRY_MS;
+  const b = await s.runner.refresh();
+  ok("I-3: retried after RETRY_MS and then cached for the day", s.fetchers.calls.dailyVolumes === 2 && !b.unavailable.includes("volume"));
+  s.clock.t += 5 * MIN; await s.runner.refresh();
+  ok("I-3: a latest result is cached per UTC day", s.fetchers.calls.dailyVolumes === 2);
+}
+{
+  // I-4: a hung section times out as a section failure, not a stop
+  let hang = false;
+  const s = setup({
+    async positioning(sym) { if (hang && sym === "ETHUSDT") return new Promise(() => {}); return { symbol: sym, fundingRate: 0, fundingPctl30d: 50, oi: 1, oiChg24hPct: 3, longShortRatio: 1.4, takerBuySellRatio: 1, basisPct: 0, asOf: s.clock.t }; },
+  }, { sectionTimeoutMs: 40 });
+  const a = await s.runner.refresh();
+  hang = true; s.clock.t += 5 * MIN;
+  const b = await s.runner.refresh();
+  ok("I-4: the refresh completes with the hung section kept and stale", b.positioning.ETHUSDT !== null && b.stale["positioning:ETHUSDT"] === a.t && b.positioning.BTCUSDT.asOf === s.clock.t && b.stale["positioning:BTCUSDT"] === undefined);
+  s.clock.t += 5 * MIN; s.timers.handles.clear();
+  s.runner.start(); await settle(); s.runner.stop();
+  const c = await s.runner.refresh();
+  ok("I-4: later refreshes still run", c.t === s.clock.t);
+  const s2 = setup({ async regional() { return new Promise(() => {}); } }, { sectionTimeoutMs: 40 });
+  const d = await s2.runner.refresh();
+  ok("I-4: a hung section with no earlier value is unavailable", d.regional === null && d.unavailable.includes("regional"));
+}
+{
+  // M1: allowed dep
+  let allowed = false;
+  const s = setup({}, { allowed: () => allowed });
+  s.runner.start();
+  ok("M1: start refuses while not allowed", s.timers.handles.size === 0 && total(s.fetchers) === 0);
+  let err = null;
+  try { await s.runner.refresh(); } catch (e) { err = e; }
+  ok("M1: refresh rejects while not allowed, no fetch", err && total(s.fetchers) === 0);
+  allowed = true; s.runner.start(); await settle();
+  const fn = [...s.timers.handles.values()][0].fn;
+  const n = total(s.fetchers);
+  allowed = false; fn(); await settle();
+  ok("M1: a tick while not allowed makes no request", n > 0 && total(s.fetchers) === n);
+  s.runner.stop();
+}
+{
+  // M4: radarFields just after UTC midnight reads yesterday's doc
+  const port = memPort();
+  const mid = Date.UTC(2026, 10, 17, 0, 0, 0);
+  const e = (t) => ({ t, frp: 42, oi24: null, ls: null, tk: null, usP: null, krP: null, phP: null, al: [] });
+  await appendRadarContext(port, e(mid - 10 * MIN));
+  const log = await loadRadarLog(port, mid + 5 * MIN);
+  ok("M4: tc just after UTC midnight uses yesterday's entry", radarFields(log, mid + 5 * MIN)?.frp === 42);
+}
+{
+  // M5: index doc, prune blanks every listed old day
+  const port = memPort();
+  const e = (t) => ({ t, frp: 1, oi24: null, ls: null, tk: null, usP: null, krP: null, phP: null, al: [] });
+  await appendRadarContext(port, e(T0 - 200 * DAY));
+  await appendRadarContext(port, e(T0 - 100 * DAY));
+  await appendRadarContext(port, e(T0 - 3 * DAY));
+  const idx = port.m.get("meta/radar-log-index");
+  ok("M5: written days are listed in radar-log-index", idx && idx.days.length === 3 && idx.days.includes("2026-11-13"), JSON.stringify(idx));
+  const { pruneRadarLog } = await import("./radar/snapshot.ts");
+  await pruneRadarLog(port, T0);
+  ok("M5: prune blanks every listed day older than 35 days, however old", port.m.get(`meta/${radarLogId(T0 - 200 * DAY)}`).entries.length === 0 && port.m.get(`meta/${radarLogId(T0 - 100 * DAY)}`).entries.length === 0 && port.m.get(`meta/${radarLogId(T0 - 3 * DAY)}`).entries.length === 1);
+  ok("M5: pruned days leave the index", port.m.get("meta/radar-log-index").days.join() === "2026-11-13");
+}
+{
+  // M7: per symbol; M8: asOf 0
+  const s = setup({
+    async positioning(sym) { if (sym === "BTCUSDT") throw new Error("x"); return { symbol: sym, fundingRate: 0, fundingPctl30d: 50, oi: 1, oiChg24hPct: 3, longShortRatio: 1.4, takerBuySellRatio: 1, basisPct: 0, asOf: 0 }; },
+    async cot(asset) { if (asset === "BTC") throw new Error("x"); return { asset, reportDate: "2026-11-10", assetManagers: null, leveragedFunds: null, openInterest: null }; },
+  });
+  const a = await s.runner.refresh();
+  ok("M7: BTC failing alone is listed per symbol", a.unavailable.includes("positioning:BTCUSDT") && !a.unavailable.includes("positioning:ETHUSDT") && a.unavailable.includes("cot:BTC") && !a.unavailable.includes("cot:ETH"), a.unavailable.join());
+  ok("M7: the context uses BTC only (ETH data never fills it)", toRadarContext(a).frp === null);
+  s.clock.t += 5 * MIN;
+  const b = await s.runner.refresh();
+  ok("M8: asOf 0 is invalid: the fetch time is used, never 1970", b.positioning.ETHUSDT !== null && Object.values(b.stale).every((v) => v > 0));
+}
+{
+  // M11: lastError
+  let boom = true;
+  const s = setup({}, { thresholds: () => { if (boom) throw new Error("bad thresholds"); return DEFAULT_THRESHOLDS; } });
+  const seen = [];
+  s.runner.subscribe((snap, info) => seen.push(info?.lastError ?? null));
+  let err = null;
+  try { await s.runner.refresh(); } catch (e) { err = e; }
+  ok("M11: a non-fetch error rejects, is exposed as lastError and is notified", err && s.runner.lastError() === "bad thresholds" && seen.includes("bad thresholds"), String(s.runner.lastError()));
+  boom = false; await s.runner.refresh();
+  ok("M11: lastError clears after a good refresh", s.runner.lastError() === null);
 }
 
 console.log(`\nradar snapshot: ${passed} passed, ${failed} failed`);
