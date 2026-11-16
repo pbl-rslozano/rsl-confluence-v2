@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchHistory, INTERVAL_MS, MAX_HISTORY_BARS, type DataSource } from "@/lib/market-client";
 import { guardRoute } from "@/lib/route-guard";
+import { errorResponseInit } from "@/lib/route-errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,7 +57,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "History fetch failed." },
-      { status: 502 },
+      errorResponseInit(error), // 429 + Retry-After for a venue rate limit / cooldown, else 502
     );
   } finally {
     clearTimeout(timeout);
