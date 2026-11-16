@@ -13,8 +13,10 @@
  *
  * Liveness: a machine that sleeps (or a frozen tab) gets no `close`, so every roll-timer tick and message records a beat; a
  * beat more than 90 s after the previous one means the time between is a disconnection for every live venue (the slept
- * hours are never saved as complete zeros). Bybit must answer within about two ping intervals (any message, a pong
- * included) and acknowledge the subscribe within 10 s, else the socket is closed and reconnected through the backoff.
+ * hours are never saved as complete zeros). Bybit must answer a ping (any frame after it, a pong included) and
+ * acknowledge the subscribe within 10 s, else the socket is closed and reconnected through the backoff. Silence is judged
+ * by unanswered pings, never by the clock alone, so a late tick (a background tab gets about one a minute) is not silence:
+ * a ping unanswered at two consecutive ticks, or for 45 s, closes the socket.
  *
  * Hours: `roll` runs on every message and every 60 s, and an hour closes only 5 s after it ends so late events still
  * count. Newly complete hours are saved (queued, merged with what is stored) into the "radar-liq" doc.
@@ -35,7 +37,7 @@ export const LIQ_BACKOFF_MAX_MS = 60_000;
 export const LIQ_BACKOFF_RESET_MS = 5 * 60_000;
 /** Beats further apart than this mean the machine slept (roll interval 60 s plus slack for background-tab throttling). */
 export const LIQ_SLEEP_MS = 90_000;
-/** Bybit silence (no message, pong included) tolerated before the socket is recycled: about two ping intervals. */
+/** A Bybit ping left unanswered this long (or at two consecutive ticks) closes the socket. */
 export const LIQ_SILENCE_MS = 45_000;
 export const LIQ_SUBSCRIBE_MS = 10_000;
 
@@ -105,6 +107,9 @@ interface Slot {
   sub: unknown;
   /** Time of the last frame received on the current socket. */
   lastRx: number;
+  /** When the newest ping was sent (null before the first), and how many consecutive ticks found the previous ping unanswered. */
+  pingAt: number | null;
+  missed: number;
 }
 
 /** Union by hour (first wins), oldest first, newest LIQ_KEEP_HOURS, none older than LIQ_KEEP_MS before `now`. */
@@ -121,8 +126,8 @@ export function createLiquidationFeed(deps: LiquidationFeedDeps): LiquidationFee
   /** Hours read back from the store (the books only know what this session saw). */
   let loaded: Record<LiqVenue, LiqHour[]> = { bybit: [], binance: [] };
   const slots: Record<LiqVenue, Slot> = {
-    bybit: { gen: 0, ws: null, connected: false, since: null, attempt: 0, reconnect: null, ping: null, sub: null, lastRx: 0 },
-    binance: { gen: 0, ws: null, connected: false, since: null, attempt: 0, reconnect: null, ping: null, sub: null, lastRx: 0 },
+    bybit: { gen: 0, ws: null, connected: false, since: null, attempt: 0, reconnect: null, ping: null, sub: null, lastRx: 0, pingAt: null, missed: 0 },
+    binance: { gen: 0, ws: null, connected: false, since: null, attempt: 0, reconnect: null, ping: null, sub: null, lastRx: 0, pingAt: null, missed: 0 },
   };
   let isRunning = false;
   let rollTimer: unknown = null;
@@ -231,6 +236,8 @@ export function createLiquidationFeed(deps: LiquidationFeedDeps): LiquidationFee
     }
     s.ws = ws;
     s.lastRx = clock();
+    s.pingAt = null;
+    s.missed = 0;
     const live = () => isRunning && s.gen === gen;
     ws.addEventListener("open", () => {
       if (!live()) return;
@@ -242,8 +249,13 @@ export function createLiquidationFeed(deps: LiquidationFeedDeps): LiquidationFee
       if (s.ping !== null) timers.clearInterval(s.ping);
       s.ping = timers.setInterval(() => {
         if (!live()) return;
-        if (clock() - s.lastRx > LIQ_SILENCE_MS) { down(v, s, gen); return; } // no pong, no frame: the socket is dead
+        const now = clock();
+        if (s.pingAt !== null && s.lastRx < s.pingAt) { // nothing came back since the last ping
+          s.missed++;
+          if (s.missed >= 2 || now - s.pingAt >= LIQ_SILENCE_MS) { down(v, s, gen); return; }
+        } else s.missed = 0;
         if (ws.readyState !== WS_OPEN) return;
+        s.pingAt = now;
         try { ws.send(BYBIT_PING); } catch { /* the close handler reconnects */ }
       }, LIQ_PING_MS);
     });

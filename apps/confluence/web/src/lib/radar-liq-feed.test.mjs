@@ -398,3 +398,33 @@ test("I2 via the feed: a disconnect just before the hour end that stays down nev
   assert.equal((doc?.hours.binance ?? []).some((x) => x.h === H0), false);
   feed.stop();
 });
+
+// Background tabs get about one timer wake-up a minute: the fake clock is jumped 60 s and each overdue timer fires once, late.
+const lateTick = (clock, timers) => { clock.t += 60_000; timers.advance(0); };
+
+test("I1 round 2: late ping ticks (60 s apart) with pongs answered never recycle a healthy socket", () => {
+  const { feed, sock, clock, timers } = setup();
+  feed.start();
+  const by = sock("bybit")[0];
+  by.open(); ackSub(by);
+  for (let i = 0; i < 12; i++) lateTick(clock, timers);
+  assert.equal(by.closed, false);
+  assert.equal(sock("bybit").length, 1);
+  assert.equal(feed.view(clock.t, DEFAULT_THRESHOLDS).bybit.connected, true);
+  feed.stop();
+});
+
+test("I1 round 2: late ping ticks (60 s apart) with pongs never answered recycle the socket within two late ticks", () => {
+  const { feed, sock, clock, timers } = setup();
+  feed.start();
+  FakeWs.autoPong = false;
+  const by = sock("bybit")[0];
+  by.open(); ackSub(by);
+  lateTick(clock, timers); // sends the ping
+  assert.equal(by.closed, false);
+  lateTick(clock, timers); // that ping went unanswered for 60 s
+  assert.ok(by.closed);
+  timers.advance(2000);
+  assert.equal(sock("bybit").length, 2);
+  feed.stop();
+});
