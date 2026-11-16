@@ -1,4 +1,4 @@
-# Claude as analyst — local read-only MCP server · v2.3 2026
+# Claude as analyst — local read-only MCP server · 2.3.0
 
 Phase F, level 1.5 (see `docs/research/Confluence Terminal v2.2 gaps.md` and ADR-0009). Package: `apps/confluence/mcp` (`@rsl/confluence-mcp` 2.3.0).
 

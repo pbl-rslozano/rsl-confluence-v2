@@ -8,8 +8,16 @@
  * the card opens only when the viewer expands it in About.
  */
 
-/** Kit version and build of the committed coffee-kit.json (kitVersion "1.1"). */
-export const COFFEE_KIT_VERSION = "v1.1 2026";
+import { semver } from "@rsl/core-kit/core/rsl-brand.js";
+import KIT_DATA from "./coffee-kit.json" with { type: "json" };
+
+/** Display version of a kit: kitVersion padded to MAJOR.MINOR.PATCH ("1.1" -> "1.1.0"), no "v", no year (KIT-003). */
+export function coffeeKitVersion(kitVersion: string): string {
+  return semver(kitVersion);
+}
+
+/** Kit version and build of the committed coffee-kit.json (kitVersion "1.1" shown as "1.1.0"). Display string only. */
+export const COFFEE_KIT_VERSION: string = coffeeKitVersion(KIT_DATA.kitVersion);
 export const COFFEE_KIT_BUILD = "20261115";
 /** Replaces {appName} in the kit wording. Brand string, never translated. */
 export const COFFEE_APP_NAME = "rsL Confluence Terminal";

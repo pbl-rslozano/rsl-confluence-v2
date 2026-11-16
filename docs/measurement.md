@@ -1,4 +1,4 @@
-# Measuring the signals — v2.3 2026
+# Measuring the signals — 2.3.0
 
 The terminal now records every signal it produces and measures what happened next. Use this before trusting, sizing or automating anything.
 

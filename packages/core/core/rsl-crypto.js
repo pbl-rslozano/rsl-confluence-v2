@@ -1,5 +1,5 @@
 /**
- * rsl-crypto.js — rsL Core Kit · v1.0 2026
+ * rsl-crypto.js — rsL Core Kit · 1.2.0
  * Shared primitives: canonical JSON, SHA-256, strict base64url, UTF-8.
  * No DOM, no storage, no network. Runs in WebView2, WKWebView, Android WebView, browsers and Node ≥ 20.
  */

@@ -1,5 +1,5 @@
 /**
- * rsl-platform.js — rsL Core Kit · v1.0 2026
+ * rsl-platform.js — rsL Core Kit · 1.2.0
  * Platform adapter (ports & adapters). Core code calls these functions; each shell injects
  * its native plugins at startup. This file never imports @tauri-apps/* or @capacitor/*.
  *

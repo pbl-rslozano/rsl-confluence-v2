@@ -1,5 +1,5 @@
 {
-  "$description": "rsL design tokens v1.0 2026 — DTCG 2025.10. Brand layer (rsl) never mixes with the customer layer (customer).",
+  "$description": "rsL design tokens 1.2.0 — DTCG 2025.10. Brand layer (rsl) never mixes with the customer layer (customer).",
   "rsl": {
     "$type": "color",
     "blue": {

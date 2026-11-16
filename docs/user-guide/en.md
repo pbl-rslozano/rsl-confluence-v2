@@ -1,5 +1,5 @@
 <!-- wp:WP11 --> <!-- wp:WP16 -->
-# rsL Confluence Terminal v2.7 2026 — User guide
+# rsL Confluence Terminal 2.7.0 — User guide
 
 The rsL Confluence Terminal is a multi-indicator market scanner. For every asset it runs 18 indicator votes on **closed bars**, combines them into a score from −100 to +100, and shows a **Master Signal**. It also records every signal so you can measure, over weeks, whether the signals would have helped you.
 
@@ -888,4 +888,4 @@ The desktop app also has menus: **File** (Export backup…, Restore backup…), 
 ✉ in the header writes to rslozano@gmail.com with the app name as the subject. Include the version, build and source commit from **About** with any question.
 
 ---
-Powered by rsL Confluence Terminal · v2.7 2026 · build 20261111 — Created by rsLozano
+Powered by rsL Confluence Terminal · 2.7.0 · build 20261111 — Created by rsLozano

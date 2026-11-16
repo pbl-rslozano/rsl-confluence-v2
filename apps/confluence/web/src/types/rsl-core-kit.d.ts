@@ -85,6 +85,7 @@ declare module "@rsl/core-kit/core/rsl-i18n.js" {
 declare module "@rsl/core-kit/core/rsl-brand.js" {
   export const BRAND: { owner: string; byline: string; contactEmail: string; colors: Record<string, string> };
   export function monogramSVG(o?: { className?: string; label?: string; background?: string | null; width?: number; height?: number }): string;
+  export function semver(version: string | number): string;
   export function buildStamp(app: { version: string; year?: number; build: string }): string;
   export function poweredBy(app: { name: string; version: string; year?: number; build: string }): string;
   export function contactMailto(app: { name: string }, subject?: string): string;

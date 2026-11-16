@@ -1,5 +1,5 @@
 /**
- * rsl-clock.js — rsL Core Kit · v1.0 2026
+ * rsl-clock.js — rsL Core Kit · 1.2.0
  * Monotonic clock with bounded skew, shared by licensing and the audit trail.
  * Offline devices can have their clocks set back; this keeps time moving forward
  * without letting one bad reading (CMOS reset, VM snapshot) freeze the app in the future.

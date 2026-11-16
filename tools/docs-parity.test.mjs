@@ -7,15 +7,31 @@ import { join } from "node:path";
 import { checkDocsParity } from "./checks/docs-parity.mjs";
 
 const RELEASED = "# v2.7.0 — 11 November 2026 · build 20261111\n\n- **Quotes (WP12):** stablecoin pairs.\n";
-function tree(changelog) {
+function tree(changelog, guide) {
   const root = mkdtempSync(join(tmpdir(), "r19-"));
   const put = (p, text) => { mkdirSync(join(root, p, ".."), { recursive: true }); writeFileSync(join(root, p), text); };
   put("apps/confluence/web/src/lib/build-info.ts", 'export const BUILD_INFO = { version: "2.7.0", build: 20261111 } as const;\n');
-  put("docs/user-guide/en.md", "<!-- wp:WP12 -->\n# rsL Confluence Terminal v2.7 2026 — User guide\n\nv2.7 2026 · build 20261111\n");
+  put("docs/user-guide/en.md", guide ?? "<!-- wp:WP12 -->\n# rsL Confluence Terminal 2.7.0 — User guide\n\nPowered by rsL Confluence Terminal · 2.7.0 · build 20261111\n");
   put("docs/superpowers/specs/2026-11-11-v2.7-architecture-design.md", "<!-- user-visible: WP12 -->\n### WP12 — Quotes\n");
   put("CHANGELOG.md", changelog);
   return root;
 }
+
+const guideWith = (title, footer) => `<!-- wp:WP12 -->\n# ${title}\n\n${footer}\n`;
+test("user guide in the old number + year format fails (KIT-003)", () => {
+  const r = checkDocsParity(tree(RELEASED, guideWith(`rsL Confluence Terminal v2.7 ${2026} — User guide`, `Powered by rsL Confluence Terminal · v2.7 ${2026} · build 20261111`)));
+  assert.equal(r.ok, false);
+  assert.match(r.findings.join(" "), /user guide title/);
+  assert.match(r.findings.join(" "), /user guide footer/);
+});
+
+test("user guide title and footer must carry the SemVer version and build of BUILD_INFO", () => {
+  assert.equal(checkDocsParity(tree(RELEASED, guideWith("rsL Confluence Terminal 2.7.0 — User guide", "Powered by rsL Confluence Terminal · 2.7.0 · build 20261111"))).ok, true);
+  const wrong = checkDocsParity(tree(RELEASED, guideWith("rsL Confluence Terminal 2.7 — User guide", "Powered by rsL Confluence Terminal · 2.7.0 · build 20261110")));
+  assert.equal(wrong.ok, false);
+  assert.match(wrong.findings.join(" "), /user guide title/);
+  assert.match(wrong.findings.join(" "), /user guide footer/);
+});
 
 test("released top entry for this version that names a WP passes", () => {
   assert.equal(checkDocsParity(tree(RELEASED)).ok, true);

@@ -1,4 +1,4 @@
-# Headless recorder and alerts — v2.3 2026
+# Headless recorder and alerts — 2.3.0
 
 The recorder keeps the forward-test ledger growing while the app is closed. It runs as a small Node process on your computer and uses the **same scoring code as the app** (same engine id, same 1,000-bar window, same catch-up). It reads public market data only.
 
