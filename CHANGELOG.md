@@ -66,6 +66,10 @@ ledger rows of engine 2.3.0 stay and are reported separately.
   `radar_*` CSV columns after `fund_trend` (newest reading at or before the bar's close, at most 2 h old; null when
   off); the recorder gains `--radar on|off`. Live ETF flows and Whale Alert transfers (desktop-gateway keys),
   liquidations and the cascade alert are part 2. Acceptance **RD-1**…**RD-7**.
+- **Market radar, part 2 (WP25, Step 4b, in progress):** the Radar's Positioning section lists the last hour of Bybit and Binance
+  BTC/ETH perpetual liquidations (long and short, read live from two websockets that open only while the panel is open or
+  recording is on; Binance is labelled *sampled*), a cascade status per venue ("collecting the baseline" until 720 complete
+  hours are logged on the device) and a **Liquidation cascade** threshold (starting value 3 × the median hour). Acceptance **RD-8**.
 - **Design unchanged (spec §3):** acceptance **DS-1** (main screen) and **DS-2** (detail sheet top and chart layers, paper
   dialog, ledger dialog) compare the layout at rest with text masked against baselines captured from the v2.7.0-web build.
 - **Languages:** the new and changed v2.8 strings are Arabic drafts awaiting native-speaker review (About shows the count;

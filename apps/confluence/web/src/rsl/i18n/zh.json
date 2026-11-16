@@ -654,5 +654,16 @@
   "radar.close": "Close the market radar",
   "radar.th.invalid": "Enter a value from {min} to {max}.",
   "radar.th.invalidWhole": "Enter a whole number from {min} to {max}.",
-  "settings.recordRadar": "Record radar context"
+  "settings.recordRadar": "Record radar context",
+  "radar.liq.title": "清算，最近一小时",
+  "radar.liq.note": "Bybit 与 Binance USDⓈ-M 的 BTC、ETH 永续合约。Binance 每个交易对每秒最多推送一笔清算，因此其数字为抽样值。",
+  "radar.liq.row": "{venue}：多头 {long} · 空头 {short}",
+  "radar.liq.sampled": "抽样",
+  "radar.liq.partial": "已监听 {min} 分钟 — 尚不足一小时",
+  "radar.liq.off": "{venue}：未连接",
+  "radar.liq.collecting": "连锁清算检查：正在收集基线（此设备已记录 720 小时中的 {have} 小时）",
+  "radar.liq.ready": "连锁清算检查：中位小时 {median}",
+  "radar.alert.liq": "{venue} 最近一小时清算达 {usd}，为中位小时（{median}）的 {mult} 倍；其中 {longPct} % 为多头。",
+  "radar.alerts.thLiq": "阈值：中位小时的 {mult} 倍",
+  "radar.th.liqMult": "清算连锁（× 中位小时）"
 }

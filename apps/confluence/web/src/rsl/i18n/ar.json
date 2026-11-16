@@ -198,7 +198,18 @@
     "radar.alerts.thVolume",
     "radar.close",
     "radar.th.invalid",
-    "radar.th.invalidWhole"
+    "radar.th.invalidWhole",
+    "radar.liq.title",
+    "radar.liq.note",
+    "radar.liq.row",
+    "radar.liq.sampled",
+    "radar.liq.partial",
+    "radar.liq.off",
+    "radar.liq.collecting",
+    "radar.liq.ready",
+    "radar.alert.liq",
+    "radar.alerts.thLiq",
+    "radar.th.liqMult"
   ],
   "app.subtitle": "ماسح توافق مؤشرات العملات المشفّرة",
   "ctx.page": "الماسح",
@@ -853,5 +864,16 @@
   "radar.close": "إغلاق رادار السوق",
   "radar.th.invalid": "أدخل قيمة من {min} إلى {max}.",
   "radar.th.invalidWhole": "أدخل عددًا صحيحًا من {min} إلى {max}.",
-  "settings.recordRadar": "تسجيل سياق الرادار"
+  "settings.recordRadar": "تسجيل سياق الرادار",
+  "radar.liq.title": "التصفية القسرية، آخر ساعة",
+  "radar.liq.note": "عقود Bybit وBinance USDⓈ-M الدائمة لـ BTC وETH. ترسل Binance تصفية واحدة على الأكثر لكل رمز في الثانية، لذا فأرقامها عيّنة.",
+  "radar.liq.row": "{venue}: طويلة {long} · قصيرة {short}",
+  "radar.liq.sampled": "عيّنة",
+  "radar.liq.partial": "يجري الاستماع منذ {min} دقيقة — لم تكتمل ساعة بعد",
+  "radar.liq.off": "{venue}: غير متصل",
+  "radar.liq.collecting": "فحص التتابع: جارٍ جمع خط الأساس ({have} من 720 ساعة مسجّلة على هذا الجهاز)",
+  "radar.liq.ready": "فحص التتابع: الساعة الوسيطة {median}",
+  "radar.alert.liq": "بلغت تصفيات {venue} {usd} في الساعة الأخيرة، أي {mult}× الساعة الوسيطة ({median})؛ وكانت {longPct} % منها مراكز طويلة.",
+  "radar.alerts.thLiq": "الحد: {mult}× الساعة الوسيطة",
+  "radar.th.liqMult": "تتابع التصفية (× الساعة الوسيطة)"
 }

@@ -654,5 +654,16 @@
   "radar.close": "Close the market radar",
   "radar.th.invalid": "Enter a value from {min} to {max}.",
   "radar.th.invalidWhole": "Enter a whole number from {min} to {max}.",
-  "settings.recordRadar": "Record radar context"
+  "settings.recordRadar": "Record radar context",
+  "radar.liq.title": "লিকুইডেশন, গত এক ঘণ্টা",
+  "radar.liq.note": "Bybit ও Binance USDⓈ-M, BTC ও ETH পারপেচুয়াল। Binance প্রতি সিম্বলে প্রতি সেকেন্ডে সর্বোচ্চ একটি লিকুইডেশন পাঠায়, তাই এর সংখ্যাগুলো নমুনা।",
+  "radar.liq.row": "{venue}: লং {long} · শর্ট {short}",
+  "radar.liq.sampled": "নমুনা",
+  "radar.liq.partial": "{min} মিনিট ধরে শোনা হচ্ছে — এখনও পূর্ণ এক ঘণ্টা হয়নি",
+  "radar.liq.off": "{venue}: সংযুক্ত নয়",
+  "radar.liq.collecting": "ক্যাসকেড যাচাই: ভিত্তিরেখা সংগ্রহ চলছে (এই ডিভাইসে ৭২০ ঘণ্টার মধ্যে {have} ঘণ্টা লগ হয়েছে)",
+  "radar.liq.ready": "ক্যাসকেড যাচাই: মধ্যমা ঘণ্টা {median}",
+  "radar.alert.liq": "গত এক ঘণ্টায় {venue}-এর লিকুইডেশন {usd}-এ পৌঁছেছে, যা মধ্যমা ঘণ্টার ({median}) {mult}×; এর {longPct} % ছিল লং।",
+  "radar.alerts.thLiq": "সীমা: মধ্যমা ঘণ্টার {mult}×",
+  "radar.th.liqMult": "লিকুইডেশন ক্যাসকেড (× মধ্যমা ঘণ্টা)"
 }

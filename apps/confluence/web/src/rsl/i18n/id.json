@@ -654,5 +654,16 @@
   "radar.close": "Close the market radar",
   "radar.th.invalid": "Enter a value from {min} to {max}.",
   "radar.th.invalidWhole": "Enter a whole number from {min} to {max}.",
-  "settings.recordRadar": "Record radar context"
+  "settings.recordRadar": "Record radar context",
+  "radar.liq.title": "Likuidasi, satu jam terakhir",
+  "radar.liq.note": "Perpetual BTC dan ETH di Bybit dan Binance USDⓈ-M. Binance mengirim paling banyak satu likuidasi per simbol per detik, sehingga angkanya adalah sampel.",
+  "radar.liq.row": "{venue}: long {long} · short {short}",
+  "radar.liq.sampled": "sampel",
+  "radar.liq.partial": "Mendengarkan selama {min} mnt — belum genap satu jam",
+  "radar.liq.off": "{venue}: tidak terhubung",
+  "radar.liq.collecting": "Pemeriksaan kaskade: mengumpulkan dasar ({have} dari 720 jam tercatat di perangkat ini)",
+  "radar.liq.ready": "Pemeriksaan kaskade: jam median {median}",
+  "radar.alert.liq": "Likuidasi {venue} mencapai {usd} dalam satu jam terakhir, {mult}× jam median ({median}); {longPct} % adalah posisi long.",
+  "radar.alerts.thLiq": "Ambang: {mult}× jam median",
+  "radar.th.liqMult": "Kaskade likuidasi (× jam median)"
 }

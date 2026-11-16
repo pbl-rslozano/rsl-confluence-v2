@@ -654,5 +654,16 @@
   "radar.close": "Close the market radar",
   "radar.th.invalid": "Enter a value from {min} to {max}.",
   "radar.th.invalidWhole": "Enter a whole number from {min} to {max}.",
-  "settings.recordRadar": "Record radar context"
+  "settings.recordRadar": "Record radar context",
+  "radar.liq.title": "لیکویڈیشنز، آخری گھنٹہ",
+  "radar.liq.note": "Bybit اور Binance USDⓈ-M، BTC اور ETH پرپیچوئل۔ Binance فی علامت فی سیکنڈ زیادہ سے زیادہ ایک لیکویڈیشن بھیجتا ہے، اس لیے اس کے اعداد نمونہ ہیں۔",
+  "radar.liq.row": "{venue}: لانگ {long} · شارٹ {short}",
+  "radar.liq.sampled": "نمونہ",
+  "radar.liq.partial": "{min} منٹ سے سن رہے ہیں — ابھی پورا گھنٹہ نہیں ہوا",
+  "radar.liq.off": "{venue}: منسلک نہیں",
+  "radar.liq.collecting": "کیسکیڈ جانچ: بنیادی سطح جمع کی جا رہی ہے (اس ڈیوائس پر 720 میں سے {have} گھنٹے درج)",
+  "radar.liq.ready": "کیسکیڈ جانچ: وسطانی گھنٹہ {median}",
+  "radar.alert.liq": "آخری گھنٹے میں {venue} کی لیکویڈیشنز {usd} تک پہنچیں، یعنی وسطانی گھنٹے ({median}) کا {mult}×؛ ان میں {longPct} % لانگ تھیں۔",
+  "radar.alerts.thLiq": "حد: وسطانی گھنٹے کا {mult}×",
+  "radar.th.liqMult": "لیکویڈیشن کیسکیڈ (× وسطانی گھنٹہ)"
 }

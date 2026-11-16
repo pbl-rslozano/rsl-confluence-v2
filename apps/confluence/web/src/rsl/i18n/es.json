@@ -654,5 +654,16 @@
   "radar.close": "Close the market radar",
   "radar.th.invalid": "Enter a value from {min} to {max}.",
   "radar.th.invalidWhole": "Enter a whole number from {min} to {max}.",
-  "settings.recordRadar": "Record radar context"
+  "settings.recordRadar": "Record radar context",
+  "radar.liq.title": "Liquidaciones, última hora",
+  "radar.liq.note": "Perpetuos BTC y ETH de Bybit y Binance USDⓈ-M. Binance envía como máximo una liquidación por símbolo y segundo, por lo que sus cifras son una muestra.",
+  "radar.liq.row": "{venue}: largos {long} · cortos {short}",
+  "radar.liq.sampled": "muestra",
+  "radar.liq.partial": "Escuchando desde hace {min} min — aún no es una hora completa",
+  "radar.liq.off": "{venue}: sin conexión",
+  "radar.liq.collecting": "Control de cascada: reuniendo la base ({have} de 720 horas registradas en este dispositivo)",
+  "radar.liq.ready": "Control de cascada: hora mediana {median}",
+  "radar.alert.liq": "Las liquidaciones de {venue} alcanzaron {usd} en la última hora, {mult}× la hora mediana ({median}); el {longPct} % fueron largos.",
+  "radar.alerts.thLiq": "Umbral: {mult}× la hora mediana",
+  "radar.th.liqMult": "Cascada de liquidaciones (× hora mediana)"
 }

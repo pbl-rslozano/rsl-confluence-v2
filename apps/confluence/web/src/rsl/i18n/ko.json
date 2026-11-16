@@ -654,5 +654,16 @@
   "radar.close": "Close the market radar",
   "radar.th.invalid": "Enter a value from {min} to {max}.",
   "radar.th.invalidWhole": "Enter a whole number from {min} to {max}.",
-  "settings.recordRadar": "Record radar context"
+  "settings.recordRadar": "Record radar context",
+  "radar.liq.title": "청산, 최근 1시간",
+  "radar.liq.note": "Bybit 및 Binance USDⓈ-M의 BTC·ETH 무기한 선물입니다. Binance는 심볼당 초당 최대 1건의 청산만 보내므로 수치는 표본입니다.",
+  "radar.liq.row": "{venue}: 롱 {long} · 숏 {short}",
+  "radar.liq.sampled": "표본",
+  "radar.liq.partial": "{min}분째 수신 중 — 아직 1시간이 안 됨",
+  "radar.liq.off": "{venue}: 연결되지 않음",
+  "radar.liq.collecting": "캐스케이드 점검: 기준선 수집 중 (이 기기에 720시간 중 {have}시간 기록됨)",
+  "radar.liq.ready": "캐스케이드 점검: 중앙값 시간 {median}",
+  "radar.alert.liq": "{venue} 청산이 최근 1시간에 {usd}에 달해 중앙값 시간({median})의 {mult}배였습니다. {longPct} %가 롱이었습니다.",
+  "radar.alerts.thLiq": "임계값: 중앙값 시간의 {mult}배",
+  "radar.th.liqMult": "청산 캐스케이드 (× 중앙값 시간)"
 }

@@ -654,5 +654,16 @@
   "radar.close": "Close the market radar",
   "radar.th.invalid": "Enter a value from {min} to {max}.",
   "radar.th.invalidWhole": "Enter a whole number from {min} to {max}.",
-  "settings.recordRadar": "Record radar context"
+  "settings.recordRadar": "Record radar context",
+  "radar.liq.title": "清算、直近1時間",
+  "radar.liq.note": "Bybit と Binance USDⓈ-M の BTC・ETH 無期限先物。Binance は銘柄ごとに1秒あたり最大1件の清算しか送らないため、数値はサンプルです。",
+  "radar.liq.row": "{venue}：ロング {long} · ショート {short}",
+  "radar.liq.sampled": "サンプル",
+  "radar.liq.partial": "{min} 分間受信中 — まだ1時間分ありません",
+  "radar.liq.off": "{venue}：未接続",
+  "radar.liq.collecting": "カスケード確認：基準を収集中（この端末に 720 時間中 {have} 時間を記録）",
+  "radar.liq.ready": "カスケード確認：中央値の1時間 {median}",
+  "radar.alert.liq": "{venue} の清算が直近1時間で {usd} に達し、中央値の1時間（{median}）の {mult} 倍でした。{longPct} % がロングでした。",
+  "radar.alerts.thLiq": "しきい値：中央値の1時間の {mult} 倍",
+  "radar.th.liqMult": "清算カスケード（中央値の1時間に対する倍率）"
 }

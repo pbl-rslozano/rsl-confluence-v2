@@ -654,5 +654,16 @@
   "radar.close": "Close the market radar",
   "radar.th.invalid": "Enter a value from {min} to {max}.",
   "radar.th.invalidWhole": "Enter a whole number from {min} to {max}.",
-  "settings.recordRadar": "Record radar context"
+  "settings.recordRadar": "Record radar context",
+  "radar.liq.title": "लिक्विडेशन, पिछला घंटा",
+  "radar.liq.note": "Bybit और Binance USDⓈ-M, BTC और ETH परपेचुअल। Binance प्रति सिंबल प्रति सेकंड अधिकतम एक लिक्विडेशन भेजता है, इसलिए इसके आँकड़े नमूना हैं।",
+  "radar.liq.row": "{venue}: लॉन्ग {long} · शॉर्ट {short}",
+  "radar.liq.sampled": "नमूना",
+  "radar.liq.partial": "{min} मिनट से सुन रहे हैं — अभी पूरा एक घंटा नहीं हुआ",
+  "radar.liq.off": "{venue}: कनेक्ट नहीं है",
+  "radar.liq.collecting": "कैस्केड जाँच: आधार-रेखा जुटाई जा रही है (इस डिवाइस पर 720 में से {have} घंटे दर्ज)",
+  "radar.liq.ready": "कैस्केड जाँच: माध्यिका घंटा {median}",
+  "radar.alert.liq": "पिछले घंटे में {venue} के लिक्विडेशन {usd} तक पहुँचे, यानी माध्यिका घंटे ({median}) का {mult}×; इनमें {longPct} % लॉन्ग थे।",
+  "radar.alerts.thLiq": "सीमा: माध्यिका घंटे का {mult}×",
+  "radar.th.liqMult": "लिक्विडेशन कैस्केड (× माध्यिका घंटा)"
 }

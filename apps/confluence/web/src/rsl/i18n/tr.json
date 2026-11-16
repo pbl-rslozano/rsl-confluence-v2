@@ -654,5 +654,16 @@
   "radar.close": "Close the market radar",
   "radar.th.invalid": "Enter a value from {min} to {max}.",
   "radar.th.invalidWhole": "Enter a whole number from {min} to {max}.",
-  "settings.recordRadar": "Record radar context"
+  "settings.recordRadar": "Record radar context",
+  "radar.liq.title": "Tasfiyeler, son bir saat",
+  "radar.liq.note": "Bybit ve Binance USDⓈ-M, BTC ve ETH vadesiz kontratları. Binance sembol başına saniyede en fazla bir tasfiye gönderir; bu yüzden rakamları örneklemedir.",
+  "radar.liq.row": "{venue}: long {long} · short {short}",
+  "radar.liq.sampled": "örneklem",
+  "radar.liq.partial": "{min} dk'dır dinleniyor — henüz tam bir saat değil",
+  "radar.liq.off": "{venue}: bağlı değil",
+  "radar.liq.collecting": "Çağlayan kontrolü: temel düzey toplanıyor (bu cihazda 720 saatin {have} saati kayıtlı)",
+  "radar.liq.ready": "Çağlayan kontrolü: medyan saat {median}",
+  "radar.alert.liq": "{venue} tasfiyeleri son bir saatte {usd} oldu; bu, medyan saatin ({median}) {mult} katı. %{longPct} oranında long idi.",
+  "radar.alerts.thLiq": "Eşik: medyan saatin {mult} katı",
+  "radar.th.liqMult": "Tasfiye çağlayanı (× medyan saat)"
 }

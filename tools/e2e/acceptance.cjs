@@ -2584,12 +2584,13 @@ function dsCompare(base, now, prefix = "") {
     await c.close();
   }
   /* ===== v2.8 WP25: market radar (tab, panel, gating, alerts) — every radar host mocked, unmocked hosts logged ===== */
-  /* acceptance-ids: RD-1, RD-2, RD-3, RD-4, RD-5, RD-6, RD-7 */
+  /* acceptance-ids: RD-1, RD-2, RD-3, RD-4, RD-5, RD-6, RD-7, RD-8 */
   {
     const shotDir = process.env.RD_SHOT_DIR || OUT;
-    const radarContext = async (extra = {}) => {
+    const radarContext = async (extra = {}, pre = null) => {
       const c = await newContext(browser, { viewport: { width: 1280, height: 800 }, reducedMotion: "reduce", serviceWorkers: "block", deviceScaleFactor: 1, ...extra });
       const st = await rdMock(c);
+      if (pre) await pre(c); // e.g. context.routeWebSocket mocks: they must be in place before the page navigates
       const p = await c.newPage();
       await p.goto(BASE, { waitUntil: "domcontentloaded" });
       await completeFirstRun(p, { operator: "R" });
@@ -2879,6 +2880,74 @@ function dsCompare(base, now, prefix = "") {
           && on4.length >= 3 && on4.every((r) => r.rad === null) && panelClosed && fetched.length >= 3 && seeded
           && on1.length >= 3 && radOn.every(okRad) && radOn.every((r) => r.t === seedT ? r.frp === 77.7 && r.al.join() === "BREAKAWAY_COINBASE" : true),
         { offDefault, off4: off4.length, off1: off1.length, offRad: [...new Set(off4.concat(off1).map((r) => JSON.stringify(r.rad)))], offHits, on4Rad: [...new Set(on4.map((r) => JSON.stringify(r.rad)))], panelClosed, fetched: fetched.slice(0, 4), seeded, on1: on1.length, radOn: radOn.slice(0, 2), seedT, unmocked: unknownRadar(on.st) });
+    }
+
+    /* RD-8: Step 4b live liquidation websockets (mocked with context.routeWebSocket, installed before navigation) */
+    {
+    const LIQ_WS = /^wss:\/\/(fstream\.binance\.com|stream\.bybit\.com)\//;
+    const liqHost = (u) => (/fstream\.binance\.com/.test(u) ? "binance" : /stream\.bybit\.com/.test(u) ? "bybit" : null);
+    const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
+    const waitFor = async (fn, ms) => { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return true; await sleep(100); } return !!(await fn()); };
+    const seen = { calls: [], closed: {}, subscribes: [] };
+    const mockSockets = (c) => c.routeWebSocket(LIQ_WS, (ws) => {
+      const url = ws.url();
+      const host = liqHost(url);
+      seen.calls.push(url);
+      ws.onClose(() => { seen.closed[host] = Date.now(); });
+      const now = Date.now();
+      if (host === "bybit") {
+        ws.onMessage((m) => {
+          let msg; try { msg = JSON.parse(String(m)); } catch { return; }
+          if (msg.op === "subscribe") {
+            seen.subscribes.push(msg.args);
+            ws.send(JSON.stringify({ success: true, ret_msg: "", conn_id: "rd8", op: "subscribe" }));
+            const t = Date.now();
+            ws.send(JSON.stringify({ topic: "allLiquidation.BTCUSDT", type: "snapshot", ts: t, data: [{ T: t, s: "BTCUSDT", S: "Buy", v: "2", p: "50000" }] }));
+          } else if (msg.op === "ping") ws.send(JSON.stringify({ op: "pong", ret_msg: "pong" }));
+        });
+      } else {
+        setTimeout(() => { const t = Date.now(); try { ws.send(JSON.stringify({ e: "forceOrder", E: t, o: { s: "ETHUSDT", S: "SELL", z: "3", ap: "1000", T: t } })); } catch { /* closed */ } }, 500);
+      }
+    });
+    const txt = async (p, id) => ((await p.getByTestId(id).first().textContent({ timeout: 500 }).catch(() => "")) || "").replace(/\s+/g, " ").trim();
+
+    /* (a) at rest: no socket attempt to either host, after a scan */
+    const rest = { handler: [], pageSockets: [] };
+    const a = await radarContext({}, (c) => c.routeWebSocket(LIQ_WS, (ws) => { rest.handler.push(ws.url()); }));
+    a.p.on("websocket", (w) => rest.pageSockets.push(w.url()));
+    await a.p.waitForTimeout(4000);
+    const restHits = rest.handler.concat(rest.pageSockets).filter((u) => LIQ_WS.test(u));
+    await a.c.close();
+
+    /* (b) open with mocked streams, (c) close */
+    const b = await radarContext({}, mockSockets);
+    const pageSockets = [];
+    b.p.on("websocket", (w) => pageSockets.push(w.url()));
+    await b.p.locator("body").click({ position: { x: 5, y: 400 } });
+    await b.p.keyboard.press("r");
+    await b.p.getByTestId("radar-panel").waitFor({ timeout: 10000 });
+    const rowsShown = await waitFor(async () => /long (US)?\$100(K|k|,000)/.test(await txt(b.p, "radar-liq-bybit-row")) && /long (US)?\$3(K|k|,000)\b/.test(await txt(b.p, "radar-liq-binance-row")), 40000);
+    const ev = {
+      bybit: await txt(b.p, "radar-liq-bybit-row"), binance: await txt(b.p, "radar-liq-binance-row"),
+      binanceSampled: await b.p.getByTestId("radar-liq-binance-sampled").count(), bybitSampled: await b.p.getByTestId("radar-liq-bybit-sampled").count(),
+      bybitCascade: await txt(b.p, "radar-liq-bybit-cascade"), binanceCascade: await txt(b.p, "radar-liq-binance-cascade"),
+    };
+    const opened = { urls: seen.calls.slice(), subscribes: seen.subscribes.slice() };
+    await b.p.screenshot({ path: path.join(process.env.RD_SHOT_DIR || OUT, "radar-liquidations.png") }).catch(() => null);
+    await b.p.keyboard.press("Escape");
+    const t0 = Date.now();
+    const closed = await waitFor(async () => !!seen.closed.bybit && !!seen.closed.binance, 2000);
+    const closeMs = Date.now() - t0;
+    await b.c.close();
+
+    record("RD-8", "Liquidations: no websocket at rest; open with mocked Bybit/Binance streams shows last-hour long/short per venue (Binance labelled sampled) and the cascade baseline as collecting; closing the panel closes both sockets",
+      restHits.length === 0 && rowsShown && /^Bybit: long (US)?\$100(K|k|,000) · short (US)?\$0/.test(ev.bybit) && /^Binance: long (US)?\$3(K|k|,000) · short (US)?\$0/.test(ev.binance)
+        && ev.binanceSampled === 1 && ev.bybitSampled === 0
+        && /collecting the baseline \(0 of 720 hours/.test(ev.bybitCascade) && /collecting the baseline \(0 of 720 hours/.test(ev.binanceCascade)
+        && opened.urls.some((u) => /fstream\.binance\.com\/market\/ws\/!forceOrder@arr/.test(u)) && opened.urls.some((u) => /stream\.bybit\.com\/v5\/public\/linear/.test(u))
+        && opened.subscribes.some((s) => Array.isArray(s) && s.includes("allLiquidation.BTCUSDT") && s.includes("allLiquidation.ETHUSDT"))
+        && closed,
+      { restHits, ...ev, opened, closed, closeMs });
     }
   }
   } // end of the full run (skipped with --ds-only)
