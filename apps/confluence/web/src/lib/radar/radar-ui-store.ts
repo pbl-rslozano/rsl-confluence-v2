@@ -12,6 +12,14 @@ export const RADAR_UI_KEY = "ct-radar-v1";
 export const RADAR_SECTIONS = ["positioning", "buyer", "regional", "institutions", "alerts", "sources"] as const;
 export type RadarSection = (typeof RADAR_SECTIONS)[number];
 
+/** Bounds of each threshold, the same as sanitizeThresholds (a value outside them falls back to its default). */
+export const THRESHOLD_FIELDS: Record<keyof RadarThresholds, { min: number; max: number; step: number; int?: boolean }> = {
+  breakAwayPct: { min: 0.2, max: 10, step: 0.1 },
+  breakAwayBars: { min: 1, max: 6, step: 1, int: true },
+  volumeZ: { min: 1.5, max: 10, step: 0.5 },
+  supplyPctl: { min: 90, max: 99.9, step: 0.1 },
+};
+
 export interface RadarUi { open: boolean; collapsed: string[]; thresholds: RadarThresholds }
 
 const DEFAULT_UI: RadarUi = Object.freeze({ open: false, collapsed: [], thresholds: DEFAULT_THRESHOLDS }) as RadarUi;

@@ -17,36 +17,23 @@ import { createPortal } from "react-dom";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { useRsl } from "@/rsl/RslContext";
 import { ThanksSection } from "@/rsl/components/AboutDialog";
+import { getLanguage } from "@rsl/core-kit/core/rsl-i18n.js";
 import { useMediaQuery } from "@/lib/use-media-query";
+import { shouldToggleRadar } from "@/lib/radar/radar-keys";
 import { PROVIDERS } from "@/lib/providers";
 import type { DepegReading } from "@/lib/quotes";
-import { DEFAULT_THRESHOLDS, sanitizeThresholds, type RadarAlert, type RadarThresholds } from "@/lib/radar/alerts";
+import { DEFAULT_THRESHOLDS, type RadarAlert, type RadarThresholds } from "@/lib/radar/alerts";
 import { createRadarRunner, radarAllowed, realFetchers, type RadarRunner, type RadarSnapshot } from "@/lib/radar/snapshot";
 import { etfDailyTotals, parseEtfCsv, type EtfFlow } from "@/lib/radar/etf-csv";
 import { loadEtfRows, saveEtfRows, type RadarPort } from "@/lib/radar/store";
 import type { CotReport, CotGroup } from "@/lib/radar/cftc";
 import type { FuturesPositioning } from "@/lib/radar/binance-futures";
-import { setRadarOpen, setRadarSectionCollapsed, setRadarThresholds, useRadarUi, type RadarSection } from "@/lib/radar/radar-ui";
+import { THRESHOLD_FIELDS, radarUiSnapshot, setRadarOpen, setRadarSectionCollapsed, setRadarThresholds, useRadarUi, type RadarSection } from "@/lib/radar/radar-ui";
 
 type T = (key: string, vars?: Record<string, string | number>) => string;
 const DESKTOP_QUERY = "(min-width: 1024px)";
 const PANEL_WIDTH = 420;
 const ETF_MAX_BYTES = 1_000_000;
-
-/** An element the user types into: the R key must not toggle the panel there. */
-export function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  const tag = target.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
-  if ((target as HTMLElement).isContentEditable) return true;
-  return !!target.closest('[contenteditable=""],[contenteditable="true"],[role="textbox"],[role="combobox"],[role="listbox"],[role="option"],[role="searchbox"]');
-}
-
-const reducedSubscribe = (cb: () => void) => {
-  const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-  mq.addEventListener("change", cb);
-  return () => mq.removeEventListener("change", cb);
-};
 
 export interface RadarHostProps {
   /** The app's storage port (the "meta" collection holds the radar cache, ETF rows and context log). */
@@ -58,12 +45,33 @@ export interface RadarHostProps {
   recordRadar?: boolean;
 }
 
+const TAB_SELECTOR = '[data-testid="radar-tab"]';
+const focusTab = () => (document.querySelector(TAB_SELECTOR) as HTMLElement | null)?.focus();
+
+/** Bottom edge (px) of the app header while `active`, kept current on resize; 0 when there is no header. */
+function useHeaderBottom(active: boolean): number {
+  const subscribe = useCallback((cb: () => void) => {
+    if (!active) return () => undefined;
+    const header = document.querySelector("header");
+    const ro = typeof ResizeObserver === "undefined" || !header ? null : new ResizeObserver(cb);
+    if (header) ro?.observe(header);
+    window.addEventListener("resize", cb);
+    return () => { ro?.disconnect(); window.removeEventListener("resize", cb); };
+  }, [active]);
+  const get = useCallback(() => (active ? Math.max(0, Math.round(document.querySelector("header")?.getBoundingClientRect().bottom ?? 0)) : 0), [active]);
+  return useSyncExternalStore(subscribe, get, () => 0);
+}
+
 export function RadarHost({ port, depeg, depegSource, recordRadar = false }: RadarHostProps) {
   const rsl = useRsl();
   const { t } = rsl;
   const ui = useRadarUi();
   const desktop = useMediaQuery(DESKTOP_QUERY);
+  const rtl = getLanguage(rsl.lang)?.dir === "rtl";
   const mounted = useSyncExternalStore(() => () => undefined, () => true, () => false);
+  const headerBottom = useHeaderBottom(ui.open && desktop);
+  /** True when the user (tab or R key) opened the panel: only then does opening move the focus into it. */
+  const userOpened = useRef(false);
 
   /* ---- runner: created once; its getters read the latest props through refs ---- */
   const live = useRef({ open: ui.open, record: recordRadar, thresholds: ui.thresholds, depeg: depeg ?? [], source: depegSource });
@@ -96,40 +104,38 @@ export function RadarHost({ port, depeg, depegSource, recordRadar = false }: Rad
     if (allowed) runner.start(); else runner.stop();
   }, [allowed, port]);
 
-  // A changed threshold takes effect on the next refresh; ask for one shortly after the last edit (only while allowed).
+  // A changed threshold re-runs the alert rules over the last fetched inputs: no request, no log row.
   const thKey = JSON.stringify(ui.thresholds);
-  const firstTh = useRef(thKey);
-  useEffect(() => {
-    if (thKey === firstTh.current || !allowed) return;
-    const id = setTimeout(() => { runnerRef.current?.refresh().catch(() => undefined); }, 700);
-    return () => clearTimeout(id);
-  }, [thKey, allowed]);
+  useEffect(() => { runnerRef.current?.rethreshold(); }, [thKey]);
+
+  const toggle = useCallback(() => { userOpened.current = true; setRadarOpen(!live.current.open); }, []);
 
   /* ---- the R key ---- */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.key !== "r" && e.key !== "R") return;
-      if (isEditableTarget(e.target) || isEditableTarget(document.activeElement)) return;
-      if (document.querySelector('[role="dialog"]:not([data-testid="radar-panel"]), [role="alertdialog"]')) return;
+      if (!shouldToggleRadar(e, document)) return;
       e.preventDefault();
-      setRadarOpen(!live.current.open);
+      toggle();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [toggle]);
 
   if (!mounted) return null;
-  const tab = createPortal(
+  const side = desktop ? (rtl ? "left" : "right") : "bottom";
+  // The tab sits at the inline end of the page (physical right; physical left in RTL) and is hidden while the panel is open:
+  // the panel has its own close control. Physical properties on purpose: the tab uses a vertical writing mode.
+  const tab = ui.open ? null : createPortal(
     <button
       type="button"
       data-testid="radar-tab"
-      aria-expanded={ui.open}
+      aria-expanded={false}
+      aria-controls="radar-panel"
       aria-label={t("radar.tabLabel")}
       title={t("radar.tabLabel")}
-      onClick={() => setRadarOpen(!ui.open)}
-      style={{ position: "fixed", right: ui.open && desktop ? PANEL_WIDTH : 0, top: "50%", transform: "translateY(-50%)", zIndex: 25 }}
-      className="rounded-l-md border border-r-0 border-zinc-700 bg-zinc-900 px-1.5 py-3 text-xs font-semibold tracking-wide text-zinc-100 shadow-md hover:bg-zinc-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400 [writing-mode:vertical-rl]"
+      onClick={toggle}
+      style={{ position: "fixed", [rtl ? "left" : "right"]: 0, top: "50%", transform: "translateY(-50%)", zIndex: 25 }}
+      className={`${rtl ? "rounded-r-md border-l-0" : "rounded-l-md border-r-0"} border border-zinc-700 bg-zinc-900 px-1.5 py-3 text-xs font-semibold tracking-wide text-zinc-100 shadow-md hover:bg-zinc-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400 [writing-mode:vertical-rl]`}
     >
       {t("radar.tab")}
     </button>,
@@ -140,21 +146,32 @@ export function RadarHost({ port, depeg, depegSource, recordRadar = false }: Rad
       {tab}
       <Sheet open={ui.open} onOpenChange={setRadarOpen} modal={false}>
         <SheetContent
-          side={desktop ? "right" : "bottom"}
+          side={side}
+          id="radar-panel"
           data-testid="radar-panel"
-          data-side={desktop ? "right" : "bottom"}
+          data-side={side}
+          closeLabel={t("radar.close")}
+          style={desktop ? { top: headerBottom, height: `calc(100dvh - ${headerBottom}px)` } : undefined}
           className={
             "radar-sheet gap-0 overflow-y-auto border-zinc-800 bg-zinc-900 p-0 text-zinc-100 " +
             (desktop ? "w-[420px] max-w-[100vw] sm:max-w-[420px]" : "max-h-[80vh] w-full")
           }
           aria-describedby="radar-desc"
-          onOpenAutoFocus={(e) => e.preventDefault()}
-          onCloseAutoFocus={(e) => e.preventDefault()}
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            if (userOpened.current) document.getElementById("radar-title")?.focus();
+            userOpened.current = false;
+          }}
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            const a = document.activeElement;
+            // Focus was in the closed panel (or dropped to the page): give it back to the tab.
+            if (!a || a === document.body) focusTab();
+          }}
           onFocusOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => {
-            const target = e.target as Element | null;
-            // The tab toggles by itself; on a wide screen the list stays usable beside the panel.
-            if (desktop || target?.closest?.('[data-testid="radar-tab"]')) e.preventDefault();
+            // The list stays usable beside the panel on a wide screen; the bottom sheet closes on a tap outside.
+            if (desktop) e.preventDefault();
           }}
         >
           <RadarBody snap={snap} failed={failed} ui={ui} port={port} t={t} formatNumber={rsl.i18n.formatNumber} formatDate={rsl.i18n.formatDate} />
@@ -185,7 +202,11 @@ function RadarBody({ snap, failed, ui, port, t, formatNumber, formatDate }: Body
   const num = (n: number, dp: number, signed = false) =>
     formatNumber(n, { minimumFractionDigits: dp, maximumFractionDigits: dp, signDisplay: signed ? "exceptZero" : "auto" });
   const pct = (n: number | null | undefined, dp = 2, signed = true) => (isNum(n) ? `${num(n, dp, signed)} %` : "—");
-  const clock = (ms: number) => formatDate(ms, { timeStyle: "short", hour12: false });
+  // The time of day; with the date when it is not today (day-old data must not look current).
+  const clock = (ms: number) =>
+    new Date(ms).toDateString() === new Date().toDateString()
+      ? formatDate(ms, { timeStyle: "short", hour12: false })
+      : formatDate(ms, { dateStyle: "medium", timeStyle: "short", hour12: false });
   const day = (iso: string) => {
     const d = new Date(`${iso}T00:00:00Z`);
     return Number.isNaN(d.getTime()) ? iso : formatDate(d, { dateStyle: "medium", timeZone: "UTC" });
@@ -214,8 +235,8 @@ function RadarBody({ snap, failed, ui, port, t, formatNumber, formatDate }: Body
 
   return (
     <div className="flex flex-col">
-      <div className="px-4 pb-2 pt-4 pe-12">
-        <SheetTitle className="text-base">{t("radar.title")}</SheetTitle>
+      <div className="px-4 pb-2 pt-4 pr-12">
+        <SheetTitle id="radar-title" tabIndex={-1} className="text-base outline-none">{t("radar.title")}</SheetTitle>
         <SheetDescription id="radar-desc" className="mt-1 text-xs text-zinc-400">{t("radar.desc")}</SheetDescription>
         {failed && <p role="status" data-testid="radar-error" className="mt-2 text-xs text-amber-300">{t("radar.error")}</p>}
         {!snap && <p data-testid="radar-loading" className="mt-2 text-xs text-zinc-400">{t("radar.loading")}</p>}
@@ -267,7 +288,7 @@ function RadarBody({ snap, failed, ui, port, t, formatNumber, formatDate }: Body
         right={status("institutions", ["cot:BTC", "cot:ETH"])}>
         <p className="text-zinc-400">{t("radar.inst.note")}</p>
         {(["BTC", "ETH"] as const).map((a) => (
-          <CotBlock key={a} asset={a} r={snap?.cot[a] ?? null} staleAt={stale[`cot:${a}`]} gone={gone.has(`cot:${a}`)} loaded={!!snap}
+          <CotBlock key={a} asset={a} r={snap?.cot[a] ?? null} staleAt={stale[`cot:${a}`]} loaded={!!snap}
             t={t} whole={whole} day={day} clock={clock} />
         ))}
         <p>
@@ -390,8 +411,8 @@ function SessionShares({ s, t, whole }: { s: { asia: number; europe: number; us:
   return <p data-testid="radar-sessions" dir="auto">{t("radar.buyer.sessions", { asia: share(s.asia), europe: share(s.europe), us: share(s.us) })}</p>;
 }
 
-function CotBlock({ asset, r, staleAt, gone, loaded, t, whole, day, clock }: {
-  asset: "BTC" | "ETH"; r: CotReport | null; staleAt: number | undefined; gone: boolean; loaded: boolean; t: T;
+function CotBlock({ asset, r, staleAt, loaded, t, whole, day, clock }: {
+  asset: "BTC" | "ETH"; r: CotReport | null; staleAt: number | undefined; loaded: boolean; t: T;
   whole: (n: number) => number | string; day: (iso: string) => string; clock: (ms: number) => string;
 }) {
   const sign = (n: number) => `${n > 0 ? "+" : ""}${whole(n)}`;
@@ -418,7 +439,6 @@ function CotBlock({ asset, r, staleAt, gone, loaded, t, whole, day, clock }: {
         </div>
       ) : loaded ? <p className="mt-1 text-amber-300">{t("radar.unavailable")}</p> : null}
       {r && staleAt !== undefined && <p className="mt-1 text-[11px] text-amber-300">{usable(staleAt) ? t("radar.unavailableLast", { time: clock(staleAt) }) : t("radar.unavailable")}</p>}
-      {gone && !r && null}
     </div>
   );
 }
@@ -518,31 +538,53 @@ function LeftOut({ snap, t }: { snap: RadarSnapshot | null; t: T }) {
   return <ul data-testid="radar-leftout" className="list-disc space-y-0.5 ps-4 text-[11px] text-zinc-400">{lines.map((l) => <li key={l}>{l}</li>)}</ul>;
 }
 
-function Thresholds({ value, t }: { value: RadarThresholds; t: T }) {
-  const field = (key: keyof RadarThresholds, label: string, step: number) => (
-    <label className="flex items-center justify-between gap-2">
-      <span>{label}</span>
-      <input
-        type="number" step={step} dir="ltr" data-testid={`radar-th-${key}`} key={`${key}-${value[key]}`} defaultValue={value[key]}
-        className="w-20 rounded border border-zinc-700 bg-zinc-950 px-1.5 py-0.5 text-end font-mono text-zinc-100"
-        onChange={(e) => {
-          const next = Number(e.target.value);
-          if (e.target.value.trim() === "" || !Number.isFinite(next)) return;
-          const merged = sanitizeThresholds({ ...value, [key]: next });
-          if (merged[key] === next) setRadarThresholds(merged); // out of range or not whole: the field is left alone
-        }}
-      />
-    </label>
+function ThresholdField({ id, label, value, t }: { id: keyof RadarThresholds; label: string; value: number; t: T }) {
+  const f = THRESHOLD_FIELDS[id];
+  // `draft` is what the user is typing (null = not editing: show the stored value). A valid value is stored at once; an
+  // invalid one stays in the field, marked, and the stored value is kept.
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? String(value);
+  const n = Number(shown);
+  const invalid = shown.trim() === "" || !Number.isFinite(n) || n < f.min || n > f.max || (!!f.int && !Number.isInteger(n));
+  const msgId = `radar-th-${id}-msg`;
+  return (
+    <div>
+      <label className="flex items-center justify-between gap-2">
+        <span>{label}</span>
+        <input
+          type="number" min={f.min} max={f.max} step={f.step} dir="ltr" data-testid={`radar-th-${id}`} value={shown}
+          aria-invalid={invalid} aria-describedby={invalid ? msgId : undefined}
+          className={`w-20 rounded border bg-zinc-950 px-1.5 py-0.5 text-end font-mono text-zinc-100 ${invalid ? "border-rose-500" : "border-zinc-700"}`}
+          onChange={(e) => {
+            const text = e.target.value;
+            setDraft(text);
+            const next = Number(text);
+            if (text.trim() !== "" && Number.isFinite(next) && next >= f.min && next <= f.max && (!f.int || Number.isInteger(next))) {
+              setRadarThresholds({ ...radarUiSnapshot().thresholds, [id]: next });
+            }
+          }}
+          onBlur={() => setDraft(null)}
+        />
+      </label>
+      {invalid && (
+        <p id={msgId} role="alert" data-testid={`radar-th-${id}-msg`} className="mt-0.5 text-end text-[11px] text-rose-300">
+          {t(f.int ? "radar.th.invalidWhole" : "radar.th.invalid", { min: f.min, max: f.max })}
+        </p>
+      )}
+    </div>
   );
+}
+
+function Thresholds({ value, t }: { value: RadarThresholds; t: T }) {
   return (
     <details data-testid="radar-thresholds" className="rounded border border-zinc-800 px-2 py-1.5">
       <summary className="cursor-pointer select-none font-semibold text-zinc-100">{t("radar.th.title")}</summary>
       <p className="mt-1 text-[11px] text-zinc-400" data-testid="radar-th-note">{t("radar.th.note")}</p>
       <div className="mt-1.5 space-y-1.5">
-        {field("breakAwayPct", t("radar.th.breakAwayPct"), 0.1)}
-        {field("breakAwayBars", t("radar.th.breakAwayBars"), 1)}
-        {field("volumeZ", t("radar.th.volumeZ"), 0.5)}
-        {field("supplyPctl", t("radar.th.supplyPctl"), 0.5)}
+        <ThresholdField id="breakAwayPct" label={t("radar.th.breakAwayPct")} value={value.breakAwayPct} t={t} />
+        <ThresholdField id="breakAwayBars" label={t("radar.th.breakAwayBars")} value={value.breakAwayBars} t={t} />
+        <ThresholdField id="volumeZ" label={t("radar.th.volumeZ")} value={value.volumeZ} t={t} />
+        <ThresholdField id="supplyPctl" label={t("radar.th.supplyPctl")} value={value.supplyPctl} t={t} />
       </div>
       <button type="button" data-testid="radar-th-reset" className="mt-2 rounded border border-zinc-700 px-2 py-1 text-[11px] text-cyan-300 hover:bg-zinc-800"
         onClick={() => setRadarThresholds(DEFAULT_THRESHOLDS)}>{t("radar.th.reset")}</button>

@@ -125,6 +125,8 @@ export interface RadarRunner {
   /** One refresh. A call that joins a refresh already running shares it (and its signal); the joiner's own signal is ignored. */
   refresh(signal?: AbortSignal): Promise<RadarSnapshot>;
   latest(): RadarSnapshot | null;
+  /** Re-run the alert rules over the last fetched inputs with the current thresholds: no request, same `t`, no log row. A no-op before the first snapshot. */
+  rethreshold(): void;
   /** Called with each published snapshot (lastError null) and with (latest, { lastError }) when a refresh failed for a non-fetch reason. */
   subscribe(fn: (s: RadarSnapshot | null, info?: { lastError: string | null }) => void): () => void;
   /** Message of the last non-fetch error (a throwing getter, a bug); null after a good refresh. */
@@ -275,6 +277,23 @@ async function attempt<T>(fn: (s: AbortSignal) => Promise<T>, signal: AbortSigna
   }
 }
 
+/** What the alert rules read: the last good break-away closes, the daily volumes, the stablecoin readings and the supply series. */
+interface BreakInputs { closes: Record<string, number[]>; standing: Record<string, number | null>; closeTimes: number[] }
+interface AlertInputs { breakaway: BreakInputs | null; vol: DailyVolumes | null; readings: DepegReading[]; source: string; now: number; supply: SupplyPoint[] | null }
+
+/** The alert rules over kept inputs, in the order break-away, volume, depeg, supply. Pure: no request. */
+function composeAlerts(inp: AlertInputs, th: RadarThresholds): RadarAlert[] {
+  const out: RadarAlert[] = [];
+  if (inp.breakaway) out.push(...breakAway(inp.breakaway.closes, inp.breakaway.standing, th, inp.breakaway.closeTimes));
+  if (inp.vol) {
+    const a = volumeSpike(inp.vol.volumes, th, inp.vol.days[inp.vol.days.length - 1]);
+    if (a) out.push(a);
+  }
+  out.push(...depegAlerts(inp.readings, inp.source, inp.now));
+  if (inp.supply) { const a = supplyJump(inp.supply, th); if (a) out.push(a); }
+  return out;
+}
+
 export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
   const timers = deps.timers ?? realTimers;
   const f = deps.fetchers;
@@ -284,6 +303,7 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
 
   let timer: unknown = null;
   let latestSnap: RadarSnapshot | null = null;
+  let lastInputs: AlertInputs | null = null;
   let lastErr: string | null = null;
   let inflight: Promise<RadarSnapshot> | null = null;
   const controllers = new Set<AbortController>();
@@ -294,7 +314,8 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
     positioning: Record<"BTCUSDT" | "ETHUSDT", { v: FuturesPositioning; at: number } | null>;
     regional: { v: RegionalDemand; at: number } | null;
     buyer: { v: BuyerPressure; at: number } | null;
-    breakaway: { v: RadarAlert[]; at: number } | null;
+    /** The last good break-away inputs (not the alerts), so a changed threshold can be applied without a request. */
+    breakaway: { v: BreakInputs; at: number } | null;
   } = { positioning: { BTCUSDT: null, ETHUSDT: null }, regional: null, buyer: null, breakaway: null };
   let daily: { day: number; data: DailyVolumes } | null = null;
   const retryAfter: Record<string, number> = {};
@@ -352,16 +373,12 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
       const regional = take("regional", rg);
       const buyer = take("buyer", by);
 
-      /* alerts */
-      const alerts: RadarAlert[] = [];
+      /* alerts: the inputs are kept so rethreshold() can re-run the rules without a request */
       if (ba.ok && !ba.value.stale && Object.keys(ba.value.closes).length) {
-        const fresh = breakAway(ba.value.closes, ba.value.standing, th, ba.value.closeTimes);
-        kept.breakaway = { v: fresh, at: deps.now() };
-        alerts.push(...fresh);
+        kept.breakaway = { v: { closes: ba.value.closes, standing: ba.value.standing, closeTimes: ba.value.closeTimes }, at: deps.now() };
       } else if (kept.breakaway) {
-        // No usable break-away data this cycle: keep the previous alerts, marked stale, and invent none.
+        // No usable break-away data this cycle: keep the previous inputs, marked stale, and invent none.
         stale.breakaway = kept.breakaway.at;
-        alerts.push(...kept.breakaway.v);
       } else {
         unavailable.push("breakaway");
       }
@@ -369,16 +386,13 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
         for (const id of ba.value.unavailable) unavailable.push(`breakaway:${id}`);
         for (const [id, v] of Object.entries(ba.value.standing)) if (v === null && !ba.value.unavailable.includes(id)) unavailable.push(`standing:${id}`);
       }
-      if (volOut.data) {
-        const a = volumeSpike(volOut.data.volumes, th, volOut.data.days[volOut.data.days.length - 1]);
-        if (a) alerts.push(a);
-      } else unavailable.push("volume");
+      if (!volOut.data) unavailable.push("volume");
       let source = "binance";
       try { source = deps.depegSource?.() || "binance"; } catch { /* default */ }
       let readings: DepegReading[] = [];
       try { readings = deps.depeg() ?? []; } catch { /* no readings */ }
-      alerts.push(...depegAlerts(readings, source, now));
-      if (supplyOut.points) { const a = supplyJump(supplyOut.points, th); if (a) alerts.push(a); }
+      const inputs: AlertInputs = { breakaway: kept.breakaway?.v ?? null, vol: volOut.data, readings, source, now, supply: supplyOut.points };
+      const alerts = composeAlerts(inputs, th);
 
       for (const k of Object.keys(cotOut.stale)) stale[k] = cotOut.stale[k];
       for (const a of ["BTC", "ETH"] as const) if (!cotOut.cot[a]) unavailable.push(`cot:${a}`);
@@ -391,6 +405,7 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
       const t = Math.max(deps.now(), now, ...asOfs);
       const snap: RadarSnapshot = { t, positioning, regional, buyer, cot: cotOut.cot, supply: supplyOut.points, alerts, stale, unavailable };
       latestSnap = snap;
+      lastInputs = inputs;
       lastErr = null;
       notify(snap, { lastError: null });
       void logSnapshot(snap);
@@ -488,6 +503,13 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
     },
     refresh,
     latest: () => latestSnap,
+    rethreshold() {
+      if (!latestSnap || !lastInputs) return;
+      let th: RadarThresholds;
+      try { th = sanitizeThresholds(deps.thresholds()); } catch { return; }
+      latestSnap = { ...latestSnap, alerts: composeAlerts(lastInputs, th) };
+      notify(latestSnap, { lastError: lastErr });
+    },
     lastError: () => lastErr,
     subscribe(fn) {
       listeners.add(fn);

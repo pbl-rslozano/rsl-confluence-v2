@@ -2584,7 +2584,7 @@ function dsCompare(base, now, prefix = "") {
     await c.close();
   }
   /* ===== v2.8 WP25: market radar (tab, panel, gating, alerts) — every radar host mocked, unmocked hosts logged ===== */
-  /* acceptance-ids: RD-1, RD-2, RD-3, RD-4, RD-5 */
+  /* acceptance-ids: RD-1, RD-2, RD-3, RD-4, RD-5, RD-6 */
   {
     const shotDir = process.env.RD_SHOT_DIR || OUT;
     const radarContext = async (extra = {}) => {
@@ -2628,13 +2628,34 @@ function dsCompare(base, now, prefix = "") {
       const typed = await filter.inputValue();
       const ignoredWhileTyping = (await panel(p).count()) === 0 && typed === "r";
       await filter.fill("");
+      // R is ignored while another dialog is open, and with a modifier key
+      await p.getByRole("button", { name: /Signal ledger/ }).first().click();
+      await p.locator('[role="dialog"]').first().waitFor({ timeout: 10000 });
+      await p.keyboard.press("r");
+      await p.waitForTimeout(300);
+      const ignoredInDialog = (await panel(p).count()) === 0;
+      await p.keyboard.press("Escape");
+      await p.locator('[role="dialog"]').waitFor({ state: "detached", timeout: 10000 }).catch(() => null);
       await p.locator("body").click({ position: { x: 5, y: 400 } });
+      await p.keyboard.press("Alt+r");
+      await p.keyboard.press("Meta+r");
+      await p.waitForTimeout(300);
+      const ignoredWithModifier = (await panel(p).count()) === 0;
+      const tabAttrs = await p.evaluate(() => { const t = document.querySelector('[data-testid="radar-tab"]'); return { name: t.getAttribute("aria-label"), controls: t.getAttribute("aria-controls"), expanded: t.getAttribute("aria-expanded") }; });
       await p.keyboard.press("r");
       await panel(p).waitFor({ timeout: 10000 });
-      const desktop = await p.evaluate(() => { const r = document.querySelector('[data-testid="radar-panel"]').getBoundingClientRect(); const cs = getComputedStyle(document.querySelector('[data-testid="radar-panel"]'));
-        return { side: document.querySelector('[data-testid="radar-panel"]').getAttribute("data-side"), w: Math.round(r.width), rightGap: Math.round(innerWidth - r.right), h: Math.round(r.height), vh: innerHeight, anim: cs.animationName, transProp: cs.transitionProperty, transDur: cs.transitionDuration }; });
+      const desktop = await p.evaluate(() => { const el = document.querySelector('[data-testid="radar-panel"]'); const r = el.getBoundingClientRect(); const cs = getComputedStyle(el);
+        const hb = Math.round(document.querySelector("header").getBoundingClientRect().bottom);
+        // every header control stays reachable: the element at the centre of the right-most header button is not inside the panel
+        const btns = [...document.querySelectorAll("header button, header [role=combobox]")].filter((b) => b.getBoundingClientRect().width > 0);
+        const last = btns.sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right)[0].getBoundingClientRect();
+        const hit = document.elementFromPoint(Math.min(last.left + last.width / 2, innerWidth - 1), last.top + last.height / 2);
+        return { side: el.getAttribute("data-side"), id: el.id, w: Math.round(r.width), rightGap: Math.round(innerWidth - r.right), top: Math.round(r.top), bottom: Math.round(r.bottom), hb, vh: innerHeight, anim: cs.animationName, transProp: cs.transitionProperty, transDur: cs.transitionDuration,
+          focusInside: el.contains(document.activeElement), tabCount: document.querySelectorAll('[data-testid="radar-tab"]').length, headerReachable: !!hit && !el.contains(hit) };
+      });
       await p.keyboard.press("Escape");
       await panel(p).waitFor({ state: "detached", timeout: 10000 });
+      const focusBack = await p.waitForFunction(() => document.activeElement?.getAttribute("data-testid") === "radar-tab", null, { timeout: 5000 }).then(() => true, () => false);
       await p.keyboard.press("r");
       await panel(p).waitFor({ timeout: 10000 });
       await p.reload({ waitUntil: "domcontentloaded" });
@@ -2643,11 +2664,13 @@ function dsCompare(base, now, prefix = "") {
       await p.setViewportSize({ width: 800, height: 700 });
       await p.waitForFunction(() => document.querySelector('[data-testid="radar-panel"]')?.getAttribute("data-side") === "bottom", null, { timeout: 8000 }).catch(() => null);
       const narrow = await p.evaluate(() => { const el = document.querySelector('[data-testid="radar-panel"]'); const r = el.getBoundingClientRect(); return { side: el.getAttribute("data-side"), w: Math.round(r.width), bottomGap: Math.round(innerHeight - r.bottom), h: Math.round(r.height), vh: innerHeight }; });
-      record("RD-2", "R opens and Esc closes the panel; R is ignored while typing in the Filter field; the open state survives a reload; with reduced motion there is no slide transition; 800 px wide it is a bottom sheet (≤ 80 vh), 1280 px a 420 px right sheet",
-        ignoredWhileTyping && desktop.side === "right" && desktop.w === 420 && desktop.rightGap === 0 && desktop.h === desktop.vh && remembered
+      record("RD-2", "R opens and Esc closes the panel; R is ignored while typing in the Filter field; the open state survives a reload; with reduced motion there is no slide transition; 800 px wide it is a bottom sheet (≤ 80 vh), 1280 px a 420 px right sheet below the header; opening moves focus into the panel, closing returns it to the tab; the tab is hidden while it is open",
+        ignoredWhileTyping && ignoredInDialog && ignoredWithModifier && /^Radar/.test(tabAttrs.name) && tabAttrs.controls === "radar-panel" && tabAttrs.expanded === "false"
+          && desktop.side === "right" && desktop.id === "radar-panel" && desktop.w === 420 && desktop.rightGap === 0 && desktop.top === desktop.hb && desktop.bottom === desktop.vh && desktop.headerReachable
+          && desktop.focusInside && desktop.tabCount === 0 && focusBack && remembered
           && desktop.anim === "none" && (desktop.transProp === "none" || desktop.transDur === "0s")
           && narrow.side === "bottom" && narrow.w === 800 && narrow.bottomGap === 0 && narrow.h <= Math.round(narrow.vh * 0.8) + 1,
-        { ignoredWhileTyping, desktop, remembered, narrow, unmockedRadarHosts: unknownRadar(st) });
+        { ignoredWhileTyping, ignoredInDialog, ignoredWithModifier, tabAttrs, desktop, focusBack, remembered, narrow, unmockedRadarHosts: unknownRadar(st) });
       await c.close();
     }
 
@@ -2721,14 +2744,63 @@ function dsCompare(base, now, prefix = "") {
       const href = await item.getByTestId("radar-alert-source").getAttribute("href").catch(() => null);
       const thBefore = ((await item.getByTestId("radar-alert-threshold").textContent().catch(() => "")) || "").replace(/\s+/g, " ");
       await p.getByTestId("radar-thresholds").locator("summary").click();
-      await p.getByTestId("radar-th-breakAwayPct").fill("2");
-      await item.waitFor({ state: "detached", timeout: 60000 }).catch(() => null);
+      // typed with the keyboard, one key at a time: "2.5" must survive (the field is not remounted per key)
+      const field = p.getByTestId("radar-th-breakAwayPct");
+      await field.click();
+      await p.keyboard.press("Control+A");
+      await p.keyboard.type("2.5");
+      const typed = await field.inputValue();
+      const stillFocused = await p.evaluate(() => document.activeElement?.getAttribute("data-testid") === "radar-th-breakAwayPct");
+      const stored = await p.evaluate(() => JSON.parse(localStorage.getItem("ct-radar-v1") || "{}").thresholds?.breakAwayPct);
+      await item.waitFor({ state: "detached", timeout: 15000 }).catch(() => null);
+      // an out-of-range value stays in the field, is marked invalid and is not stored
+      await p.keyboard.press("Control+A");
+      await p.keyboard.type("50");
+      const invalid = { aria: await field.getAttribute("aria-invalid"), msg: ((await p.getByTestId("radar-th-breakAwayPct-msg").textContent().catch(() => "")) || "").trim(), min: await field.getAttribute("min"), max: await field.getAttribute("max"),
+        stored: await p.evaluate(() => JSON.parse(localStorage.getItem("ct-radar-v1") || "{}").thresholds?.breakAwayPct) };
+      await p.keyboard.press("Control+A");
+      await p.keyboard.type("2");
+      await p.keyboard.press("ArrowUp"); // arrow keys step without losing focus: 2 → 2.1
+      const arrow = { value: await field.inputValue(), focused: await p.evaluate(() => document.activeElement?.getAttribute("data-testid") === "radar-th-breakAwayPct") };
       const cleared = (await item.count()) === 0;
       const none = await p.getByTestId("radar-alerts-none").count();
       const note = ((await p.getByTestId("radar-th-note").textContent().catch(() => "")) || "").replace(/\s+/g, " ");
-      record("RD-5", "Fixtures with Coinbase +1.5 % for 2 closed bars raise an alert naming Coinbase, the threshold and a source link; raising the break-away threshold to 2 % clears it (thresholds labelled \"Starting values\")",
-        /Coinbase/.test(before) && /\+1\.50 %/.test(before) && /1\.0 % for 2 closed 1h bars/.test(thBefore) && /^https:\/\//.test(href || "") && cleared && /^Starting values/.test(note),
-        { before, thBefore, href, cleared, none, note, unmockedRadarHosts: unknownRadar(st) });
+      record("RD-5", "Fixtures with Coinbase +1.5 % for 2 closed bars raise an alert naming Coinbase, the threshold and a source link; raising the break-away threshold clears it at once with no request (thresholds labelled \"Starting values\"); the threshold field takes typed decimals (2.5), arrow keys and shows an invalid state out of range",
+        /Coinbase/.test(before) && /\+1\.50 %/.test(before) && /1\.0 % for 2 closed 1h bars/.test(thBefore) && /^https:\/\//.test(href || "") && cleared && /^Starting values/.test(note)
+          && typed === "2.5" && stillFocused && stored === 2.5 && invalid.aria === "true" && /0\.2 to 10/.test(invalid.msg) && invalid.min === "0.2" && invalid.max === "10" && invalid.stored === 5
+          && arrow.value === "2.1" && arrow.focused,
+        { before, thBefore, href, cleared, none, note, typed, stillFocused, stored, invalid, arrow, unmockedRadarHosts: unknownRadar(st) });
+      await c.close();
+    }
+
+    /* RD-6: right-to-left (Arabic): the tab sits at the physical left, the sheet opens on the left below the header, the close button does not overlap the title */
+    {
+      const { c, p, st } = await radarContext();
+      await p.getByRole("button", { name: /^Language:/ }).click();
+      await p.locator("#rsl-lang-list [role=option]", { hasText: "العربية" }).click();
+      await p.waitForFunction(() => document.documentElement.dir === "rtl" && document.documentElement.lang === "ar");
+      await waitRows(p);
+      await p.waitForTimeout(500);
+      const closed = await p.evaluate(() => { const t = document.querySelector('[data-testid="radar-tab"]'); const r = t.getBoundingClientRect();
+        return { left: Math.round(r.left), right: Math.round(innerWidth - r.right), label: t.getAttribute("aria-label"), text: t.textContent, midY: Math.round(r.top + r.height / 2), vh: innerHeight }; });
+      await p.screenshot({ path: path.join(shotDir, "radar-rtl-closed.png") });
+      await p.locator("body").click({ position: { x: 640, y: 700 } });
+      await p.keyboard.press("r");
+      await panel(p).waitFor({ timeout: 10000 });
+      await p.waitForFunction(() => ["positioning", "buyer", "regional", "institutions", "alerts"].every((id) => (document.querySelector(`[data-testid="radar-status-${id}"]`)?.textContent || "").trim().length > 0), null, { timeout: 90000, polling: 300 }).catch(() => null);
+      await p.waitForTimeout(400);
+      const open = await p.evaluate(() => {
+        const el = document.querySelector('[data-testid="radar-panel"]'); const r = el.getBoundingClientRect();
+        const hb = Math.round(document.querySelector("header").getBoundingClientRect().bottom);
+        const title = document.getElementById("radar-title"); const range = document.createRange(); range.selectNodeContents(title); const tr = range.getBoundingClientRect();
+        const x = el.querySelector(":scope > button"); const xr = x.getBoundingClientRect();
+        return { side: el.getAttribute("data-side"), left: Math.round(r.left), w: Math.round(r.width), top: Math.round(r.top), hb, titleRight: Math.round(tr.right), xLeft: Math.round(xr.left), xRight: Math.round(xr.right), xLabel: x.textContent, tabs: document.querySelectorAll('[data-testid="radar-tab"]').length };
+      });
+      await p.screenshot({ path: path.join(shotDir, "radar-rtl.png") });
+      record("RD-6", "Arabic (right-to-left): the Radar tab sits at the physical left edge, vertically centred, its accessible name starting with the visible word; the sheet opens on the left below the header, the close button does not overlap the title, and the close label is translated",
+        closed.left === 0 && closed.right > 100 && Math.abs(closed.midY - closed.vh / 2) <= 2 && closed.label.startsWith(closed.text.trim())
+          && open.side === "left" && open.left === 0 && open.w === 420 && open.top === open.hb && open.titleRight <= open.xLeft && open.xLabel.trim() === "إغلاق رادار السوق" && open.tabs === 0,
+        { closed, open, unmockedRadarHosts: unknownRadar(st) });
       await c.close();
     }
   }

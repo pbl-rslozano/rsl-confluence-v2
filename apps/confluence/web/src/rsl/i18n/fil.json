@@ -573,7 +573,7 @@
   "settings.fundRankColumn": "Fund rank column",
   "col.fundRank": "Fund rank",
   "radar.tab": "Radar",
-  "radar.tabLabel": "Open or close the market radar",
+  "radar.tabLabel": "Radar — open or close the market radar",
   "radar.title": "Market radar",
   "radar.desc": "Context only. Radar values never change a signal or block a trade.",
   "radar.loading": "Loading the radar…",
@@ -650,5 +650,8 @@
   "about.uses.cot": "Weekly Commitments of Traders positions for CME bitcoin and ether futures",
   "about.uses.stablecoins": "Total stablecoin supply, daily",
   "radar.alerts.thBreakaway": "Threshold: {pct} for {bars} closed 1h bars",
-  "radar.alerts.thVolume": "Threshold: z ≥ {z}"
+  "radar.alerts.thVolume": "Threshold: z ≥ {z}",
+  "radar.close": "Close the market radar",
+  "radar.th.invalid": "Enter a value from {min} to {max}.",
+  "radar.th.invalidWhole": "Enter a whole number from {min} to {max}."
 }

@@ -385,5 +385,35 @@ console.log("fix round 1");
   ok("M11: lastError clears after a good refresh", s.runner.lastError() === null);
 }
 
+
+console.log("rethreshold (no request, same t, no log row)");
+{
+  const lastHour = Math.floor(T0 / H) * H;
+  let th = DEFAULT_THRESHOLDS;
+  const s = setup({
+    async breakAway() { return { closes: { binance: [100, 100], bybit: [100, 100], bitget: [100, 100], okx: [100, 100], coinbase: [101.5, 101.5] }, standing: {}, unavailable: [], closeTimes: [lastHour - H, lastHour], stale: false }; },
+  }, { thresholds: () => th });
+  ok("rethreshold before any snapshot is a no-op", (s.runner.rethreshold(), s.runner.latest() === null));
+  const a = await s.runner.refresh();
+  await settle();
+  const logKey = [...s.store.m.keys()].filter((k) => k.includes("radar-log-20"));
+  const logBefore = JSON.stringify(logKey.map((k) => s.store.m.get(k)));
+  const callsBefore = total(s.fetchers);
+  const seen = [];
+  s.runner.subscribe((x) => seen.push(x));
+  ok("at 1 % the Coinbase break-away is raised", a.alerts.some((x) => x.code === "BREAKAWAY_COINBASE"));
+  th = { ...DEFAULT_THRESHOLDS, breakAwayPct: 2 };
+  s.clock.t += 7 * MIN;
+  s.runner.rethreshold();
+  const b = s.runner.latest();
+  ok("at 2 % it is cleared, with no request", !b.alerts.some((x) => x.code === "BREAKAWAY_COINBASE") && total(s.fetchers) === callsBefore);
+  ok("same t, stale and unavailable; a snapshot was published", b.t === a.t && JSON.stringify(b.stale) === JSON.stringify(a.stale) && JSON.stringify(b.unavailable) === JSON.stringify(a.unavailable) && seen.length === 1 && seen[0] === b);
+  await settle();
+  ok("no context log row was appended", JSON.stringify([...s.store.m.keys()].filter((k) => k.includes("radar-log-20")).map((k) => s.store.m.get(k))) === logBefore);
+  th = DEFAULT_THRESHOLDS;
+  s.runner.rethreshold();
+  ok("back at 1 % it returns (the inputs were kept, not the alerts)", s.runner.latest().alerts.some((x) => x.code === "BREAKAWAY_COINBASE"));
+}
+
 console.log(`\nradar snapshot: ${passed} passed, ${failed} failed`);
 if (failed) process.exitCode = 1;

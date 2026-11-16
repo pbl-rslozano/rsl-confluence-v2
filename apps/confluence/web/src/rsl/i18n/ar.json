@@ -194,7 +194,10 @@
     "about.uses.cot",
     "about.uses.stablecoins",
     "radar.alerts.thBreakaway",
-    "radar.alerts.thVolume"
+    "radar.alerts.thVolume",
+    "radar.close",
+    "radar.th.invalid",
+    "radar.th.invalidWhole"
   ],
   "app.subtitle": "ماسح توافق مؤشرات العملات المشفّرة",
   "ctx.page": "الماسح",
@@ -768,7 +771,7 @@
   "settings.fundRankColumn": "عمود ترتيب الصندوق",
   "col.fundRank": "ترتيب الصندوق",
   "radar.tab": "الرادار",
-  "radar.tabLabel": "فتح رادار السوق أو إغلاقه",
+  "radar.tabLabel": "الرادار — فتح رادار السوق أو إغلاقه",
   "radar.title": "رادار السوق",
   "radar.desc": "للسياق فقط. قيم الرادار لا تغيّر أي إشارة ولا تمنع أي صفقة.",
   "radar.loading": "جارٍ تحميل الرادار…",
@@ -784,7 +787,7 @@
   "radar.pos.note": "العقود الدائمة لبينانس USDⓈ-M. التمويل هو آخر معدل، والمئين يقارنه بآخر 30 يومًا.",
   "radar.pos.funding": "التمويل",
   "radar.pos.pctl": "المئين خلال 30 يومًا: {pctl}",
-  "radar.pos.oi": "الفائدة المفتوحة",
+  "radar.pos.oi": "العقود المفتوحة",
   "radar.pos.oiChg": "{chg} خلال 24 ساعة",
   "radar.pos.ls": "حسابات الشراء/البيع",
   "radar.pos.lsLong": "شراء {share} %",
@@ -845,5 +848,8 @@
   "about.uses.cot": "مراكز تقرير التزامات المتداولين الأسبوعي لعقود بيتكوين وإيثر الآجلة في CME",
   "about.uses.stablecoins": "إجمالي المعروض من العملات المستقرة، يوميًا",
   "radar.alerts.thBreakaway": "الحد: {pct} لمدة {bars} شمعة ساعة مغلقة",
-  "radar.alerts.thVolume": "الحد: z ≥ {z}"
+  "radar.alerts.thVolume": "الحد: z ≥ {z}",
+  "radar.close": "إغلاق رادار السوق",
+  "radar.th.invalid": "أدخل قيمة من {min} إلى {max}.",
+  "radar.th.invalidWhole": "أدخل عددًا صحيحًا من {min} إلى {max}."
 }
