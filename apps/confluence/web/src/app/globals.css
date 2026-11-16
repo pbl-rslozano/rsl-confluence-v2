@@ -319,3 +319,6 @@ body { background-color: var(--color-zinc-950); color: var(--color-zinc-100); }
 .ft-pulse-keep { animation-iteration-count: infinite; }
 .ft-row-disagree { outline: 1px solid rgb(251 191 36 / 0.55); outline-offset: -1px; }
 @media (prefers-reduced-motion: reduce) { .ft-pulse { animation: none; } }
+
+/* v2.8 (WP25): the Radar sheet slides in only when motion is allowed. */
+@media (prefers-reduced-motion: reduce) { .radar-sheet { animation: none !important; transition: none !important; } }

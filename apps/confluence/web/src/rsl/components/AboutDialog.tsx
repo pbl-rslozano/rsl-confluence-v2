@@ -263,11 +263,11 @@ function LicencesSection() {
  * v2.8 (WP26): "Data sources & thanks" — collapsed by default; names in text only. Links open in the browser and are
  * never fetched. The required rate credit appears verbatim where a provider has one.
  */
-function ThanksSection() {
+export function ThanksSection({ testId = "about-thanks", open, onToggle }: { testId?: string; open?: boolean; onToggle?: (open: boolean) => void } = {}) {
   const { t } = useRsl();
   const link = "text-cyan-300 underline-offset-2 hover:underline";
   return (
-    <details data-testid="about-thanks" className="mt-3 rounded-md border border-zinc-800 px-3 py-2 text-xs text-zinc-400">
+    <details data-testid={testId} open={open} onToggle={onToggle ? (e) => onToggle((e.currentTarget as HTMLDetailsElement).open) : undefined} className="mt-3 rounded-md border border-zinc-800 px-3 py-2 text-xs text-zinc-400">
       <summary className="cursor-pointer select-none text-sm font-semibold text-zinc-200">{t("about.thanks")}</summary>
       <p className="mt-2">{t("about.thanksNote")}</p>
       <ul className="mt-2 space-y-2">

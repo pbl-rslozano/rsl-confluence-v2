@@ -38,6 +38,7 @@ import { contactMailto } from "@rsl/core-kit/core/rsl-brand.js";
 import { useMediaQuery, PHONE_QUERY } from "@/lib/use-media-query";
 import { applyTheme, cssSupportsColorMix, migrateThemePref, resolveTheme, toStoredBackground, THEME_PREF_KEY, type ThemePref } from "@/lib/theme";
 import { useRsl } from "@/rsl/RslContext";
+import { RadarHost } from "@/components/radar-panel";
 import { APP } from "@/rsl/app-info";
 import { BrandBlock } from "@/rsl/components/BrandBlock";
 import { CustomerChip } from "@/rsl/components/CustomerChip";
@@ -2247,6 +2248,9 @@ export default function Home() {
         cooldownMs={paperCooldownMs}
         sourceLabels={SOURCE_LABELS}
       />
+
+      {/* v2.8 (WP25): market radar. The tab portals to document.body (outside header, main and footer). It contacts no host until opened. */}
+      <RadarHost port={rsl.port} depeg={scanMeta.depeg} depegSource={scanMeta.source} />
 
       {/* ---------- Detail modal ---------- */}
       <Dialog open={!!detailAsset} onOpenChange={(o) => { if (!o) { setChartReplay(false); setDetailAsset(null); } }}>
