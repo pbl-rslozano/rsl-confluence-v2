@@ -676,5 +676,6 @@
   "radar.whale.connecting": "Whale Alert-এ সংযোগ করা হচ্ছে…",
   "radar.th.whaleMinUsd": "বড় ট্রান্সফার (সর্বনিম্ন, US$)",
   "radar.alert.whale": "{amount} {symbol} ({usd}) {chain}-এ {from} থেকে {to}-এ স্থানান্তরিত হয়েছে।",
-  "radar.prov.gatewayLost": "গেটওয়ে টোকেন গ্রহণ করেনি। সেটিংস → API-তে আবার সংযোগ করুন।"
+  "radar.prov.gatewayLost": "গেটওয়ে টোকেন গ্রহণ করেনি। হেডারের API বোতাম দিয়ে আবার সংযোগ করুন।",
+  "radar.whale.rejected": "Whale Alert এই কী প্রত্যাখ্যান করেছে। সাবস্ক্রিপশন যাচাই করুন, তারপর কী আবার যোগ করুন।"
 }

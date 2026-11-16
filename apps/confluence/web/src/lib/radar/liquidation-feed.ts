@@ -11,6 +11,9 @@
  * and a reconnect after 2 s, 4 s ... capped at 60 s (reset after 5 minutes connected). `stop()` closes both sockets,
  * clears every timer and counts as a disconnection; nothing fires afterwards (each socket carries a generation number).
  *
+ * Binance has no ping, so the roll tick judges it: a connected socket with no frame for 5 minutes is closed and reconnected
+ * through the backoff, its gap starting at the last frame (Bybit's pongs must never keep a dead Binance link looking covered).
+ *
  * Liveness: a machine that sleeps (or a frozen tab) gets no `close`, so every roll-timer tick and message records a beat; a
  * beat more than 90 s after the previous one means the time between is a disconnection for every live venue (the slept
  * hours are never saved as complete zeros). Bybit must answer a ping (any frame after it, a pong included) and
@@ -40,6 +43,8 @@ export const LIQ_SLEEP_MS = 90_000;
 /** A Bybit ping left unanswered this long (or at two consecutive ticks) closes the socket. */
 export const LIQ_SILENCE_MS = 45_000;
 export const LIQ_SUBSCRIBE_MS = 10_000;
+/** `!forceOrder@arr` carries every USD-M symbol: a connected Binance socket with no frame for this long is dead (half-open, or the route went quiet). */
+export const LIQ_BINANCE_SILENCE_MS = 5 * 60_000;
 
 const WS_OPEN = 1;
 const VENUES: LiqVenue[] = ["bybit", "binance"];
@@ -175,6 +180,7 @@ export function createLiquidationFeed(deps: LiquidationFeedDeps): LiquidationFee
         books[v].disconnected(lastBeat);
         books[v].connected(now);
       }
+      if (slots.binance.connected) slots.binance.lastRx = now; // the slept time is already a gap: judge Binance's silence from waking
     }
     if (lastBeat === null || now > lastBeat) lastBeat = now;
   }
@@ -189,7 +195,7 @@ export function createLiquidationFeed(deps: LiquidationFeedDeps): LiquidationFee
   }
 
   /** A socket went down (close or error): once per socket, the slot's generation says whether it is still the current one. */
-  function down(v: LiqVenue, s: Slot, gen: number): void {
+  function down(v: LiqVenue, s: Slot, gen: number, gapStart?: number): void {
     if (!isRunning || s.gen !== gen) return;
     beat(); // a wake-up first: the slept time is a gap that began at the last beat, not at this close
     s.gen++; // later events of this socket (an error, then its close) are ignored
@@ -200,11 +206,18 @@ export function createLiquidationFeed(deps: LiquidationFeedDeps): LiquidationFee
     if (s.sub !== null) { timers.clearTimeout(s.sub); s.sub = null; }
     s.connected = false;
     s.since = null;
-    books[v].disconnected(t);
+    books[v].disconnected(gapStart !== undefined && gapStart < t ? gapStart : t); // a silent socket's gap began at its last frame
     if (wasUpFor >= LIQ_BACKOFF_RESET_MS) s.attempt = 0;
     const delay = Math.min(LIQ_BACKOFF_MAX_MS, LIQ_BACKOFF_FIRST_MS * 2 ** s.attempt);
     s.attempt++;
     s.reconnect = timers.setTimeout(() => { s.reconnect = null; if (isRunning) open(v); }, delay);
+  }
+
+  /** Binance has no ping to judge by: a connected socket silent for LIQ_BINANCE_SILENCE_MS is taken down, the gap backdated to its last frame. */
+  function checkBinanceSilence(): void {
+    const s = slots.binance;
+    if (!s.connected || clock() - s.lastRx <= LIQ_BINANCE_SILENCE_MS) return;
+    down("binance", s, s.gen, s.lastRx);
   }
 
   function onMessage(v: LiqVenue, s: Slot, gen: number, data: unknown): void {
@@ -269,7 +282,7 @@ export function createLiquidationFeed(deps: LiquidationFeedDeps): LiquidationFee
       if (isRunning) return;
       isRunning = true;
       lastBeat = clock();
-      rollTimer = timers.setInterval(() => { if (isRunning) { beat(); rollAll(); } }, LIQ_ROLL_MS);
+      rollTimer = timers.setInterval(() => { if (isRunning) { beat(); checkBinanceSilence(); rollAll(); } }, LIQ_ROLL_MS);
       for (const v of VENUES) open(v);
     },
     stop() {

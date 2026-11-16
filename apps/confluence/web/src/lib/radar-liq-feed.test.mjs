@@ -225,17 +225,22 @@ test("bybit pings every 20 s while open, and stops after a close", () => {
   feed.stop();
 });
 
+// A live Binance link carries a frame at least every few minutes; silence over 5 minutes now recycles it (F1).
+function advanceLive(timers, sock, total, step = 2 * MIN) {
+  for (let t = 0; t < total; t += step) { timers.advance(Math.min(step, total - t)); sock("binance").at(-1).say({}); }
+}
+
 test("complete hours are persisted and reloaded", async () => {
   const store = memStore();
   const { feed, sock, clock, timers } = setup(H0 - 2 * MIN, store);
   feed.start();
   sock("bybit")[0].open(); ackSub(sock("bybit")[0]);
   sock("binance")[0].open();
-  timers.advance(10 * MIN);
+  advanceLive(timers, sock, 10 * MIN);
   sock("bybit")[0].say(bybitEv(clock.t, "Buy", 1, 50_000)); // 50 000 long
-  timers.advance(20 * MIN);
+  advanceLive(timers, sock, 20 * MIN);
   sock("bybit")[0].say(bybitEv(clock.t, "Sell", 2, 10_000)); // 20 000 short
-  timers.advance(H); // past the hour end + 5 s grace; the 60 s roll timer fires
+  advanceLive(timers, sock, H); // past the hour end + 5 s grace; the 60 s roll timer fires
   await flush();
   const doc = store.docs.get(`${RADAR_COLLECTION}/${RADAR_LIQ_ID}`);
   assert.equal(doc.v, 1);
@@ -322,7 +327,7 @@ test("I1: hours the machine slept through are not saved as complete zeros (a tim
   clock.t += 3 * H;
   timers.advance(60_000); // the roll timer wakes first
   await flush();
-  timers.advance(2 * H);
+  advanceLive(timers, sock, 2 * H);
   await flush();
   const doc = store.docs.get(`${RADAR_COLLECTION}/${RADAR_LIQ_ID}`);
   for (const v of ["bybit", "binance"]) assert.deepEqual((doc?.hours[v] ?? []).filter((x) => x.h < H0 + 3 * H), [], `${v}: no slept hour is stored`);
@@ -426,5 +431,40 @@ test("I1 round 2: late ping ticks (60 s apart) with pongs never answered recycle
   assert.ok(by.closed);
   timers.advance(2000);
   assert.equal(sock("bybit").length, 2);
+  feed.stop();
+});
+
+// F1 (WP25 4b final review): a Binance socket that opened and then went silent is taken down; bybit pongs must not hide it.
+function runHourWithBinance(frameEveryMs) {
+  const store = memStore();
+  const { feed, sock, clock, timers } = setup(H0 - 2 * MIN, store);
+  feed.start();
+  sock("bybit")[0].open(); ackSub(sock("bybit")[0]);
+  sock("binance")[0].open();
+  const first = sock("binance")[0];
+  for (let t = 0; t < H + 10 * MIN; t += MIN) {
+    timers.advance(MIN);
+    if (frameEveryMs && (t + MIN) % frameEveryMs === 0) sock("binance")[sock("binance").length - 1].say({});
+  }
+  return { store, feed, sock, first, clock };
+}
+
+test("F1: a binance socket that opens and stays silent for an hour is recycled and no binance hour is saved", async () => {
+  const { store, feed, sock, first } = runHourWithBinance(0);
+  await flush();
+  assert.ok(first.closed, "the silent socket was taken down");
+  assert.ok(sock("binance").length > 1, "and reconnected through the backoff");
+  const doc = store.docs.get(`${RADAR_COLLECTION}/${RADAR_LIQ_ID}`);
+  assert.deepEqual(doc?.hours.binance ?? [], [], "the silent stretch is never covered");
+  feed.stop();
+});
+
+test("F1: a binance socket with a frame every 2 minutes is never recycled and the hour is saved", async () => {
+  const { store, feed, sock, first } = runHourWithBinance(2 * MIN);
+  await flush();
+  assert.equal(first.closed, false);
+  assert.equal(sock("binance").length, 1);
+  const doc = store.docs.get(`${RADAR_COLLECTION}/${RADAR_LIQ_ID}`);
+  assert.deepEqual(doc.hours.binance, [{ h: H0, long: 0, short: 0 }]);
   feed.stop();
 });

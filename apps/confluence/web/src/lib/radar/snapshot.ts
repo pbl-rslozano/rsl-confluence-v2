@@ -73,7 +73,7 @@ export interface RadarSnapshot {
   /** US spot ETF flows from the gateway's CoinGlass profile (Step 4b); null = no matching profile or no value. */
   etfLive: EtfLive | null;
   /** Large transfers from the gateway's Whale Alert profile (Step 4b); null = no matching profile or no value. */
-  whale: { connected: boolean; alerts: WhaleAlert[] } | null;
+  whale: { connected: boolean; rejected?: boolean; alerts: WhaleAlert[] } | null;
   /** Section → time (ms) its kept value was last good. */
   stale: Record<string, number>;
   unavailable: string[];
@@ -110,7 +110,7 @@ export interface RadarFetchers {
   dailyVolumes(signal?: AbortSignal): Promise<DailyVolumes>;
   /** Gateway provider data (Step 4b). Optional: a runner without them has no provider data. */
   etfLive?(link: ProviderLink, signal?: AbortSignal): Promise<EtfLive>;
-  whale?(link: ProviderLink, minUsd: number, signal?: AbortSignal): Promise<{ connected: boolean; alerts: WhaleAlert[] }>;
+  whale?(link: ProviderLink, minUsd: number, signal?: AbortSignal): Promise<{ connected: boolean; rejected?: boolean; alerts: WhaleAlert[] }>;
 }
 export const realFetchers: RadarFetchers = {
   positioning: fetchFuturesPositioning,
@@ -372,7 +372,7 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
   let daily: { day: number; data: DailyVolumes } | null = null;
   /** Provider data (Step 4b): the last good value with its time, and the last failure code. Reset when the link's session or profiles change. */
   type ProvErr = "gateway:401" | "gateway:409" | "gateway:unavailable";
-  const prov: { key: string; etf: { v: EtfLive; at: number } | null; etfErr: ProvErr | null; whale: { v: { connected: boolean; alerts: WhaleAlert[] }; at: number } | null; whaleErr: ProvErr | null } =
+  const prov: { key: string; etf: { v: EtfLive; at: number } | null; etfErr: ProvErr | null; whale: { v: { connected: boolean; rejected?: boolean; alerts: WhaleAlert[] }; at: number } | null; whaleErr: ProvErr | null } =
     { key: "", etf: null, etfErr: null, whale: null, whaleErr: null };
   const provCode = (e: unknown): ProvErr => { const m = e instanceof Error ? e.message : ""; return m === "gateway:401" || m === "gateway:409" ? m : "gateway:unavailable"; };
   const retryAfter: Record<string, number> = {};

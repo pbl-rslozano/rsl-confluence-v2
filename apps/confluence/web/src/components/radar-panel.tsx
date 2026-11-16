@@ -660,7 +660,9 @@ function WhaleBlock({ snap, has, minUsd, rtl, t, usd, compact, clock }: {
       <p className="font-semibold text-zinc-100">{t("radar.whale.title")}</p>
       {w ? (
         <>
-          {!w.connected && <p className="mt-1 text-zinc-400" data-testid="radar-whale-connecting">{t("radar.whale.connecting")}</p>}
+          {w.rejected ? (
+            <p role="status" className="mt-1 text-amber-300" data-testid="radar-whale-rejected">{t("radar.whale.rejected")}</p>
+          ) : !w.connected && <p className="mt-1 text-zinc-400" data-testid="radar-whale-connecting">{t("radar.whale.connecting")}</p>}
           {rows.length === 0 ? (
             w.connected && <p className="mt-1 text-zinc-400" data-testid="radar-whale-none">{t("radar.whale.none")}</p>
           ) : (

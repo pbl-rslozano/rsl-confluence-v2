@@ -676,5 +676,6 @@
   "radar.whale.connecting": "Menyambung ke Whale Alert…",
   "radar.th.whaleMinUsd": "Pemindahan besar (minimum US$)",
   "radar.alert.whale": "{amount} {symbol} ({usd}) dipindahkan dari {from} ke {to} di {chain}.",
-  "radar.prov.gatewayLost": "Get laluan tidak menerima token. Sambung semula di Tetapan → API."
+  "radar.prov.gatewayLost": "Gateway tidak menerima token. Sambung semula dengan butang API di pengepala.",
+  "radar.whale.rejected": "Whale Alert menolak kunci ini. Semak langganan, kemudian tambah kunci sekali lagi."
 }

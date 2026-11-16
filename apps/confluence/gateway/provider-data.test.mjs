@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { createEtfFlowCache, createWhaleStream, fetchEtfFlows } from "./provider-data.mjs";
 
 const KEY = "SECRETKEY-abcdef-123456";
@@ -222,7 +223,7 @@ const alertAt = (nowMs, over = {}) => ({
 test("whale stream opens lazily, filters invalid alerts, keeps 24 h and closes after 15 min idle", () => {
   const { timers, sockets, stream, now } = harness();
   assert.equal(sockets.length, 0);
-  assert.deepEqual(stream.poll(5_000_000), { connected: false, alerts: [] });
+  assert.deepEqual(stream.poll(5_000_000), { connected: false, rejected: false, alerts: [] });
   assert.equal(sockets.length, 1);
   const ws = sockets[0];
   ws.open();
@@ -399,17 +400,44 @@ test("whale stream reconnects with backoff 5 s to 5 min and resets after a subsc
   assert.equal(sockets.length, n + 2);
 });
 
-test("whale stream stops on an authentication error until the next poll", () => {
+test("whale stream: an authentication error reports rejected on every poll and does not reconnect for 15 minutes (F5)", () => {
   const { timers, sockets, stream } = harness();
-  stream.poll(1e6);
+  assert.equal(stream.poll(1e6).rejected, false);
   sockets[0].open();
   sockets[0].message({ error: `not authenticated (${KEY})` });
   assert.equal(sockets[0].closed, true);
   sockets[0].drop();
   timers.advance(10 * 60_000);
   assert.equal(sockets.length, 1);
-  assert.equal(stream.poll(1e6).connected, false);
-  assert.equal(sockets.length, 2);
+  for (let i = 0; i < 4; i++) {
+    timers.advance(60_000);
+    const polled = stream.poll(1e6);
+    assert.equal(polled.rejected, true);
+    assert.equal(polled.connected, false);
+    assert.deepEqual(polled.alerts, []);
+  }
+  assert.equal(sockets.length, 1, "polls inside the 15 minutes open nothing");
+  timers.advance(15 * 60_000);
+  const retry = stream.poll(1e6);
+  assert.equal(sockets.length, 2, "one retry after 15 minutes");
+  assert.equal(retry.rejected, false);
+});
+
+test("whale stream: a rejected retry is rejected again and a healthy one clears the flag (F5)", () => {
+  const { timers, sockets, stream } = harness();
+  stream.poll(1e6);
+  sockets[0].open();
+  sockets[0].message({ error: "not authenticated" });
+  timers.advance(15 * 60_000);
+  stream.poll(1e6);
+  sockets[1].open();
+  sockets[1].message({ error: "not authenticated" });
+  assert.equal(stream.poll(1e6).rejected, true);
+  timers.advance(15 * 60_000);
+  stream.poll(1e6);
+  sockets[2].open();
+  sockets[2].message({ type: "subscribed_alerts" });
+  assert.equal(stream.poll(1e6).rejected, false);
 });
 
 test("whale stream treats a rate-limit error as non-fatal and never surfaces it", () => {
@@ -452,4 +480,29 @@ test("close tears the stream down and cancels timers", () => {
   sockets[0].drop();
   timers.advance(60 * 60_000);
   assert.equal(sockets.length, 1);
+});
+
+// F4: the same hostile-text cases as the web client (shared fixture next to the web test).
+const HOSTILE = JSON.parse(readFileSync(new URL("../web/src/lib/radar-provider-hostile-text.json", import.meta.url), "utf8"));
+
+test("whale alert from/to: bidi and control characters are stripped (shared fixture with the web client) (F4)", () => {
+  for (const c of HOSTILE.cases) {
+    const { sockets, stream, now } = harness();
+    stream.poll(1e6);
+    sockets[0].open();
+    sockets[0].message({ type: "subscribed_alerts" });
+    sockets[0].message(alertAt(now(), { from: c.from, to: c.from }));
+    const [alert] = stream.poll(1e6).alerts;
+    assert.equal(alert.from, c.gateway, c.name);
+    assert.equal(alert.to, c.gateway, c.name);
+  }
+});
+
+test("whale alert from: U+2069 and U+202E never reach the web (F4)", () => {
+  const { sockets, stream, now } = harness();
+  stream.poll(1e6);
+  sockets[0].open();
+  sockets[0].message({ type: "subscribed_alerts" });
+  sockets[0].message(alertAt(now(), { from: "Bin\u202eance\u2069" }));
+  assert.equal(stream.poll(1e6).alerts[0].from, "Binance");
 });

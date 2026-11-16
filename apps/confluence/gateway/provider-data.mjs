@@ -109,6 +109,7 @@ const WHALE_IDLE_MS = 15 * 60_000;
 const WHALE_KEEP_MS = 24 * 3_600_000;
 const WHALE_KEEP_COUNT = 200;
 const WHALE_SUBSCRIBE_MS = 15_000;
+const WHALE_REJECT_RETRY_MS = 15 * 60_000;
 const WHALE_FUTURE_MS = 5 * 60_000;
 const BACKOFF_START_MS = 5_000;
 const BACKOFF_MAX_MS = 300_000;
@@ -120,7 +121,7 @@ function clampMin(value) {
 }
 
 function cleanText(value) {
-  return typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f-\u009f]/g, "").slice(0, 80) : "";
+  return typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "").slice(0, 80) : "";
 }
 
 function inRange(value) {
@@ -157,7 +158,7 @@ function toAlert(message, latestMs) {
 
 /**
  * One lazy Whale Alert stream for one key. The first poll opens the socket; 15 minutes without a poll closes it; a poll
- * with a different clamped minimum reconnects with it. A "not authenticated" frame stops reconnecting until the next poll.
+ * with a different clamped minimum reconnects with it. A "not authenticated" frame stops reconnecting: polls answer `rejected: true` and the stream retries once after 15 minutes.
  * The socket is subscribed at the lowest minimum polled so far; a higher minimum is applied as a filter, a lower one reconnects.
  * poll() returns the last 24 h (at most 200) at or above the requested minimum, newest first by time.
  */
@@ -170,7 +171,8 @@ export function createWhaleStream({ apiKey, WebSocketCtor = globalThis.WebSocket
   let reconnectTimer = null;
   let subscribeTimer = null;
   let backoff = BACKOFF_START_MS;
-  let halted = false; // authentication failed: no reconnect until the next poll
+  let halted = false; // authentication failed: no reconnect until the retry window ends
+  let rejectedAt = null;
 
   const prune = () => {
     const cutoff = now() - WHALE_KEEP_MS;
@@ -234,6 +236,7 @@ export function createWhaleStream({ apiKey, WebSocketCtor = globalThis.WebSocket
         // Upstream text is never surfaced. Only an authentication failure changes behaviour.
         if (typeof message.error === "string" && /not authenticated/i.test(message.error)) {
           halted = true;
+          rejectedAt = now();
           detach();
         } else if (!connected) {
           lost(); // an error before the subscription: retry through the backoff
@@ -265,6 +268,7 @@ export function createWhaleStream({ apiKey, WebSocketCtor = globalThis.WebSocket
     buffer = [];
     backoff = BACKOFF_START_MS;
     halted = false;
+    rejectedAt = null;
     minUsd = null;
   }
 
@@ -272,7 +276,12 @@ export function createWhaleStream({ apiKey, WebSocketCtor = globalThis.WebSocket
     const wanted = clampMin(requested);
     if (idleTimer !== null) timers.clearTimeout(idleTimer);
     idleTimer = timers.setTimeout(close, WHALE_IDLE_MS);
-    halted = false;
+    if (rejectedAt !== null) {
+      if (now() - rejectedAt < WHALE_REJECT_RETRY_MS) return { connected: false, rejected: true, alerts: [] };
+      halted = false; // one retry per 15 minutes (a re-added key gets a fresh stream)
+      rejectedAt = null;
+      minUsd = null;
+    }
     if (minUsd === null || wanted < minUsd) {
       minUsd = wanted;
       backoff = BACKOFF_START_MS;
@@ -281,7 +290,7 @@ export function createWhaleStream({ apiKey, WebSocketCtor = globalThis.WebSocket
       open();
     }
     prune();
-    return { connected, alerts: buffer.filter((a) => a.valueUsd >= wanted).reverse() };
+    return { connected, rejected: rejectedAt !== null, alerts: buffer.filter((a) => a.valueUsd >= wanted).reverse() };
   }
 
   return { poll, close };

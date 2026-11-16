@@ -214,3 +214,36 @@ test("an already aborted signal starts no liquidation stream", async (t) => {
   assert.equal(FakeWs.all.length, 0, "no socket was constructed");
   assert.equal(lines.filter((l) => /liquidation streams started/.test(l)).length, 0);
 });
+
+// F3 (WP25 4b final review): "no value for liq:*" is not a heartbeat error while the feed is not running or has never connected.
+const heartbeatMsgs = (dir) => JSON.parse(readFileSync(join(dir, "heartbeat.json"), "utf8")).errors.map((e) => e.msg);
+const drop = (ws) => { ws.readyState = 3; for (const fn of ws.l.close ?? []) fn({}); };
+
+test("F3: --once --radar on writes no liq heartbeat errors (the feed is never started)", async (t) => {
+  const dir = tempDir(t);
+  const rec = createRecorder(baseConfig(dir, { radar: true }), { ...quiet, baseFetch: mockExchange().fetch, env: {}, radarFetchers: fakeFetchers(), WebSocketCtor: FakeWs });
+  const r = await rec.run(undefined, { once: true });
+  assert.equal(r.ok, true);
+  assert.deepEqual(heartbeatMsgs(dir).filter((m) => /liq:/.test(m)), []);
+});
+
+test("F3: continuous mode before any venue acknowledged writes no liq errors; a venue that connected and then dropped does", async (t) => {
+  const dir = tempDir(t);
+  const ac = new AbortController();
+  let wakes = 0;
+  const seen = [];
+  const sleepUntil = async () => {
+    wakes++;
+    seen.push(heartbeatMsgs(dir).filter((m) => /liq:/.test(m)));
+    mock.timers.setTime(Date.now() + 6 * MIN); // past the 5-minute radar cadence: the next cycle refreshes
+    if (wakes === 1) { const by = sockOf(BYBIT_URL); by.open(); ack(by); }
+    else if (wakes === 2) drop(sockOf(BYBIT_URL));
+    else ac.abort();
+  };
+  const rec = createRecorder(baseConfig(dir, { once: false, radar: true }), { ...quiet, sleepUntil, baseFetch: mockExchange().fetch, env: {}, radarFetchers: fakeFetchers(), WebSocketCtor: FakeWs });
+  await rec.run(ac.signal);
+  assert.deepEqual(seen[0], [], "first cycle: nothing has connected yet");
+  assert.deepEqual(seen[1], [], "second cycle: bybit is up, binance never connected");
+  assert.ok(seen[2].some((m) => /liq:bybit/.test(m)), "third cycle: bybit dropped after connecting");
+  assert.ok(!seen[2].some((m) => /liq:binance/.test(m)), "binance never connected: still not reported");
+});

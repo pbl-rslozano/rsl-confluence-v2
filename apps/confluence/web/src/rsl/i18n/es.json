@@ -676,5 +676,6 @@
   "radar.whale.connecting": "Conectando con Whale Alert…",
   "radar.th.whaleMinUsd": "Transferencia grande (mínimo en US$)",
   "radar.alert.whale": "{amount} {symbol} ({usd}) se movieron de {from} a {to} en {chain}.",
-  "radar.prov.gatewayLost": "La pasarela no aceptó el token. Vuelva a conectar en Ajustes → API."
+  "radar.prov.gatewayLost": "La pasarela no aceptó el token. Vuelva a conectarse con el botón API del encabezado.",
+  "radar.whale.rejected": "Whale Alert rechazó esta clave. Revise la suscripción y vuelva a añadir la clave."
 }

@@ -220,7 +220,8 @@
     "radar.whale.connecting",
     "radar.th.whaleMinUsd",
     "radar.alert.whale",
-    "radar.prov.gatewayLost"
+    "radar.prov.gatewayLost",
+    "radar.whale.rejected"
   ],
   "app.subtitle": "ماسح توافق مؤشرات العملات المشفّرة",
   "ctx.page": "الماسح",
@@ -897,5 +898,6 @@
   "radar.whale.connecting": "جارٍ الاتصال بـ Whale Alert…",
   "radar.th.whaleMinUsd": "تحويل كبير (الحد الأدنى بالدولار الأمريكي)",
   "radar.alert.whale": "نُقل {amount} {symbol} ({usd}) من {from} إلى {to} على شبكة {chain}.",
-  "radar.prov.gatewayLost": "لم تقبل البوابة الرمز. أعد الاتصال من الإعدادات ← API."
+  "radar.prov.gatewayLost": "لم تقبل البوابة الرمز. أعد الاتصال بزر API في الشريط العلوي.",
+  "radar.whale.rejected": "رفضت Whale Alert هذا المفتاح. تحقق من الاشتراك ثم أضف المفتاح مرة أخرى."
 }

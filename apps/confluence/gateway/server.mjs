@@ -263,6 +263,10 @@ const server = createServer(async (request, response) => {
       await verifyProvider(credentials);
       const profile = createProviderProfile(credentials);
       providerProfiles.set(profile.id, { ...profile, credentials });
+      if (credentials.provider === "whale-alert") { // a re-added key starts a fresh stream, never the rejected one
+        whaleStreams.get(credentials.apiKey)?.close();
+        whaleStreams.delete(credentials.apiKey);
+      }
       sendJson(response, 200, { profile }, origin);
       return;
     }

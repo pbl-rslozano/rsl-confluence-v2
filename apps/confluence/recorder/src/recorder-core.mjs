@@ -270,6 +270,7 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
    * v2.8 (WP25): one radar refresh (never fails a cycle). Rows already built cannot see it (its time is after their bar close);
    * it serves the next rows (the next cycle, or the next bar close when taken at the pre-close wake).
    */
+  const liqSeen = { bybit: false, binance: false };
   async function takeRadar(signal, what, { force = false } = {}) {
     if (!radar || signal?.aborted) return null;
     // The global radar cadence is 5 min: a cycle (short bars, --interval-seconds < 300) skips while the newest entry is younger.
@@ -278,7 +279,16 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
     if (!force && newest && Date.now() - newest.t < RADAR_INTERVAL_MS) return null;
     try {
       const r = await radar.refresh(signal);
-      if (r.unavailable.length) pushError(`radar: no value for ${r.unavailable.slice(0, 8).join(", ")}${r.unavailable.length > 8 ? " …" : ""}`);
+      // `liq:<venue>` is a real error only once that venue has connected (a feed that is not running, as with --once, or has not
+      // acknowledged yet is expected, and must not crowd real errors out of the capped heartbeat list).
+      const view = radar.liquidationView();
+      for (const v of ["bybit", "binance"]) if (view?.[v]?.connected) liqSeen[v] = true;
+      const running = radar.liquidationRunning();
+      const missing = r.unavailable.filter((code) => {
+        const m = /^liq:(bybit|binance)$/.exec(code);
+        return !m || (running && liqSeen[m[1]]);
+      });
+      if (missing.length) pushError(`radar: no value for ${missing.slice(0, 8).join(", ")}${missing.length > 8 ? " …" : ""}`);
       log(`${what}radar context logged (${r.ctx.al.length} alert codes${r.unavailable.length ? `, ${r.unavailable.length} sections unavailable` : ""})`);
       return r;
     } catch (error) {

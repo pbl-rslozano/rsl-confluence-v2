@@ -2,6 +2,8 @@
 import { connectProvider, listProviders, disconnectProvider, nextProviderLink } from "./private-api.ts";
 import { fetchEtfLive, fetchWhaleAlerts } from "./provider-data-client.ts";
 
+import { readFileSync } from "node:fs";
+
 let passed = 0;
 let failed = 0;
 const ok = (name, cond, extra = "") => {
@@ -135,6 +137,25 @@ try {
   mockFetch(async () => json(200, { connected: "yes", alerts: [] }));
   const nc = await fetchWhaleAlerts(LINK, 1e6, new AbortController().signal);
   ok("fetchWhaleAlerts connected is strictly boolean", nc.connected === false);
+
+  // F4: bidi controls in from/to are stripped, with the same fixture the gateway test uses
+  const hostile = JSON.parse(readFileSync(new URL("./radar-provider-hostile-text.json", import.meta.url), "utf8"));
+  for (const c of hostile.cases) {
+    mockFetch(async () => json(200, { connected: true, alerts: [{ ...alert, from: c.from, to: c.from }] }));
+    const r = await fetchWhaleAlerts(LINK, 1e6, new AbortController().signal);
+    const got = r.alerts.length === 0 ? null : r.alerts[0];
+    ok(`fetchWhaleAlerts hostile text: ${c.name}`, c.web === null ? got === null : got !== null && got.from === c.web && got.to === c.web);
+  }
+  mockFetch(async () => json(200, { connected: true, alerts: [{ ...alert, from: "Bin\u202eance\u2069" }] }));
+  ok("fetchWhaleAlerts strips U+202E and U+2069 from from", (await fetchWhaleAlerts(LINK, 1e6, new AbortController().signal)).alerts[0]?.from === "Binance");
+
+  // F5: rejected is a validated boolean
+  mockFetch(async () => json(200, { connected: false, rejected: true, alerts: [] }));
+  ok("fetchWhaleAlerts passes rejected: true", (await fetchWhaleAlerts(LINK, 1e6, new AbortController().signal)).rejected === true);
+  mockFetch(async () => json(200, { connected: false, rejected: "yes", alerts: [] }));
+  ok("fetchWhaleAlerts rejected is strictly boolean", (await fetchWhaleAlerts(LINK, 1e6, new AbortController().signal)).rejected === false);
+  mockFetch(async () => json(200, { connected: true, alerts: [] }));
+  ok("fetchWhaleAlerts rejected defaults to false", (await fetchWhaleAlerts(LINK, 1e6, new AbortController().signal)).rejected === false);
 
   // error mapping
   mockFetch(async () => json(401, { error: "Unauthorized with upstream text" }));

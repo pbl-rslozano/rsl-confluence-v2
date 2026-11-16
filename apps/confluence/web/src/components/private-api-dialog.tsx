@@ -264,7 +264,7 @@ export function PrivateApiDialog({
             type="password"
             value={providerKey}
             onChange={(event) => setProviderKey(event.target.value)}
-            autoComplete="off"
+            autoComplete="new-password"
             spellCheck={false}
             className="border-zinc-700 bg-zinc-950 font-mono"
           />

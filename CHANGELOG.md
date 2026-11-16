@@ -86,6 +86,11 @@ ledger rows of engine 2.3.0 stay and are reported separately.
     threshold (starting value US$10 million), and a `WHALE_TRANSFER` alert for the largest of the last hour. A gateway
     that no longer accepts the token shows a reconnect line and the rest of the radar keeps updating; without a key the
     rows still say "Available with a key on the desktop gateway". Acceptance **RD-9**.
+  - **Final review fixes (WP25 4b):** a silent Binance liquidation socket (no frame for 5 minutes) is recycled and its gap
+    starts at the last frame, so dead-link hours never enter the baseline; the reconnect line points to the header **API**
+    button; a Whale Alert key the provider refuses shows a fixed line and is retried once per 15 minutes (or when added again)
+    instead of "Connecting"; direction-control characters are stripped from transfer names on both sides; the recorder no
+    longer writes false `liq:*` heartbeat errors with `--once` or before a venue connects.
 - **Design unchanged (spec §3):** acceptance **DS-1** (main screen) and **DS-2** (detail sheet top and chart layers, paper
   dialog, ledger dialog) compare the layout at rest with text masked against baselines captured from the v2.7.0-web build.
 - **Languages:** the new and changed v2.8 strings are Arabic drafts awaiting native-speaker review (About shows the count;

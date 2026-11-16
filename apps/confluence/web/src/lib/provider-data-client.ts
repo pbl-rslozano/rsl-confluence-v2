@@ -34,6 +34,8 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const inRange = (v: unknown): v is number => isNum(v) && v > 0 && v <= MAX_VALUE;
 const hasControl = (s: string) => /[\u0000-\u001f\u007f-\u009f]/.test(s);
+/** Bidi controls can reorder what a row shows: U+061C, U+200E/F, U+202A-E, U+2066-9. Stripped (same set as the gateway's cleanText). */
+const stripBidi = (s: string) => s.replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "");
 
 function toDay(value: unknown): EtfDay | null {
   if (!isObject(value) || typeof value.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.date)) return null;
@@ -67,10 +69,13 @@ function toAlert(value: unknown): WhaleAlert | null {
   const { t, chain, kind, from, to, symbol, amount, valueUsd, hash } = value;
   if (!isNum(t) || t <= 0) return null;
   for (const word of [chain, kind, symbol]) if (typeof word !== "string" || !WORD.test(word)) return null;
-  for (const text of [from, to]) if (typeof text !== "string" || text.length > 80 || hasControl(text)) return null;
+  if (typeof from !== "string" || typeof to !== "string") return null;
+  const cleanFrom = stripBidi(from);
+  const cleanTo = stripBidi(to);
+  for (const text of [cleanFrom, cleanTo]) if (text.length > 80 || hasControl(text)) return null;
   if (typeof hash !== "string" || !/^[A-Za-z0-9]{0,100}$/.test(hash)) return null;
   if (!inRange(amount) || !inRange(valueUsd)) return null;
-  return { t, chain: chain as string, kind: kind as string, from: from as string, to: to as string, symbol: symbol as string, amount, valueUsd, hash };
+  return { t, chain: chain as string, kind: kind as string, from: cleanFrom, to: cleanTo, symbol: symbol as string, amount, valueUsd, hash };
 }
 
 /** The caller's signal plus the timeout. AbortSignal.any is missing on older webviews: fall back to a controller. */
@@ -128,7 +133,7 @@ export async function fetchWhaleAlerts(
   link: ProviderLink,
   minUsd: number,
   signal: AbortSignal,
-): Promise<{ connected: boolean; alerts: WhaleAlert[] }> {
+): Promise<{ connected: boolean; rejected: boolean; alerts: WhaleAlert[] }> {
   const min = isNum(minUsd) ? Math.round(minUsd) : 1_000_000;
   const payload = await getJson(link, `/providers/whale-alerts?min=${encodeURIComponent(String(min))}`, signal);
   if (!isObject(payload) || !Array.isArray(payload.alerts)) throw new Error("gateway:unavailable");
@@ -138,5 +143,5 @@ export async function fetchWhaleAlerts(
     const alert = toAlert(entry);
     if (alert) alerts.push(alert);
   }
-  return { connected: payload.connected === true, alerts };
+  return { connected: payload.connected === true, rejected: payload.rejected === true, alerts };
 }

@@ -676,5 +676,6 @@
   "radar.whale.connecting": "Verbindung zu Whale Alert wird hergestellt…",
   "radar.th.whaleMinUsd": "Großer Transfer (Minimum in US$)",
   "radar.alert.whale": "{amount} {symbol} ({usd}) wurden von {from} nach {to} auf {chain} übertragen.",
-  "radar.prov.gatewayLost": "Das Gateway hat das Token nicht akzeptiert. Neu verbinden unter Einstellungen → API."
+  "radar.prov.gatewayLost": "Das Gateway hat das Token nicht akzeptiert. Verbinden Sie sich erneut über die Schaltfläche API in der Kopfzeile.",
+  "radar.whale.rejected": "Whale Alert hat diesen Schlüssel abgelehnt. Prüfen Sie das Abonnement und fügen Sie den Schlüssel erneut hinzu."
 }

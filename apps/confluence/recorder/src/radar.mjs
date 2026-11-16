@@ -115,6 +115,8 @@ export function createRadarRecorder({ guard, outDir, appendJsonl, monthOf, seed 
     start() { feed?.start(); },
     /** Close them and cancel every timer (idempotent; safe without a feed). */
     stop() { feed?.stop(); },
+    /** Whether the liquidation sockets are started (false without a feed, before start() and after stop()). */
+    liquidationRunning: () => (feed ? feed.running() : false),
     /** The feed's view (hour counts, cascade status), or null without a feed. */
     liquidationView: (at = now()) => (feed ? feed.view(at, DEFAULT_RADAR_THRESHOLDS) : null),
     /** The logged contexts, oldest first (what recordCtx.radar carries). */

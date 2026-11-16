@@ -3031,7 +3031,7 @@ function dsCompare(base, now, prefix = "") {
     const { c, p, st } = await radarContext({}, mockGateway);
     const flat = (s) => (s || "").replace(/[⁨⁩]/g, "").replace(/\s+/g, " ").trim();
     const txt = async (id) => flat(await p.getByTestId(id).first().textContent({ timeout: 500 }).catch(() => ""));
-    // 1. Settings -> API: check the gateway, connect a Whale Alert key and a CoinGlass key
+    // 1. header API button (Private API dialog): check the gateway, connect a Whale Alert key and a CoinGlass key
     await p.getByRole("button", { name: /Private API/ }).first().click();
     const dlg = p.getByRole("dialog");
     await dlg.waitFor({ timeout: 10000 });
@@ -3096,7 +3096,7 @@ function dsCompare(base, now, prefix = "") {
         && whaleRows.length === 1 && /380 BTC \(US\$25M\) · Coinbase → unknown wallet · bitcoin$/i.test(whaleRows[0])
         && /380 BTC \(US\$25M\) moved from Coinbase to unknown wallet on bitcoin\./i.test(alertText)
         && whaleMinInput === 1 && dataCalls.some((x) => x.includes("min=10000000"))
-        && /The gateway did not accept the token\. Reconnect in Settings → API\./.test(lostWhale) && /The gateway did not accept the token\. Reconnect in Settings → API\./.test(lostEtf)
+        && /The gateway did not accept the token\. Reconnect with the API button in the header\./.test(lostWhale) && /The gateway did not accept the token\. Reconnect with the API button in the header\./.test(lostEtf)
         && statuses.every((x) => /^Updated /.test(x)) && alertsAfter === 0,
       { whaleFieldEmpty, cgFieldEmpty, keysSent, bad: gw.bad, dataCallsBeforeOpen, keyHits: keyHits.length, stores: dump.stores, etfTitle, btcDays, ethDays, whaleRows, alertText, whaleMinInput, dataCalls: dataCalls.slice(0, 4), lostWhale, lostEtf, statuses, alertsAfter, unmockedRadarHosts: unknownRadar(st) });
     await c.close();

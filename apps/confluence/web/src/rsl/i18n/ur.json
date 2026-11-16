@@ -676,5 +676,6 @@
   "radar.whale.connecting": "Whale Alert سے رابطہ کیا جا رہا ہے…",
   "radar.th.whaleMinUsd": "بڑی منتقلی (کم از کم، US$)",
   "radar.alert.whale": "{amount} {symbol} ({usd}) {chain} پر {from} سے {to} کو منتقل ہوئے۔",
-  "radar.prov.gatewayLost": "گیٹ وے نے ٹوکن قبول نہیں کیا۔ ترتیبات ← API میں دوبارہ جڑیں۔"
+  "radar.prov.gatewayLost": "گیٹ وے نے ٹوکن قبول نہیں کیا۔ ہیڈر میں API بٹن سے دوبارہ جڑیں۔",
+  "radar.whale.rejected": "Whale Alert نے یہ کلید مسترد کر دی۔ سبسکرپشن چیک کریں، پھر کلید دوبارہ شامل کریں۔"
 }
