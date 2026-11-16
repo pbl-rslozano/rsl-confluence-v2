@@ -598,13 +598,16 @@ const HD1_BEFORE = {
   // at ≥ 1280 px before the change (for the record): 1280/1366 en+de 154 px, ar 159 px, 3 rows; 1440 de 3 rows; 1920 2 rows;
   // ru 174 px/3 rows at 1280, 154 px/3 at 1366 and 1440, 116 px/2 at 1920 (ru added for review I1)
   wide: { "1280x800": { en: [154, 3], de: [154, 3], ar: [159, 3] }, "1366x768": { en: [154, 3], de: [154, 3], ar: [159, 3] }, "1440x900": { en: [116, 2], de: [154, 3], ar: [121, 2] }, "1920x1080": { en: [116, 2], de: [116, 2], ar: [121, 2] } },
-  // [x, y, w, h, has title] of every shown header control at 1024 × 768 (review M1/M2), DOM order
+  // [x, y, w, h, has title] of every shown header control at 1024 × 768 (review M1/M2), DOM order, measured by
+  // hdPinnedBoxes in the DS pinned environment (text masked) from the 2422d8d build; @env as in the DS baselines.
   boxes1024: {
-    en: [[286, 8, 150, 36, 0], [442, 8, 150, 36, 0], [598, 8, 92, 36, 0], [696, 8, 128, 36, 0], [830, 8, 95, 36, 0], [12, 51, 112, 36, 0], [130, 53, 105, 32, 1], [241, 53, 76, 32, 0], [323, 53, 79, 32, 0], [408, 53, 152, 32, 0], [567, 53, 90, 32, 0], [663, 53, 128, 32, 0], [797, 53, 144, 32, 0], [947, 53, 51, 32, 0], [328, 93, 93, 32, 1], [428, 93, 70, 32, 0], [504, 93, 38, 32, 0], [548, 93, 38, 32, 1], [592, 93, 38, 32, 1], [636, 93, 38, 32, 0], [680, 93, 59, 32, 0], [745, 93, 38, 32, 1], [789, 93, 38, 32, 1], [836, 96, 26, 26, 1], [862, 96, 26, 26, 1], [888, 96, 26, 26, 1], [923, 93, 89, 32, 0]],
-    de: [[286, 8, 150, 36, 0], [442, 8, 150, 36, 0], [598, 8, 92, 36, 0], [696, 8, 128, 36, 0], [830, 8, 95, 36, 0], [12, 51, 157, 36, 0], [175, 53, 98, 32, 1], [279, 53, 76, 32, 0], [361, 53, 79, 32, 0], [446, 53, 152, 32, 0], [604, 53, 90, 32, 0], [700, 53, 128, 32, 0], [834, 53, 144, 32, 0], [12, 93, 79, 32, 0], [297, 93, 93, 32, 1], [397, 93, 70, 32, 0], [473, 93, 38, 32, 0], [517, 93, 38, 32, 1], [561, 93, 38, 32, 1], [605, 93, 38, 32, 0], [649, 93, 59, 32, 0], [714, 93, 38, 32, 1], [758, 93, 38, 32, 1], [805, 96, 26, 26, 1], [831, 96, 26, 26, 1], [857, 96, 26, 26, 1], [892, 93, 120, 32, 0]],
-    ar: [[588, 10, 150, 36, 0], [432, 10, 150, 36, 0], [334, 10, 92, 36, 0], [200, 10, 128, 36, 0], [101, 10, 93, 36, 0], [902, 56, 110, 36, 0], [806, 58, 90, 32, 1], [723, 58, 77, 32, 0], [635, 58, 82, 32, 0], [477, 58, 152, 32, 0], [385, 58, 86, 32, 0], [251, 58, 128, 32, 0], [101, 58, 144, 32, 0], [50, 58, 45, 32, 0], [589, 98, 94, 32, 1], [513, 98, 70, 32, 0], [469, 98, 38, 32, 0], [425, 98, 38, 32, 1], [381, 98, 38, 32, 1], [337, 98, 38, 32, 0], [272, 98, 59, 32, 0], [228, 98, 38, 32, 1], [184, 98, 38, 32, 1], [149, 101, 26, 26, 1], [123, 101, 26, 26, 1], [97, 101, 26, 26, 1], [12, 98, 76, 32, 0]],
-    ru: [[286, 8, 150, 36, 0], [442, 8, 150, 36, 0], [598, 8, 92, 36, 0], [696, 8, 137, 36, 0], [839, 8, 94, 36, 0], [12, 51, 113, 36, 0], [131, 53, 139, 32, 1], [277, 53, 76, 32, 0], [359, 53, 79, 32, 0], [444, 53, 152, 32, 0], [602, 53, 90, 32, 0], [698, 53, 128, 32, 0], [832, 53, 144, 32, 0], [12, 93, 84, 32, 0], [314, 93, 93, 32, 1], [413, 93, 72, 32, 0], [491, 93, 38, 32, 0], [535, 93, 38, 32, 1], [579, 93, 38, 32, 1], [623, 93, 38, 32, 0], [667, 93, 59, 32, 0], [732, 93, 38, 32, 1], [776, 93, 38, 32, 1], [823, 96, 26, 26, 1], [849, 96, 26, 26, 1], [875, 96, 26, 26, 1], [910, 93, 102, 32, 0]],
+    "@env": {"timeZone": "Asia/Riyadh", "languages": "en-US", "interXxxx12px": 27.844, "fontSubstitutes": "Cascadia Mono → JetBrains Mono"},
+    en: [[170, 8, 150, 36, 0], [326, 8, 150, 36, 0], [482, 8, 92, 36, 0], [580, 8, 128, 36, 0], [714, 8, 92, 36, 0], [812, 8, 96, 36, 0], [914, 10, 74, 32, 1], [12, 51, 46, 32, 0], [64, 51, 46, 32, 0], [116, 51, 74, 32, 0], [195, 51, 46, 32, 0], [247, 51, 128, 32, 0], [381, 51, 144, 32, 0], [531, 51, 46, 32, 0], [364, 89, 72, 32, 1], [442, 89, 72, 32, 0], [520, 89, 38, 32, 0], [564, 89, 38, 32, 1], [608, 89, 38, 32, 1], [652, 89, 38, 32, 0], [696, 89, 59, 32, 0], [761, 89, 38, 32, 1], [805, 89, 38, 32, 1], [852, 92, 26, 26, 1], [878, 92, 26, 26, 1], [904, 92, 26, 26, 1], [939, 89, 73, 32, 0]],
+    de: [[170, 8, 150, 36, 0], [326, 8, 150, 36, 0], [482, 8, 92, 36, 0], [580, 8, 128, 36, 0], [714, 8, 92, 36, 0], [812, 8, 96, 36, 0], [914, 10, 74, 32, 1], [12, 51, 46, 32, 0], [64, 51, 46, 32, 0], [116, 51, 74, 32, 0], [195, 51, 46, 32, 0], [247, 51, 128, 32, 0], [381, 51, 144, 32, 0], [531, 51, 46, 32, 0], [364, 89, 72, 32, 1], [442, 89, 72, 32, 0], [520, 89, 38, 32, 0], [564, 89, 38, 32, 1], [608, 89, 38, 32, 1], [652, 89, 38, 32, 0], [696, 89, 59, 32, 0], [761, 89, 38, 32, 1], [805, 89, 38, 32, 1], [852, 92, 26, 26, 1], [878, 92, 26, 26, 1], [904, 92, 26, 26, 1], [939, 89, 73, 32, 0]],
+    ar: [[698, 10, 150, 36, 0], [542, 10, 150, 36, 0], [444, 10, 92, 36, 0], [310, 10, 128, 36, 0], [212, 10, 92, 36, 0], [110, 10, 96, 36, 0], [29, 12, 75, 32, 1], [965, 56, 47, 32, 0], [913, 56, 47, 32, 0], [831, 56, 75, 32, 0], [778, 56, 47, 32, 0], [644, 56, 128, 32, 0], [494, 56, 144, 32, 0], [442, 56, 47, 32, 0], [591, 94, 73, 32, 1], [512, 94, 73, 32, 0], [468, 94, 38, 32, 0], [424, 94, 38, 32, 1], [380, 94, 38, 32, 1], [336, 94, 38, 32, 0], [271, 94, 59, 32, 0], [227, 94, 38, 32, 1], [183, 94, 38, 32, 1], [148, 97, 26, 26, 1], [122, 97, 26, 26, 1], [96, 97, 26, 26, 1], [12, 94, 75, 32, 0]],
+    ru: [[170, 8, 150, 36, 0], [326, 8, 150, 36, 0], [482, 8, 92, 36, 0], [580, 8, 128, 36, 0], [714, 8, 92, 36, 0], [812, 8, 96, 36, 0], [914, 10, 74, 32, 1], [12, 51, 46, 32, 0], [64, 51, 46, 32, 0], [116, 51, 74, 32, 0], [195, 51, 46, 32, 0], [247, 51, 128, 32, 0], [381, 51, 144, 32, 0], [531, 51, 46, 32, 0], [364, 89, 72, 32, 1], [442, 89, 72, 32, 0], [520, 89, 38, 32, 0], [564, 89, 38, 32, 1], [608, 89, 38, 32, 1], [652, 89, 38, 32, 0], [696, 89, 59, 32, 0], [761, 89, 38, 32, 1], [805, 89, 38, 32, 1], [852, 92, 26, 26, 1], [878, 92, 26, 26, 1], [904, 92, 26, 26, 1], [939, 89, 73, 32, 0]],
   },
+
   // accessible names in DOM (= keyboard) order: desktop = every width ≥ 640 px (identical at 1024–1920 px), phone = 390 px
   names: {
     desktop: {
@@ -736,6 +739,43 @@ async function hdMeasure(browser, w, h, lang, { shot = null, extra = false, shor
   }
   await c.close();
   return { ...m, names, more };
+}
+
+// Review M1/M2 (CI fix): every header control's box and title state at 1024 × 768, measured in exactly the DS pinned
+// environment — dsBrowser() (DS_CHROMIUM_ARGS: no font hinting, no LCD text, sRGB), the DS time zone and locale,
+// dsPinFonts, text masked with the DS mask — so glyph advances and system fonts (the CI runner has Noto Naskh Arabic,
+// the container falls back to DejaVu Sans) cannot move a box. Masking keeps every text node and its structure (a text
+// run split into a separate node still shows as an extra flex item), only the glyphs become the same placeholder.
+// Returns [x, y, w, h, has title (1/0)] per shown control, in DOM order.
+async function hdPinnedBoxes(w, h, lang) {
+  const c = await newContext(await dsBrowser(), { viewport: { width: w, height: h }, timezoneId: DS_TIMEZONE, locale: DS_LOCALE });
+  const seen = [];
+  await mockExchanges(c, seen);
+  const p = await c.newPage();
+  await p.goto(BASE, { waitUntil: "domcontentloaded" });
+  await completeFirstRun(p, { operator: "R" });
+  if (lang !== "en") {
+    await p.getByRole("button", { name: /^Language:/ }).click();
+    await p.locator(`#rsl-lang-${lang}`).click();
+    await p.waitForFunction((l) => document.documentElement.lang === l, lang);
+  }
+  await waitRows(p);
+  await p.waitForFunction(() => !document.querySelector("header div.h-full.bg-gradient-to-r") && !document.querySelector("header .animate-spin"), null, { timeout: 30000 }).catch(() => null);
+  await dsQuiet(p, seen);
+  await p.mouse.move(1, 1);
+  await dsInstall(p);
+  const boxes = await p.evaluate((sel) => {
+    window.__ds.mask(document.querySelector("header"));
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    const ribbon = document.querySelector(sel);
+    const shown = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== "hidden"; };
+    return [...ribbon.querySelectorAll("button, [role=combobox], input, a[href]")]
+      .filter((el) => shown(el) && !el.closest(".rsl-brand-host") && !el.closest("section, [role=dialog], [role=listbox]"))
+      .map((el) => { const r = el.getBoundingClientRect(); return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height), el.hasAttribute("title") ? 1 : 0]; });
+  }, HD_RIBBON);
+  const env = await dsEnv(p);
+  await c.close();
+  return { boxes, env };
 }
 
 (async () => {
@@ -3529,10 +3569,14 @@ async function hdMeasure(browser, w, h, lang, { shot = null, extra = false, shor
         if (!same(m.names, want)) bad.push(`${id} names changed: missing [${(want || []).filter((n) => !m.names.includes(n)).join("; ")}] new [${m.names.filter((n) => !(want || []).includes(n)).join("; ")}]`);
         // Review M1/M2: below 1280 px every header control keeps its box (±1 px) and its title / no-title state.
         if (w === 1024) {
+          const pinned = await hdPinnedBoxes(w, h, lang);
+          if (process.env.HD_DUMP) console.log("HD_DUMP_PINNED", id, JSON.stringify(pinned));
+          const envDiffs = dsEnvDiffs(HD1_BEFORE.boxes1024["@env"], pinned.env);
+          if (envDiffs.length) bad.push(`${id} pinned boxes: ${envDiffs.join("; ")}`);
           const base = HD1_BEFORE.boxes1024[lang] || [];
-          if (base.length !== m.boxes.length) bad.push(`${id}: ${m.boxes.length} control boxes, before ${base.length}`);
+          if (base.length !== pinned.boxes.length) bad.push(`${id}: ${pinned.boxes.length} control boxes, before ${base.length}`);
           base.forEach((b, i) => {
-            const n = m.boxes[i];
+            const n = pinned.boxes[i];
             if (!n) return;
             if (b.slice(0, 4).some((v, j) => Math.abs(v - n[j]) > 1)) bad.push(`${id} control ${i} (${m.names[i] || "?"}): box ${b.slice(0, 4).join(",")} → ${n.slice(0, 4).join(",")}`);
             if (b[4] !== n[4]) bad.push(`${id} control ${i} (${m.names[i] || "?"}): title ${b[4] ? "removed" : "added"} below 1280 px`);
@@ -3553,7 +3597,7 @@ async function hdMeasure(browser, w, h, lang, { shot = null, extra = false, shor
       const names = more.cycle.map((x) => x.name);
       if (seq !== "system>light>dark>system" || names[0] !== "Theme: System (next: Light)" || names[1] !== "Theme: Light (next: Dark)" || names[2] !== "Theme: Dark (next: System)" || more.cycle[1].theme !== "light" || more.cycle[2].theme !== "dark") bad.push(`theme cycle: ${JSON.stringify(more.cycle)}`);
     }
-    record("HD-1", "Header control ribbon: exactly 2 rows at 1280/1366/1440/1920 px in en, de, ar and ru, and at 1280 px in ru/de/fr with a 24-character workspace name; every control kept with its accessible name in keyboard = visual order (theme radios → one button cycling System → Light → Dark); icon buttons have hover (title) and keyboard-focus tooltips, not announced twice; nothing overflows; at 1024 px every control box (±1 px) and title state unchanged; 1024 and 390 px header height, row count and names unchanged",
+    record("HD-1", "Header control ribbon: exactly 2 rows at 1280/1366/1440/1920 px in en, de, ar and ru, and at 1280 px in ru/de/fr with a 24-character workspace name; every control kept with its accessible name in keyboard = visual order (theme radios → one button cycling System → Light → Dark); icon buttons have hover (title) and keyboard-focus tooltips, not announced twice; nothing overflows; at 1024 px every control box (±1 px, DS pinned environment, text masked) and title state unchanged; 1024 and 390 px header height, row count and names unchanged",
       bad.length === 0, bad.length ? bad.slice(0, 14).join(" | ") : { rows: ev, theme: more.cycle.map((x) => x.current).join(" → "), focusTips: more.focusTips.length });
   }
   /* acceptance-ids: DS-1, DS-2 — layout at rest vs the baselines in tools/e2e/baselines/ (DS-2: v2.7.0-web; DS-1: re-captured for spec §3 item 9) */
