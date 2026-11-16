@@ -368,6 +368,45 @@ console.log("history and order book");
   ok("fetchHistory 4h: from 1h candles, epoch-aligned", calls.every((c) => c.searchParams.get("granularity") === "3600") && m4.klines.length === 200 && m4.klines.every((b) => b.time % INTERVAL_MS["4h"] === 0));
 }
 {
+  // Aggregated history at every phase of the bucket (the clock is pinned; nothing reads the real time of day):
+  // N requested -> N complete closed bars, never the bucket still forming. Swept at each base-bar edge.
+  const real = Date.now;
+  const realTimeout = globalThis.setTimeout;
+  // Also skips the backfill's courtesy pause between pages (a real 120 ms each), so the sweep stays fast.
+  const atNow = async (ts, fn) => { Date.now = () => ts; globalThis.setTimeout = (f) => setImmediate(f); try { return await fn(); } finally { Date.now = real; globalThis.setTimeout = realTimeout; } };
+  const monthStart = (t) => { const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1); };
+  const bucketOf = (tf, t) => {
+    if (tf === "1M") return monthStart(t);
+    const off = tf === "1w" ? 4 * D1 : 0;
+    return Math.floor((t - off) / INTERVAL_MS[tf]) * INTERVAL_MS[tf] + off;
+  };
+  const prevBucket = (tf, b) => tf === "1M" ? Date.UTC(new Date(b).getUTCFullYear(), new Date(b).getUTCMonth() - 1, 1) : b - INTERVAL_MS[tf];
+  const T0 = Date.UTC(2026, 10, 15, 0, 0, 0);
+  // Whole 300-row windows can hide a short request (the last window over-reads), so each interval is also asked for
+  // the N whose base-bar need is an exact multiple of a window: there nothing over-reads and the spare group matters.
+  const cases = [["4h", H1, 4, 200], ["4h", H1, 4, 225], ["8h", H1, 8, 200], ["8h", H1, 8, 300], ["12h", H1, 12, 200], ["12h", H1, 12, 250],
+    ["1w", D1, 7, 200], ["1w", D1, 7, 300], ["2d", D1, 2, 300], ["4d", D1, 4, 300], ["1M", D1, 31, 60]];
+  for (const [tf, base, steps, n] of cases) {
+    const bad = [];
+    // 1M: every day of a 31-day and a 28-day month; the others: every base bar of one bucket.
+    const starts = tf === "1M" ? [Date.UTC(2026, 0, 1), Date.UTC(2026, 1, 1)] : [bucketOf(tf, T0 + 40 * INTERVAL_MS[tf])];
+    for (const start of starts) for (let k = 0; k < steps; k++) for (const off of [0, 1, base - 1]) {
+      const now = start + k * base + off;
+      if (tf === "1M" && monthStart(now) !== start) continue;
+      resetRateLimitForTests(); calls = [];
+      let skipped = 0; // pacing clock that never waits: sleeps only advance virtual time
+      setCoinbaseClockForTests({ now: () => Date.now() + skipped, sleep: async (ms) => { skipped += Math.max(0, ms); } });
+      route = candleServer();
+      const h = await atNow(now, () => fetchHistory("coinbase", "BTCUSD", tf, n));
+      const ks = h.klines;
+      const aligned = ks.every((b, i) => bucketOf(tf, b.time) === b.time && (i === 0 || prevBucket(tf, b.time) === ks[i - 1].time));
+      if (!(ks.length === n && aligned && ks.at(-1).time === prevBucket(tf, bucketOf(tf, now)))) bad.push(`${new Date(now).toISOString()}: ${ks.length}/${n} bars`);
+    }
+    setCoinbaseClockForTests(null);
+    ok(`fetchHistory ${tf} x ${n} (from ${base / 3600000}h candles): N complete closed bars at every phase of the bucket`, bad.length === 0, bad.slice(0, 3).join("; "));
+  }
+}
+{
   resetRateLimitForTests(); resetCoinbaseForTests(); calls = [];
   // Level-2 rows [price, size, num-orders] — layout from Coinbase's docs [not verified by the probe].
   const book = { bids: [["64990", "20", 2]], asks: [["65000", "10", 3], ["65010", "5", 1]], sequence: 1 };

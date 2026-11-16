@@ -102,6 +102,39 @@ export async function saveHistoricalSeries(
 
 
 /* ---------------------------------------------------------------------------
+ * v2.8 (WP21) "fetched for UTC day" marker of the daily-bar feed. A small record in the same object
+ * store (own key prefix, no schema change): the UTC day (ms at 00:00) on which the series was last
+ * requested, so a pair is requested at most once per UTC day even across page reloads.
+ * ------------------------------------------------------------------------- */
+const markerKey = (source: DataSource, interval: string, symbol: string) => `fetched:${keyOf(source, interval, symbol)}`;
+
+export async function loadFetchedDay(source: DataSource, interval: string, symbol: string): Promise<number | null> {
+  const db = await openDb();
+  if (!db) return null;
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readonly");
+    const request = tx.objectStore(STORE).get(markerKey(source, interval, symbol));
+    request.onsuccess = () => {
+      const day = (request.result as { day?: number } | undefined)?.day;
+      resolve(typeof day === "number" && Number.isFinite(day) ? day : null);
+    };
+    request.onerror = () => reject(request.error);
+    tx.oncomplete = () => db.close();
+  });
+}
+
+export async function saveFetchedDay(source: DataSource, interval: string, symbol: string, day: number): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).put({ key: markerKey(source, interval, symbol), day });
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/* ---------------------------------------------------------------------------
  * v2.8 (WP27) delta fetch. Extends the v2.1.1 warm start: when the stored
  * history already holds the engine window, ask only for the bars that closed
  * after the newest stored bar, plus that bar again (the overlap) to verify

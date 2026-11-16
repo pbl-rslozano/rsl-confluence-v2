@@ -1647,7 +1647,12 @@ export async function fetchHistory(
   if (!VALID_INTERVALS.has(interval)) throw new Error(`Invalid interval: ${interval}`);
   const mapped = historyMapping(source, interval);
   assertNotCoolingDown(source);
-  const target = Math.max(200, Math.min(MAX_HISTORY_BARS, limit)) * mapped.group;
+  // One spare group of base bars on top of N x group. Two things come off the base bars before N buckets can form:
+  // the bar now forming (Binance, Bybit, Bitget and Coins.ph serve it on top of a page and it counts toward the
+  // target until dropUnclosed removes it), and the bucket now forming, partial at any time of day (0..group-1
+  // closed base bars) and dropped by the aggregation. Exactly N x group left a request one bar short. A native
+  // interval (group 1) gets one spare bar for the first of these.
+  const target = (Math.max(200, Math.min(MAX_HISTORY_BARS, limit)) + 1) * mapped.group;
   const all = new Map<number, Kline>();
   let cursor = Number.isFinite(endTime) ? endTime : Date.now();
   let exhausted = false;

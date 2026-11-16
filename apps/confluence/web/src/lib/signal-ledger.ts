@@ -264,6 +264,23 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
     });
   }
 
+  /**
+   * v2.8 (WP21): recorded scores for one series at the given bar open times, read by document id (one get per bar, never the
+   * whole ledger). Only rows with the same engine config and a full engine window (wb = `fullWindow`) count, so a reused
+   * score is exactly the one the list would show.
+   */
+  function seriesScores(src: string, tf: string, pair: string, cfg: string, times: number[], fullWindow: number): Promise<Map<number, number>> {
+    return enqueue(async (port) => {
+      const out = new Map<number, number>();
+      for (const t of times) {
+        const doc = (await port.get(LEDGER_COLLECTION, `${dayOf(t)}|${src}|${tf}|${cfg}|${t}`)) as BarDoc | null;
+        const row = doc?.rows?.find((r) => r.pair === pair && r.cfg === cfg && r.t === t && r.wb === fullWindow);
+        if (row && Number.isFinite(row.sc)) out.set(t, row.sc);
+      }
+      return out;
+    });
+  }
+
   function stats(): Promise<LedgerStats> {
     return enqueue(async (port) => {
       const index = await readIndex(port);
@@ -477,7 +494,7 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
   }
 
   return {
-    record, all, stats, clear, cursor, setCursor,
+    record, all, seriesScores, stats, clear, cursor, setCursor,
     seriesCursors, setSeriesCursors, outcomes, saveOutcomes, universes,
     registerTrial, trials, preregistration, preregistrations, preregister, lastExport, markExported, slippage, setSlippage,
     addGap, gaps,

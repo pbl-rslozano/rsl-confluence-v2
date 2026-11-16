@@ -1,7 +1,7 @@
-# v2.8.0 — in progress, Steps 1 and 2 (not released; app still reports v2.7.0)
+# v2.8.0 — in progress, Steps 1 to 3 (not released; app still reports v2.7.0)
 
-Steps 1 and 2 of the v2.8 plan (`docs/superpowers/specs/2026-11-15-v2.8-architecture-design.md`): safety fixes, licence
-credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (Step 2). Engine 2.4.0 (`5c30b5c39f5ba3f2`);
+Steps 1 to 3 of the v2.8 plan (`docs/superpowers/specs/2026-11-15-v2.8-architecture-design.md`): safety fixes, licence
+credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (Step 2); Fund trend (Step 3). Engine 2.4.0 (`5c30b5c39f5ba3f2`);
 ledger rows of engine 2.3.0 stay and are reported separately.
 
 - **Paper safety (WP19):** 10% drawdown lock (Stop + close all at the next open of each chart; pending positions cancelled;
@@ -42,6 +42,16 @@ ledger rows of engine 2.3.0 stay and are reported separately.
   exchange's own site, opening in the browser. About gains a collapsed **Data sources & thanks** listing 13 providers with
   their API docs and terms, as names in text. Venue terms and link patterns are to be checked by the owner before
   release (ADR-0018). Acceptance **EX-1**…**EX-6** and **ID-2.6**.
+- **Fund trend (WP21):** a second opinion from closed daily bars, adapted from the published time-series-momentum research
+  (Moskowitz–Ooi–Pedersen 2012; Hurst–Ooi–Pedersen 2017, *Journal of Portfolio Management*), not any fund's positions: −100…+100 from 30, 91 and 365-day
+  returns scaled by EWMA volatility, plus **Fund size** (40 % volatility target, at most 200 %). Crypto only, at least 366
+  daily bars, else "not enough history" or n/a; daily bars are fetched once per coin per UTC day behind the scan, on builds
+  that fetch directly (the hosted web version shows no Fund trend values). Off by default: **Fund trend ribbon** and **panel** (Confluence
+  score, Fund trend, Fund size, Fund rank) at the end of the chart's Indicators menu; disagreement hatching and ◆ (score
+  at least 55 against Fund trend of the opposite sign at 25 or more; list ◆ only with the ribbon on); **Disagreement
+  pulse** (3 pulses, Off, Keep pulsing) and an optional **Fund rank** column in Scoring profile. The ledger records `ft`
+  and the report adds **Fund trend sign** beside 20-bar momentum; CSV column `fund_trend`. It never votes: engine
+  `5c30b5c39f5ba3f2` unchanged. Acceptance **FT-1**…**FT-5**.
 - **Design unchanged (spec §3):** acceptance **DS-1** (main screen) and **DS-2** (detail sheet top and chart layers, paper
   dialog, ledger dialog) compare the layout at rest with text masked against baselines captured from the v2.7.0-web build.
 - **Languages:** the new and changed v2.8 strings are Arabic drafts awaiting native-speaker review (About shows the count;
@@ -50,7 +60,7 @@ ledger rows of engine 2.3.0 stay and are reported separately.
   licences — the rsL Coffee Kit v1.1 2026 (build 20261115) card images for GCash, PayPal and Bitcoin, copied unchanged
   into `src/rsl/coffee-kit.json` and shown verbatim; optional and never a fee (nothing gated, never opens by itself); only
   Bitcoin has **Copy address**. Unit tests pin the six image hashes and scan for contact details; acceptance **CK-1**.
-- **Docs:** user guide chapters for WP19, WP20, WP26 and WP27; ADR-0018 (new venues); R19 accepts this "in progress" entry above the released v2.7.0.
+- **Docs:** user guide chapters for WP19, WP20, WP21, WP26 and WP27; ADR-0018 (new venues); R19 accepts this "in progress" entry above the released v2.7.0.
 - **Before going back to v2.7, export the paper journal** (Paper → Export CSV) and note your open positions: v2.7 cannot
   read the v2.8 paper account format and starts a fresh 10,000 USDT account over it on its first scan.
 

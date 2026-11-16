@@ -4,10 +4,11 @@ import { useState } from "react";
 import { VOTING_INDICATORS, normalizeScoringProfile, type ScoringProfile, type VotingIndicatorId } from "@/lib/scoring-profile";
 import { LIQUIDITY_FLOOR_CHOICES } from "@/lib/market-client";
 import { floorLabel } from "@/lib/scan-pipeline";
+import type { FundPulse } from "@/lib/preferences-store";
 
 type T = (key: string, vars?: Record<string, string | number>) => string;
 
-export function ScoringProfileEditor({ profile, configId, onApply, disabled, liquidityFloorUsd, onLiquidityFloor, t }: {
+export function ScoringProfileEditor({ profile, configId, onApply, disabled, liquidityFloorUsd, onLiquidityFloor, fundPulse, onFundPulse, fundRankColumn, onFundRankColumn, t }: {
   profile: ScoringProfile | null;
   configId: string;
   onApply: (profile: ScoringProfile | null) => Promise<void>;
@@ -15,6 +16,11 @@ export function ScoringProfileEditor({ profile, configId, onApply, disabled, liq
   /** v2.8 (WP19): crypto liquidity floor (US$ of 24 h quote volume; 0 = off) — a scan setting, applied on the next scan. */
   liquidityFloorUsd: number;
   onLiquidityFloor: (usd: number) => void;
+  /** v2.8 (WP21): disagreement pulse mode and the optional Fund rank column (both display settings). */
+  fundPulse: FundPulse;
+  onFundPulse: (mode: FundPulse) => void;
+  fundRankColumn: boolean;
+  onFundRankColumn: (on: boolean) => void;
   t: T;
 }) {
   const floorChoices = [...new Set<number>([...LIQUIDITY_FLOOR_CHOICES, liquidityFloorUsd])].sort((a, b) => a - b);
@@ -67,6 +73,18 @@ export function ScoringProfileEditor({ profile, configId, onApply, disabled, liq
               onChange={(event) => onLiquidityFloor(Number(event.target.value))}>
               {floorChoices.map((usd) => <option key={usd} value={String(usd)}>{usd > 0 ? floorLabel(usd) : t("liq.off")}</option>)}
             </select>
+          </label>
+          <label className="grid gap-1">
+            <span>{t("settings.fundPulse")}</span>
+            <select data-testid="fund-pulse" value={fundPulse}
+              className="h-7 rounded border border-zinc-700 bg-zinc-900 px-1"
+              onChange={(event) => onFundPulse(event.target.value as FundPulse)}>
+              {(["three", "off", "keep"] as const).map((m) => <option key={m} value={m}>{t(`settings.fundPulse.${m}`)}</option>)}
+            </select>
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" data-testid="fund-rank-column" checked={fundRankColumn} onChange={(event) => onFundRankColumn(event.target.checked)} />
+            {t("settings.fundRankColumn")}
           </label>
           <fieldset disabled={busy} className="grid max-h-64 gap-1 overflow-auto">
             <legend>Indicator votes</legend>

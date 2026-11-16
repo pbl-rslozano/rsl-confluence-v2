@@ -12,6 +12,8 @@
 import { baseOf } from "./quotes";
 import type { Kline } from "./indicators";
 import type { AssetClass, LedgerRow } from "./ledger-metrics";
+import { roundFt } from "./ledger-metrics";
+import { fundTrendSeries } from "./fund-trend";
 import type { SeriesScore, RowContext } from "./scan-pipeline";
 import { toLedgerRow } from "./scan-pipeline";
 import { barWhileClosed } from "./asset-classes";
@@ -42,6 +44,8 @@ export interface ScanRecordContext {
   recordedAt?: number;
   /** v2.8 (WP19): Bybit linear derivative snapshots (recorder log, or imported in the app) → fr / oiChg. */
   derivatives?: ReadonlyArray<DerivativeSnapshot>;
+  /** v2.8 (WP21): closed daily bars per pair (catch-up rows). Each row uses only the daily bars closed at or before its own bar close. */
+  dailyOf?: (symbol: string) => Kline[];
 }
 
 /** Scan-wide inputs: relative-strength percentiles, BTC bars, full-ranking positions. */
@@ -112,6 +116,42 @@ export function enrichCatchUp(rows: LedgerRow[], kl: Kline[], ctx: ScanRecordCon
     if (i !== undefined) Object.assign(row, enrich(row, kl.slice(0, i + 1), { intervalMs: ctx.intervalMs, btc: shared.btc, rs: null }));
     // v2.8 (WP19): derivative context as of each catch-up bar's own close (never a later snapshot).
     if (ctx.derivatives?.length) Object.assign(row, derivativeFields(ctx.derivatives, row.pair, row.tc));
+  }
+  if (ctx.dailyOf) applyFundTrend(rows, ctx.dailyOf);
+  else for (const row of rows) if (row.ac === "crypto") row.ft = null; // no daily data source (hosted build): "not available", like live rows
+  return rows;
+}
+
+const DAY_MS = 86_400_000;
+/** The newest daily bar used for a row must have closed no more than this long before the row's own bar close. */
+export const FT_MAX_STALE_MS = 36 * 3_600_000;
+
+function newestClosedDaily(daily: Kline[], closeTime: number): Kline | null {
+  let lo = 0, hi = daily.length; // first index whose close is after closeTime
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (daily[mid].time + DAY_MS <= closeTime) lo = mid + 1; else hi = mid; }
+  return lo > 0 ? daily[lo - 1] : null;
+}
+
+/**
+ * v2.8 (WP21): ft of catch-up rows (crypto only) from daily bars closed at or before each row's own bar close
+ * (no look-ahead; fundTrendSeries). A pair with too little history, or no daily bars, gets null.
+ */
+export function applyFundTrend(rows: LedgerRow[], dailyOf: (symbol: string) => Kline[]): LedgerRow[] {
+  const byPair = new Map<string, LedgerRow[]>();
+  for (const row of rows) {
+    if (row.ac !== "crypto") continue;
+    const list = byPair.get(row.pair);
+    if (list) list.push(row); else byPair.set(row.pair, [row]);
+  }
+  for (const [pair, list] of byPair) {
+    const daily = dailyOf(pair);
+    const values = fundTrendSeries(daily, list.map((r) => ({ time: r.t, closeTime: r.tc })));
+    list.forEach((row, i) => {
+      const v = values[i];
+      // A stale cache (the feed halted days ago) must not give old values to newer rows.
+      const newest = newestClosedDaily(daily, row.tc);
+      row.ft = typeof v === "number" && newest !== null && row.tc - (newest.time + DAY_MS) <= FT_MAX_STALE_MS ? roundFt(v) : null;
+    });
   }
   return rows;
 }

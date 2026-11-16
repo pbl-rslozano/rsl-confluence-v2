@@ -56,7 +56,12 @@ export interface AppPreferences {
   fxCustom: { name: string; url: string } | null;
   /** v2.8 (WP19): crypto liquidity floor — US$ of 24 h quote volume (the scan's qvUsd); 0 = off. A scan setting, not a paper rule. */
   liquidityFloorUsd: number;
+  /** v2.8 (WP21): disagreement pulse on the list marker (shown only with the Fund trend ribbon on). */
+  fundPulse: FundPulse;
+  /** v2.8 (WP21): optional "Fund rank" list column. Off by default. */
+  fundRankColumn: boolean;
 }
+export type FundPulse = "three" | "off" | "keep";
 
 export const DEFAULT_APP_PREFERENCES: AppPreferences = {
   // v2.1.1: 4h by default for new installs (signal-edge report #10: lower-noise bars,
@@ -77,6 +82,8 @@ export const DEFAULT_APP_PREFERENCES: AppPreferences = {
   fxAutoUpdate: true,
   fxCustom: null,
   liquidityFloorUsd: DEFAULT_LIQUIDITY_FLOOR_USD,
+  fundPulse: "three",
+  fundRankColumn: false,
 };
 
 const STORAGE_KEY = "ct-preferences-v1";
@@ -86,6 +93,7 @@ const UNIVERSE_LIMITS = new Set([25, 50, 100, 200]);
 const BACKGROUNDS = new Set<StoredBackground>(["dark", "white", "system"]);
 const SORT_KEYS = new Set<StoredSortKey>(["rank", "symbol", "price", "change24h", "quoteVolume", "bull", "bear", "score"]);
 const SORT_DIRS = new Set<StoredSortDir>(["asc", "desc"]);
+const FUND_PULSES = new Set<FundPulse>(["three", "off", "keep"]);
 const CHART_DEPTHS = new Set<StoredChartDepth>(["60", "250", "1000", "all"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -150,6 +158,8 @@ export function normalizePreferences(saved: unknown): AppPreferences | null {
     fxAutoUpdate: typeof saved.fxAutoUpdate === "boolean" ? saved.fxAutoUpdate : true,
     fxCustom: normalizeCustomSource(saved.fxCustom),
     liquidityFloorUsd: normalizeLiquidityFloor(saved.liquidityFloorUsd),
+    fundPulse: savedOrDefault(saved.fundPulse, FUND_PULSES, DEFAULT_APP_PREFERENCES.fundPulse),
+    fundRankColumn: typeof saved.fundRankColumn === "boolean" ? saved.fundRankColumn : DEFAULT_APP_PREFERENCES.fundRankColumn,
   };
 }
 

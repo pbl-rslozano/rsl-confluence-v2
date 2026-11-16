@@ -311,3 +311,11 @@ body { background-color: var(--color-zinc-950); color: var(--color-zinc-100); }
 .lang-native:lang(zh) { font-family: "rsL Menu SC", "Microsoft YaHei", "PingFang SC", sans-serif; }
 .lang-native:lang(ja) { font-family: "rsL Menu JP", "Yu Gothic UI", "Hiragino Sans", sans-serif; }
 .lang-native:lang(ko) { font-family: "rsL Menu KR", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+
+/* v2.8 (WP21): Fund trend disagreement marker. Nothing here applies unless the opt-in ribbon renders the marker or the outline class. */
+@keyframes ft-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(1.45); } }
+.ft-pulse { animation: ft-pulse 1s ease-in-out; }
+.ft-pulse-three { animation-iteration-count: 3; }
+.ft-pulse-keep { animation-iteration-count: infinite; }
+.ft-row-disagree { outline: 1px solid rgb(251 191 36 / 0.55); outline-offset: -1px; }
+@media (prefers-reduced-motion: reduce) { .ft-pulse { animation: none; } }

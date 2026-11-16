@@ -53,7 +53,7 @@ import {
 } from "@/lib/indicators";
 import type { ReversalResult } from "@/lib/reversal";
 import type { PatternSignal } from "@/lib/pattern-signal";
-import { runScanJobs, scanMode } from "@/lib/scan-runner";
+import { runPanelScores, runScanJobs, scanMode } from "@/lib/scan-runner";
 import { packKlines, type ScanJob, type ScanJobResult } from "@/lib/scan-jobs";
 import { createLedgerStore } from "@/lib/signal-ledger";
 import { createIndexedDBAdapter } from "@rsl/core-kit/core/rsl-storage.js";
@@ -66,6 +66,13 @@ import { LedgerDialog } from "@/components/ledger-dialog";
 import { PaperDialog } from "@/components/paper-dialog";
 import { createPaperStore, memoryPaperPort, PAPER_COLLECTIONS, PAPER_DB_NAME } from "@/lib/paper-store";
 import { coverageUntil, coverageWarnings, eventsNear } from "@/lib/macro-calendar";
+import { cachedDailyBars, loadDailyBars, loadFundTrends } from "@/lib/fund-trend-feed";
+import { useChartOptIn } from "@/lib/chart-optin";
+import { createSerialQueue, writeLiveRows } from "@/lib/fund-feed-gate";
+import { disagreement, fundRanks, fundTrendSeriesFull, isFundTrendClass, type FundTrendState } from "@/lib/fund-trend";
+import { pulseLedger } from "@/lib/pulse-ledger";
+import { FundDisagreeMark, StopPulseButton } from "@/components/fund-disagree-mark";
+import { loadOlderOnce, panelBarsNeeded, panelCacheFor, panelCacheKey, PANEL_MAX_BARS, resolvePanelScores, type PanelScoreMap } from "@/lib/panel-scores";
 import { deltaPlan, loadHistoricalSeries, MAX_STORED_BARS, mergeDelta, mergeKlines, saveHistoricalSeries } from "@/lib/history-store";
 import {
   createBatcher, initialRows, liveOnly, priorityOrder, PRIORITY_TOP, ProgressiveRows, recordable, rememberedTickers, rememberTickers,
@@ -84,6 +91,7 @@ import {
   fetchOrderBook,
   MAX_HISTORY_BARS,
   priceCurrencyOf,
+  RateLimitError,
   type ListMeta,
   slippageBps,
   usesDirectFetch,
@@ -574,6 +582,8 @@ export default function Home() {
   const [fxCustom, setFxCustom] = useState<{ name: string; url: string } | null>(DEFAULT_APP_PREFERENCES.fxCustom);
   // v2.8 (WP19): crypto liquidity floor (US$ of 24 h quote volume, the scan's qvUsd; 0 = off). Never display FX (R21).
   const [liquidityFloorUsd, setLiquidityFloorUsd] = useState<number>(DEFAULT_APP_PREFERENCES.liquidityFloorUsd);
+  const [fundPulse, setFundPulse] = useState<AppPreferences["fundPulse"]>(DEFAULT_APP_PREFERENCES.fundPulse);
+  const [fundRankColumn, setFundRankColumn] = useState<boolean>(DEFAULT_APP_PREFERENCES.fundRankColumn);
   const [fxDialog, setFxDialog] = useState(false);
   const [fxUpdating, setFxUpdating] = useState(false);
   const displayCurrency = displayPref === "AUTO" ? autoCurrency() : displayPref;
@@ -635,6 +645,126 @@ export default function Home() {
   /** v2.8 (WP27): other-timeframe series of the priority rows (`src:tf:symbol`, display only). */
   const seriesCacheRef = useRef<SeriesCache>(new Map());
   const historyAbortRef = useRef<AbortController | null>(null);
+  /** v2.8 (WP21): Fund trend per `source|symbol`, filled by the daily-bar feed that runs behind a finished scan (no display yet). */
+  const [fundTrends, setFundTrends] = useState<Map<string, FundTrendState>>(new Map());
+  const fundPendingRef = useRef<Map<string, FundTrendState>>(new Map());
+  const fundAbortRef = useRef<AbortController | null>(null);
+  /**
+   * v2.8 (WP21): the detail sheet loads daily bars ONLY while the opt-in ribbon or panel is on (nothing at rest),
+   * from the row's own source (cached once per UTC day), and aborts on close, symbol change or toggle off.
+   */
+  const chartOptIn = useChartOptIn();
+  const detailFundWanted = chartOptIn.has("fund-ribbon") || chartOptIn.has("fund-panel");
+  const detailFundKey = detailAsset && isFundTrendClass(detailAsset.assetClass) && detailFundWanted && usesDirectFetch()
+    ? `${detailAsset.src}|${detailAsset.pair}` : null;
+  const [detailDaily, setDetailDaily] = useState<{ key: string; bars: Kline[] | null } | null>(null);
+  useEffect(() => {
+    if (!detailFundKey) return;
+    const [src, pair] = [detailFundKey.slice(0, detailFundKey.indexOf("|")), detailFundKey.slice(detailFundKey.indexOf("|") + 1)];
+    const ac = new AbortController();
+    loadDailyBars(src as DataSource, pair, Date.now(), ac.signal).then(
+      (bars) => { if (!ac.signal.aborted) setDetailDaily({ key: detailFundKey, bars }); },
+      () => { if (!ac.signal.aborted) setDetailDaily({ key: detailFundKey, bars: null }); },
+    );
+    return () => ac.abort();
+  }, [detailFundKey]);
+  const detailFund = useMemo(() => {
+    if (!detailAsset || !detailFundWanted) return null;
+    if (!isFundTrendClass(detailAsset.assetClass)) return { series: undefined, size: undefined, note: "ft.na" as const };
+    if (!detailFundKey || detailDaily?.key !== detailFundKey) return { series: undefined, size: undefined, note: null }; // loading: pass nothing
+    // A failed load (network, or a venue cooldown) says so once; there is no automatic retry. Reopening the sheet tries again.
+    if (!detailDaily.bars) return { series: undefined, size: undefined, note: "ft.unavailable" as const };
+    const ms = INTERVAL_MS[detailAsset.tf];
+    const full = fundTrendSeriesFull(detailDaily.bars, detailAsset.klines.map((k) => ({ time: k.time, closeTime: barCloseTime(k.time, ms) })));
+    const series = full.map((f) => f?.value ?? null);
+    return { series, size: full.map((f) => f?.size ?? null), note: series.every((v) => v == null) ? "ft.notEnough" as const : null };
+  }, [detailAsset, detailFundWanted, detailFundKey, detailDaily]);
+
+  /**
+   * v2.8 (WP21): the panel's per-bar Confluence score. Only while the opt-in panel is on, for the bars in view (at most 300)
+   * that have a full 1,000-bar window; ledger rows (same cfg, wb = 1,000) first, then the scan worker (never the main thread).
+   * With fewer than 1,299 contiguous bars held, the missing older bars are fetched ONCE per series (one history page).
+   */
+  const detailPanelOn = chartOptIn.has("fund-panel");
+  // Per-bar scores also feed the disagreement hatching, which shows with the ribbon OR the panel.
+  const detailScoresOn = detailPanelOn || chartOptIn.has("fund-ribbon");
+  // The Confluence line is the list's score for every asset class; only Fund trend / size / rank are crypto-only.
+  const panelSeriesKey = detailAsset && detailScoresOn ? `${detailAsset.src}|${detailAsset.tf}|${detailAsset.pair}` : null;
+  const panelLastBar = detailAsset?.klines.at(-1)?.time ?? 0;
+  const panelOlderRef = useRef<Map<string, Kline[]>>(new Map());
+  const [panelOlderVer, setPanelOlderVer] = useState(0);
+  const [panelRange, setPanelRange] = useState<{ from: number; to: number } | null>(null);
+  const [panelResult, setPanelResult] = useState<{ key: string; scores: PanelScoreMap; scored: number; total: number; capped: boolean; shortHistory: boolean } | null>(null);
+  const onPanelRange = useCallback((from: number, to: number) => setPanelRange((cur) => (cur && cur.from === from && cur.to === to ? cur : { from, to })), []);
+  // The older-bars guard is the series key alone (source|tf|pair): a growing series never aborts and re-sends it, so it is ONE request.
+  const panelHeldRef = useRef({ count: 0, first: 0 });
+  useEffect(() => { panelHeldRef.current = { count: detailAsset?.klines.length ?? 0, first: detailAsset?.klines[0]?.time ?? 0 }; });
+  useEffect(() => {
+    const held = panelHeldRef.current;
+    if (!panelSeriesKey || !detailAsset || held.count >= panelBarsNeeded(PANEL_MAX_BARS) || panelOlderRef.current.has(panelSeriesKey)) return;
+    const [src, tf, pair] = [detailAsset.src, detailAsset.tf, detailAsset.pair];
+    const ac = new AbortController();
+    void (async () => {
+      const stored = await loadOlderOnce(panelOlderRef.current, panelSeriesKey, async () => {
+        // One history page at most (1,000 bars) on both paths; fetchHistory itself never goes below 200.
+        const limit = Math.min(1000, Math.max(200, panelBarsNeeded(PANEL_MAX_BARS) - held.count));
+        const endTime = held.first - 1;
+        if (usesDirectFetch()) return (await fetchHistory(src, pair, tf, limit, endTime, ac.signal)).klines; // asserts the venue cooldown (RateLimitError, no request sent)
+        const qs = new URLSearchParams({ source: src, interval: tf, symbol: pair, limit: String(limit), endTime: String(endTime) });
+        const response = await fetch(`/api/market/history?${qs.toString()}`, { cache: "no-store", signal: ac.signal });
+        if (response.status === 429) throw new RateLimitError("Exchange rate limit", 0); // refused by the venue: not the one attempt
+        const payload = await response.json() as { klines?: Kline[] };
+        return response.ok && payload.klines ? payload.klines : [];
+      }, ac.signal);
+      if (stored) setPanelOlderVer((n) => n + 1);
+    })();
+    return () => ac.abort();
+  }, [panelSeriesKey]);
+  useEffect(() => {
+    if (!panelSeriesKey || !detailAsset || !panelRange) return; // a stale result is ignored by its key
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void (async () => {
+        const base = detailAsset.klines;
+        const older = panelOlderRef.current.get(panelSeriesKey);
+        const ext = older?.length ? contiguousTail(mergeKlines(older, base), INTERVAL_MS[detailAsset.tf]) : base;
+        const off = ext.length - base.length;
+        const from = Math.max(0, panelRange.from + off), to = Math.min(ext.length, panelRange.to + off);
+        const cacheKey = panelCacheKey(detailAsset.src, detailAsset.tf, detailAsset.pair, panelLastBar, activeConfigId);
+        const cache = panelCacheFor(cacheKey);
+        const wanted: number[] = [];
+        for (let j = Math.max(from, to - PANEL_MAX_BARS); j < to; j++) if (j + 1 >= ENGINE_BARS && !cache.has(ext[j].time)) wanted.push(ext[j].time);
+        let known = new Map<number, number>();
+        if (wanted.length) {
+          try { known = await ledgerStore.seriesScores(detailAsset.src, detailAsset.tf, detailAsset.pair, activeConfigId, wanted, ENGINE_BARS); } catch { /* no ledger: the worker scores them */ }
+        }
+        if (cancelled) return;
+        const jobBase = { key: panelSeriesKey, intervalMs: INTERVAL_MS[detailAsset.tf], volumeAvailable: true, assetClass: detailAsset.assetClass, profile: scoringProfile };
+        const res = await resolvePanelScores({ klines: ext, from, to, cache, known, run: (end, count, kn) => runPanelScores(jobBase, ext.slice(0, end), count, kn) });
+        if (!cancelled) setPanelResult({ key: panelSeriesKey, scores: res.scores, scored: res.scored, total: res.total, capped: res.capped, shortHistory: res.shortHistory });
+      })();
+    }, 150);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [panelSeriesKey, panelRange, panelLastBar, panelOlderVer, detailAsset, activeConfigId, ledgerStore, scoringProfile]);
+  const panelNote = useMemo(() => {
+    if (!panelSeriesKey || !panelResult || panelResult.key !== panelSeriesKey || panelResult.scored >= panelResult.total) return undefined;
+    // M = bars in view, N = bars with a score. Short history (some of the newest 300 lack a full window) wins over the cap note.
+    return t(panelResult.shortHistory ? "ft.panelNote" : "ft.panelCapped", { n: panelResult.scored, m: panelResult.total });
+  }, [panelSeriesKey, panelResult, t]);
+  /** Fund rank across the scan's crypto rows of this source (the feed's values; ties share a rank). */
+  const detailFundRank = useMemo(() => {
+    if (!detailAsset || !detailPanelOn || !isFundTrendClass(detailAsset.assetClass)) return undefined;
+    const { ranks, n } = fundRanks(rows, fundTrends, detailAsset.src);
+    const rank = ranks.get(detailAsset.pair);
+    return rank === undefined ? undefined : t("ft.rank", { rank, n });
+  }, [detailAsset, detailPanelOn, rows, fundTrends, t]);
+  /** v2.8 (WP21): Fund rank per pair for the optional list column (same computation as the panel header). */
+  const listFundRanks = useMemo(() => (fundRankColumn ? fundRanks(rows, fundTrends, dataSource).ranks : null), [fundRankColumn, rows, fundTrends, dataSource]);
+  const listRibbonOn = chartOptIn.has("fund-ribbon");
+  // "Keep pulsing" ends for a coin once its detail sheet is opened.
+  useEffect(() => { if (detailAsset) pulseLedger.stopPair(`${detailAsset.src}|${detailAsset.pair}`); }, [detailAsset]);
+  /** v2.8 (WP21): one daily-bar run at a time (post-scan feed and catch-up share it), so concurrency stays 2 in total. */
+  const fundQueueRef = useRef(createSerialQueue());
   const alertedReversalRef = useRef<Map<string, number>>(new Map());
 
   // v2.5: theme preference (System / Light / Dark) → resolved theme → tokens on <html data-theme>.
@@ -675,6 +805,8 @@ export default function Home() {
         setFxAutoUpdate(saved.fxAutoUpdate);
         setFxCustom(saved.fxCustom);
         setLiquidityFloorUsd(saved.liquidityFloorUsd);
+        setFundPulse(saved.fundPulse);
+        setFundRankColumn(saved.fundRankColumn);
         applyBackground(saved.background);
       } else {
         let legacy: string | null = null;
@@ -707,9 +839,11 @@ export default function Home() {
       fxAutoUpdate,
       fxCustom,
       liquidityFloorUsd,
+      fundPulse,
+      fundRankColumn,
     };
     saveAppPreferences(preferences);
-  }, [preferencesReady, timeframe, dataSource, universeLimit, background, monitorAssets, sortKey, sortDir, autoRefresh, chartDepth, assetClass, quoteBySource, displayPref, fxChoice, fxAutoUpdate, fxCustom, liquidityFloorUsd]);
+  }, [preferencesReady, timeframe, dataSource, universeLimit, background, monitorAssets, sortKey, sortDir, autoRefresh, chartDepth, assetClass, quoteBySource, displayPref, fxChoice, fxAutoUpdate, fxCustom, liquidityFloorUsd, fundPulse, fundRankColumn]);
 
   // v2.7 (WP13): display-currency rates — from the chosen source, cached on the device, refreshed every 6 h
   // while "Update automatically" is on, or on "Update now". Display only: the scan never sees them.
@@ -773,8 +907,15 @@ export default function Home() {
   const load = useCallback(async (tf: TF, source: DataSource, assets: string[], limit: number, cls: AssetClassFilter, quoteMode: string) => {
     if (!profileReady) return;
     abortRef.current?.abort();
+    fundAbortRef.current?.abort(); // a new scan stops the daily-bar feed of the previous one
     const ac = new AbortController();
     abortRef.current = ac;
+    // v2.8 (WP21): this scan's daily-bar feed (post-scan feed and catch-up) stops with the scan; `feedSettled` releases the live ledger write.
+    const feed = new AbortController();
+    fundAbortRef.current = feed;
+    ac.signal.addEventListener("abort", () => feed.abort(), { once: true });
+    let resolveFeed: () => void = () => undefined;
+    const feedSettled = new Promise<void>((resolve) => { resolveFeed = resolve; });
     setLoading(true);
     setError(null);
     setProgress({ done: 0, total: 1 });
@@ -1024,8 +1165,16 @@ export default function Home() {
         return lr;
       });
       const newestClosed = prepared.reduce((m, p) => (p.fresh && p.kl.length ? Math.max(m, p.kl[p.kl.length - 1].time) : m), 0);
+      // v2.8 (WP21): crypto rows wait for this scan's Fund trend feed (<= 90 s; an abort writes at once) so ft is not lost for good; others write at once.
+      const universeSnap = data.universe ? { t: newestClosed, list: data.universe } : undefined;
       const liveWrite = ledgerRows.length
-        ? ledgerStore.record(ledgerRows, data.universe ? { t: newestClosed, list: data.universe } : undefined).catch(() => 0)
+        ? writeLiveRows(ledgerRows, {
+            write: (rs) => ledgerStore.record(rs, universeSnap).catch(() => 0),
+            settled: feedSettled,
+            signal: feed.signal,
+            // ft as of each row's OWN bar close (the catch-up rule: daily bars closed at or before it, 36 h staleness), never the value now.
+            ...(usesDirectFetch() ? { dailyOf: (symbol: string) => cachedDailyBars(source, symbol) } : {}),
+          }).catch(() => 0)
         : Promise.resolve(0);
 
       // Catch-up (v2.3: per-series cursors): score bars that closed while the
@@ -1060,10 +1209,20 @@ export default function Home() {
             const res = await runScanJobs(pending.map((j) => j.job), { allowMainThread: false });
             const byKey = new Map(res.map((x) => [x.key, x]));
             const rowsToAdd: LedgerRow[] = [];
+            // v2.8 (WP21): catch-up rows log ft from the daily bars closed before each bar (same feed: one request per pair per UTC day, venue gates, 429 halt; a halt leaves ft null).
+            let catchUpCtx = recordCtx;
+            if (usesDirectFetch()) {
+              try {
+                const cryptoRows = pending.filter((j) => classOf(j.pair) === "crypto").map((j) => ({ symbol: j.pair, ac: "crypto" as const }));
+                // Same queue and abort signal as the post-scan feed: never two runs at once, and a new scan or source switch stops it.
+                if (cryptoRows.length) await fundQueueRef.current.enqueue(() => loadFundTrends(source, cryptoRows, Date.now(), { signal: feed.signal }), feed.signal);
+              } catch { /* aborted, halted or unavailable: those rows log ft null (still written) */ }
+              catchUpCtx = { ...recordCtx, dailyOf: (symbol) => cachedDailyBars(source, symbol) };
+            }
             for (const j of pending) {
               const r = byKey.get(j.job.key);
               if (!r || r.error) continue; // cursor not advanced: retried next scan (review C5)
-              rowsToAdd.push(...enrichCatchUp(r.catchUpRows ?? [], j.kl, recordCtx, shared));
+              rowsToAdd.push(...enrichCatchUp(r.catchUpRows ?? [], j.kl, catchUpCtx, shared));
               if (r.gap) void ledgerStore.addGap(source, tf, j.pair, r.gap);
               done[j.pair] = j.kl[j.kl.length - 1].time;
             }
@@ -1164,7 +1323,32 @@ export default function Home() {
           cache: seriesCacheRef.current, signal: ac.signal,
         });
       }
+      // v2.8 (WP21): the daily-bar feed starts only now, behind the finished scan, for live rows (never display-only cached ones).
+      let feedStarted = false;
+      if (usesDirectFetch() && !ac.signal.aborted && !data.rateLimitedUntil) {
+        const feedRows = liveOnly(out).map((r) => ({ symbol: r.pair, ac: r.assetClass }));
+        if (feedRows.length) {
+          feedStarted = true;
+          // One state update per batch (<= every 250 ms), not one per pair.
+          const flushFund = () => {
+            if (feed.signal.aborted || !fundPendingRef.current.size) return;
+            const batch = fundPendingRef.current;
+            fundPendingRef.current = new Map();
+            setFundTrends((cur) => new Map([...cur, ...batch]));
+          };
+          fundPendingRef.current = new Map();
+          const fundBatcher = createBatcher(flushFund);
+          void fundQueueRef.current.enqueue(() => loadFundTrends(source, feedRows, Date.now(), {
+            signal: feed.signal,
+            onValue: (symbol, state) => { fundPendingRef.current.set(`${source}|${symbol}`, state); fundBatcher.schedule(); },
+          }), feed.signal)
+            .then(() => fundBatcher.flushNow(), () => fundBatcher.cancel()) // a rejection = aborted by a newer scan or a source switch
+            .finally(resolveFeed);
+        }
+      }
+      if (!feedStarted) resolveFeed(); // no feed this scan (hosted build, cooling venue, no live rows): nothing to wait for
     } catch (e) {
+      resolveFeed();
       if (!ac.signal.aborted) {
         batcher.cancel();
         setError(e instanceof Error ? e.message : "Failed to load market data");
@@ -1180,6 +1364,8 @@ export default function Home() {
   }, [ledgerStore, watchlistScope, scoringProfile, profileReady, activeConfigId, rsl.port, liquidityFloorUsd]);
 
   useEffect(() => () => { historyAbortRef.current?.abort(); }, [dataSource, timeframe, scoringProfile]);
+  // v2.8 (WP21): a source switch (or leaving the page) aborts the daily-bar feed.
+  useEffect(() => () => { fundAbortRef.current?.abort(); }, [dataSource]);
 
   const backfillHistory = useCallback(async (asset: AssetRow) => {
     historyAbortRef.current?.abort();
@@ -1550,7 +1736,8 @@ export default function Home() {
               }} />
             <ScannerInbox port={rsl.port} list={watchlistScope} timeframe={timeframe} ledger={ledgerStore} />
             <ScoringProfileEditor profile={scoringProfile} configId={activeConfigId} onApply={applyScoringProfile} disabled={!profileReady}
-              liquidityFloorUsd={liquidityFloorUsd} onLiquidityFloor={setLiquidityFloorUsd} t={t} />
+              liquidityFloorUsd={liquidityFloorUsd} onLiquidityFloor={setLiquidityFloorUsd}
+              fundPulse={fundPulse} onFundPulse={setFundPulse} fundRankColumn={fundRankColumn} onFundRankColumn={setFundRankColumn} t={t} />
             <SavedScans port={rsl.port}
               current={{ timeframe, dataSource, universeLimit, assetClass, sortKey, sortDir, search, monitorAssets }}
               onApply={(preset) => {
@@ -1861,6 +2048,7 @@ export default function Home() {
                 {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               </Button>
             )}
+            {listRibbonOn && <StopPulseButton label={t("ft.stopPulse")} mode={fundPulse} />}
             <Button
               variant="outline"
               size="sm"
@@ -1901,12 +2089,13 @@ export default function Home() {
                   </th>
                   <th className="px-3 py-1.5 font-medium text-center" title={t("pattern.title")}>{t("col.pattern")}</th>
                   <th className="px-3 py-1.5 pe-4 text-end font-medium">{t("col.signal")}</th>
+                  {fundRankColumn && <th className="px-3 py-1.5 pe-4 text-end font-medium" data-testid="col-fund-rank">{t("col.fundRank")}</th>}
                 </tr>
               </thead>
               <tbody>
                 {visible.length === 0 && !loading && (
                   <tr>
-                    <td colSpan={11} className="py-16 text-center text-zinc-500">
+                    <td colSpan={fundRankColumn ? 12 : 11} className="py-16 text-center text-zinc-500">
                       {rows.length > 0 ? (
                         t("empty.filtered")
                       ) : (
@@ -1918,11 +2107,16 @@ export default function Home() {
                     </td>
                   </tr>
                 )}
-                {visible.map((r) => (
+                {visible.map((r) => {
+                  // v2.8 (WP21): disagreement mark only with the opt-in ribbon on; the score is the one the list shows.
+                  const ftState = listRibbonOn ? fundTrends.get(`${r.src}|${r.pair}`) : undefined;
+                  const dis = ftState && !("na" in ftState) ? disagreement(r.confluence.score, ftState.value) : 0;
+                  return (
                   <tr
                     key={r.pair}
                     onClick={() => setDetailAsset(r)}
-                    className="border-t border-zinc-800/70 hover:bg-zinc-800/40 cursor-pointer transition-colors focus-within:bg-zinc-800/40"
+                    data-ft-disagree={dis !== 0 ? String(dis) : undefined}
+                    className={`border-t border-zinc-800/70 hover:bg-zinc-800/40 cursor-pointer transition-colors focus-within:bg-zinc-800/40${dis !== 0 ? " ft-row-disagree" : ""}`}
                   >
                     <td className="px-3 py-1.5 text-center text-zinc-500 text-xs">{r.rank}</td>
                     <td className="px-3 py-1.5">
@@ -1977,6 +2171,8 @@ export default function Home() {
                     </td>
                     <td className="px-3 py-1.5 text-center">
                       <ScorePill score={r.confluence.score} />
+                      {dis !== 0 && <FundDisagreeMark key={`${r.src}|${r.pair}|${r.klines.at(-1)?.time ?? 0}|${dis}`} pairKey={`${r.src}|${r.pair}`}
+                        bar={r.klines.at(-1)?.time ?? 0} dir={dis} mode={fundPulse} label={t("ft.disagree")} />}
                     </td>
                     <td className="px-3 py-1.5 text-center">
                       <ReversalBadge r={r.reversal} />
@@ -1987,8 +2183,14 @@ export default function Home() {
                     <td className="px-3 py-1.5 text-right pr-4">
                       <MasterBadge c={r.confluence} />
                     </td>
+                    {fundRankColumn && (
+                      <td className="px-3 py-1.5 pe-4 text-end font-mono text-xs tabular-nums text-zinc-300" data-testid="cell-fund-rank">
+                        {listFundRanks?.get(r.pair) ?? "—"}
+                      </td>
+                    )}
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -2134,6 +2336,13 @@ export default function Home() {
                   convertPrice={chartConvert}
                   klines={detailAsset.klines}
                   visible={chartDepth === "all" ? Number.MAX_SAFE_INTEGER : Number(chartDepth)}
+                  fundTrend={detailFund?.series}
+                  fundTrendNote={detailFund?.note ? t(detailFund.note) : undefined}
+                  fundSize={detailFund?.size}
+                  panelScores={panelResult && panelResult.key === panelSeriesKey ? panelResult.scores : undefined}
+                  panelNote={panelNote}
+                  fundRankLabel={detailFundRank}
+                  onPanelRange={onPanelRange}
                 />
               ) : (
                 <div className="flex h-32 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950/50 text-sm text-zinc-500">

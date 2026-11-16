@@ -2,7 +2,7 @@
  * report-runner.ts — v2.3: run buildReport in a Web Worker, with a main-thread
  * fallback when workers are unavailable or fail to load. Same numbers either way.
  */
-import { buildReport, type LedgerReport, type LedgerRow, type Outcome } from "./ledger-metrics";
+import { buildReport, ftSign, type LedgerReport, type LedgerRow, type Outcome } from "./ledger-metrics";
 
 let worker: Worker | null = null;
 let broken = false;
@@ -46,7 +46,7 @@ export interface ReportInput {
 }
 
 const onMainThread = (x: ReportInput) =>
-  buildReport(x.rows, x.outcomes, x.costBps, x.trials, x.intervalMs, { momentumOf: (r) => x.momentum.get(r.id) ?? 0 });
+  buildReport(x.rows, x.outcomes, x.costBps, x.trials, x.intervalMs, { momentumOf: (r) => x.momentum.get(r.id) ?? 0, fundTrendOf: ftSign });
 
 export async function buildReportAsync(x: ReportInput): Promise<LedgerReport> {
   const w = getWorker();
