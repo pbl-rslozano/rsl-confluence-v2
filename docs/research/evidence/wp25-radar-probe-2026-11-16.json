@@ -1,0 +1,85 @@
+{
+  "id": "RD-PROBE-1",
+  "date": "2026-11-16T~03:12Z",
+  "method": "Claude desktop built-in browser (Chromium), owner's computer (KSA); page origin https://example.com; fetch() default mode 'cors'. The pane also blocked data-api.binance.vision (known CORS-OK in production) from that page, so the fapi cross-origin result is inconclusive and is recorded from the response headers.",
+  "purpose": "WP25 build-time check: reachability, CORS headers and endpoint availability of the market-radar hosts (Binance USD-M futures REST, CFTC public reporting, DefiLlama stablecoins); rate limits of the futures REST.",
+  "results": {
+    "fapi_binance_com": {
+      "host": "https://fapi.binance.com",
+      "transport": "REST only, direct fetch, CSP connect-src",
+      "cors": "LIKELY ALLOWED — same-origin response headers: access-control-allow-origin '*', allow-credentials true, x-mbx-used-weight-1m present. Cross-origin fetch from https://example.com failed, but data-api.binance.vision failed the same way from that page (pane limitation), so inconclusive. Fallback if a build-time probe from the app origin fails: a same-origin rewrite like Coins.ph (not built).",
+      "endpoints_200": [
+        "/fapi/v1/premiumIndex",
+        "/fapi/v1/fundingRate",
+        "/fapi/v1/openInterest",
+        "/futures/data/openInterestHist (period 1h)",
+        "/futures/data/globalLongShortAccountRatio (period 1h)",
+        "/futures/data/takerlongshortRatio (period 1h)"
+      ],
+      "endpoints_used": [
+        "/fapi/v1/premiumIndex?symbol=",
+        "/fapi/v1/fundingRate?symbol=&limit=90",
+        "/futures/data/openInterestHist?symbol=&period=1h&limit=25",
+        "/futures/data/globalLongShortAccountRatio?symbol=&period=1h&limit=1",
+        "/futures/data/takerlongshortRatio?symbol=&period=1h&limit=1"
+      ],
+      "rate_limits_documented": {
+        "checked": "2026-11-16, Binance developer documentation (developers.binance.com), USD-M futures",
+        "request_weight_ip": "2400 per minute (REQUEST_WEIGHT, interval MINUTE, intervalNum 1: the example in the exchangeInfo response; the live value is the rateLimits array of /fapi/v1/exchangeInfo, not fetched from here)",
+        "weights": {
+          "premiumIndex": "1 with symbol, 10 without",
+          "openInterest": "1",
+          "fundingRate": "no weight stated; shares 500 requests / 5 min / IP with /fapi/v1/fundingInfo"
+        },
+        "futures_data": "/futures/data/* (openInterestHist, globalLongShortAccountRatio, takerlongshortRatio): IP rate limit 1000 requests / 5 min; latest 30 days (openInterestHist: latest 1 month) only; limit default 30, max 500",
+        "ban": "429 on violation, then HTTP 418 IP ban scaling from 2 minutes to 3 days for repeat offenders; limits are per IP",
+        "sources": [
+          "https://developers.binance.com/docs/derivatives/usds-margined-futures/general-info",
+          "https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api",
+          "https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Open-Interest-Statistics",
+          "https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Exchange-Information"
+        ]
+      },
+      "gate_chosen": "one venue gate 'binance-fut': 400 requests per 300 s = 80 % of the strictest documented limit (500 per 5 min on fundingRate); 80 % of 1000 per 5 min is 800 and 80 % of 2400 weight per minute is 1920, both far above it. 429/418 -> RateLimitError and the 'binance-fut' cooldown (Retry-After, else 600 s for 418 and 60 s for 429).",
+      "not_verified": [
+        "live exchangeInfo rateLimits value (docs example used)",
+        "fundingRate weight (documented only as a shared 500 / 5 min / IP limit)",
+        "terms of use"
+      ]
+    },
+    "fstream_binance_com": {
+      "host": "wss://fstream.binance.com/ws/!forceOrder@arr",
+      "result": "opened from https://example.com (readyState 1); no message within 8 s",
+      "decision": "not used in 4a (no wss in 4a)"
+    },
+    "stream_bybit_com": {
+      "host": "wss://stream.bybit.com/v5/public/linear",
+      "result": "opened from https://example.com; subscribe allLiquidation.BTCUSDT returned {\"success\":true,\"op\":\"subscribe\"}",
+      "decision": "not used in 4a (existing recorder host only)"
+    },
+    "publicreporting_cftc_gov": {
+      "host": "https://publicreporting.cftc.gov",
+      "cors": "ALLOWED from https://example.com",
+      "dataset": "/resource/gpe5-46if.json (Traders in Financial Futures, futures only, Socrata)",
+      "latest_btc_133741_report_date": "2026-11-03"
+    },
+    "stablecoins_llama_fi": {
+      "host": "https://stablecoins.llama.fi",
+      "cors": "ALLOWED",
+      "paths": [
+        "/stablecoins",
+        "/stablecoincharts/all"
+      ],
+      "note": "free; api.llama.fi/stablecoin* answered 404"
+    },
+    "defillama_hacks": {
+      "result": "documented only as a Pro endpoint (pro-api.llama.fi/{key}/api/hacks); api.llama.fi/hacks answers publicly but is undocumented",
+      "decision": "link only, never fetched"
+    }
+  },
+  "fixtures_note": "The probe recorded reachability, headers and report dates, not response bodies. Test fixtures in radar-futures.test.mjs follow the layout of the Binance documentation and are generated, not captured.",
+  "not_verified": [
+    "cross-origin fetch of fapi.binance.com from the app origin (pane limitation)",
+    "rate limits and terms of CFTC and DefiLlama"
+  ]
+}

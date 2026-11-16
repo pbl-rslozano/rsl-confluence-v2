@@ -42,6 +42,9 @@ export const CSP_HOSTS = [
   { origin: "https://www.floatrates.com", purpose: "display-currency rates, FloatRates — user-selectable (ADR-0015)" },
   { origin: "https://www.okx.com", purpose: "OKX public market data, spot and perpetual (ADR-0003 v2.8, WP26)" },
   { origin: "https://api.exchange.coinbase.com", purpose: "Coinbase Exchange public market data (ADR-0003 v2.8, WP26)" },
+  { origin: "https://fapi.binance.com", purpose: "Binance USD-M futures public market data, REST only, market radar (ADR-0003 v2.8, WP25)" },
+  { origin: "https://publicreporting.cftc.gov", purpose: "CFTC Commitments of Traders, public reporting (ADR-0003 v2.8, WP25)" },
+  { origin: "https://stablecoins.llama.fi", purpose: "DefiLlama stablecoin supply, public (ADR-0003 v2.8, WP25)" },
 ] as const;
 
 export const COINSPH_ORIGIN = "https://api.pro.coins.ph";

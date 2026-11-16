@@ -3,7 +3,7 @@
  * keyless-sources.mjs — release check R20 (v2.6, ADR-0013, ADR-0014).
  *
  * Public market-data sources stay keyless and read-only:
- *   1. the public-source modules (coinsph.ts, public-hosts.ts, v2.8 native-relay.ts, okx.ts, coinbase.ts and upbit.ts) contain no
+ *   1. the public-source modules (coinsph.ts, public-hosts.ts, v2.8 native-relay.ts, okx.ts, coinbase.ts, upbit.ts and v2.8 (WP25) lib/radar/*.ts) contain no
  *      key, signature or auth-header handling;
  *   2. no app or adapter source references a path of a relayed host outside that host's read allowlist in
  *      src/lib/public-hosts.ts (an allowlist, not a denylist): Coins.ph `/openapi/…`, and v2.8 (WP26) Upbit
@@ -45,7 +45,10 @@ export function checkKeylessSources(root = ROOT) {
   const lib = "apps/confluence/web/src/lib";
 
   // v2.8 (WP26): the generic relay (Upbit) is a public-source module too.
-  for (const f of [`${lib}/coinsph.ts`, `${lib}/public-hosts.ts`, `${lib}/native-relay.ts`, `${lib}/okx.ts`, `${lib}/coinbase.ts`, `${lib}/upbit.ts`]) {
+  // v2.8 (WP25): every market-radar module (lib/radar/*.ts, tests excluded) is a public-source module too.
+  const radarDir = join(root, lib, "radar");
+  const radar = existsSync(radarDir) ? readdirSync(radarDir).filter((f) => f.endsWith(".ts") && !isTest(f)).sort().map((f) => `${lib}/radar/${f}`) : [];
+  for (const f of [`${lib}/coinsph.ts`, `${lib}/public-hosts.ts`, `${lib}/native-relay.ts`, `${lib}/okx.ts`, `${lib}/coinbase.ts`, `${lib}/upbit.ts`, ...radar]) {
     const src = read(f);
     if (!src) findings.push(`${f} missing`);
     else if (AUTH.test(src.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ""))) findings.push(`${f}: key/signature/auth handling in a public source`);
