@@ -62,7 +62,25 @@
       "host": "https://publicreporting.cftc.gov",
       "cors": "ALLOWED from https://example.com (method 1) and from the app origin (method 2)",
       "dataset": "/resource/gpe5-46if.json (Traders in Financial Futures, futures only, Socrata)",
-      "latest_btc_133741_report_date": "2026-11-03"
+      "latest_btc_133741_report_date": "2026-11-03",
+      "row_fields_verified": {
+        "checked": "2026-11-16 ~03:40Z, live row from the app origin (method 2)",
+        "report_date_as_yyyy_mm_dd": "string \"2026-11-03T00:00:00.000\" (the Tuesday)",
+        "cftc_contract_market_code": "string \"133741\" (BTC), \"146021\" (ETH)",
+        "open_interest_all": "number as string",
+        "asset_mgr_positions_long": "number as string (no _all suffix)",
+        "asset_mgr_positions_short": "number as string (no _all suffix)",
+        "lev_money_positions_long": "number as string (no _all suffix)",
+        "lev_money_positions_short": "number as string (no _all suffix)",
+        "also_present": [
+          "change_in_asset_mgr_long",
+          "change_in_asset_mgr_short",
+          "change_in_lev_money_long",
+          "change_in_lev_money_short"
+        ],
+        "query": "$where=cftc_contract_market_code='133741'&$order=report_date_as_yyyy_mm_dd DESC&$limit=2 (values URL-encoded)"
+      },
+      "gate_chosen": "no documented public limit: conservative 2 requests / 10 s for the host (radar/cftc.ts), at most one fetch per 12 h per asset in the app; 429 -> module-local cooldown (Retry-After, else 60 s)"
     },
     "stablecoins_llama_fi": {
       "host": "https://stablecoins.llama.fi",
@@ -71,14 +89,21 @@
         "/stablecoins",
         "/stablecoincharts/all"
       ],
-      "note": "free; api.llama.fi/stablecoin* answered 404"
+      "note": "free; api.llama.fi/stablecoin* answered 404",
+      "response_verified": {
+        "checked": "2026-11-16 ~03:40Z, from the app origin (method 2)",
+        "path": "/stablecoincharts/all",
+        "shape": "array of {date: string of UNIX seconds (daily, UTC midnight), totalCirculating, totalCirculatingUSD: {peggedUSD: number, peggedEUR: number, ...}, totalMintedUSD, totalBridgedToUSD}",
+        "field_used": "totalCirculatingUSD.peggedUSD"
+      },
+      "gate_chosen": "no documented public limit: conservative 2 requests / 10 s for the host (radar/stablecoins.ts), at most one fetch per UTC day in the app; 429 -> module-local cooldown (Retry-After, else 60 s)"
     },
     "defillama_hacks": {
       "result": "documented only as a Pro endpoint (pro-api.llama.fi/{key}/api/hacks); api.llama.fi/hacks answers publicly but is undocumented",
       "decision": "link only, never fetched"
     }
   },
-  "fixtures_note": "Method 2 captured real response bodies for premiumIndex, fundingRate, openInterestHist, globalLongShortAccountRatio and takerlongshortRatio; radar-futures.test.mjs uses them verbatim (REAL_* in the real-bodies test). Edge-case fixtures (short histories, bad values) are generated in the same layout.",
+  "fixtures_note": "Method 2 captured real response bodies for premiumIndex, fundingRate, openInterestHist, globalLongShortAccountRatio and takerlongshortRatio; radar-futures.test.mjs uses them verbatim (REAL_* in the real-bodies test). Edge-case fixtures (short histories, bad values) are generated in the same layout. radar-inst.test.mjs (Task 3) uses the CFTC and DefiLlama field names and value formats above; its numbers are generated.",
   "not_verified": [
     "rate limits and terms of CFTC and DefiLlama"
   ]
