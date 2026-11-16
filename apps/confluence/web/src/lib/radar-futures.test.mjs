@@ -1,15 +1,15 @@
 // Binance USDⓈ-M futures positioning — v2.8 Step 4a (WP25, Task 1).
 // Run: npm run test:radar-fut   (node scripts/run-engine-tests.mjs radar-futures.test.mjs)
 //
-// Fixtures follow the response layout in Binance's public documentation (developers.binance.com, USDⓈ-M futures,
-// market data) for the five endpoints the 16 Nov 2026 probe (RD-PROBE-1) confirmed answer 200. The probe recorded
-// reachability and headers, not bodies, so every value below is a generated fixture, not a captured sample.
+// Fixtures: the REAL_* bodies are verbatim samples from the follow-up probe of RD-PROBE-1 (16 Nov 2026, from the
+// deployed app's origin). The generators below keep the real field layout (rateType, CMCCirculatingSupply, no symbol on
+// the taker rows) but their values are generated, to build edge cases (short histories, bad values).
 import {
   fetchFuturesPositioning, fundingPercentile, oiChange24h, resetFuturesForTests, setFuturesClockForTests,
   FUTURES_GATE_LIMIT, FUTURES_GATE_WINDOW_MS,
 } from "./radar/binance-futures.ts";
 import {
-  RateLimitError, resetRateLimitForTests, venueCooldown, noteVenueRateLimit, rateLimitCooldown, venueOf, FAPI_BASE,
+  RateLimitError, fetchJson, resetRateLimitForTests, venueCooldown, noteVenueRateLimit, rateLimitCooldown, venueOf, FAPI_BASE,
 } from "./market-client.ts";
 
 let passed = 0;
@@ -29,11 +29,11 @@ const premium = (over = {}) => ({
   lastFundingRate: "0.00010000", interestRate: "0.00010000", nextFundingTime: T0 + 5 * H, time: T0 + 1000, ...over,
 });
 const fundingHist = (n = 90) =>
-  Array.from({ length: n }, (_, i) => ({ symbol: "BTCUSDT", fundingRate: String(0.00001 * (i + 1)), fundingTime: T0 - (n - i) * 8 * H, markPrice: "66000" }));
+  Array.from({ length: n }, (_, i) => ({ symbol: "BTCUSDT", fundingRate: String(0.00001 * (i + 1)), fundingTime: T0 - (n - i) * 8 * H, markPrice: "66000", rateType: "Regular" }));
 const oiHist = (hours = 25, last = 1000) =>
-  Array.from({ length: hours }, (_, i) => ({ symbol: "BTCUSDT", sumOpenInterest: String(last - (hours - 1 - i) * 2), sumOpenInterestValue: "66000000", timestamp: T0 - (hours - 1 - i) * H }));
+  Array.from({ length: hours }, (_, i) => ({ symbol: "BTCUSDT", sumOpenInterest: String(last - (hours - 1 - i) * 2), sumOpenInterestValue: "66000000", CMCCirculatingSupply: "20112050.00000000", timestamp: T0 - (hours - 1 - i) * H }));
 const lsr = (over = {}) => [{ symbol: "BTCUSDT", longShortRatio: "1.8105", longAccount: "0.6442", shortAccount: "0.3558", timestamp: T0 - 60_000, ...over }];
-const taker = (over = {}) => [{ buySellRatio: "1.5586", buyVol: "387.3300", sellVol: "248.5030", timestamp: T0 - 30_000, ...over }];
+const taker = (over = {}) => [{ buySellRatio: "1.5586", sellVol: "248.5030", buyVol: "387.3300", timestamp: T0 - 30_000, ...over }];
 
 /** Stub fetch: `routes` maps a path to a body, a number (HTTP status) or a function. Logs every URL. */
 function stub(routes) {
@@ -91,7 +91,7 @@ try {
     ok("fundingRate limit=90", seen.some((u) => u.pathname === "/fapi/v1/fundingRate" && u.searchParams.get("limit") === "90" && u.searchParams.get("symbol") === "BTCUSDT"));
     ok("openInterestHist period=1h limit=25", seen.some((u) => u.pathname === "/futures/data/openInterestHist" && u.searchParams.get("period") === "1h" && u.searchParams.get("limit") === "25"));
     ok("long/short and taker: period=1h limit=1", ["/futures/data/globalLongShortAccountRatio", "/futures/data/takerlongshortRatio"].every((x) => seen.some((u) => u.pathname === x && u.searchParams.get("period") === "1h" && u.searchParams.get("limit") === "1")));
-    ok("no order endpoint, no key", seen.every((u) => !/order/i.test(u.pathname.replace("fundingRate", "")) && u.search.indexOf("sign") === -1));
+    ok("no order endpoint, no key", seen.every((u) => !/order/i.test(u.pathname) && u.search.indexOf("sign") === -1));
     ok("fields are finite numbers", ["fundingRate", "fundingPctl30d", "oi", "oiChg24hPct", "longShortRatio", "takerBuySellRatio", "basisPct"].every((k) => Number.isFinite(p[k])), JSON.stringify(p));
     ok("symbol and funding rate", p.symbol === "BTCUSDT" && near(p.fundingRate, 0.0001, 1e-12));
     ok("funding percentile of 0.0001 in 0.00001..0.0009 = 10/90", near(p.fundingPctl30d, (10 / 90) * 100, 1e-6), String(p.fundingPctl30d));
@@ -114,11 +114,10 @@ try {
   }
   {
     fresh();
-    stub({ ...full(), "/futures/data/takerlongshortRatio": "not json at all" });
-    globalThis.fetch = ((orig) => async (i, o) => {
-      const u = new URL(typeof i === "string" ? i : i.url);
-      return u.pathname === "/futures/data/takerlongshortRatio" ? new Response("<html>", { status: 200 }) : orig(i, o);
-    })(globalThis.fetch);
+    const base = stub(full());
+    const inner = globalThis.fetch;
+    globalThis.fetch = async (i, o) => (new URL(typeof i === "string" ? i : i.url).pathname === "/futures/data/takerlongshortRatio" ? new Response("<html>", { status: 200 }) : inner(i, o));
+    void base;
     const p = await fetchFuturesPositioning("BTCUSDT");
     ok("unreadable body: that field null, no throw", p.takerBuySellRatio === null && Number.isFinite(p.longShortRatio));
   }
@@ -147,6 +146,53 @@ try {
     fresh();
     stub({});
     ok("every endpoint failing -> throws", await fetchFuturesPositioning("BTCUSDT").then(() => false, () => true));
+  }
+
+  // ---- newest OI sample decides ----
+  for (const bad of ["NaN", "abc", "-5", ""]) {
+    fresh();
+    stub({ ...full(), "/futures/data/openInterestHist": oiHist().map((r, i, a) => (i === a.length - 1 ? { ...r, sumOpenInterest: bad } : r)) });
+    const p = await fetchFuturesPositioning("BTCUSDT");
+    ok(`newest OI "${bad}" -> oi and change null, not an older sample`, p.oi === null && p.oiChg24hPct === null, `${p.oi} ${p.oiChg24hPct}`);
+  }
+  {
+    fresh();
+    // unsorted input: the newest by timestamp is bad, whatever its position
+    stub({ ...full(), "/futures/data/openInterestHist": oiHist().map((r, i, a) => (i === a.length - 1 ? { ...r, sumOpenInterest: "NaN" } : r)).reverse() });
+    const p = await fetchFuturesPositioning("BTCUSDT");
+    ok("newest OI bad in an unsorted list -> null", p.oi === null && p.oiChg24hPct === null);
+  }
+  {
+    fresh();
+    stub({ ...full(), "/futures/data/openInterestHist": oiHist().map((r, i) => (i <= 1 ? { ...r, sumOpenInterest: "NaN" } : r)) });
+    const p = await fetchFuturesPositioning("BTCUSDT");
+    ok("bad OLD samples (24 h and 23 h back) only lose the change", Number.isFinite(p.oi) && p.oiChg24hPct === null);
+  }
+
+  // ---- real sample bodies (probe RD-PROBE-1, follow-up from the app origin) ----
+  {
+    fresh();
+    const REAL_PREMIUM = { symbol: "BTCUSDT", markPrice: "64944.91491304", indexPrice: "64979.37652174", estimatedSettlePrice: "65078.08558540", lastFundingRate: "-0.00001816", interestRate: "0.00010000", nextFundingTime: 1794816000000, time: 1794800426000 };
+    const REAL_FUNDING_ROW = { symbol: "BTCUSDT", fundingTime: 1794729600000, fundingRate: "0.00002303", markPrice: "63988.60882309", rateType: "Regular" };
+    const REAL_OI_ROW = { symbol: "BTCUSDT", sumOpenInterest: "93828.19300000", sumOpenInterestValue: "6062644075.84702600", CMCCirculatingSupply: "20112050.00000000", timestamp: 1794794400000 };
+    const REAL_LS = [{ symbol: "BTCUSDT", longShortRatio: "2.9154", longAccount: "0.7446", shortAccount: "0.2554", timestamp: 1794798000000 }];
+    const REAL_TAKER = [{ buySellRatio: "1.1088", sellVol: "3856.5760", buyVol: "4276.0310", timestamp: 1794794400000 }];
+    // 90 funding rows 8 h apart ending at the real row, 25 hourly OI rows ending at the real row; real rows are the newest
+    const f = Array.from({ length: 90 }, (_, i) => ({ ...REAL_FUNDING_ROW, fundingTime: REAL_FUNDING_ROW.fundingTime - (89 - i) * 8 * H, fundingRate: i === 89 ? REAL_FUNDING_ROW.fundingRate : String(0.00001 * (i % 40)) }));
+    const o = Array.from({ length: 25 }, (_, i) => ({ ...REAL_OI_ROW, timestamp: REAL_OI_ROW.timestamp - (24 - i) * H, sumOpenInterest: i === 24 ? REAL_OI_ROW.sumOpenInterest : "90000.000" }));
+    stub({ "/fapi/v1/premiumIndex": REAL_PREMIUM, "/fapi/v1/fundingRate": f, "/futures/data/openInterestHist": o, "/futures/data/globalLongShortAccountRatio": REAL_LS, "/futures/data/takerlongshortRatio": REAL_TAKER });
+    const p = await fetchFuturesPositioning("BTCUSDT");
+    ok("real bodies: negative funding rate, basis below zero", near(p.fundingRate, -0.00001816, 1e-12) && near(p.basisPct, (64944.91491304 / 64979.37652174 - 1) * 100, 1e-9) && p.basisPct < 0);
+    ok("real bodies: oi, change vs 24 h earlier", near(p.oi, 93828.193, 1e-9) && near(p.oiChg24hPct, (93828.193 / 90000 - 1) * 100, 1e-9), String(p.oiChg24hPct));
+    ok("real bodies: ratios (taker row has no symbol field)", near(p.longShortRatio, 2.9154, 1e-9) && near(p.takerBuySellRatio, 1.1088, 1e-9));
+    ok("real bodies: asOf is the newest timestamp (premiumIndex time)", p.asOf === 1794800426000, String(p.asOf));
+    ok("real bodies: funding percentile is a 0-100 number", Number.isFinite(p.fundingPctl30d) && p.fundingPctl30d >= 0 && p.fundingPctl30d <= 100);
+  }
+  {
+    fresh();
+    stub({ ...full(), "/fapi/v1/premiumIndex": 500, "/futures/data/openInterestHist": 500, "/futures/data/globalLongShortAccountRatio": [], "/futures/data/takerlongshortRatio": [] });
+    const p = await fetchFuturesPositioning("BTCUSDT");
+    ok("no data timestamp at all -> asOf 0, never the clock", p.asOf === 0, String(p.asOf));
   }
 
   // ---- cooldown is its own venue ----
@@ -183,6 +229,26 @@ try {
     ok("venueOf is unchanged: no futures data source", venueOf("binance") === "binance" && venueOf("bybit-perp") === "bybit");
     resetRateLimitForTests();
     ok("resetRateLimitForTests clears it", venueCooldown("binance-fut") === 0);
+  }
+
+  // ---- which API reads which cooldown ----
+  {
+    fresh();
+    noteVenueRateLimit("binance", new RateLimitError("spot", 60_000));
+    ok("venueCooldown reads spot and futures apart (spot cooling)", venueCooldown("binance") > 0 && venueCooldown("binance-fut") === 0);
+    // venueOf("binance-fut") falls to "binance" by design (no futures DataSource), so the source-keyed API reports the SPOT pool:
+    // radar code must use venueCooldown("binance-fut"), never rateLimitCooldown("binance-fut").
+    ok("rateLimitCooldown('binance-fut') is the spot pool (documented; radar uses venueCooldown)", rateLimitCooldown("binance-fut") > 0 && venueOf("binance-fut") === "binance");
+    resetRateLimitForTests();
+    noteVenueRateLimit("binance-fut", new RateLimitError("fut", 60_000));
+    ok("futures cooling: venueCooldown('binance-fut') > 0, spot 0", venueCooldown("binance-fut") > 0 && venueCooldown("binance") === 0 && rateLimitCooldown("binance") === 0);
+  }
+  {
+    // fetchJson with a fapi URL (guard for future use) lands on binance-fut, not on spot.
+    fresh();
+    stub({ "/fapi/v1/premiumIndex": 429 });
+    const err = await fetchJson(`${FAPI_BASE}/fapi/v1/premiumIndex?symbol=BTCUSDT`, "guard").then(() => null, (e) => e);
+    ok("fetchJson on a fapi URL: 429 sets binance-fut only", err instanceof RateLimitError && venueCooldown("binance-fut") > 0 && venueCooldown("binance") === 0);
   }
 
   // ---- its own gate, at 80 % of the stricter documented limit ----

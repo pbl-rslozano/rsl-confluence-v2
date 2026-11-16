@@ -1,13 +1,13 @@
 {
   "id": "RD-PROBE-1",
-  "date": "2026-11-16T~03:12Z",
-  "method": "Claude desktop built-in browser (Chromium), owner's computer (KSA); page origin https://example.com; fetch() default mode 'cors'. The pane also blocked data-api.binance.vision (known CORS-OK in production) from that page, so the fapi cross-origin result is inconclusive and is recorded from the response headers.",
+  "date": "2026-11-16T03:12Z (first probe), 2026-11-16T03:40Z (follow-up from the app origin)",
+  "method": "Method 1 (03:12Z): Claude desktop built-in browser (Chromium); page origin https://example.com; fetch() default mode 'cors'; the pane also blocked data-api.binance.vision (known CORS-OK) from that page, so its fapi cross-origin result was inconclusive. Method 2 (03:40Z, follow-up): page https://effervescent-bubblegum-1e5c03.netlify.app/robots.txt (the deployed app's own origin, a CSP-free document); fetch() default mode 'cors'.",
   "purpose": "WP25 build-time check: reachability, CORS headers and endpoint availability of the market-radar hosts (Binance USD-M futures REST, CFTC public reporting, DefiLlama stablecoins); rate limits of the futures REST.",
   "results": {
     "fapi_binance_com": {
       "host": "https://fapi.binance.com",
       "transport": "REST only, direct fetch, CSP connect-src",
-      "cors": "LIKELY ALLOWED — same-origin response headers: access-control-allow-origin '*', allow-credentials true, x-mbx-used-weight-1m present. Cross-origin fetch from https://example.com failed, but data-api.binance.vision failed the same way from that page (pane limitation), so inconclusive. Fallback if a build-time probe from the app origin fails: a same-origin rewrite like Coins.ph (not built).",
+      "cors": "ALLOWED from the app origin (method 2): /fapi/v1/premiumIndex 200 and /futures/data/takerlongshortRatio 200 cross-origin. Method 1 was inconclusive; same-origin headers showed access-control-allow-origin '*' and x-mbx-used-weight-1m.",
       "endpoints_200": [
         "/fapi/v1/premiumIndex",
         "/fapi/v1/fundingRate",
@@ -41,6 +41,7 @@
         ]
       },
       "gate_chosen": "one venue gate 'binance-fut': 400 requests per 300 s = 80 % of the strictest documented limit (500 per 5 min on fundingRate); 80 % of 1000 per 5 min is 800 and 80 % of 2400 weight per minute is 1920, both far above it. 429/418 -> RateLimitError and the 'binance-fut' cooldown (Retry-After, else 600 s for 418 and 60 s for 429).",
+      "fallback": "a same-origin rewrite like Coins.ph, not built (not needed)",
       "not_verified": [
         "live exchangeInfo rateLimits value (docs example used)",
         "fundingRate weight (documented only as a shared 500 / 5 min / IP limit)",
@@ -59,13 +60,13 @@
     },
     "publicreporting_cftc_gov": {
       "host": "https://publicreporting.cftc.gov",
-      "cors": "ALLOWED from https://example.com",
+      "cors": "ALLOWED from https://example.com (method 1) and from the app origin (method 2)",
       "dataset": "/resource/gpe5-46if.json (Traders in Financial Futures, futures only, Socrata)",
       "latest_btc_133741_report_date": "2026-11-03"
     },
     "stablecoins_llama_fi": {
       "host": "https://stablecoins.llama.fi",
-      "cors": "ALLOWED",
+      "cors": "ALLOWED from https://example.com (method 1) and from the app origin (method 2)",
       "paths": [
         "/stablecoins",
         "/stablecoincharts/all"
@@ -77,9 +78,8 @@
       "decision": "link only, never fetched"
     }
   },
-  "fixtures_note": "The probe recorded reachability, headers and report dates, not response bodies. Test fixtures in radar-futures.test.mjs follow the layout of the Binance documentation and are generated, not captured.",
+  "fixtures_note": "Method 2 captured real response bodies for premiumIndex, fundingRate, openInterestHist, globalLongShortAccountRatio and takerlongshortRatio; radar-futures.test.mjs uses them verbatim (REAL_* in the real-bodies test). Edge-case fixtures (short histories, bad values) are generated in the same layout.",
   "not_verified": [
-    "cross-origin fetch of fapi.binance.com from the app origin (pane limitation)",
     "rate limits and terms of CFTC and DefiLlama"
   ]
 }

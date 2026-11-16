@@ -2,7 +2,8 @@
  * binance-futures.ts — v2.8 Step 4a (plan WP25, Task 1): Binance USDⓈ-M futures positioning for the market radar.
  *
  * Public market data only: GET, no key, no credentials, no account or order endpoint (R12, R20). The host
- * (fapi.binance.com) answers cross-origin (probe RD-PROBE-1), so it is fetched directly and listed in CSP_HOSTS.
+ * (fapi.binance.com) answered a cross-origin fetch from the deployed app's own origin (probe RD-PROBE-1, follow-up
+ * method), so it is fetched directly and listed in CSP_HOSTS.
  * The venue "binance-fut" is a rate venue with its own cooldown and its own gate; it is not a scan source.
  *
  * Context, never a vote: nothing here reaches scoring.
@@ -150,11 +151,12 @@ export async function fetchFuturesPositioning(symbol: "BTCUSDT" | "ETHUSDT", sig
   const hist = rows(got.funding).map((r) => num(r.fundingRate)).filter((x): x is number => x !== null);
   const fundingPctl30d = fundingRate !== null ? fundingPercentile(hist, fundingRate) : null;
 
-  // The newest sample decides: a bad newest value gives null, not an older sample's value.
-  const oiAll = rows(got.oi).map((r) => ({ t: num(r.timestamp), oi: num(r.sumOpenInterest) })).filter((r): r is { t: number; oi: number } => r.t !== null && r.oi !== null);
+  // The newest sample (by timestamp) decides: a bad newest value gives null, never an older sample's value.
+  const oiAll = rows(got.oi).map((r) => ({ t: num(r.timestamp), raw: r.sumOpenInterest })).filter((r): r is { t: number; raw: unknown } => r.t !== null);
   const newestOi = oiAll.length ? oiAll.reduce((a, b) => (b.t > a.t ? b : a)) : null;
-  const oiOk = newestOi !== null && newestOi.oi >= 0;
+  const newestVal = newestOi ? nonNegative(newestOi.raw) : null;
   if (newestOi) note(newestOi.t);
+  const oiSeries = oiAll.map((r) => ({ t: r.t, oi: nonNegative(r.raw) })).filter((r): r is { t: number; oi: number } => r.oi !== null);
 
   const ls = newestRow(got.ls);
   const tk = newestRow(got.taker);
@@ -165,11 +167,11 @@ export async function fetchFuturesPositioning(symbol: "BTCUSDT" | "ETHUSDT", sig
     symbol,
     fundingRate,
     fundingPctl30d,
-    oi: oiOk ? newestOi.oi : null,
-    oiChg24hPct: oiOk ? oiChange24h(oiAll.filter((r) => r.oi >= 0)) : null,
+    oi: newestVal,
+    oiChg24hPct: newestVal !== null ? oiChange24h(oiSeries) : null,
     longShortRatio: ls ? positive(ls.longShortRatio) : null,
     takerBuySellRatio: tk ? positive(tk.buySellRatio) : null,
     basisPct: basis,
-    asOf: times.length ? Math.max(...times) : clock.now(),
+    asOf: times.length ? Math.max(...times) : 0, // newest data timestamp; 0 when no endpoint gave one
   };
 }

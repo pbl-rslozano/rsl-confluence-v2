@@ -113,9 +113,8 @@ recorder's radar option is on; the default build contacts none of them (acceptan
   dataset `gpe5-46if`, CORS allowed in the probe) and `https://stablecoins.llama.fi` (DefiLlama stablecoin supply, CORS
   allowed in the probe). They are fetched directly and are in `CSP_HOSTS`
   (`apps/confluence/web/src/lib/public-hosts.ts`), the desktop CSP and `tools/egress-manifest.json` `web.hosts` and
-  `web.csp` (R8, R11). fapi.binance.com answered with `access-control-allow-origin: *` on a same-origin request; the
-  cross-origin result in the probe was inconclusive (the browser pane also blocked a known CORS-OK host), so a build-time
-  check from the app origin remains and a same-origin rewrite is the fallback if it fails.
+  `web.csp` (R8, R11). A follow-up probe from the deployed app's own origin found all three hosts CORS-allowed
+  (`premiumIndex` and `takerlongshortRatio` on fapi.binance.com), so no same-origin rewrite is needed.
 - **Rate venue:** Binance futures is the rate venue `binance-fut` (own cooldown and gate, separate from the spot pool); it
   is not a scan source. Documented IP limits (Binance developer documentation, checked 16 Nov 2026): REQUEST_WEIGHT 2400
   per minute (exchangeInfo example; the live value is in `rateLimits`), `/futures/data/*` 1000 requests per 5 minutes,
@@ -123,6 +122,6 @@ recorder's radar option is on; the default build contacts none of them (acceptan
   `openInterest` weight 1. The gate is 400 requests per 5 minutes, 80 % of the strictest. A 429 or 418 stops the venue
   for the `Retry-After` period (else 60 s, or 600 s for 418).
 - **Node processes:** the recorder (`recorder.hosts`) gains `fapi.binance.com`, `publicreporting.cftc.gov`,
-  `stablecoins.llama.fi` and `api.pro.coins.ph` (read paths only, as in v2.6); `web.hosts` and `web.csp` gain the three
+  `stablecoins.llama.fi` and `api.pro.coins.ph` (listed for the radar's later regional-premium reads; its read-path restriction is by policy and the R12/R20 static checks, as the recorder's runtime guard is host-level); `web.hosts` and `web.csp` gain the three
   hosts (R8, R11).
 - **Not verified:** the live exchangeInfo limit value, the `fundingRate` weight, and the terms of the three hosts.
