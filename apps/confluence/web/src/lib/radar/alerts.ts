@@ -10,15 +10,26 @@
  *   radar.alert.breakaway  { venue, pct, bars }   pct = signed deviation of the newest bar after the standing premium, %
  *   radar.alert.volume     { z, pct }             z = z-score, pct = the day's volume vs the 30-day mean, %
  *   radar.alert.depeg      { coin, reference, dev, level }   dev = signed % from 1:1, level = watch | warning | severe
+ *   radar.alert.liq       { venue, usd, mult, median, longPct }   (Step 4b, liquidations.ts)
+ *   radar.alert.whale     { amount, symbol, usd, from, to, chain }   (Step 4b, whaleAlert: raw numbers; the panel formats them)
  *   radar.alert.supply     { pct, usd, pctl }     pct / usd = SIGNED daily change (% of the previous day's supply / US$): + mint, - redemption
  */
 import type { DepegReading } from "../quotes";
 import { depegLevel } from "../quotes";
 import { PROVIDERS } from "../providers";
 import type { SupplyPoint } from "./stablecoins";
+import type { WhaleAlert } from "../provider-data-client";
 
-export interface RadarThresholds { breakAwayPct: number; breakAwayBars: number; volumeZ: number; supplyPctl: number }
-export const DEFAULT_THRESHOLDS: RadarThresholds = { breakAwayPct: 1, breakAwayBars: 2, volumeZ: 3, supplyPctl: 99 };
+export interface RadarThresholds {
+  breakAwayPct: number; breakAwayBars: number; volumeZ: number; supplyPctl: number;
+  /** Step 4b: a liquidation cascade is the last 60 minutes at >= liqMult x the median complete hour. */
+  liqMult: number;
+  /** Step 4b: smallest whale transfer (US$) that is shown. */
+  whaleMinUsd: number;
+}
+export const DEFAULT_THRESHOLDS: RadarThresholds = {
+  breakAwayPct: 1, breakAwayBars: 2, volumeZ: 3, supplyPctl: 99, liqMult: 3, whaleMinUsd: 10_000_000,
+};
 
 /** Allowed ranges (inclusive) per threshold; `int` = whole numbers only. */
 const RANGES: Record<keyof RadarThresholds, { min: number; max: number; int?: boolean }> = {
@@ -26,6 +37,8 @@ const RANGES: Record<keyof RadarThresholds, { min: number; max: number; int?: bo
   breakAwayBars: { min: 1, max: 6, int: true },
   volumeZ: { min: 1.5, max: 10 },
   supplyPctl: { min: 90, max: 99.9 },
+  liqMult: { min: 1.5, max: 20 },
+  whaleMinUsd: { min: 1_000_000, max: 10_000_000_000, int: true },
 };
 
 /** Anything that is not a finite number inside its range (or not an own property) falls back to the default; unknown keys are dropped. */
@@ -45,7 +58,7 @@ export type AlertCode = string;
 export const ALERT_CODE = /^[A-Z0-9_]{1,32}$/;
 export interface RadarAlert {
   code: AlertCode;
-  kind: "breakaway" | "volume" | "depeg" | "supply";
+  kind: "breakaway" | "volume" | "depeg" | "supply" | "liquidation" | "whale";
   trigger: { key: string; vars: Record<string, string | number> };
   sourceUrl: string;
   /** Close time (ms) of the first bar (or day) of the run that triggered the alert. */
@@ -74,7 +87,7 @@ function providerIdOf(id: string): string {
   const head = key.split("-")[0];
   return PROVIDERS.some((p) => p.id === head) ? head : "";
 }
-function pageOf(id: string): string {
+export function pageOf(id: string): string {
   const pid = providerIdOf(id);
   return PROVIDERS.find((p) => p.id === pid)?.apiDocs ?? EXTRA_PAGES[pid] ?? "";
 }
@@ -85,7 +98,7 @@ const round = (n: number, dp: number) => Math.round(n * 10 ** dp) / 10 ** dp;
 /** Code part: upper case, every run of other characters one "_", none leading or trailing. Same for every alert kind. */
 const upper = (s: string) => String(s ?? "").toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 
-function median(xs: number[]): number {
+export function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b);
   const m = s.length >> 1;
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
@@ -261,5 +274,35 @@ export function supplyJump(points: SupplyPoint[], thresholds: RadarThresholds): 
     trigger: { key: "radar.alert.supply", vars: { pct: base > 0 ? round((today / base) * 100, 2) : 0, usd: Math.round(today), pctl: th.supplyPctl } },
     sourceUrl: pageOf("defillama"),
     since: run[run.length - 1].day,
+  };
+}
+
+/* ---------------- large transfer (Whale Alert, via the gateway) ---------------- */
+
+/** Where a reader can look at Whale Alert. A link only (opened in the browser), never a fetch host. */
+const WHALE_SOURCE = "https://whale-alert.io";
+const WHALE_FUTURE_MS = 5 * 60_000;
+
+/**
+ * The largest transfer of the last hour whose value is at least `whaleMinUsd` (ties: the newer one). One alert, code
+ * WHALE_TRANSFER; vars carry the raw amount and value, the panel formats them. A transfer more than 5 minutes ahead of
+ * `now` (clock skew or a bad row) is ignored. No request: the transfers come from the gateway's poll. Since = the transfer time.
+ */
+export function whaleAlert(alerts: WhaleAlert[], thresholds: RadarThresholds, now: number): RadarAlert | null {
+  const th = sanitizeThresholds(thresholds);
+  if (!Array.isArray(alerts) || !isNum(now)) return null;
+  let best: WhaleAlert | null = null;
+  for (const a of alerts) {
+    if (!a || !isNum(a.t) || !isNum(a.valueUsd) || !isNum(a.amount)) continue;
+    if (a.t < now - H || a.t > now + WHALE_FUTURE_MS || a.valueUsd < th.whaleMinUsd) continue;
+    if (!best || a.valueUsd > best.valueUsd || (a.valueUsd === best.valueUsd && a.t > best.t)) best = a;
+  }
+  if (!best) return null;
+  return {
+    code: "WHALE_TRANSFER",
+    kind: "whale",
+    trigger: { key: "radar.alert.whale", vars: { amount: best.amount, symbol: String(best.symbol), usd: best.valueUsd, from: String(best.from), to: String(best.to), chain: String(best.chain) } },
+    sourceUrl: WHALE_SOURCE,
+    since: best.t,
   };
 }

@@ -121,7 +121,7 @@ export function checkEgress({ root = ROOT, manifestPath = join(root, "tools", "e
     // v2.8 WP20: the host overview (web.hosts, no scheme) names every host the WebView may fetch.
     const hosts = new Set((procs.web.hosts ?? []).map((h) => h.toLowerCase()));
     for (const m of table.matchAll(/origin:\s*"([^"]+)"/g)) {
-      const h = m[1].replace(/^https?:\/\//, "").toLowerCase();
+      const h = m[1].replace(/^(?:https?|wss):\/\//, "").toLowerCase();
       if (!hosts.has(h)) webHostDrift.push(`${h} is in CSP_HOSTS but not in web.hosts`);
     }
   }

@@ -125,3 +125,50 @@ recorder's radar option is on; the default build contacts none of them (acceptan
   `stablecoins.llama.fi` and `api.pro.coins.ph` (listed for the radar's later regional-premium reads; its read-path restriction is by policy and the R12/R20 static checks, as the recorder's runtime guard is host-level); `web.hosts` and `web.csp` gain the three
   hosts (R8, R11).
 - **Not verified:** the live exchangeInfo limit value, the `fundingRate` weight, and the terms of the three hosts.
+
+## Amendment — v2.8 part 2 (web) (16 Nov 2026, WP25: liquidation websockets)
+Evidence: probe `docs/research/evidence/wp25-liquidation-ws-probe-2026-11-16.json` (16 Nov 2026, from the deployed app's
+own origin `https://effervescent-bubblegum-1e5c03.netlify.app`). Both streams are public market data only: no key, no
+credentials, no account and no order endpoint (paper trading only; release checks R12 and R20). The radar opens them
+only while its panel is open or the recorder's radar option is on (the runner starts and stops the feed under the same
+gate as every radar request); the default build at rest opens no socket (acceptance BLD-9.4-3a is unchanged).
+- **App, `connect-src` (+2, websocket):** `wss://fstream.binance.com` and `wss://stream.bybit.com`. They are in
+  `CSP_HOSTS` (`apps/confluence/web/src/lib/public-hosts.ts`), the desktop CSP, and `tools/egress-manifest.json` `web.csp`
+  (with the scheme) and `web.hosts` (`fstream.binance.com`, `stream.bybit.com`, without it; R8, R11). R8 reads the full
+  `wss://` origin here, so both origins are written in full in this amendment.
+- **Binance USD-M liquidation stream:** `wss://fstream.binance.com/market/ws/!forceOrder@arr`. Probe: 8 events in 35 s from
+  the app origin. The legacy `/ws/` path opened but sent nothing in about 2 minutes, so it is not used. Binance pushes only
+  the latest liquidation per symbol per second, so its totals are labelled "sampled" wherever they are shown.
+- **Bybit public liquidation stream:** `wss://stream.bybit.com/v5/public/linear`, topics `allLiquidation.BTCUSDT` and
+  `allLiquidation.ETHUSDT`. Probe: the socket opened from the app origin, acknowledged the `allLiquidation.*USDT`
+  subscribe and pushed events. The feed counts Bybit as connected only after that acknowledgement and sends
+  `{"op":"ping"}` every 20 s.
+- **Reconnects:** after a close or error the feed waits 2 s, 4 s, 8 s ... up to 60 s (reset after 5 minutes connected).
+  `stop()` closes both sockets and cancels every timer and pending reconnect.
+- **Recorder (`websocketHosts` +1):** `fstream.binance.com` joins `stream.bybit.com` in the recorder's `websocketHosts`
+  (`tools/egress-manifest.json`). Only in continuous mode with `--radar on`; `--once` opens no socket. The recorder opens them
+  through a WebSocket constructor that refuses, before connecting, any URL that is not `wss:` or whose host is not listed, and
+  its error names only protocol and host. `tools/check-egress.mjs` checks the source; the guard checks at runtime.
+- **Not verified:** each venue's terms for the streams and any connection or message rate limit beyond what the probe saw.
+
+## Amendment — v2.8 part 2 (gateway) (16 Nov 2026, WP25: data-provider keys)
+Two optional, paid providers are reachable only from the local gateway (`apps/confluence/gateway`, on the user's own
+computer, loopback only). Neither is reachable from the web app, the desktop CSP or the recorder, and no web bundle
+carries a provider key. Both are on personal-use plans: Whale Alert Alerts API (US$29.95 per month) and CoinGlass
+Hobbyist. Both are optional: without a connected provider profile the radar rows say "Available with a key on the
+desktop gateway" and the gateway contacts neither host.
+- **Gateway `hosts` +1:** `open-api-v4.coinglass.com` (https, header `CG-API-KEY`). Test call at connect:
+  `GET https://open-api-v4.coinglass.com/api/etf/bitcoin/list`; the key passes only when the HTTP status is OK and the
+  response `code` is `"0"`.
+- **Gateway `websocketHosts` +1:** `leviathan.whale-alert.io` (wss, `wss://leviathan.whale-alert.io/ws?api_key=<key>`).
+  Test at connect: the gateway opens the socket, sends one `subscribe_alerts` message and waits for the
+  `subscribed_alerts` confirmation, then closes the socket. Whale Alert allows at most 2 concurrent connections per key.
+- **Keys:** held in the gateway's memory only, as a provider profile kept separate from exchange profiles. They are
+  cleared at exit and on a crash (`clearSecrets`). They are never in the web app's storage, the repository, a backup, a
+  log line, an error message or a gateway response (only a masked key is returned). The Whale Alert key is part of the
+  socket URL, so the gateway replaces every failure with a fixed message that carries no URL, key or upstream text.
+- **Manifest and check:** `tools/egress-manifest.json` gateway `roots` gain `provider-auth.mjs` and `provider-data.mjs`,
+  `hosts` gains the CoinGlass host and `websocketHosts` gains the Whale Alert host. `tools/check-egress.mjs` checks both
+  files' URL literals; both URLs are written in full in the source.
+- **Not verified:** the response CoinGlass gives for an invalid key is undocumented, so any non-OK status or any
+  `code` other than `"0"` is treated as rejected. No Whale Alert ping or keepalive is documented.

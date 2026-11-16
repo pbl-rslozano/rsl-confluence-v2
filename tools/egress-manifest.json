@@ -3,7 +3,7 @@
   "description": "Allowed outbound hosts per process (ADR-0003, amended by ADR-0008). tools/check-egress.mjs fails when a source file under a process root contains an http(s) URL whose host is not listed for that process; the recorder also enforces this list at runtime.",
   "processes": {
     "web": {
-      "description": "Browser / Tauri / Capacitor app. Enforced by CSP connect-src (apps/confluence/web/src/lib/csp.ts) and release-check R8; listed here for one overview, not scanned by check-egress. v2.6: nativeHosts are reached outside the CSP (no CORS header) — web through the same-origin rewrite in public/_redirects, Capacitor/Tauri through nativeGet — and only on the read paths in src/lib/public-hosts.ts (release-check R16). v2.8 (WP20): `hosts` lists every CSP_HOSTS host without its scheme, the six display-currency rate hosts included (ADR-0015); tools/check-egress.test.mjs checks it. v2.8 (WP26): www.okx.com and api.exchange.coinbase.com join the CSP hosts; api.upbit.com is a native host (read paths only, like Coins.ph). The Node paths of the app (the server route src/app/api/market, the replay CLI) fetch these venues directly with plain fetch; they run on the user's own computer and use the same hosts. v2.8 (WP25): fapi.binance.com (REST only), publicreporting.cftc.gov and stablecoins.llama.fi join the CSP hosts for the market radar.",
+      "description": "Browser / Tauri / Capacitor app. Enforced by CSP connect-src (apps/confluence/web/src/lib/csp.ts) and release-check R8; listed here for one overview, not scanned by check-egress. v2.6: nativeHosts are reached outside the CSP (no CORS header) — web through the same-origin rewrite in public/_redirects, Capacitor/Tauri through nativeGet — and only on the read paths in src/lib/public-hosts.ts (release-check R16). v2.8 (WP20): `hosts` lists every CSP_HOSTS host without its scheme, the six display-currency rate hosts included (ADR-0015); tools/check-egress.test.mjs checks it. v2.8 (WP26): www.okx.com and api.exchange.coinbase.com join the CSP hosts; api.upbit.com is a native host (read paths only, like Coins.ph). The Node paths of the app (the server route src/app/api/market, the replay CLI) fetch these venues directly with plain fetch; they run on the user's own computer and use the same hosts. v2.8 (WP25): fapi.binance.com (REST only), publicreporting.cftc.gov and stablecoins.llama.fi join the CSP hosts for the market radar. v2.8 (WP25 part 2): the two liquidation websockets wss://fstream.binance.com and wss://stream.bybit.com join the CSP hosts (web.hosts lists them without the scheme); they are opened only while the radar gate holds.",
       "roots": [],
       "hosts": [
         "data-api.binance.vision",
@@ -22,7 +22,9 @@
         "api.exchange.coinbase.com",
         "fapi.binance.com",
         "publicreporting.cftc.gov",
-        "stablecoins.llama.fi"
+        "stablecoins.llama.fi",
+        "fstream.binance.com",
+        "stream.bybit.com"
       ],
       "csp": [
         "'self'",
@@ -44,7 +46,9 @@
         "https://api.exchange.coinbase.com",
         "https://fapi.binance.com",
         "https://publicreporting.cftc.gov",
-        "https://stablecoins.llama.fi"
+        "https://stablecoins.llama.fi",
+        "wss://fstream.binance.com",
+        "wss://stream.bybit.com"
       ],
       "nativeHosts": [
         "api.pro.coins.ph",
@@ -63,21 +67,27 @@
       "loopbackListen": true
     },
     "gateway": {
-      "description": "Optional local read-only API gateway (apps/confluence/gateway, ADR-0009 / ADR-0003): runs on the user's own computer, listens on loopback, and calls an exchange's account endpoint only when the user connects an API key and asks it to check the key's permissions (read-only; keys with trading or withdrawal permission are refused). Never bundled into the app.",
+      "description": "Optional local read-only API gateway (apps/confluence/gateway, ADR-0009 / ADR-0003): runs on the user's own computer, listens on loopback, and calls an exchange's account endpoint only when the user connects an API key and asks it to check the key's permissions (read-only; keys with trading or withdrawal permission are refused). v2.8 (WP25 part 2): it also holds optional, paid data-provider keys in memory only (CoinGlass over https, Whale Alert over wss), each checked with one test call at connect; both hosts are contacted only for a connected provider profile. Never bundled into the app.",
       "roots": [
-        "apps/confluence/gateway/exchange-auth.mjs"
+        "apps/confluence/gateway/exchange-auth.mjs",
+        "apps/confluence/gateway/provider-auth.mjs",
+        "apps/confluence/gateway/provider-data.mjs"
       ],
       "hosts": [
         "api.binance.com",
         "testnet.binance.vision",
         "api.bybit.com",
         "api-testnet.bybit.com",
-        "api.bitget.com"
+        "api.bitget.com",
+        "open-api-v4.coinglass.com"
+      ],
+      "websocketHosts": [
+        "leviathan.whale-alert.io"
       ],
       "loopbackListen": true
     },
     "recorder": {
-      "description": "Headless forward-test recorder (apps/confluence/recorder, ADR-0008). Market data only (v2.8 WP26: OKX, Coinbase Exchange and Upbit join the exchange hosts; Upbit read paths only; v2.8 WP25: the market radar reads fapi.binance.com, publicreporting.cftc.gov, stablecoins.llama.fi and the Coins.ph read paths); alert hosts are added at runtime only when the matching environment variables are set.",
+      "description": "Headless forward-test recorder (apps/confluence/recorder, ADR-0008). Market data only (v2.8 WP26: OKX, Coinbase Exchange and Upbit join the exchange hosts; Upbit read paths only; v2.8 WP25: the market radar reads fapi.binance.com, publicreporting.cftc.gov, stablecoins.llama.fi and the Coins.ph read paths; v2.8 WP25 part 2: in continuous mode with --radar on it also listens to the two public liquidation streams, wss://fstream.binance.com and wss://stream.bybit.com, through a host-guarded WebSocket); alert hosts are added at runtime only when the matching environment variables are set.",
       "roots": [
         "apps/confluence/recorder"
       ],
@@ -100,7 +110,8 @@
         "ALERT_WEBHOOK_URL": "the host of the user's own https webhook, only when ALERT_WEBHOOK_URL is set; never a literal in source"
       },
       "websocketHosts": [
-        "stream.bybit.com"
+        "stream.bybit.com",
+        "fstream.binance.com"
       ]
     },
     "mcp": {

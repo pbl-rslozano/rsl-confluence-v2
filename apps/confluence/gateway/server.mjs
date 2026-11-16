@@ -21,6 +21,8 @@ import { writeJsonAtomic } from "../recorder/src/store.mjs";
 import { createServer } from "node:http";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { REFUSAL_MESSAGE, createProfile, profileAllowed, verifyCredentials } from "./exchange-auth.mjs";
+import { createProviderProfile, validateProviderCredentials, verifyProvider } from "./provider-auth.mjs";
+import { createEtfFlowCache, createWhaleStream } from "./provider-data.mjs";
 
 const HOST = "127.0.0.1";
 const PORT = Number.parseInt(process.env.CONFLUENCE_GATEWAY_PORT || "8787", 10);
@@ -32,6 +34,27 @@ const ALLOWED_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 const SESSION_TOKEN = process.env.CONFLUENCE_GATEWAY_TOKEN || randomUUID();
 
 const profiles = new Map();
+/** Data-provider keys (Whale Alert, CoinGlass): a separate kind from exchange keys, held in memory only. */
+const providerProfiles = new Map();
+/** One Whale Alert stream per distinct key (the provider allows 2 connections per key), and the 1 h ETF-flow cache. */
+const whaleStreams = new Map();
+const etfFlowCache = createEtfFlowCache();
+
+/** The newest connected profile of a provider, or null. Map order is connection order. */
+function newestProvider(provider) {
+  let found = null;
+  for (const entry of providerProfiles.values()) if (entry.provider === provider) found = entry;
+  return found;
+}
+
+function closeWhaleStreamIfUnused(apiKey) {
+  if (!apiKey) return;
+  for (const entry of providerProfiles.values()) {
+    if (entry.provider === "whale-alert" && entry.credentials?.apiKey === apiKey) return;
+  }
+  whaleStreams.get(apiKey)?.close();
+  whaleStreams.delete(apiKey);
+}
 const recorderDir = process.env.CONFLUENCE_RECORDER_DIR ? realpathSync(process.env.CONFLUENCE_RECORDER_DIR) : null;
 
 /* ---------------------------------------------------------------- *
@@ -209,7 +232,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/health") {
-      sendJson(response, 200, { ok: true, service: "confluence-private-api-gateway", profiles: profiles.size }, origin);
+      sendJson(response, 200, { ok: true, service: "confluence-private-api-gateway", profiles: profiles.size, providers: providerProfiles.size }, origin);
       return;
     }
 
@@ -226,6 +249,70 @@ const server = createServer(async (request, response) => {
       const profile = createProfile(credentials, verification);
       profiles.set(profile.id, { ...profile, credentials });
       sendJson(response, 200, { profile }, origin);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/providers") {
+      sendJson(response, 200, { profiles: [...providerProfiles.values()].map(({ credentials: _credentials, ...profile }) => profile) }, origin);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/providers/connect") {
+      rateLimitConnect(); // shares the 5-per-15-minutes window with /connect
+      const credentials = validateProviderCredentials(await readJson(request));
+      await verifyProvider(credentials);
+      const profile = createProviderProfile(credentials);
+      providerProfiles.set(profile.id, { ...profile, credentials });
+      if (credentials.provider === "whale-alert") { // a re-added key starts a fresh stream, never the rejected one
+        whaleStreams.get(credentials.apiKey)?.close();
+        whaleStreams.delete(credentials.apiKey);
+      }
+      sendJson(response, 200, { profile }, origin);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/providers/etf-flows") {
+      const entry = newestProvider("coinglass");
+      if (!entry) {
+        sendJson(response, 409, { error: "No ETF-flow provider key is connected." }, origin);
+        return;
+      }
+      let live;
+      try {
+        live = await etfFlowCache.get(entry.id, entry.credentials.apiKey);
+      } catch {
+        sendJson(response, 502, { error: "ETF flows unavailable." }, origin);
+        return;
+      }
+      sendJson(response, 200, live, origin);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/providers/whale-alerts") {
+      const entry = newestProvider("whale-alert");
+      if (!entry) {
+        sendJson(response, 409, { error: "No large-transfer provider key is connected." }, origin);
+        return;
+      }
+      const apiKey = entry.credentials.apiKey;
+      let stream = whaleStreams.get(apiKey);
+      if (!stream) {
+        stream = createWhaleStream({ apiKey });
+        whaleStreams.set(apiKey, stream);
+      }
+      sendJson(response, 200, stream.poll(Number(url.searchParams.get("min"))), origin);
+      return;
+    }
+
+    const providerMatch = url.pathname.match(/^\/providers\/([0-9a-f-]+)$/i);
+    if (request.method === "DELETE" && providerMatch) {
+      const entry = providerMatch[1] && providerProfiles.get(providerMatch[1]);
+      const apiKey = entry?.provider === "whale-alert" ? entry.credentials?.apiKey : "";
+      if (entry?.credentials) entry.credentials.apiKey = "";
+      const removed = providerProfiles.delete(providerMatch[1]);
+      etfFlowCache.delete(providerMatch[1]);
+      closeWhaleStreamIfUnused(apiKey);
+      sendJson(response, removed ? 200 : 404, removed ? { ok: true } : { error: "Profile not found." }, origin);
       return;
     }
 
@@ -256,7 +343,18 @@ server.listen(PORT, HOST, () => {
   console.log("Credentials are held in memory only. No trading endpoints are enabled.");
 });
 
+function closeAllProviderStreams() {
+  for (const stream of whaleStreams.values()) stream.close();
+  whaleStreams.clear();
+  etfFlowCache.clear();
+}
+
 function clearSecrets() {
+  for (const entry of providerProfiles.values()) {
+    if (entry.credentials) entry.credentials.apiKey = "";
+  }
+  providerProfiles.clear();
+  closeAllProviderStreams();
   for (const entry of profiles.values()) {
     if (entry.credentials) {
       entry.credentials.apiKey = "";

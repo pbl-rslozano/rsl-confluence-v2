@@ -1,0 +1,38 @@
+{
+  "id": "RD-PROBE-2",
+  "date": "2026-11-16",
+  "method": "Browser WebSocket opened from a page on the deployed app's own origin, https://effervescent-bubblegum-1e5c03.netlify.app (a CSP-free document, as in RD-PROBE-1 method 2).",
+  "purpose": "WP25 part 2 build-time check: which Binance and Bybit liquidation websocket endpoints open from the app origin and actually deliver liquidation events.",
+  "results": {
+    "binance_market_ws": {
+      "url": "wss://fstream.binance.com/market/ws/!forceOrder@arr",
+      "origin": "https://effervescent-bubblegum-1e5c03.netlify.app",
+      "opened": true,
+      "events_received": 8,
+      "observed_for": "35 s",
+      "decision": "used (BINANCE_LIQ_URL)",
+      "note": "Binance pushes only the latest liquidation per symbol per second, so totals are labelled 'sampled'."
+    },
+    "binance_legacy_ws": {
+      "url": "wss://fstream.binance.com/ws/!forceOrder@arr",
+      "origin": "https://effervescent-bubblegum-1e5c03.netlify.app",
+      "opened": true,
+      "events_received": 0,
+      "observed_for": "about 2 minutes",
+      "decision": "not used: the legacy /ws/ path opens but is silent"
+    },
+    "bybit_public_linear": {
+      "url": "wss://stream.bybit.com/v5/public/linear",
+      "origin": "https://effervescent-bubblegum-1e5c03.netlify.app",
+      "opened": true,
+      "subscribe": "allLiquidation.*USDT (BTCUSDT, ETHUSDT)",
+      "subscribe_acknowledged": true,
+      "events_received": "yes (count not recorded)",
+      "decision": "used (BYBIT_LIQ_URL); connected only after the subscribe acknowledgement; ping every 20 s"
+    }
+  },
+  "not_verified": [
+    "terms of use and connection or message rate limits of the two streams beyond what the probe saw",
+    "Bybit event count and duration of the probe (not recorded)"
+  ]
+}

@@ -10,7 +10,7 @@ import { checkEgress, formatEgressFindings, ROOT } from "./check-egress.mjs";
 
 const manifest = JSON.parse(readFileSync(join(ROOT, "tools", "egress-manifest.json"), "utf8"));
 const hostsTs = readFileSync(join(ROOT, "apps/confluence/web/src/lib/public-hosts.ts"), "utf8");
-const CSP = [...(hostsTs.match(/export const CSP_HOSTS = \[([\s\S]*?)\] as const;/) || [, ""])[1].matchAll(/origin:\s*"([^"]+)"/g)].map((m) => m[1].replace(/^https?:\/\//, ""));
+const CSP = [...(hostsTs.match(/export const CSP_HOSTS = \[([\s\S]*?)\] as const;/) || [, ""])[1].matchAll(/origin:\s*"([^"]+)"/g)].map((m) => m[1].replace(/^(?:https?|wss):\/\//, ""));
 
 test("every CSP_HOSTS host is in the manifest's web.hosts (six FX hosts included)", () => {
   assert.ok(CSP.length >= 12);
@@ -32,6 +32,32 @@ test("v2.8 WP26: every CSP_HOSTS origin is in web.hosts and web.csp; Upbit only 
   assert.deepEqual(web.nativeHosts, ["api.pro.coins.ph", "api.upbit.com"]);
   assert.ok(manifest.processes.launcher.hosts.includes("api.upbit.com"));
   for (const h of ["www.okx.com", "api.exchange.coinbase.com", "api.upbit.com"]) assert.ok(manifest.processes.recorder.hosts.includes(h), `recorder: ${h}`);
+});
+
+test("v2.8 WP25 part 2: the wss CSP hosts must be in web.hosts without the scheme and in web.csp with it", () => {
+  const web = manifest.processes.web;
+  for (const o of ["wss://fstream.binance.com", "wss://stream.bybit.com"]) {
+    assert.ok(hostsTs.includes(`"${o}"`), `${o} in CSP_HOSTS`);
+    assert.ok(web.hosts.includes(o.replace(/^wss:\/\//, "")), `${o} in web.hosts`);
+    assert.ok(web.csp.includes(o), `${o} in web.csp`);
+    assert.ok(!web.hosts.includes(o), `${o} is not in web.hosts with its scheme`);
+  }
+});
+
+test("a wss CSP host missing from web.hosts is a finding (the scheme is stripped like http and https)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "egress-"));
+  try {
+    mkdirSync(join(dir, "tools"));
+    mkdirSync(join(dir, "apps/confluence/web/src/lib"), { recursive: true });
+    for (const f of ["csp.ts", "public-hosts.ts"]) cpSync(join(ROOT, "apps/confluence/web/src/lib", f), join(dir, "apps/confluence/web/src/lib", f));
+    const m = structuredClone(manifest);
+    m.processes.web.hosts = m.processes.web.hosts.filter((h) => h !== "stream.bybit.com");
+    for (const p of Object.values(m.processes)) p.roots = [];
+    writeFileSync(join(dir, "tools", "egress-manifest.json"), JSON.stringify(m));
+    const r = checkEgress({ root: dir });
+    assert.equal(r.ok, false);
+    assert.deepEqual(r.webHostDrift, ["stream.bybit.com is in CSP_HOSTS but not in web.hosts"]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("a CSP host missing from web.hosts is a finding", () => {

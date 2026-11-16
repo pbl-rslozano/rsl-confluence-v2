@@ -33,7 +33,7 @@ try {
         (_m, name) => `from "./${name}.ts"`,
       );
       writeFileSync(join(dir, file), src);
-    } else if (file.endsWith(".mjs")) {
+    } else if (file.endsWith(".mjs") || file.endsWith(".json")) { // .json: shared test fixtures
       cpSync(join(lib, file), join(dir, file));
     }
   }

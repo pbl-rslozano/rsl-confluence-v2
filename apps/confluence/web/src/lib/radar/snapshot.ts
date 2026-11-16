@@ -17,22 +17,34 @@
  * (kept break-away inputs; dropped after FIELDS_MAX_AGE_MS without fresh data). `unavailable` lists
  * what has no value at all: positioning:<symbol>, regional, buyer, cot:<asset>, supply, breakaway, volume (daily volumes could
  * not be had or do not end at yesterday), plus `breakaway:<venue>` (hourly bars failed) and `standing:<venue>` (under 20 days).
+ * Provider data (Step 4b, only with a gateway link that has the matching profile; no link or a closed gate: no request at all):
+ * `etfLive` (CoinGlass, at most once per 6 h, kept in memory) and `whale` (Whale Alert, polled on every refresh with the
+ * sanitized `whaleMinUsd`). Failure codes: gateway:409 (no such profile on the gateway) -> unavailable `provider:etf` /
+ * `provider:whale` (the panel shows the "available with a key" row); gateway:401 -> unavailable `gateway` (token not accepted:
+ * the value is dropped); gateway:unavailable -> the last value kept with `stale.etfLive` / `stale.whale` (etfLive retried after
+ * RETRY_MS), or unavailable `etfLive` / `whale` when nothing is kept (401 and 409 are not backed off: the gateway answers them locally). A new session or profile set starts them afresh.
  * Every section has a deadline (45 s): a timeout is that section's failure, not a stop. `snapshot.t` is the END of the refresh.
  * The context log nulls the fields of a stale section and omits stale break-away codes.
  * Optional `allowed()` dep: while false, start/tick/refresh make no request (refresh rejects).
+ * v2.8 Step 4b: the optional `liquidations` feed (two websockets) is started and stopped with the runner under the same gate;
+ * `snapshot.liquidations` is its view at the end of the refresh, each venue's cascade alert joins `alerts` (re-run by
+ * rethreshold() from `feed.view(now, th)`), and `unavailable` gains `liq:bybit` / `liq:binance` while that venue is not connected.
  *
  * Per-device context log: one doc per UTC day, id `radar-log-YYYY-MM-DD` in the "meta" collection (no schema change), written
  * through the store's serialised queue. A trimmed RadarContext (BTC values) is appended at each refresh. The port has no delete,
  * so every day listed in the `radar-log-index` doc that is older than 35 days is blanked and unlisted (once per UTC day per runner).
  */
 import type { DepegReading } from "../quotes";
-import { breakAway, depegAlerts, sanitizeThresholds, supplyJump, volumeSpike, ALERT_CODE, type AlertCode, type RadarAlert, type RadarThresholds } from "./alerts";
+import { breakAway, depegAlerts, sanitizeThresholds, supplyJump, volumeSpike, whaleAlert, ALERT_CODE, type AlertCode, type RadarAlert, type RadarThresholds } from "./alerts";
 import { fetchFuturesPositioning, type FuturesPositioning } from "./binance-futures";
 import { fetchBreakAwayCloses, fetchDailyVolumesDetailed, type BreakAwayCloses, type DailyVolumes } from "./breakaway-feed";
 import { fetchCot, type CotAsset, type CotReport } from "./cftc";
 import { fetchBuyerPressure, fetchRegionalDemand, type BuyerPressure, type RegionalDemand } from "./regional";
 import { radRanged } from "./rad-bounds";
 import { fetchStablecoinSupply, type SupplyPoint } from "./stablecoins";
+import type { LiquidationFeed, LiqView } from "./liquidation-feed";
+import { fetchEtfLive, fetchWhaleAlerts, type EtfLive, type WhaleAlert } from "../provider-data-client";
+import type { ProviderLink } from "../private-api";
 import {
   CFTC_TTL_MS, RADAR_COLLECTION, isFresh, loadRadarCache, saveCotCache, saveSupplyCache, serialised, supplyFreshForDay,
   type RadarCache, type RadarPort,
@@ -45,6 +57,8 @@ export const LOG_KEEP_DAYS = 35;
 export const LOG_MAX_PER_DAY = 600;
 export const FIELDS_MAX_AGE_MS = 2 * 3_600_000;
 const DAY_MS = 86_400_000;
+/** Live ETF flows are fetched at most this often (the gateway caches them too). */
+export const ETF_LIVE_TTL_MS = 6 * 3_600_000;
 
 export interface RadarSnapshot {
   t: number;
@@ -54,6 +68,12 @@ export interface RadarSnapshot {
   cot: Record<"BTC" | "ETH", CotReport | null>;
   supply: SupplyPoint[] | null;
   alerts: RadarAlert[];
+  /** The liquidation feed's view when the runner has one (Step 4b); null without a feed or when the feed failed to answer. */
+  liquidations: LiqView | null;
+  /** US spot ETF flows from the gateway's CoinGlass profile (Step 4b); null = no matching profile or no value. */
+  etfLive: EtfLive | null;
+  /** Large transfers from the gateway's Whale Alert profile (Step 4b); null = no matching profile or no value. */
+  whale: { connected: boolean; rejected?: boolean; alerts: WhaleAlert[] } | null;
   /** Section → time (ms) its kept value was last good. */
   stale: Record<string, number>;
   unavailable: string[];
@@ -88,6 +108,9 @@ export interface RadarFetchers {
   supply(signal?: AbortSignal): Promise<SupplyPoint[]>;
   breakAway(signal?: AbortSignal): Promise<BreakAwayCloses>;
   dailyVolumes(signal?: AbortSignal): Promise<DailyVolumes>;
+  /** Gateway provider data (Step 4b). Optional: a runner without them has no provider data. */
+  etfLive?(link: ProviderLink, signal?: AbortSignal): Promise<EtfLive>;
+  whale?(link: ProviderLink, minUsd: number, signal?: AbortSignal): Promise<{ connected: boolean; rejected?: boolean; alerts: WhaleAlert[] }>;
 }
 export const realFetchers: RadarFetchers = {
   positioning: fetchFuturesPositioning,
@@ -97,6 +120,8 @@ export const realFetchers: RadarFetchers = {
   supply: fetchStablecoinSupply,
   breakAway: (signal) => fetchBreakAwayCloses(signal),
   dailyVolumes: (signal) => fetchDailyVolumesDetailed(signal),
+  etfLive: (link, signal) => fetchEtfLive(link, signal ?? new AbortController().signal),
+  whale: (link, minUsd, signal) => fetchWhaleAlerts(link, minUsd, signal ?? new AbortController().signal),
 };
 
 export interface RadarTimers {
@@ -122,6 +147,10 @@ export interface RadarRunnerDeps {
   allowed?: () => boolean;
   /** Test hook: replaces setInterval/clearInterval. */
   timers?: RadarTimers;
+  /** The liquidation websockets (Step 4b): started and stopped with the runner, so they open only while `allowed()` holds. */
+  liquidations?: LiquidationFeed;
+  /** The gateway link with the connected provider profiles (Step 4b); null = none. Read at each refresh. */
+  providers?: () => ProviderLink | null;
 }
 
 export interface RadarRunner {
@@ -286,10 +315,10 @@ async function attempt<T>(fn: (s: AbortSignal) => Promise<T>, signal: AbortSigna
 
 /** What the alert rules read: the last good break-away closes, the daily volumes, the stablecoin readings and the supply series. */
 interface BreakInputs { closes: Record<string, number[]>; standing: Record<string, number | null>; closeTimes: number[] }
-interface AlertInputs { breakaway: BreakInputs | null; vol: DailyVolumes | null; readings: DepegReading[]; source: string; now: number; readingAt: number; supply: SupplyPoint[] | null }
+interface AlertInputs { breakaway: BreakInputs | null; vol: DailyVolumes | null; readings: DepegReading[]; source: string; now: number; readingAt: number; supply: SupplyPoint[] | null; whale: WhaleAlert[] | null }
 
-/** The alert rules over kept inputs, in the order break-away, volume, depeg, supply. Pure: no request. */
-function composeAlerts(inp: AlertInputs, th: RadarThresholds): RadarAlert[] {
+/** The alert rules over kept inputs, in the order break-away, volume, depeg, supply, then each venue's liquidation cascade, then the large transfer. Pure: no request. */
+function composeAlerts(inp: AlertInputs, th: RadarThresholds, liq: LiqView | null = null): RadarAlert[] {
   const out: RadarAlert[] = [];
   if (inp.breakaway) out.push(...breakAway(inp.breakaway.closes, inp.breakaway.standing, th, inp.breakaway.closeTimes));
   if (inp.vol) {
@@ -298,6 +327,13 @@ function composeAlerts(inp: AlertInputs, th: RadarThresholds): RadarAlert[] {
   }
   out.push(...depegAlerts(inp.readings, inp.source, inp.readingAt));
   if (inp.supply) { const a = supplyJump(inp.supply, th); if (a) out.push(a); }
+  if (liq) {
+    for (const v of ["bybit", "binance"] as const) {
+      const c = liq[v]?.cascade;
+      if (c && c.status === "ready" && c.alert) out.push(c.alert);
+    }
+  }
+  if (inp.whale) { const a = whaleAlert(inp.whale, th, inp.now); if (a) out.push(a); }
   return out;
 }
 
@@ -307,6 +343,13 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
   const timeoutMs = deps.sectionTimeoutMs ?? SECTION_TIMEOUT_MS;
   const listeners = new Set<(s: RadarSnapshot | null, info?: { lastError: string | null }) => void>();
   const permitted = () => { try { return deps.allowed ? deps.allowed() === true : true; } catch { return false; } };
+  const feed = deps.liquidations;
+  /** The feed's view at `now`; null without a feed or when it throws (a broken feed never fails a refresh). */
+  const liqView = (now: number, th: RadarThresholds): LiqView | null => {
+    if (!feed) return null;
+    try { return feed.view(now, th) ?? null; } catch { return null; }
+  };
+  const feedStop = () => { try { feed?.stop(); } catch { /* the feed never breaks the runner */ } };
 
   let timer: unknown = null;
   let latestSnap: RadarSnapshot | null = null;
@@ -327,6 +370,11 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
     breakaway: { v: BreakInputs; at: number } | null;
   } = { positioning: { BTCUSDT: null, ETHUSDT: null }, regional: null, premiums: { usPct: null, krPct: null, phPct: null }, buyer: null, breakaway: null };
   let daily: { day: number; data: DailyVolumes } | null = null;
+  /** Provider data (Step 4b): the last good value with its time, and the last failure code. Reset when the link's session or profiles change. */
+  type ProvErr = "gateway:401" | "gateway:409" | "gateway:unavailable";
+  const prov: { key: string; etf: { v: EtfLive; at: number } | null; etfErr: ProvErr | null; whale: { v: { connected: boolean; rejected?: boolean; alerts: WhaleAlert[] }; at: number } | null; whaleErr: ProvErr | null } =
+    { key: "", etf: null, etfErr: null, whale: null, whaleErr: null };
+  const provCode = (e: unknown): ProvErr => { const m = e instanceof Error ? e.message : ""; return m === "gateway:401" || m === "gateway:409" ? m : "gateway:unavailable"; };
   const retryAfter: Record<string, number> = {};
   let prunedDay = -1;
   const notify = (s: RadarSnapshot | null, info?: { lastError: string | null }) => {
@@ -352,14 +400,43 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
       const stale: Record<string, number> = {};
       const unavailable: string[] = [];
 
+      /* provider data: only with a link that has the matching profile (the gate is already open: refresh() checked it) */
+      let link: ProviderLink | null = null;
+      try { link = deps.providers?.() ?? null; } catch { link = null; }
+      const wantEtf = !!link && !!f.etfLive && link.providers.some((p) => p.provider === "coinglass");
+      const wantWhale = !!link && !!f.whale && link.providers.some((p) => p.provider === "whale-alert");
+      const linkKey = link ? `${link.session.url}|${link.session.token}|${link.providers.map((p) => `${p.provider}:${p.id}`).sort().join(",")}` : "";
+      if (linkKey !== prov.key) { prov.key = linkKey; prov.etf = null; prov.etfErr = null; prov.whale = null; prov.whaleErr = null; delete retryAfter.etfLive; }
+      if (!wantEtf) { prov.etf = null; prov.etfErr = null; }
+      if (!wantWhale) { prov.whale = null; prov.whaleErr = null; }
+      const whaleMin = sanitizeThresholds(deps.thresholds()).whaleMinUsd;
+      const etfDue = wantEtf && !(prov.etf && now - prov.etf.at < ETF_LIVE_TTL_MS) && now >= (retryAfter.etfLive ?? 0);
+
       /* 5-minute sections, in parallel */
-      const [bt, et, rg, by, ba] = await Promise.all([
+      const [bt, et, rg, by, ba, etfOut, whaleOut] = await Promise.all([
         attempt((s) => f.positioning("BTCUSDT", s), signal, timeoutMs),
         attempt((s) => f.positioning("ETHUSDT", s), signal, timeoutMs),
         attempt((s) => f.regional(s), signal, timeoutMs),
         attempt((s) => f.buyer(s), signal, timeoutMs),
         attempt((s) => f.breakAway(s), signal, timeoutMs),
+        etfDue ? attempt((s) => f.etfLive!(link!, s), signal, timeoutMs) : Promise.resolve(null),
+        wantWhale ? attempt((s) => f.whale!(link!, whaleMin, s), signal, timeoutMs) : Promise.resolve(null),
       ]);
+      if (etfOut) {
+        if (etfOut.ok) { prov.etf = { v: etfOut.value, at: now }; prov.etfErr = null; }
+        else {
+          prov.etfErr = provCode(etfOut.error);
+          // 401 / 409 are answered by the gateway itself (no upstream call): nothing to keep and no back-off, so a fixed token shows at the next refresh.
+          if (prov.etfErr === "gateway:unavailable") retryAfter.etfLive = now + RETRY_MS; else prov.etf = null;
+        }
+      }
+      if (whaleOut) {
+        if (whaleOut.ok) { prov.whale = { v: whaleOut.value, at: now }; prov.whaleErr = null; }
+        else {
+          prov.whaleErr = provCode(whaleOut.error);
+          if (prov.whaleErr !== "gateway:unavailable") prov.whale = null;
+        }
+      }
       /* slow inputs (cache first) */
       const cotOut = await refreshCot(now, signal);
       const supplyOut = await refreshSupply(now, signal);
@@ -426,9 +503,22 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
       let readingAt = now;
       try { const x = deps.depegAt?.(); if (typeof x === "number" && Number.isFinite(x) && x > 0) readingAt = Math.min(x, now); } catch { /* the refresh time */ }
       if (readingAt < now - FIELDS_MAX_AGE_MS) readings = []; // an old scan's reading is not a current alert
-      const inputs: AlertInputs = { breakaway: kept.breakaway?.v ?? null, vol: volOut.data, readings, source, now, readingAt, supply: supplyOut.points };
-      const alerts = composeAlerts(inputs, sanitizeThresholds(deps.thresholds()));
+      const inputs: AlertInputs = { breakaway: kept.breakaway?.v ?? null, vol: volOut.data, readings, source, now, readingAt, supply: supplyOut.points, whale: wantWhale ? prov.whale?.v.alerts ?? null : null };
+      const th = sanitizeThresholds(deps.thresholds());
+      const liquidations = liqView(deps.now(), th);
+      const alerts = composeAlerts(inputs, th, liquidations);
+      if (liquidations) for (const v of ["bybit", "binance"] as const) if (!liquidations[v]?.connected) unavailable.push(`liq:${v}`);
 
+      // provider rows: 409 = the gateway has no such profile (the panel shows the "available with a key" row); 401 = token not accepted
+      for (const [want, err, kept2, staleKey, off409, offNone] of [
+        [wantEtf, prov.etfErr, prov.etf, "etfLive", "provider:etf", "etfLive"],
+        [wantWhale, prov.whaleErr, prov.whale, "whale", "provider:whale", "whale"],
+      ] as const) {
+        if (!want) continue;
+        if (err === "gateway:401") { if (!unavailable.includes("gateway")) unavailable.push("gateway"); }
+        else if (err === "gateway:409") unavailable.push(off409);
+        else if (err === "gateway:unavailable") { if (kept2) stale[staleKey] = kept2.at; else unavailable.push(offNone); }
+      }
       for (const k of Object.keys(cotOut.stale)) stale[k] = cotOut.stale[k];
       for (const a of ["BTC", "ETH"] as const) if (!cotOut.cot[a]) unavailable.push(`cot:${a}`);
       if (supplyOut.stale !== null) stale.supply = supplyOut.stale;
@@ -438,7 +528,10 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
       // t is the END of the refresh: every value in this snapshot was observed at or before it (no look-ahead in rad).
       const asOfs = [regional?.asOf, buyer?.asOf, positioning.BTCUSDT?.asOf, positioning.ETHUSDT?.asOf].filter((x): x is number => typeof x === "number" && Number.isFinite(x));
       const t = Math.max(deps.now(), now, ...asOfs);
-      const snap: RadarSnapshot = { t, positioning, regional, buyer, cot: cotOut.cot, supply: supplyOut.points, alerts, stale, unavailable };
+      const snap: RadarSnapshot = {
+        t, positioning, regional, buyer, cot: cotOut.cot, supply: supplyOut.points, alerts, liquidations,
+        etfLive: wantEtf ? prov.etf?.v ?? null : null, whale: wantWhale ? prov.whale?.v ?? null : null, stale, unavailable,
+      };
       latestSnap = snap;
       lastInputs = inputs;
       lastErr = null;
@@ -521,7 +614,10 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
   }
 
   function tick() {
-    if (timer === null || inflight || !permitted()) return; // stopped, still running (skip, no overlap) or not allowed
+    if (timer === null) return; // stopped
+    if (!permitted()) { feedStop(); return; } // the gate closed: no socket stays open
+    try { if (feed && !feed.running()) feed.start(); } catch { /* the feed never breaks the runner */ } // the gate reopened without a stop/start pair
+    if (inflight) return; // still running (skip, no overlap)
     refresh().catch(() => { /* aborted or failed: lastError is set; the next tick tries again */ });
   }
 
@@ -529,12 +625,14 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
     start() {
       if (timer !== null || !permitted()) return;
       timer = timers.set(tick, RADAR_INTERVAL_MS);
+      try { feed?.start(); } catch { /* the feed never breaks the runner */ }
       tick();
     },
     stop() {
       if (timer !== null) { timers.clear(timer); timer = null; }
       for (const c of [...controllers]) c.abort();
       inflight = null;
+      feedStop();
     },
     refresh,
     latest: () => latestSnap,
@@ -542,7 +640,8 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
       if (!latestSnap || !lastInputs) return;
       let th: RadarThresholds;
       try { th = sanitizeThresholds(deps.thresholds()); } catch { return; }
-      latestSnap = { ...latestSnap, alerts: composeAlerts(lastInputs, th) };
+      const liquidations = liqView(deps.now(), th);
+      latestSnap = { ...latestSnap, alerts: composeAlerts(lastInputs, th, liquidations), liquidations };
       notify(latestSnap, { lastError: lastErr });
     },
     lastError: () => lastErr,

@@ -126,6 +126,28 @@ export function createGuardedFetch({ baseFetch = globalThis.fetch, hosts, timeou
   };
 }
 
+/**
+ * The websocket door (v2.8, WP25 part 2): a constructor that refuses, before anything is opened, a URL that is not `wss:` or whose
+ * host (with a non-default port) is not in the manifest's recorder `websocketHosts`. The error names only protocol//host, never the URL
+ * (its path and query could carry data). `Base` is the real `WebSocket` (Node 22); tests pass a fake.
+ * @param {Iterable<string>} allowedHosts
+ * @returns {new (url: string) => object}
+ */
+export function guardedWebSocket(allowedHosts, Base = globalThis.WebSocket) {
+  const allowed = new Set([...allowedHosts].map((h) => String(h).toLowerCase()));
+  return function GuardedWebSocket(url, ...rest) {
+    let u;
+    try {
+      u = new URL(String(url));
+    } catch {
+      throw new TypeError("invalid websocket URL");
+    }
+    if (u.protocol !== "wss:" || !allowed.has(u.host.toLowerCase())) throw new EgressBlockedError(`${u.protocol}//${u.host}`);
+    if (typeof Base !== "function") throw new Error("no WebSocket implementation available");
+    return new Base(String(url), ...rest);
+  };
+}
+
 /** Swap globalThis.fetch for the guard (the engine calls the global). Returns an undo function. */
 export function installGlobalFetch(guard) {
   const previous = globalThis.fetch;

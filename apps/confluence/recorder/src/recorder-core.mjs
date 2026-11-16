@@ -67,10 +67,10 @@ function tailJsonl(path, bytes) {
 
 /**
  * @param {object} config  parseConfig() result (plus optional fetchTimeoutMs)
- * @param {{ env?: object, baseFetch?: typeof fetch, log?: (line: string) => void, sleepUntil?: (until: number, signal?: AbortSignal) => Promise<void>, pause?: (ms: number) => Promise<void>, radarFetchers?: object }} [deps]
- *   injectable for tests; `pause` is the short throttle between open-interest requests; `radarFetchers` replaces the real radar fetchers.
+ * @param {{ env?: object, baseFetch?: typeof fetch, log?: (line: string) => void, sleepUntil?: (until: number, signal?: AbortSignal) => Promise<void>, pause?: (ms: number) => Promise<void>, radarFetchers?: object, WebSocketCtor?: Function }} [deps]
+ *   injectable for tests; `pause` is the short throttle between open-interest requests; `radarFetchers` replaces the real radar fetchers; `WebSocketCtor` replaces the real WebSocket under the egress guard.
  */
-export function createRecorder(config, { env = process.env, baseFetch = globalThis.fetch, log: logSink, sleepUntil, pause, radarFetchers } = {}) {
+export function createRecorder(config, { env = process.env, baseFetch = globalThis.fetch, log: logSink, sleepUntil, pause, radarFetchers, WebSocketCtor } = {}) {
   const { source, tf, limit, assetClass, outDir } = config;
   const intervalMs = INTERVAL_MS[tf];
   const cfg = engineConfigId(config.profile);
@@ -139,7 +139,11 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
     } catch (error) {
       log(`warning: radar log not reloaded (${error instanceof Error ? error.message : String(error)})`);
     }
-    radar = createRadarRecorder({ guard, outDir, appendJsonl, monthOf, seed, ...(radarFetchers ? { fetchers: radarFetchers } : {}) });
+    // v2.8 (WP25 part 2): the liquidation feed is built here but opens no socket until run() starts it (continuous mode only).
+    radar = createRadarRecorder({
+      guard, outDir, appendJsonl, monthOf, seed, liquidations: true, websocketHosts: manifest.websocketHosts,
+      ...(WebSocketCtor ? { WebSocketCtor } : {}), ...(radarFetchers ? { fetchers: radarFetchers } : {}),
+    });
   }
 
   // Rate-limit gate of the scoring cycle: the scan source's venue (and Bybit when derivatives are on). A 429/418 from a radar
@@ -266,6 +270,7 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
    * v2.8 (WP25): one radar refresh (never fails a cycle). Rows already built cannot see it (its time is after their bar close);
    * it serves the next rows (the next cycle, or the next bar close when taken at the pre-close wake).
    */
+  const liqSeen = { bybit: false, binance: false };
   async function takeRadar(signal, what, { force = false } = {}) {
     if (!radar || signal?.aborted) return null;
     // The global radar cadence is 5 min: a cycle (short bars, --interval-seconds < 300) skips while the newest entry is younger.
@@ -274,7 +279,16 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
     if (!force && newest && Date.now() - newest.t < RADAR_INTERVAL_MS) return null;
     try {
       const r = await radar.refresh(signal);
-      if (r.unavailable.length) pushError(`radar: no value for ${r.unavailable.slice(0, 8).join(", ")}${r.unavailable.length > 8 ? " …" : ""}`);
+      // `liq:<venue>` is a real error only once that venue has connected (a feed that is not running, as with --once, or has not
+      // acknowledged yet is expected, and must not crowd real errors out of the capped heartbeat list).
+      const view = radar.liquidationView();
+      for (const v of ["bybit", "binance"]) if (view?.[v]?.connected) liqSeen[v] = true;
+      const running = radar.liquidationRunning();
+      const missing = r.unavailable.filter((code) => {
+        const m = /^liq:(bybit|binance)$/.exec(code);
+        return !m || (running && liqSeen[m[1]]);
+      });
+      if (missing.length) pushError(`radar: no value for ${missing.slice(0, 8).join(", ")}${missing.length > 8 ? " …" : ""}`);
       log(`${what}radar context logged (${r.ctx.al.length} alert codes${r.unavailable.length ? `, ${r.unavailable.length} sections unavailable` : ""})`);
       return r;
     } catch (error) {
@@ -524,8 +538,23 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
   async function run(signal, { once = false } = {}) {
     const restore = installGlobalFetch(guard);
     const sleeper = sleepUntil ?? interruptibleSleep;
+    // v2.8 (WP25 part 2): the liquidation streams run only while the recorder keeps running. `--once` cannot complete an hour, so it
+    // opens no socket. They are closed on every exit (finally) and at once on abort, so no socket or timer keeps the process alive.
+    const stopLiquidations = () => { try { radar?.stop(); } catch { /* closing never fails a run */ } };
     try {
       checkStartupGap();
+      if (radarOn) {
+        if (once) log("radar: liquidation streams need continuous mode (they are not opened with --once)");
+        else if (!signal?.aborted) { // already aborted at start: nothing to open (an abort listener would never fire)
+          signal?.addEventListener("abort", stopLiquidations, { once: true });
+          try {
+            radar.start();
+            log("radar: liquidation streams started (Binance sampled, Bybit); the cascade baseline builds in radar/liq.json");
+          } catch (error) {
+            pushError(`radar: liquidation streams not started (${error instanceof Error ? error.message : String(error)})`);
+          }
+        }
+      }
       for (;;) {
         const r = await cycle(signal);
         if (once || signal?.aborted) return r;
@@ -551,6 +580,8 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
         if (signal?.aborted) return r;
       }
     } finally {
+      signal?.removeEventListener("abort", stopLiquidations);
+      stopLiquidations();
       hb.status = "stopped";
       hb.nextWakeAt = null;
       writeHeartbeat();

@@ -72,3 +72,16 @@ test("recorder sync is opt-in, authenticated and uses fixed filenames", async ()
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("provider data routes answer 409 while no provider is connected", async () => {
+  const headers = { Origin: "http://127.0.0.1:8770", Authorization: "Bearer " + TOKEN };
+  const base = "http://127.0.0.1:" + PORT + "/providers/";
+  await withServer(async () => {
+    const etf = await fetch(base + "etf-flows", { headers });
+    assert.equal(etf.status, 409);
+    assert.deepEqual(await etf.json(), { error: "No ETF-flow provider key is connected." });
+    const whale = await fetch(base + "whale-alerts?min=5000000", { headers });
+    assert.equal(whale.status, 409);
+    assert.equal((await fetch(base + "etf-flows", { headers: { Origin: headers.Origin } })).status, 401);
+  });
+});

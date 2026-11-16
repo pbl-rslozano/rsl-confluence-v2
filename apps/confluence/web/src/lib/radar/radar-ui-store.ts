@@ -18,6 +18,8 @@ export const THRESHOLD_FIELDS: Record<keyof RadarThresholds, { min: number; max:
   breakAwayBars: { min: 1, max: 6, step: 1, int: true },
   volumeZ: { min: 1.5, max: 10, step: 0.5 },
   supplyPctl: { min: 90, max: 99.9, step: 0.1 },
+  liqMult: { min: 1.5, max: 20, step: 0.5 },
+  whaleMinUsd: { min: 1_000_000, max: 10_000_000_000, step: 1_000_000, int: true },
 };
 
 export interface RadarUi { open: boolean; collapsed: string[]; thresholds: RadarThresholds }

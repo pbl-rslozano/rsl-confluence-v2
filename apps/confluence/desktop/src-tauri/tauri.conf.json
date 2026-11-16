@@ -34,7 +34,7 @@
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data: blob:",
         "font-src": "'self' data:",
-        "connect-src": "'self' ipc: http://ipc.localhost https://data-api.binance.vision https://api.bybit.com https://api.bitget.com http://127.0.0.1:8787 http://localhost:8787 https://effervescent-bubblegum-1e5c03.netlify.app https://api.frankfurter.dev https://cdn.jsdelivr.net https://latest.currency-api.pages.dev https://data-api.ecb.europa.eu https://open.er-api.com https://www.floatrates.com https://www.okx.com https://api.exchange.coinbase.com https://fapi.binance.com https://publicreporting.cftc.gov https://stablecoins.llama.fi",
+        "connect-src": "'self' ipc: http://ipc.localhost https://data-api.binance.vision https://api.bybit.com https://api.bitget.com http://127.0.0.1:8787 http://localhost:8787 https://effervescent-bubblegum-1e5c03.netlify.app https://api.frankfurter.dev https://cdn.jsdelivr.net https://latest.currency-api.pages.dev https://data-api.ecb.europa.eu https://open.er-api.com https://www.floatrates.com https://www.okx.com https://api.exchange.coinbase.com https://fapi.binance.com https://publicreporting.cftc.gov https://stablecoins.llama.fi wss://fstream.binance.com wss://stream.bybit.com",
         "worker-src": "'self'",
         "object-src": "'none'",
         "base-uri": "'self'",

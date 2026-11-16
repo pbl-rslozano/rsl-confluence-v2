@@ -4,10 +4,10 @@
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
-  "description": "Optional localhost credential broker (read-only exchange key checks). Never bundled into the app.",
+  "description": "Optional localhost credential broker (read-only exchange key checks, optional data-provider keys). Never bundled into the app.",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test exchange-auth.test.mjs origin.test.mjs",
+    "test": "node --test exchange-auth.test.mjs origin.test.mjs provider-auth.test.mjs provider-data.test.mjs",
     "gateway": "node server.mjs"
   }
 }
