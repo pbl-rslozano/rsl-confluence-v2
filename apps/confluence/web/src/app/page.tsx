@@ -38,6 +38,8 @@ import { contactMailto } from "@rsl/core-kit/core/rsl-brand.js";
 import { useMediaQuery, PHONE_QUERY } from "@/lib/use-media-query";
 import { applyTheme, cssSupportsColorMix, migrateThemePref, resolveTheme, toStoredBackground, THEME_PREF_KEY, type ThemePref } from "@/lib/theme";
 import { useRsl } from "@/rsl/RslContext";
+import { RadarHost } from "@/components/radar-panel";
+import { loadRadarLog, type RadarContext } from "@/lib/radar/snapshot";
 import { APP } from "@/rsl/app-info";
 import { BrandBlock } from "@/rsl/components/BrandBlock";
 import { CustomerChip } from "@/rsl/components/CustomerChip";
@@ -212,6 +214,8 @@ interface ScanMeta {
   quoteCounts?: Record<string, number>;
   approx?: string[];
   depeg?: DepegReading[];
+  /** v2.8 (WP25 fix wave): when the scan took the depeg readings (ms); the radar's depeg "since". */
+  depegAt?: number;
   usdPhp?: number | null;
 }
 
@@ -584,6 +588,10 @@ export default function Home() {
   const [liquidityFloorUsd, setLiquidityFloorUsd] = useState<number>(DEFAULT_APP_PREFERENCES.liquidityFloorUsd);
   const [fundPulse, setFundPulse] = useState<AppPreferences["fundPulse"]>(DEFAULT_APP_PREFERENCES.fundPulse);
   const [fundRankColumn, setFundRankColumn] = useState<boolean>(DEFAULT_APP_PREFERENCES.fundRankColumn);
+  const [recordRadar, setRecordRadar] = useState<boolean>(DEFAULT_APP_PREFERENCES.recordRadar);
+  // The scan reads the live setting when it builds rows (the scan runs from a long-lived callback).
+  const recordRadarRef = useRef(recordRadar);
+  useEffect(() => { recordRadarRef.current = recordRadar; }, [recordRadar]);
   const [fxDialog, setFxDialog] = useState(false);
   const [fxUpdating, setFxUpdating] = useState(false);
   const displayCurrency = displayPref === "AUTO" ? autoCurrency() : displayPref;
@@ -807,6 +815,7 @@ export default function Home() {
         setLiquidityFloorUsd(saved.liquidityFloorUsd);
         setFundPulse(saved.fundPulse);
         setFundRankColumn(saved.fundRankColumn);
+        setRecordRadar(saved.recordRadar);
         applyBackground(saved.background);
       } else {
         let legacy: string | null = null;
@@ -841,9 +850,10 @@ export default function Home() {
       liquidityFloorUsd,
       fundPulse,
       fundRankColumn,
+      recordRadar,
     };
     saveAppPreferences(preferences);
-  }, [preferencesReady, timeframe, dataSource, universeLimit, background, monitorAssets, sortKey, sortDir, autoRefresh, chartDepth, assetClass, quoteBySource, displayPref, fxChoice, fxAutoUpdate, fxCustom, liquidityFloorUsd, fundPulse, fundRankColumn]);
+  }, [preferencesReady, timeframe, dataSource, universeLimit, background, monitorAssets, sortKey, sortDir, autoRefresh, chartDepth, assetClass, quoteBySource, displayPref, fxChoice, fxAutoUpdate, fxCustom, liquidityFloorUsd, fundPulse, fundRankColumn, recordRadar]);
 
   // v2.7 (WP13): display-currency rates — from the chosen source, cached on the device, refreshed every 6 h
   // while "Update automatically" is on, or on "Update now". Display only: the scan never sees them.
@@ -946,7 +956,7 @@ export default function Home() {
         metaStage = 2;
         setScanMeta({
           source, currency: lm.priceCurrency ?? "USD", premium: {}, thin: lm.thinSymbols ?? [], thinFloorUsd: lm.thinFloorUsd,
-          tf, quote: lm.quote, quoteBySymbol: lm.quoteBySymbol, quoteCounts: lm.quoteCounts, approx: lm.approxVolume, depeg: lm.depeg, usdPhp: lm.usdPhp,
+          tf, quote: lm.quote, quoteBySymbol: lm.quoteBySymbol, quoteCounts: lm.quoteCounts, approx: lm.approxVolume, depeg: lm.depeg, depegAt: Date.now(), usdPhp: lm.usdPhp,
           unknownVolume: lm.unknownVolumeSymbols,
         });
       } else if (newView && shown.length && !lm && metaStage < 1) {
@@ -1135,10 +1145,17 @@ export default function Home() {
         const saved = await rsl.port.get("preferences", "bybit-derivatives-v1");
         if (Array.isArray(saved)) derivatives = saved as DerivativeSnapshot[];
       } catch { /* no imported snapshots */ }
+      // v2.8 (WP25): the radar context log, only while "Record radar context" is on (otherwise rad is null on every row).
+      // The log is the per-device one the radar runner writes every 5 min; each row takes its newest entry at or before its own close.
+      let radar: RadarContext[] = [];
+      if (recordRadarRef.current) {
+        try { radar = await loadRadarLog(rsl.port, Date.now()); } catch { /* no log: rad null */ }
+      }
       const recordCtx: ScanRecordContext = {
         src: source, tf, intervalMs: data.intervalMs, appVersion: APP.version,
         universe: data.universe, basisBySymbol: data.basisBySymbol,
         ...(derivatives.length ? { derivatives } : {}),
+        ...(recordRadarRef.current ? { radar } : {}),
       };
       // Cross-sectional fields (RS percentile, BTC beta, universe rank) once the chosen list is complete, as in a full scan.
       const shared = scanShared(prepared.filter((p) => p.fresh && p.kl.length).map((p) => seriesOf(p.t, p.kl)), data.universe);
@@ -1302,7 +1319,7 @@ export default function Home() {
       setScanMeta({
         source, currency: data.priceCurrency ?? "USD", premium: data.premiumBySymbol ?? {}, thin: data.thinSymbols ?? [], thinFloorUsd: data.thinFloorUsd,
         tf, quote: data.quote, quoteBySymbol: data.quoteBySymbol, quoteCounts: data.quoteCounts, approx: data.approxVolume,
-        depeg: data.depeg, usdPhp: data.usdPhp, unknownVolume: data.unknownVolumeSymbols,
+        depeg: data.depeg, depegAt: Date.now(), usdPhp: data.usdPhp, unknownVolume: data.unknownVolumeSymbols,
       });
       setDetailAsset((current) => current ? out.find((row) => row.pair === current.pair) ?? null : null);
       setScanStats({
@@ -1737,7 +1754,7 @@ export default function Home() {
             <ScannerInbox port={rsl.port} list={watchlistScope} timeframe={timeframe} ledger={ledgerStore} />
             <ScoringProfileEditor profile={scoringProfile} configId={activeConfigId} onApply={applyScoringProfile} disabled={!profileReady}
               liquidityFloorUsd={liquidityFloorUsd} onLiquidityFloor={setLiquidityFloorUsd}
-              fundPulse={fundPulse} onFundPulse={setFundPulse} fundRankColumn={fundRankColumn} onFundRankColumn={setFundRankColumn} t={t} />
+              fundPulse={fundPulse} onFundPulse={setFundPulse} fundRankColumn={fundRankColumn} onFundRankColumn={setFundRankColumn} recordRadar={recordRadar} onRecordRadar={setRecordRadar} t={t} />
             <SavedScans port={rsl.port}
               current={{ timeframe, dataSource, universeLimit, assetClass, sortKey, sortDir, search, monitorAssets }}
               onApply={(preset) => {
@@ -2247,6 +2264,9 @@ export default function Home() {
         cooldownMs={paperCooldownMs}
         sourceLabels={SOURCE_LABELS}
       />
+
+      {/* v2.8 (WP25): market radar. The tab portals to document.body (outside header, main and footer). It contacts no host until opened. */}
+      <RadarHost port={rsl.port} depeg={scanMeta.depeg} depegSource={scanMeta.source} depegAt={scanMeta.depegAt} recordRadar={recordRadar} />
 
       {/* ---------- Detail modal ---------- */}
       <Dialog open={!!detailAsset} onOpenChange={(o) => { if (!o) { setChartReplay(false); setDetailAsset(null); } }}>

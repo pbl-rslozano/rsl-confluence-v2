@@ -11,7 +11,7 @@
  *   node scripts/run-engine-tests.mjs other.mjs  # runs another suite from src/lib
  *   node scripts/run-engine-tests.mjs replay.cli.mjs --tf 4h …   # args are forwarded
  */
-import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -20,10 +20,16 @@ const lib = join(process.cwd(), "src", "lib");
 const suite = process.argv[2] ?? "engine.test.mjs";
 const dir = mkdtempSync(join(tmpdir(), "ct-engine-"));
 try {
+  // v2.8 (WP25): src/lib/radar/*.ts is copied to <tmp>/radar/ ("../x" and "./x" imports both get ".ts").
+  const rewrite = (text) => text.replace(/from\s+"(\.{1,2})\/([A-Za-z0-9_-]+)"/g, (_m, dots, name) => `from "${dots}/${name}.ts"`);
+  mkdirSync(join(dir, "radar"));
+  for (const file of readdirSync(join(lib, "radar"))) {
+    if (file.endsWith(".ts")) writeFileSync(join(dir, "radar", file), rewrite(readFileSync(join(lib, "radar", file), "utf8")));
+  }
   for (const file of readdirSync(lib)) {
     if (file.endsWith(".ts")) {
       const src = readFileSync(join(lib, file), "utf8").replace(
-        /from\s+"\.\/([A-Za-z0-9_-]+)"/g,
+        /from\s+"\.\/((?:radar\/)?[A-Za-z0-9_-]+)"/g, // v2.8 (WP25): "./radar/x" too
         (_m, name) => `from "./${name}.ts"`,
       );
       writeFileSync(join(dir, file), src);

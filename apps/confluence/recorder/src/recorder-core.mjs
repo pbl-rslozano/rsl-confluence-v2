@@ -32,11 +32,12 @@ import { join } from "node:path";
 import { appendFileSync, closeSync, existsSync, fstatSync, openSync, readSync, renameSync, statSync } from "node:fs";
 import {
   applyFundTrend, cachedDailyBars, catchUpContext, classifySymbol, contiguousTail, DERIV_MAX_AGE_MS, detectHistoricalPattern, ENGINE_BARS, engineConfigId, enrichCatchUp, fetchMarketData, INTERVAL_MS,
-  liveRow, loadFundTrends, mergeKlines, packKlines, parseDerivativeSnapshots, rateLimitCooldown, RateLimitError, runScanJobSafe, scanShared, scoreSeries, venueTypeOf,
+  liveRow, loadFundTrends, RADAR_INTERVAL_MS, mergeKlines, packKlines, parseDerivativeSnapshots, rateLimitCooldown, RateLimitError, runScanJobSafe, scanShared, scoreSeries, venueTypeOf,
 } from "./engine.mjs";
 import { createGuardedFetch, installGlobalFetch, loadRecorderManifest, makeRedactor } from "./net.mjs";
 import { createCandleCache, createJsonlAppender, createLedger, ensureDir, monthOf, readJson, writeJsonAtomic } from "./store.mjs";
 import { createDerivsRecorder, LINEAR_TICKERS_URL } from "./derivs.mjs";
+import { createRadarRecorder, RADAR_KEEP_MS } from "./radar.mjs";
 import { alertConfigFromEnv, createAlerter } from "./alerts.mjs";
 import { cyclePeriodMs, derivsWake, nextWake, staleAfterMs } from "./schedule.mjs";
 import { VERSION } from "./config.mjs";
@@ -66,10 +67,10 @@ function tailJsonl(path, bytes) {
 
 /**
  * @param {object} config  parseConfig() result (plus optional fetchTimeoutMs)
- * @param {{ env?: object, baseFetch?: typeof fetch, log?: (line: string) => void, sleepUntil?: (until: number, signal?: AbortSignal) => Promise<void>, pause?: (ms: number) => Promise<void> }} [deps]
- *   injectable for tests; `pause` is the short throttle between open-interest requests.
+ * @param {{ env?: object, baseFetch?: typeof fetch, log?: (line: string) => void, sleepUntil?: (until: number, signal?: AbortSignal) => Promise<void>, pause?: (ms: number) => Promise<void>, radarFetchers?: object }} [deps]
+ *   injectable for tests; `pause` is the short throttle between open-interest requests; `radarFetchers` replaces the real radar fetchers.
  */
-export function createRecorder(config, { env = process.env, baseFetch = globalThis.fetch, log: logSink, sleepUntil, pause } = {}) {
+export function createRecorder(config, { env = process.env, baseFetch = globalThis.fetch, log: logSink, sleepUntil, pause, radarFetchers } = {}) {
   const { source, tf, limit, assetClass, outDir } = config;
   const intervalMs = INTERVAL_MS[tf];
   const cfg = engineConfigId(config.profile);
@@ -126,6 +127,24 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
       derivHistory = [];
     }
   }
+
+  // v2.8 (WP25): the market-radar context log (--radar on). Off by default: the module is not even created, so no radar request is made.
+  const radarOn = config.radar === true;
+  let radar = null;
+  if (radarOn) {
+    let seed = "";
+    try {
+      const now = Date.now();
+      seed = [monthOf(now - RADAR_KEEP_MS), monthOf(now)].filter((m, i, a) => a.indexOf(m) === i).map((m) => tailJsonl(join(outDir, "radar", `${m}.jsonl`), DERIV_SEED_BYTES)).join("\n");
+    } catch (error) {
+      log(`warning: radar log not reloaded (${error instanceof Error ? error.message : String(error)})`);
+    }
+    radar = createRadarRecorder({ guard, outDir, appendJsonl, monthOf, seed, ...(radarFetchers ? { fetchers: radarFetchers } : {}) });
+  }
+
+  // Rate-limit gate of the scoring cycle: the scan source's venue (and Bybit when derivatives are on). A 429/418 from a radar
+  // venue (binance-fut, Upbit, Coins.ph, Coinbase …) is context-only and has its own gate: it never stops the ledger.
+  const cooldown = () => Math.max(rateLimitCooldown(source), derivsOn ? rateLimitCooldown("bybit-perp") : 0);
 
   const memory = new Map(); // pair → { len, newest } of the contiguous cached tail
   const hb = {
@@ -230,7 +249,7 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
   async function derivsOnly(signal) {
     if (!derivsOn || !derivSymbols.length || signal?.aborted) return null;
     const at = Date.now();
-    if (rateLimitCooldown() > 0 || pauseUntil > at) { log("pre-close derivatives snapshot skipped (rate-limit cooldown)"); return null; }
+    if (cooldown() > 0 || pauseUntil > at) { log("pre-close derivatives snapshot skipped (rate-limit cooldown)"); return null; }
     guard.clearMemo();
     try {
       const r = await takeDerivs(derivSymbols, at, signal);
@@ -243,17 +262,38 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
     }
   }
 
+  /**
+   * v2.8 (WP25): one radar refresh (never fails a cycle). Rows already built cannot see it (its time is after their bar close);
+   * it serves the next rows (the next cycle, or the next bar close when taken at the pre-close wake).
+   */
+  async function takeRadar(signal, what, { force = false } = {}) {
+    if (!radar || signal?.aborted) return null;
+    // The global radar cadence is 5 min: a cycle (short bars, --interval-seconds < 300) skips while the newest entry is younger.
+    // The pre-close wake always refreshes (it exists to serve the next close).
+    const newest = radar.entries().at(-1);
+    if (!force && newest && Date.now() - newest.t < RADAR_INTERVAL_MS) return null;
+    try {
+      const r = await radar.refresh(signal);
+      if (r.unavailable.length) pushError(`radar: no value for ${r.unavailable.slice(0, 8).join(", ")}${r.unavailable.length > 8 ? " …" : ""}`);
+      log(`${what}radar context logged (${r.ctx.al.length} alert codes${r.unavailable.length ? `, ${r.unavailable.length} sections unavailable` : ""})`);
+      return r;
+    } catch (error) {
+      if (!(error?.name === "AbortError" && signal?.aborted)) pushError(`radar: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
   async function cycle(signal) {
     const started = Date.now();
     guard.clearMemo();
     const stats0 = { ...guard.stats };
-    const result = { ok: false, at: started, symbols: 0, scored: 0, liveRows: 0, catchUpRows: 0, written: 0, duplicates: 0, feedErrors: 0, derivs: 0, rateLimitedUntil: null, warnings: [], newestBarOpen: 0, alerts: 0 };
+    const result = { ok: false, at: started, symbols: 0, scored: 0, liveRows: 0, catchUpRows: 0, written: 0, duplicates: 0, feedErrors: 0, derivs: 0, radar: 0, rateLimitedUntil: null, warnings: [], newestBarOpen: 0, alerts: 0 };
     let failure = null;
     const live = [];
     const catchUp = [];
     let rankUniverse = null;
     try {
-      const cooling = Math.max(rateLimitCooldown(), pauseUntil - started);
+      const cooling = Math.max(cooldown(), pauseUntil - started);
       if (cooling > 0) throw new RateLimitError(`rate-limit cooldown active for ${Math.ceil(cooling / 1000)} s`, cooling);
       // The funding step reads the same linear ticker list the engine requests for bybit-perp: one request.
       if (derivsOn) guard.memoize(LINEAR_TICKERS_URL);
@@ -293,6 +333,8 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
       const recordCtx = {
         src: source, tf, intervalMs: data.intervalMs, appVersion, universe: universe ?? undefined, basisBySymbol: data.basisBySymbol, recordedAt: started,
         ...(derivHistory.length ? { derivatives: derivHistory } : {}),
+        // v2.8 (WP25): rad = the newest radar entry at or before each row's own close (≤ 2 h old); with --radar off, no log → rad null.
+        ...(radarOn ? { radar: radar.entries() } : {}),
       };
       const shared = scanShared(freshList.map((p) => seriesOf(p.t, p.kl)), universe ?? undefined);
 
@@ -417,6 +459,11 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
         result.warnings.push(...snap.warnings);
         if (snap.rateLimitedUntil) result.rateLimitedUntil = Math.max(result.rateLimitedUntil ?? 0, snap.rateLimitedUntil);
       }
+      // v2.8 (WP25): the radar context for the rows of the next cycle / bar close.
+      if (radarOn && !signal?.aborted) {
+        const r = await takeRadar(signal, "");
+        if (r) result.radar = 1;
+      }
       // A cycle succeeds when at least one series delivered fresh closed bars
       // (a young series that is still too short to score is not a failure).
       result.ok = freshList.length > 0;
@@ -426,7 +473,7 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
         failure = "stopped";
       } else if (error instanceof RateLimitError) {
         failure = error.message;
-        result.rateLimitedUntil = Date.now() + Math.max(rateLimitCooldown(), error.retryAfterMs, pauseUntil - Date.now());
+        result.rateLimitedUntil = Date.now() + Math.max(cooldown(), error.retryAfterMs, pauseUntil - Date.now());
         pauseUntil = Math.max(pauseUntil, result.rateLimitedUntil);
       } else {
         // undici reports every network failure as "fetch failed"; the useful part is the cause.
@@ -484,7 +531,7 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
         if (once || signal?.aborted) return r;
         const wake = nextWake({
           now: Date.now(), tf, newestBarOpen: r.newestBarOpen, intervalSeconds: config.intervalSeconds, graceMs: config.graceMs,
-          ok: r.ok, consecutiveFailures: hb.consecutiveFailures, cooldownUntil: Math.max(r.rateLimitedUntil ?? 0, Date.now() + rateLimitCooldown()),
+          ok: r.ok, consecutiveFailures: hb.consecutiveFailures, cooldownUntil: Math.max(r.rateLimitedUntil ?? 0, Date.now() + cooldown()),
         });
         hb.nextWakeAt = wake;
         hb.status = r.ok ? "sleeping" : "retrying";
@@ -492,11 +539,12 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
         log(`next cycle at ${new Date(wake).toISOString()}`);
         // v2.8 (WP19 fix round 1): on a once-per-bar cadence longer than 2 h, snapshot derivatives shortly
         // before the close so the next rows can log fr / oiChg (≤ 2 h old, never after the close).
-        const pre = derivsOn && r.ok ? derivsWake({ now: Date.now(), wake, tf, newestBarOpen: r.newestBarOpen, maxAgeMs: DERIV_MAX_AGE_MS }) : null;
+        const pre = (derivsOn || radarOn) && r.ok ? derivsWake({ now: Date.now(), wake, tf, newestBarOpen: r.newestBarOpen, maxAgeMs: DERIV_MAX_AGE_MS }) : null;
         if (pre !== null) {
           await sleeper(pre, signal);
           if (signal?.aborted) return r;
           await derivsOnly(signal);
+          await takeRadar(signal, "pre-close ", { force: true });
           writeHeartbeat();
         }
         await sleeper(wake, signal);

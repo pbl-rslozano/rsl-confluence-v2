@@ -74,6 +74,211 @@ async function mockExchanges(ctx, seen, opts = {}) {
   });
 }
 
+/* ---------- v2.8 (WP25) market radar: one probe-shaped mock for every radar host ---------- */
+// Bodies follow docs/superpowers (W/wp25-probes.md, 16 Nov 2026): fapi premiumIndex / fundingRate / openInterestHist /
+// globalLongShortAccountRatio / takerlongshortRatio, CFTC TFF gpe5-46if rows (strings, no "_all" suffix on the group
+// fields), DefiLlama stablecoincharts/all (date = UNIX seconds string). Venue candles come from one price world: BTC is
+// RD_P USD everywhere; Coinbase's two newest closed hourly bars sit `cbPremium` above it (the break-away fixture); Upbit and
+// Coins.ph quote it in KRW / PHP at their own USDT rate. Tickers carry the regional premiums: US +1.00 %, Korea +1.20 %
+// (KRW-BTC / (KRW-USDT × Binance BTCUSDT) − 1), Philippines +0.50 %.
+const RD_HOSTS = ["fapi.binance.com", "publicreporting.cftc.gov", "stablecoins.llama.fi"];
+const RD_P = 65000, RD_KRW = 1377, RD_PHP = 58;
+const RD_H = 36e5, RD_D = 864e5;
+async function rdMock(ctx, o = {}) {
+  const cbPremium = o.cbPremium ?? 0.015;
+  const cors = { "access-control-allow-origin": "*", "content-type": "application/json" };
+  const st = { requests: [], unknown: [], upbitDirect: [] };
+  const json = (route, b, status = 200) => route.fulfill({ status, headers: cors, body: JSON.stringify(b) });
+  // Lowest priority: everything not mocked below. The app's own origin passes; any other host is logged and refused.
+  await ctx.route(/.*/, (route) => {
+    const u = new URL(route.request().url());
+    if (u.origin === new URL(BASE).origin || u.protocol === "data:" || u.protocol === "blob:") return route.continue();
+    st.unknown.push(u.host + u.pathname);
+    return route.abort();
+  });
+  await ctx.route(/^https:\/\/(api\.frankfurter\.dev|cdn\.jsdelivr\.net|latest\.currency-api\.pages\.dev)\//, (route) => route.abort());
+  if (!o.skipScan) await mockExchanges(ctx, null);
+  ctx.on("request", (r) => { const u = new URL(r.url()); st.requests.push(u.host + u.pathname); });
+
+  const px = (venue, open, unit) => {
+    const lastOpen = Math.floor(Date.now() / RD_H) * RD_H - RD_H;
+    const wiggle = 1 + 0.0004 * Math.sin(open / (unit * 7));
+    const cb = venue === "coinbase" && unit === RD_H && open >= lastOpen - RD_H ? 1 + cbPremium : 1;
+    return RD_P * wiggle * cb;
+  };
+  const volOf = (open, unit) => (unit === RD_H ? 100 + ((open / RD_H) % 7) : 5000 + 120 * Math.sin(open / RD_D));
+  /** Open times, newest first: up to `n` bars opening at or before `endOpen`, never after the bar now forming. */
+  const opens = (unit, n, endOpen = Infinity) => {
+    const forming = Math.floor(Date.now() / unit) * unit;
+    const out = [];
+    for (let t = Math.min(forming, Math.floor(endOpen / unit) * unit); out.length < n; t -= unit) out.push(t);
+    return out;
+  };
+  const q = (u, k) => u.searchParams.get(k);
+  const ohlc = (venue, t, unit, mult = 1) => { const c = px(venue, t, unit) * mult; return { o: c * 0.9995, h: c * 1.001, l: c * 0.999, c, v: volOf(t, unit) }; };
+
+  /* Binance spot */
+  await ctx.route(/^https:\/\/data-api\.binance\.vision\/api\/v3\/(ticker\/price|klines)/, (route) => {
+    const u = new URL(route.request().url());
+    if (q(u, "symbol") !== "BTCUSDT") return route.fallback();
+    if (u.pathname.endsWith("/ticker/price")) return json(route, { symbol: "BTCUSDT", price: String(RD_P) });
+    const unit = { "1h": RD_H, "1d": RD_D }[q(u, "interval")];
+    if (!unit) return route.fallback();
+    const rows = opens(unit, Math.min(1000, Number(q(u, "limit") || 500)), q(u, "endTime") ? Number(q(u, "endTime")) : Infinity).reverse().map((t, i) => {
+      const b = ohlc("binance", t, unit);
+      return [t, String(b.o), String(b.h), String(b.l), String(b.c), String(b.v), t + unit - 1, String(b.v * b.c), 1000, String(b.v * (0.5 + 0.1 * Math.sin(i / 3))), "0", "0"];
+    });
+    return json(route, rows);
+  });
+  /* Bybit spot (newest first) */
+  await ctx.route(/^https:\/\/api\.bybit\.com\/v5\/market\/kline/, (route) => {
+    const u = new URL(route.request().url());
+    const unit = { "60": RD_H, D: RD_D }[q(u, "interval")];
+    if (q(u, "symbol") !== "BTCUSDT" || q(u, "category") !== "spot" || !unit) return route.fallback();
+    const list = opens(unit, Math.min(1000, Number(q(u, "limit") || 200)), q(u, "end") ? Number(q(u, "end")) : Infinity).map((t) => {
+      const b = ohlc("bybit", t, unit);
+      return [String(t), String(b.o), String(b.h), String(b.l), String(b.c), String(b.v), String(b.v * b.c)];
+    });
+    return json(route, { retCode: 0, retMsg: "OK", result: { category: "spot", symbol: "BTCUSDT", list }, time: Date.now() });
+  });
+  /* Bitget spot */
+  await ctx.route(/^https:\/\/api\.bitget\.com\/api\/v2\/spot\/market\/(history-)?candles/, (route) => {
+    const u = new URL(route.request().url());
+    const unit = { "1h": RD_H, "1Dutc": RD_D }[q(u, "granularity")];
+    if (q(u, "symbol") !== "BTCUSDT" || !unit) return route.fallback();
+    const data = opens(unit, Math.min(1000, Number(q(u, "limit") || 100)), q(u, "endTime") ? Number(q(u, "endTime")) : Infinity).map((t) => {
+      const b = ohlc("bitget", t, unit);
+      return [String(t), String(b.o), String(b.h), String(b.l), String(b.c), String(b.v), String(b.v * b.c), String(b.v * b.c)];
+    });
+    return json(route, { code: "00000", msg: "success", requestTime: Date.now(), data });
+  });
+  /* OKX spot (newest first; the forming bar is flagged confirm "0") */
+  await ctx.route(/^https:\/\/www\.okx\.com\/api\/v5\/market\/(history-)?candles/, (route) => {
+    const u = new URL(route.request().url());
+    const unit = { "1H": RD_H, "1Dutc": RD_D }[q(u, "bar")];
+    if (q(u, "instId") !== "BTC-USDT" || !unit) return route.fallback();
+    const forming = Math.floor(Date.now() / unit) * unit;
+    const after = q(u, "after") ? Number(q(u, "after")) : Infinity; // strictly older than `after`
+    const end = after === Infinity ? forming : Math.floor((after - 1) / unit) * unit;
+    const data = opens(unit, Math.min(300, Number(q(u, "limit") || 100)), end).map((t) => {
+      const b = ohlc("okx", t, unit);
+      return [String(t), String(b.o), String(b.h), String(b.l), String(b.c), String(b.v), String(b.v), String(b.v * b.c), t === forming ? "0" : "1"];
+    });
+    return json(route, { code: "0", msg: "", data });
+  });
+  /* Coinbase: ticker (US premium) and candles [time s, low, high, open, close, volume] */
+  await ctx.route(/^https:\/\/api\.exchange\.coinbase\.com\/products\/BTC-(USD|USDT)\/(ticker|candles)/, (route) => {
+    const u = new URL(route.request().url());
+    if (u.pathname.endsWith("/ticker")) return json(route, { trade_id: 1, price: (RD_P * 1.01).toFixed(2), size: "0.01", time: new Date().toISOString() });
+    const g = Number(q(u, "granularity")) * 1000;
+    if (g !== RD_H && g !== RD_D) return route.fallback();
+    const start = Date.parse(q(u, "start")), end = Date.parse(q(u, "end"));
+    const rows = opens(g, Math.min(300, Math.round((end - start) / g) + 1), end).filter((t) => t >= start).map((t) => {
+      const b = ohlc("coinbase", t, g);
+      return [t / 1000, b.l, b.h, b.o, b.c, b.v];
+    });
+    return json(route, rows);
+  });
+  /* Upbit through the same-origin relay; the real host is refused and logged */
+  await ctx.route(/^https:\/\/api\.upbit\.com\//, (route) => { st.upbitDirect.push(route.request().url()); return route.abort(); });
+  const iso19 = (t) => new Date(t).toISOString().slice(0, 19);
+  await ctx.route(/\/x\/upbit\/v1\//, (route) => {
+    const u = new URL(route.request().url());
+    const p = u.pathname.replace(/^\/x\/upbit/, "");
+    if (p === "/v1/ticker") {
+      const markets = (q(u, "markets") || "").split(",");
+      return json(route, markets.map((m) => ({ market: m, trade_price: m === "KRW-USDT" ? RD_KRW : m === "KRW-BTC" ? RD_P * RD_KRW * 1.012 : 1 })));
+    }
+    const unit = p === "/v1/candles/minutes/60" ? RD_H : p === "/v1/candles/days" ? RD_D : 0;
+    const market = q(u, "market");
+    if (!unit || (market !== "KRW-BTC" && market !== "KRW-USDT")) return json(route, { error: { message: "not mocked" } }, 404);
+    const to = q(u, "to") ? Date.parse(q(u, "to")) : Infinity; // exclusive
+    const forming = Math.floor(Date.now() / unit) * unit;
+    const end = to === Infinity ? forming : Math.min(forming, Math.ceil(to / unit) * unit - unit);
+    const rows = opens(unit, Math.min(200, Number(q(u, "count") || 1)), end).map((t) => {
+      const usd = ohlc("upbit", t, unit);
+      const k = market === "KRW-USDT" ? RD_KRW / usd.c : RD_KRW; // USDT leg is flat, BTC leg is USD × the won rate
+      const f = market === "KRW-USDT" ? 1 : 1;
+      return {
+        market, candle_date_time_utc: iso19(t), opening_price: usd.o * k * f, high_price: usd.h * k * f, low_price: usd.l * k * f, trade_price: usd.c * k * f,
+        timestamp: t === forming ? Date.now() : t + 1000, candle_acc_trade_price: usd.v * usd.c * k, candle_acc_trade_volume: usd.v,
+      };
+    });
+    return json(route, rows);
+  });
+  /* Coins.ph through the same-origin relay (price and klines) */
+  await ctx.route(/^https:\/\/api\.pro\.coins\.ph\//, (route) => route.abort());
+  await ctx.route(/\/x\/coinsph\/openapi\/quote\/v1\//, (route) => {
+    const u = new URL(route.request().url());
+    const sym = q(u, "symbol");
+    if (u.pathname.endsWith("/ticker/price")) {
+      const price = sym === "BTCPHP" ? RD_P * RD_PHP * 1.005 : sym === "USDTPHP" ? RD_PHP : null;
+      return price === null ? json(route, { code: -1121, msg: "Invalid symbol." }, 400) : json(route, { symbol: sym, price: String(price) });
+    }
+    if (u.pathname.endsWith("/klines")) {
+      const unit = { "1h": RD_H, "1d": RD_D }[q(u, "interval")];
+      if (!unit || (sym !== "BTCPHP" && sym !== "USDTPHP")) return json(route, { code: -1121, msg: "Invalid symbol." }, 400);
+      const rows = opens(unit, Math.min(1000, Number(q(u, "limit") || 500)), q(u, "endTime") ? Number(q(u, "endTime")) : Infinity).reverse().map((t) => {
+        const usd = ohlc("coinsph", t, unit);
+        const k = sym === "USDTPHP" ? RD_PHP / usd.c : RD_PHP;
+        return [t, String(usd.o * k), String(usd.h * k), String(usd.l * k), String(usd.c * k), String(usd.v), t + unit - 1, String(usd.v * usd.c), 100, String(usd.v / 2)];
+      });
+      return json(route, rows);
+    }
+    return json(route, { code: -1, msg: "not mocked" }, 404);
+  });
+
+  /* Binance USDⓈ-M futures (probe bodies) */
+  await ctx.route(/^https:\/\/fapi\.binance\.com\//, (route) => {
+    const u = new URL(route.request().url());
+    const sym = q(u, "symbol");
+    if (sym !== "BTCUSDT" && sym !== "ETHUSDT") return json(route, { code: -1121, msg: "Invalid symbol." }, 400);
+    const eth = sym === "ETHUSDT";
+    const hourOpen = Math.floor(Date.now() / RD_H) * RD_H - RD_H;
+    if (u.pathname === "/fapi/v1/premiumIndex") {
+      return json(route, { symbol: sym, markPrice: eth ? "3200.10000000" : "64944.91491304", indexPrice: eth ? "3202.40000000" : "64979.37652174", estimatedSettlePrice: "65078.08558540", lastFundingRate: eth ? "0.00010000" : "-0.00001816", interestRate: "0.00010000", nextFundingTime: Date.now() + 36e5, time: Date.now() });
+    }
+    if (u.pathname === "/fapi/v1/fundingRate") {
+      const n = Number(q(u, "limit") || 100);
+      return json(route, Array.from({ length: n }, (_, i) => ({ symbol: sym, fundingTime: Date.now() - (n - i) * 8 * RD_H, fundingRate: ((i % 30) / 30 * 0.00008 - 0.00002).toFixed(8), markPrice: "64000.00000000", rateType: "Regular" })));
+    }
+    if (u.pathname === "/futures/data/openInterestHist") {
+      const n = Number(q(u, "limit") || 25);
+      return json(route, Array.from({ length: n }, (_, i) => ({ symbol: sym, sumOpenInterest: (eth ? 1.2e6 : i === n - 1 ? 93828.193 : 90000 + i * 100).toFixed(3), sumOpenInterestValue: "6062644075.84702600", CMCCirculatingSupply: "20112050.00000000", timestamp: hourOpen - (n - 1 - i) * RD_H })));
+    }
+    if (u.pathname === "/futures/data/globalLongShortAccountRatio") {
+      return json(route, [{ symbol: sym, longShortRatio: "2.9154", longAccount: "0.7446", shortAccount: "0.2554", timestamp: hourOpen }]);
+    }
+    if (u.pathname === "/futures/data/takerlongshortRatio") {
+      return json(route, [{ buySellRatio: "1.1088", sellVol: "3856.5760", buyVol: "4276.0310", timestamp: hourOpen }]);
+    }
+    return json(route, { code: -1, msg: "not mocked" }, 404);
+  });
+  /* CFTC TFF futures only (Socrata): BTC 2026-11-03 vs 2026-10-27 (probe), ETH likewise */
+  await ctx.route(/^https:\/\/publicreporting\.cftc\.gov\//, (route) => {
+    const u = new URL(route.request().url());
+    const code = /cftc_contract_market_code='(\d+)'/.exec(decodeURIComponent(q(u, "$where") || ""))?.[1];
+    const mk = (date, amL, amS, lmL, lmS, oi) => ({ report_date_as_yyyy_mm_dd: `${date}T00:00:00.000`, cftc_contract_market_code: code, open_interest_all: String(oi), asset_mgr_positions_long: String(amL), asset_mgr_positions_short: String(amS), lev_money_positions_long: String(lmL), lev_money_positions_short: String(lmS) });
+    if (code === "133741") return json(route, [mk("2026-11-03", 3100, 1200, 5400, 9100, 17527), mk("2026-10-27", 3000, 1500, 5000, 8000, 20791)]);
+    if (code === "146021") return json(route, [mk("2026-11-03", 1018, 2843, 3599, 7298, 22869), mk("2026-10-27", 1285, 2469, 4415, 8440, 28068)]);
+    return json(route, []);
+  });
+  /* DefiLlama total stablecoin supply: 120 quiet days, then a +US$5B mint today (the supply-jump fixture) */
+  await ctx.route(/^https:\/\/stablecoins\.llama\.fi\//, (route) => {
+    const u = new URL(route.request().url());
+    if (u.pathname !== "/stablecoincharts/all") return json(route, { message: "not mocked" }, 404);
+    const today = Math.floor(Date.now() / RD_D) * RD_D;
+    let v = 280e9;
+    const rows = [];
+    for (let i = 119; i >= 0; i--) {
+      v += i === 0 ? 5e9 : 1e8 + 4e7 * Math.sin(i);
+      rows.push({ date: String((today - i * RD_D) / 1000), totalCirculatingUSD: { peggedUSD: v } });
+    }
+    return json(route, rows);
+  });
+  return st;
+}
+
 /* ---------- helpers ---------- */
 const lum = (rgb) => { const [r, g, b] = rgb.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
 const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
@@ -2377,6 +2582,304 @@ function dsCompare(base, now, prefix = "") {
     }
     if (unknown.length) console.log(`  note: unmocked venue paths ${[...new Set(unknown)].join(", ")}`);
     await c.close();
+  }
+  /* ===== v2.8 WP25: market radar (tab, panel, gating, alerts) — every radar host mocked, unmocked hosts logged ===== */
+  /* acceptance-ids: RD-1, RD-2, RD-3, RD-4, RD-5, RD-6, RD-7 */
+  {
+    const shotDir = process.env.RD_SHOT_DIR || OUT;
+    const radarContext = async (extra = {}) => {
+      const c = await newContext(browser, { viewport: { width: 1280, height: 800 }, reducedMotion: "reduce", serviceWorkers: "block", deviceScaleFactor: 1, ...extra });
+      const st = await rdMock(c);
+      const p = await c.newPage();
+      await p.goto(BASE, { waitUntil: "domcontentloaded" });
+      await completeFirstRun(p, { operator: "R" });
+      await waitRows(p);
+      return { c, p, st };
+    };
+    const radarHits = (st) => st.requests.filter((r) => RD_HOSTS.some((h) => r.startsWith(h)) || r.startsWith("api.exchange.coinbase.com/products/BTC-USD/ticker") || r.endsWith("/x/upbit/v1/ticker"));
+    const unknownRadar = (st) => st.unknown.filter((h) => /binance|cftc|llama|coinbase|upbit|coins\.ph|bybit|bitget|okx/.test(h));
+    const waitSections = (p) => p.waitForFunction(() =>
+      ["positioning", "buyer", "regional", "institutions", "alerts"].every((id) => /^Updated /.test(document.querySelector(`[data-testid="radar-status-${id}"]`)?.textContent || "")), null, { timeout: 90000, polling: 300 });
+    const panel = (p) => p.getByTestId("radar-panel");
+
+    /* RD-1: at rest the tab exists and the panel is closed; no radar host is contacted without interaction */
+    {
+      const { c, p, st } = await radarContext();
+      await p.waitForTimeout(4000);
+      const geo = await p.evaluate(() => {
+        const t = document.querySelector('[data-testid="radar-tab"]');
+        const r = t?.getBoundingClientRect();
+        return { tabs: document.querySelectorAll('[data-testid="radar-tab"]').length, inShell: !!t?.closest("header,main,footer"), parentIsBody: t?.parentElement === document.body, text: t?.textContent,
+          right: r ? Math.round(innerWidth - r.right) : null, midY: r ? Math.round(r.top + r.height / 2) : null, vh: innerHeight };
+      });
+      const hits = radarHits(st);
+      record("RD-1", "Radar tab at rest: one right-edge tab labelled Radar, centred vertically, outside header/main/footer, panel closed; with no interaction no request goes to fapi.binance.com, publicreporting.cftc.gov, stablecoins.llama.fi, the Coinbase ticker or the Upbit /v1/ticker (DS-1/DS-2 checked separately)",
+        geo.tabs === 1 && !geo.inShell && geo.parentIsBody && geo.text === "Radar" && geo.right === 0 && Math.abs(geo.midY - geo.vh / 2) <= 2 && (await panel(p).count()) === 0 && hits.length === 0 && unknownRadar(st).length === 0,
+        { geo, hits, unmockedRadarHosts: unknownRadar(st), otherUnmocked: [...new Set(st.unknown)].slice(0, 6) });
+      await c.close();
+    }
+
+    /* RD-2: R opens, Esc closes, R ignored while typing, open state remembered, no transition when motion is reduced, right or bottom sheet by width */
+    {
+      const { c, p, st } = await radarContext();
+      const filter = p.getByPlaceholder(/filter/i).first();
+      await filter.click();
+      await p.keyboard.type("r");
+      const typed = await filter.inputValue();
+      const ignoredWhileTyping = (await panel(p).count()) === 0 && typed === "r";
+      await filter.fill("");
+      // R is ignored while another dialog is open, and with a modifier key
+      await p.getByRole("button", { name: /Signal ledger/ }).first().click();
+      await p.locator('[role="dialog"]').first().waitFor({ timeout: 10000 });
+      await p.keyboard.press("r");
+      await p.waitForTimeout(300);
+      const ignoredInDialog = (await panel(p).count()) === 0;
+      await p.keyboard.press("Escape");
+      await p.locator('[role="dialog"]').waitFor({ state: "detached", timeout: 10000 }).catch(() => null);
+      await p.locator("body").click({ position: { x: 5, y: 400 } });
+      await p.keyboard.press("Alt+r");
+      await p.keyboard.press("Meta+r");
+      await p.waitForTimeout(300);
+      const ignoredWithModifier = (await panel(p).count()) === 0;
+      const tabAttrs = await p.evaluate(() => { const t = document.querySelector('[data-testid="radar-tab"]'); return { name: t.getAttribute("aria-label"), controls: t.getAttribute("aria-controls"), expanded: t.getAttribute("aria-expanded") }; });
+      await p.keyboard.press("r");
+      await panel(p).waitFor({ timeout: 10000 });
+      const desktop = await p.evaluate(() => { const el = document.querySelector('[data-testid="radar-panel"]'); const r = el.getBoundingClientRect(); const cs = getComputedStyle(el);
+        const hb = Math.round(document.querySelector("header").getBoundingClientRect().bottom);
+        // every header control stays reachable: the element at the centre of the right-most header button is not inside the panel
+        const btns = [...document.querySelectorAll("header button, header [role=combobox]")].filter((b) => b.getBoundingClientRect().width > 0);
+        const last = btns.sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right)[0].getBoundingClientRect();
+        const hit = document.elementFromPoint(Math.min(last.left + last.width / 2, innerWidth - 1), last.top + last.height / 2);
+        return { side: el.getAttribute("data-side"), id: el.id, w: Math.round(r.width), rightGap: Math.round(innerWidth - r.right), top: Math.round(r.top), bottom: Math.round(r.bottom), hb, vh: innerHeight, anim: cs.animationName, transProp: cs.transitionProperty, transDur: cs.transitionDuration,
+          focusInside: el.contains(document.activeElement), labelledName: (document.getElementById(el.getAttribute('aria-labelledby') || '')?.textContent || '').trim(), tabCount: document.querySelectorAll('[data-testid="radar-tab"]').length, headerReachable: !!hit && !el.contains(hit) };
+      });
+      await p.keyboard.press("Escape");
+      await panel(p).waitFor({ state: "detached", timeout: 10000 });
+      const focusBack = await p.waitForFunction(() => document.activeElement?.getAttribute("data-testid") === "radar-tab", null, { timeout: 5000 }).then(() => true, () => false);
+      await p.keyboard.press("r");
+      await panel(p).waitFor({ timeout: 10000 });
+      await p.reload({ waitUntil: "domcontentloaded" });
+      await waitRows(p);
+      const remembered = (await panel(p).count()) === 1 || (await panel(p).waitFor({ timeout: 8000 }).then(() => true, () => false));
+      await p.setViewportSize({ width: 800, height: 700 });
+      await p.waitForFunction(() => document.querySelector('[data-testid="radar-panel"]')?.getAttribute("data-side") === "bottom", null, { timeout: 8000 }).catch(() => null);
+      const narrow = await p.evaluate(() => { const el = document.querySelector('[data-testid="radar-panel"]'); const r = el.getBoundingClientRect(); return { side: el.getAttribute("data-side"), w: Math.round(r.width), bottomGap: Math.round(innerHeight - r.bottom), h: Math.round(r.height), vh: innerHeight }; });
+      record("RD-2", "R opens and Esc closes the panel; R is ignored while typing in the Filter field; the open state survives a reload; with reduced motion there is no slide transition; 800 px wide it is a bottom sheet (≤ 80 vh), 1280 px a 420 px right sheet below the header; opening moves focus into the panel, closing returns it to the tab; the tab is hidden while it is open",
+        ignoredWhileTyping && ignoredInDialog && ignoredWithModifier && desktop.labelledName.length > 0 && /^Radar/.test(tabAttrs.name) && tabAttrs.controls === "radar-panel" && tabAttrs.expanded === "false"
+          && desktop.side === "right" && desktop.id === "radar-panel" && desktop.w === 420 && desktop.rightGap === 0 && desktop.top === desktop.hb && desktop.bottom === desktop.vh && desktop.headerReachable
+          && desktop.focusInside && desktop.tabCount === 0 && focusBack && remembered
+          && desktop.anim === "none" && (desktop.transProp === "none" || desktop.transDur === "0s")
+          && narrow.side === "bottom" && narrow.w === 800 && narrow.bottomGap === 0 && narrow.h <= Math.round(narrow.vh * 0.8) + 1,
+        { ignoredWhileTyping, ignoredInDialog, ignoredWithModifier, tabAttrs, desktop, focusBack, remembered, narrow, unmockedRadarHosts: unknownRadar(st) });
+      await c.close();
+    }
+
+    /* RD-3: opened with mocks, the five data sections show the fixtures' numbers and "Updated" */
+    {
+      const { c, p, st } = await radarContext();
+      await p.locator("body").click({ position: { x: 5, y: 400 } });
+      await p.keyboard.press("r");
+      await panel(p).waitFor({ timeout: 10000 });
+      await waitSections(p).catch(() => null);
+      const text = async (id) => ((await p.getByTestId(id).first().textContent().catch(() => "")) || "").replace(/\s+/g, " ").trim();
+      const ev = {
+        us: await text("radar-prem-us-value"), kr: await text("radar-prem-kr-value"), ph: await text("radar-prem-ph-value"), krNote: await text("radar-prem-kr-note"),
+        cotDate: await text("radar-cot-BTC-date"), cotAm: await text("radar-cot-BTC-am"), cotLf: await text("radar-cot-BTC-lf"),
+        funding: await text("radar-BTCUSDT-funding"), oi: await text("radar-BTCUSDT-oi"), ls: await text("radar-BTCUSDT-ls"), taker: await text("radar-BTCUSDT-taker"), basis: await text("radar-BTCUSDT-basis"),
+        bars: await p.locator('[data-testid="radar-spark"] rect[data-bar]').count(), sessions: await text("radar-sessions"),
+        supply: await p.locator('[data-testid="radar-alert"][data-code="SUPPLY_JUMP"]').first().textContent().catch(() => ""),
+        status: await Promise.all(["positioning", "buyer", "regional", "institutions", "alerts"].map((id) => text(`radar-status-${id}`))),
+      };
+      const korea = ((RD_P * RD_KRW * 1.012) / (RD_KRW * RD_P) - 1) * 100; // 1.20
+      await p.screenshot({ path: path.join(shotDir, "radar-desktop.png") });
+      record("RD-3", "Radar open on mocked data: US premium +1.00 %, Korea formula value +1.20 %, PH +0.50 %, CFTC report date 3 Nov 2026 with net positions, futures positioning figures, 24 taker-share bars and the supply jump match the fixtures; each of the five data sections says Updated",
+        /1\.00 %/.test(ev.us) && ev.kr.includes(`${korea.toFixed(2)} %`) && /0\.50 %/.test(ev.ph) && /USDT/.test(ev.krNote) && /won/.test(ev.krNote)
+          && /3 Nov 2026|Nov 3, 2026/.test(ev.cotDate) && /published Friday/.test(ev.cotDate)
+          && /long 3,100 · short 1,200 · net \+1,900 \(Δ \+400\)/.test(ev.cotAm) && /net -3,700 \(Δ -700\)/.test(ev.cotLf)
+          && /-0\.0018 %/.test(ev.funding) && /93,828 BTC/.test(ev.oi) && /\+4\.\d\d %/.test(ev.oi) && /2\.92/.test(ev.ls) && /1\.11/.test(ev.taker) && /-0\.05 %/.test(ev.basis)
+          && ev.bars === 24 && /Asia \d+ %/.test(ev.sessions) && /grew by/.test(ev.supply) && /5\s?(B|bn)/.test(ev.supply)
+          && ev.status.every((s) => /^Updated /.test(s)),
+        { ...ev, unmockedRadarHosts: unknownRadar(st) });
+      await p.setViewportSize({ width: 800, height: 700 });
+      await p.waitForFunction(() => document.querySelector('[data-testid="radar-panel"]')?.getAttribute("data-side") === "bottom", null, { timeout: 8000 }).catch(() => null);
+      await p.waitForTimeout(300);
+      await p.screenshot({ path: path.join(shotDir, "radar-narrow.png") });
+      await c.close();
+    }
+
+    /* RD-4: key-gated rows, ETF CSV import totals, hostile CSV rejected */
+    {
+      const { c, p, st } = await radarContext();
+      await p.locator("body").click({ position: { x: 5, y: 400 } });
+      await p.keyboard.press("r");
+      await panel(p).waitFor({ timeout: 10000 });
+      await waitSections(p).catch(() => null);
+      const txt = async (id) => ((await p.getByTestId(id).textContent().catch(() => "")) || "").replace(/\s+/g, " ").trim();
+      const live = await txt("radar-etf-live"), whale = await txt("radar-whale"), empty = await p.getByTestId("radar-etf-empty").count();
+      await p.getByTestId("radar-etf-file").setInputFiles({ name: "etf.csv", mimeType: "text/csv", buffer: Buffer.from("date,issuer,flow_usd\n2026-11-10,IBIT,120000000\n2026-11-10,FBTC,-30000000\n2026-11-11,IBIT,50000000\n") });
+      await p.getByTestId("radar-etf-result").waitFor({ timeout: 10000 });
+      const ok = await txt("radar-etf-result");
+      const days = await p.locator('[data-testid="radar-etf-day"]').allTextContents();
+      await p.getByTestId("radar-etf-file").setInputFiles({ name: "bad.csv", mimeType: "text/csv", buffer: Buffer.from("date,issuer,flow_usd\n=cmd|' /C calc'!A0,IBIT,1\n2026-13-45,X,1\n2026-11-12,@evil,5\n2026-11-12,OK,abc\n") });
+      await p.waitForFunction(() => /rejected/.test(document.querySelector('[data-testid="radar-etf-result"]')?.textContent || "") && /Imported 0 rows/.test(document.querySelector('[data-testid="radar-etf-result"]')?.textContent || ""), null, { timeout: 10000 }).catch(() => null);
+      const bad = await txt("radar-etf-result");
+      record("RD-4", "Live ETF flows and Large transfers say \"Available with a key on the desktop gateway\"; importing a sample ETF CSV shows the daily totals; a hostile CSV shows a rejected count and adds nothing",
+        /^Live ETF flows — Available with a key on the desktop gateway$/.test(live) && /^Large transfers — Available with a key on the desktop gateway$/.test(whale) && empty === 1
+          && /Imported 3 rows · 0 rejected · 0 duplicates/.test(ok) && days.length === 2 && /90m/i.test(days[1]) && /50m/i.test(days[0])
+          && /Imported 0 rows · 4 rejected/.test(bad),
+        { live, whale, ok, days, bad, unmockedRadarHosts: unknownRadar(st) });
+      await c.close();
+    }
+
+    /* RD-5: Coinbase +1.5 % for 2 closed bars alerts, naming the venue, the threshold and a source link; 2 % clears it */
+    {
+      const { c, p, st } = await radarContext();
+      await p.locator("body").click({ position: { x: 5, y: 400 } });
+      await p.keyboard.press("r");
+      await panel(p).waitFor({ timeout: 10000 });
+      await waitSections(p).catch(() => null);
+      const item = p.locator('[data-testid="radar-alert"][data-code="BREAKAWAY_COINBASE"]');
+      await item.waitFor({ timeout: 30000 }).catch(() => null);
+      const before = ((await item.textContent().catch(() => "")) || "").replace(/\s+/g, " ");
+      const href = await item.getByTestId("radar-alert-source").getAttribute("href").catch(() => null);
+      const thBefore = ((await item.getByTestId("radar-alert-threshold").textContent().catch(() => "")) || "").replace(/\s+/g, " ");
+      await p.getByTestId("radar-thresholds").locator("summary").click();
+      // typed with the keyboard, one key at a time: "2.5" must survive (the field is not remounted per key)
+      const field = p.getByTestId("radar-th-breakAwayPct");
+      await field.click();
+      await p.keyboard.press("Control+A");
+      await p.keyboard.type("2.5");
+      const typed = await field.inputValue();
+      const stillFocused = await p.evaluate(() => document.activeElement?.getAttribute("data-testid") === "radar-th-breakAwayPct");
+      const stored = await p.evaluate(() => JSON.parse(localStorage.getItem("ct-radar-v1") || "{}").thresholds?.breakAwayPct);
+      await item.waitFor({ state: "detached", timeout: 15000 }).catch(() => null);
+      // an out-of-range value stays in the field, is marked invalid and is not stored
+      await p.keyboard.press("Control+A");
+      await p.keyboard.type("50");
+      const invalid = { aria: await field.getAttribute("aria-invalid"), msg: ((await p.getByTestId("radar-th-breakAwayPct-msg").textContent().catch(() => "")) || "").trim(), min: await field.getAttribute("min"), max: await field.getAttribute("max"),
+        stored: await p.evaluate(() => JSON.parse(localStorage.getItem("ct-radar-v1") || "{}").thresholds?.breakAwayPct) };
+      await p.keyboard.press("Control+A");
+      await p.keyboard.type("2");
+      await p.keyboard.press("ArrowUp"); // arrow keys step without losing focus: 2 → 2.1
+      const arrow = { value: await field.inputValue(), focused: await p.evaluate(() => document.activeElement?.getAttribute("data-testid") === "radar-th-breakAwayPct") };
+      const cleared = (await item.count()) === 0;
+      const none = await p.getByTestId("radar-alerts-none").count();
+      const note = ((await p.getByTestId("radar-th-note").textContent().catch(() => "")) || "").replace(/\s+/g, " ");
+      record("RD-5", "Fixtures with Coinbase +1.5 % for 2 closed bars raise an alert naming Coinbase, the threshold and a source link; raising the break-away threshold clears it at once with no request (thresholds labelled \"Starting values\"); the threshold field takes typed decimals (2.5), arrow keys and shows an invalid state out of range",
+        /Coinbase/.test(before) && /\+1\.50 %/.test(before) && /1\.0 % for 2 closed 1h bars/.test(thBefore) && /^https:\/\//.test(href || "") && cleared && /^Starting values/.test(note)
+          && typed === "2.5" && stillFocused && stored === 2.5 && invalid.aria === "true" && /0\.2 to 10/.test(invalid.msg) && invalid.min === "0.2" && invalid.max === "10" && invalid.stored === 5
+          && arrow.value === "2.1" && arrow.focused,
+        { before, thBefore, href, cleared, none, note, typed, stillFocused, stored, invalid, arrow, unmockedRadarHosts: unknownRadar(st) });
+      await c.close();
+    }
+
+    /* RD-6: right-to-left (Arabic): the tab sits at the physical left, the sheet opens on the left below the header, the close button does not overlap the title */
+    {
+      const { c, p, st } = await radarContext();
+      await p.getByRole("button", { name: /^Language:/ }).click();
+      await p.locator("#rsl-lang-list [role=option]", { hasText: "العربية" }).click();
+      await p.waitForFunction(() => document.documentElement.dir === "rtl" && document.documentElement.lang === "ar");
+      await waitRows(p);
+      await p.waitForTimeout(500);
+      const closed = await p.evaluate(() => { const t = document.querySelector('[data-testid="radar-tab"]'); const r = t.getBoundingClientRect();
+        return { left: Math.round(r.left), right: Math.round(innerWidth - r.right), label: t.getAttribute("aria-label"), text: t.textContent, midY: Math.round(r.top + r.height / 2), vh: innerHeight }; });
+      await p.screenshot({ path: path.join(shotDir, "radar-rtl-closed.png") });
+      await p.locator("body").click({ position: { x: 640, y: 700 } });
+      await p.keyboard.press("r");
+      await panel(p).waitFor({ timeout: 10000 });
+      await p.waitForFunction(() => ["positioning", "buyer", "regional", "institutions", "alerts"].every((id) => (document.querySelector(`[data-testid="radar-status-${id}"]`)?.textContent || "").trim().length > 0), null, { timeout: 90000, polling: 300 }).catch(() => null);
+      await p.waitForTimeout(400);
+      const open = await p.evaluate(() => {
+        const el = document.querySelector('[data-testid="radar-panel"]'); const r = el.getBoundingClientRect();
+        const hb = Math.round(document.querySelector("header").getBoundingClientRect().bottom);
+        const title = document.getElementById("radar-title"); const range = document.createRange(); range.selectNodeContents(title); const tr = range.getBoundingClientRect();
+        const x = el.querySelector(":scope > button"); const xr = x.getBoundingClientRect();
+        return { side: el.getAttribute("data-side"), left: Math.round(r.left), w: Math.round(r.width), top: Math.round(r.top), hb, titleRight: Math.round(tr.right), xLeft: Math.round(xr.left), xRight: Math.round(xr.right), xLabel: x.textContent, tabs: document.querySelectorAll('[data-testid="radar-tab"]').length };
+      });
+      await p.screenshot({ path: path.join(shotDir, "radar-rtl.png") });
+      record("RD-6", "Arabic (right-to-left): the Radar tab sits at the physical left edge, vertically centred, its accessible name starting with the visible word; the sheet opens on the left below the header, the close button does not overlap the title, and the close label is translated",
+        closed.left === 0 && closed.right > 100 && Math.abs(closed.midY - closed.vh / 2) <= 2 && closed.label.startsWith(closed.text.trim())
+          && open.side === "left" && open.left === 0 && open.w === 420 && open.top === open.hb && open.titleRight <= open.xLeft && open.xLabel.trim() === "إغلاق رادار السوق" && open.tabs === 0,
+        { closed, open, unmockedRadarHosts: unknownRadar(st) });
+      await c.close();
+    }
+
+    /* RD-7: Record radar context. Off (default): after scans there is no radar host request and every ledger row has rad null.
+       On (panel closed): the radar hosts are requested and rows recorded afterwards carry rad (newest logged context at or before the bar close, at most 2 h old).
+       The context log entry just before the bar close is written into the device's log first: a real entry is made at the moment recording is switched on,
+       i.e. after the newest closed bar, and a row never takes a later one (no look-ahead), so a test cannot wait for the next bar close. */
+    {
+      const ledgerRows = (p, tf) => p.evaluate((frame) => new Promise((resolve) => {
+        const req = indexedDB.open("rsl-conf-ledger");
+        req.onerror = () => resolve([]);
+        req.onsuccess = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains("ledger")) { db.close(); return resolve([]); }
+          const all = db.transaction("ledger", "readonly").objectStore("ledger").getAll();
+          all.onsuccess = () => { db.close(); resolve(all.result.flatMap((d) => (d && d.rows) || []).filter((r) => r.tf === frame && r.src === "binance").map((r) => ({ pair: r.pair, t: r.t, tc: r.tc, rad: r.rad === undefined ? "absent" : r.rad }))); };
+          all.onerror = () => { db.close(); resolve([]); };
+        };
+      }), tf);
+      const waitLedger = async (p, tf) => { let rows = []; for (let i = 0; i < 80 && rows.length < 3; i++) { rows = await ledgerRows(p, tf); if (rows.length < 3) await p.waitForTimeout(500); } return rows; };
+      const toHourly = async (p) => {
+        await p.getByRole("combobox", { name: "Timeframe" }).click();
+        await p.getByRole("option", { name: "1 hour", exact: true }).click();
+      };
+      const seedLog = (p, entry) => p.evaluate((e) => new Promise((resolve) => {
+        const req = indexedDB.open("rsl-conf");
+        req.onerror = () => resolve(false);
+        req.onsuccess = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains("meta")) { db.close(); return resolve(false); }
+          const id = `radar-log-${new Date(e.t).toISOString().slice(0, 10)}`;
+          const tx = db.transaction("meta", "readwrite"); const store = tx.objectStore("meta");
+          const g = store.get(id);
+          g.onsuccess = () => {
+            const doc = g.result && Array.isArray(g.result.entries) ? g.result : { day: id.slice(10), entries: [] };
+            doc.entries.push(e); doc.entries.sort((a, b) => a.t - b.t);
+            store.put(doc, id);
+          };
+          tx.oncomplete = () => { db.close(); resolve(true); };
+          tx.onerror = () => { db.close(); resolve(false); };
+        };
+      }), entry);
+      const radarFetched = (st) => radarHits(st).filter((r) => r.startsWith("fapi.binance.com/fapi/v1/premiumIndex") || r.startsWith("stablecoins.llama.fi/") || r.startsWith("publicreporting.cftc.gov/"));
+
+      /* off (the default) */
+      const off = await radarContext();
+      const offDefault = await off.p.getByRole("button", { name: /^Scoring profile/ }).click().then(() => off.p.locator('[data-testid="record-radar"]').isChecked());
+      await off.p.getByRole("button", { name: /^Scoring profile/ }).click();
+      const off4 = await waitLedger(off.p, "4h");
+      await toHourly(off.p);
+      const off1 = await waitLedger(off.p, "1h");
+      await off.p.waitForTimeout(3000);
+      const offHits = radarHits(off.st);
+      await off.c.close();
+
+      /* on, panel closed */
+      const on = await radarContext();
+      const on4 = await waitLedger(on.p, "4h"); // recorded before the setting was on: no rad
+      await on.p.getByRole("button", { name: /^Scoring profile/ }).click();
+      await on.p.locator('[data-testid="record-radar"]').check();
+      await on.p.getByRole("button", { name: /^Scoring profile/ }).click();
+      const panelClosed = (await panel(on.p).count()) === 0;
+      let fetched = [];
+      for (let i = 0; i < 120 && fetched.length < 3; i++) { fetched = radarFetched(on.st); if (fetched.length < 3) await on.p.waitForTimeout(500); }
+      const tc1h = Math.floor(Date.now() / 36e5) * 36e5;
+      const seedT = tc1h - 60e3;
+      const seeded = await seedLog(on.p, { t: seedT, frp: 77.7, oi24: 1.5, ls: 1.2, tk: 0.52, usP: 0.1, krP: 0.2, phP: 0.3, al: ["BREAKAWAY_COINBASE"] });
+      await toHourly(on.p);
+      const on1 = await waitLedger(on.p, "1h");
+      const radOn = on1.map((r) => r.rad);
+      const okRad = (r) => r && typeof r === "object" && r.t <= on1[0].tc && on1[0].tc - r.t <= 2 * 36e5 && r.frp >= 0 && r.frp <= 100 && Array.isArray(r.al);
+      await on.c.close();
+
+      record("RD-7", "Record radar context: off by default, after scans there is no radar host request and every ledger row has rad null; switched on (panel closed) the radar hosts are requested and rows recorded afterwards carry rad - the newest logged context at or before the bar close, at most 2 h old (the one just before the close here) - while rows recorded earlier keep rad null",
+        offDefault === false && off4.length >= 3 && off1.length >= 3 && off4.concat(off1).every((r) => r.rad === null) && offHits.length === 0 && unknownRadar(off.st).length === 0
+          && on4.length >= 3 && on4.every((r) => r.rad === null) && panelClosed && fetched.length >= 3 && seeded
+          && on1.length >= 3 && radOn.every(okRad) && radOn.every((r) => r.t === seedT ? r.frp === 77.7 && r.al.join() === "BREAKAWAY_COINBASE" : true),
+        { offDefault, off4: off4.length, off1: off1.length, offRad: [...new Set(off4.concat(off1).map((r) => JSON.stringify(r.rad)))], offHits, on4Rad: [...new Set(on4.map((r) => JSON.stringify(r.rad)))], panelClosed, fetched: fetched.slice(0, 4), seeded, on1: on1.length, radOn: radOn.slice(0, 2), seedT, unmocked: unknownRadar(on.st) });
+    }
   }
   } // end of the full run (skipped with --ds-only)
   /* acceptance-ids: DS-1, DS-2 — layout at rest vs the v2.7.0-web baselines in tools/e2e/baselines/ */

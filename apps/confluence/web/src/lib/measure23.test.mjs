@@ -456,6 +456,30 @@ console.log("WP19 ledger completeness: vote vector, Pattern, derivatives");
     const row = SR.liveRow(series, s, { src: "bybit-perp", tf: "4h", intervalMs: 4 * H, appVersion: "t", derivatives }, SR.scanShared([series]));
     return [row.fr === -0.0003 && near(row.oiChg, 25) && row.pd === 1 && row.pc === 1, JSON.stringify({ fr: row.fr, oi: row.oiChg, pd: row.pd, pc: row.pc })];
   });
+  const radCtx = (t, extra = {}) => ({ t, frp: 50, oi24: 1, ls: 1.1, tk: 0.5, usP: 0.1, krP: 0.2, phP: 0.3, al: [], ...extra });
+  check("scan-record: rows take the newest radar context at or before tc within 2 h", () => {
+    const series = { symbol: "BTCUSDT", rank: 1, quoteVolume: 1, ac: "crypto", kl: k };
+    const tc = k[999].time + 4 * H;
+    const radar = [radCtx(tc - 3 * H, { frp: 1 }), radCtx(tc - 30 * 60e3, { frp: 2 }), radCtx(tc - 5 * 60e3, { frp: 3 }), radCtx(tc + 60e3, { frp: 99 })];
+    const ctx = { src: "binance", tf: "4h", intervalMs: 4 * H, appVersion: "t", radar };
+    const row = SR.liveRow(series, s, ctx, SR.scanShared([series]));
+    // a catch-up row uses its own tc: the context before it, never the later ones
+    const early = { ...row, t: k[990].time, tc: k[990].time + 4 * H, rad: undefined };
+    const old = { ...row, t: k[900].time, tc: k[900].time + 4 * H, rad: undefined };
+    SR.enrichCatchUp([early, old], k, { ...ctx, radar: [radCtx(early.tc - 20 * 60e3, { frp: 7 }), radCtx(early.tc + 60e3, { frp: 8 })] }, SR.scanShared([series]));
+    return [row.rad?.frp === 3 && row.rad.t === tc - 5 * 60e3 && early.rad?.frp === 7 && old.rad === null, JSON.stringify([row.rad, early.rad, old.rad])];
+  });
+  check("scan-record: rad null when recordRadar off (no radar log in the context) or when nothing qualifies", () => {
+    const series = { symbol: "BTCUSDT", rank: 1, quoteVolume: 1, ac: "crypto", kl: k };
+    const tc = k[999].time + 4 * H;
+    const off = SR.liveRow(series, s, { src: "binance", tf: "4h", intervalMs: 4 * H, appVersion: "t" }, SR.scanShared([series]));
+    const empty = SR.liveRow(series, s, { src: "binance", tf: "4h", intervalMs: 4 * H, appVersion: "t", radar: [] }, SR.scanShared([series]));
+    const tooOld = SR.liveRow(series, s, { src: "binance", tf: "4h", intervalMs: 4 * H, appVersion: "t", radar: [radCtx(tc - 2 * H - 1)] }, SR.scanShared([series]));
+    const edge = SR.liveRow(series, s, { src: "binance", tf: "4h", intervalMs: 4 * H, appVersion: "t", radar: [radCtx(tc - 2 * H)] }, SR.scanShared([series]));
+    const cu = [{ ...off, rad: undefined }];
+    SR.enrichCatchUp(cu, k, { src: "binance", tf: "4h", intervalMs: 4 * H, appVersion: "t" }, SR.scanShared([series]));
+    return [off.rad === null && empty.rad === null && tooOld.rad === null && edge.rad !== null && cu[0].rad === null, JSON.stringify([off.rad, empty.rad, tooOld.rad, edge.rad, cu[0].rad])];
+  });
 }
 
 console.log("WP19 measurement honesty: moments, power readout, confirmatory gate");
@@ -623,7 +647,7 @@ console.log("WP21 ft: ledger field, CSV, catch-up no-look-ahead, benchmark");
   const header = [...LEDGER_CSV_COLUMNS, "net_return_h1"];
   const at = (col) => LEDGER_CSV_COLUMNS.indexOf(col);
 
-  ok("fund_trend is the last CSV column and ft is exported", LEDGER_CSV_COLUMNS[LEDGER_CSV_COLUMNS.length - 1] === "fund_trend" && ledgerRowValues(row)[at("fund_trend")] === -37.3);
+  ok("fund_trend is exported; the WP25 radar columns follow it and radar_alerts is the last CSV column", LEDGER_CSV_COLUMNS[LEDGER_CSV_COLUMNS.length - 1] === "radar_alerts" && at("radar_funding_pctl") === at("fund_trend") + 1 && ledgerRowValues(row)[at("fund_trend")] === -37.3);
   {
     const imp = parseLedgerImport(csvOf(header, [[...ledgerRowValues(row), ""]]));
     ok("v2.8 CSV round-trips ft", imp.rows.length === 1 && imp.rows[0].ft === -37.3 && JSON.stringify(imp.rows[0]) === JSON.stringify(sanitizeLedgerRow(row)), JSON.stringify(imp));
@@ -721,6 +745,59 @@ console.log("\n== WP19 wording: spot SELL is 'long avoided' ==");
   ok("SELL groups on spot sources are long avoided", ["binance", "bybit-spot", "bitget", "coinsph"].every((src) => isSpotSellGroup("SELL · all", src) && isSpotSellGroup("SELL · strong", src)));
   ok("BUY groups are never long avoided", !isSpotSellGroup("BUY · all", "binance") && !isSpotSellGroup("BUY · strong", "bybit-spot"));
   ok("SELL groups on perpetual sources are real shorts", !isSpotSellGroup("SELL · all", "bybit-perp") && !isSpotSellGroup("SELL · strong", "bitget-perp"));
+}
+
+console.log("WP25 rad: radar context on the ledger row, CSV, sanitiser");
+{
+  const t = Date.UTC(2026, 10, 1, 8);
+  const safe = (v) => { if (v === null || v === undefined) return ""; if (typeof v === "number") return Number.isFinite(v) ? String(v) : ""; const g = /^[=+\-@\u0000-\u001F]/.test(String(v)) ? `'${v}` : String(v); return /[",\r\n]/.test(g) ? `"${g.replace(/"/g, '""')}"` : g; };
+  const csvOf = (cols, lines) => "\uFEFF" + [cols.join(","), ...lines.map((l) => l.map(safe).join(","))].join("\r\n") + "\r\n";
+  const rad = { t: t + 4 * H - 300_000, frp: 82.5, oi24: -3.25, ls: 1.8, tk: 0.54, usP: 0.12, krP: -1.4, phP: 0.9, al: ["BREAKAWAY_KR", "DEPEG_USDC"] };
+  const row = { ...baseRow, id: `c1|binance|4h|BTCUSDT|${t}`, pair: "BTCUSDT", t, tc: t + 4 * H, rec: t + 4 * H, c: 61234.5, sc: 47.5, m: 1, st: 1, ft: -37.3, rad };
+  const header = [...LEDGER_CSV_COLUMNS, "net_return_h1"];
+  const at = (col) => LEDGER_CSV_COLUMNS.indexOf(col);
+  const withCell = (col, v, r = row) => { const l = [...ledgerRowValues(r), ""]; l[at(col)] = v; return l; };
+  ok("the WP25 CSV columns are appended after fund_trend in the specified order", LEDGER_CSV_COLUMNS.slice(at("fund_trend") + 1).join() === "radar_funding_pctl,radar_oi_chg_24h,radar_long_short,radar_taker_share,radar_us_premium,radar_kr_premium,radar_ph_premium,radar_alerts");
+  {
+    const vals = ledgerRowValues(row);
+    ok("rad is exported per field, alerts joined by |", vals[at("radar_funding_pctl")] === 82.5 && vals[at("radar_alerts")] === "BREAKAWAY_KR|DEPEG_USDC" && vals[at("radar_kr_premium")] === -1.4 && vals.length === LEDGER_CSV_COLUMNS.length);
+    const imp = parseLedgerImport(csvOf(header, [[...vals, ""]]));
+    const r = imp.rows[0];
+    const { t: rt, ...fields } = r?.rad ?? {};
+    const { t: _t, ...want } = rad;
+    ok("v2.8 CSV round-trips rad", imp.rows.length === 1 && imp.rejected === 0 && JSON.stringify(fields) === JSON.stringify(want) && Number.isFinite(rt) && rt <= row.tc, JSON.stringify(imp));
+    const json = sanitizeLedgerRow(JSON.parse(JSON.stringify(row)));
+    ok("JSON rad round-trips including its time", JSON.stringify(json.rad) === JSON.stringify(rad));
+    const none = parseLedgerImport(csvOf(header, [[...ledgerRowValues({ ...row, rad: null }), ""]]));
+    ok("an empty radar cell set imports as rad null; no alerts is []", none.rows[0].rad === null && parseLedgerImport(csvOf(header, [[...ledgerRowValues({ ...row, rad: { ...rad, al: [] } }), ""]])).rows[0].rad.al.length === 0);
+  }
+  {
+    const v27 = LEDGER_CSV_COLUMNS.slice(0, at("fund_trend") + 1);
+    const imp = parseLedgerImport(csvOf(v27, [ledgerRowValues(row).slice(0, v27.length)]));
+    ok("a CSV without radar columns imports with rad null", imp.rows.length === 1 && imp.rejected === 0 && imp.rows[0].rad === null, JSON.stringify(imp));
+    const { rad: _r, ...old } = row;
+    ok("a JSON row without rad imports with rad null", sanitizeLedgerRow(old).rad === null);
+  }
+  {
+    const imp = parseLedgerImport(csvOf(header, [withCell("radar_alerts", "=cmd"), withCell("radar_alerts", "breakaway_x"), withCell("radar_alerts", "A|b"), withCell("radar_alerts", "+SUM(1)"), withCell("radar_alerts", "OK_1|OK_2")]));
+    ok('radar_alerts "=cmd" or "breakaway_x" is rejected (a valid list is kept)', imp.rows.length === 1 && imp.rejected === 4 && imp.rows[0].rad.al.join() === "OK_1,OK_2", `${imp.rows.length} ${imp.rejected}`);
+    const long = Array.from({ length: 17 }, (_, i) => `C${i}`).join("|");
+    ok("more than 16 alert codes is rejected, 16 kept", parseLedgerImport(csvOf(header, [withCell("radar_alerts", long), withCell("radar_alerts", long.split("|").slice(0, 16).join("|"))])).rows.length === 1);
+  }
+  {
+    const cases = [["radar_funding_pctl", 100.5], ["radar_funding_pctl", -1], ["radar_oi_chg_24h", -100.5], ["radar_oi_chg_24h", 10001], ["radar_long_short", -0.1], ["radar_long_short", 101], ["radar_taker_share", 1.01], ["radar_taker_share", -0.01], ["radar_us_premium", 50.5], ["radar_kr_premium", -50.5], ["radar_ph_premium", 51], ["radar_ph_premium", "=1+1"], ["radar_taker_share", "1e999"]];
+    const imp = parseLedgerImport(csvOf(header, cases.map(([c, v]) => withCell(c, v))));
+    ok("out-of-range or formula-like radar cells are rejected as a whole row", imp.rows.length === 0 && imp.rejected === cases.length, `${imp.rows.length} ${imp.rejected}`);
+    const edge = parseLedgerImport(csvOf(header, [withCell("radar_funding_pctl", 0), withCell("radar_funding_pctl", 100), withCell("radar_oi_chg_24h", -100), withCell("radar_oi_chg_24h", 10000), withCell("radar_taker_share", 1), withCell("radar_us_premium", -50), withCell("radar_ph_premium", 50)]));
+    ok("boundary values are kept", edge.rows.length === 7);
+  }
+  {
+    const bad = (m) => sanitizeLedgerRow({ ...row, rad: { ...rad, ...m } });
+    ok("out-of-range frp is rejected", bad({ frp: 100.1 }) === null && bad({ frp: -0.1 }) === null && bad({ frp: "50" }) === null && bad({ frp: NaN }) === null);
+    ok("JSON rad: oi24, ls, tk, premiums and t are range-checked", bad({ oi24: -100.1 }) === null && bad({ oi24: 10000.1 }) === null && bad({ ls: -1 }) === null && bad({ tk: 1.1 }) === null && bad({ usP: 50.1 }) === null && bad({ krP: -50.1 }) === null && bad({ phP: Infinity }) === null && bad({ t: Infinity }) === null && bad({ t: "1" }) === null);
+    ok("JSON rad: bad alert codes, more than 16, a non-array and a non-object rad are rejected", bad({ al: ["=cmd"] }) === null && bad({ al: ["lower"] }) === null && bad({ al: ["A".repeat(33)] }) === null && bad({ al: [""] }) === null && bad({ al: Array.from({ length: 17 }, () => "A") }) === null && bad({ al: "A" }) === null && sanitizeLedgerRow({ ...row, rad: "x" }) === null && sanitizeLedgerRow({ ...row, rad: [1] }) === null);
+    ok("a rad with null fields and no alerts is kept; unknown rad keys are dropped", JSON.stringify(sanitizeLedgerRow({ ...row, rad: { t, frp: null, oi24: null, ls: null, tk: null, usP: null, krP: null, phP: null, al: [], extra: 1 } }).rad) === JSON.stringify({ t, frp: null, oi24: null, ls: null, tk: null, usP: null, krP: null, phP: null, al: [] }));
+  }
 }
 
 console.log(`\nMeasurement v2.3 suite: ${passed}/${passed + failed} passed`);

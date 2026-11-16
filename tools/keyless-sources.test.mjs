@@ -149,3 +149,16 @@ test("R20 flags an Upbit path outside the read allowlist in the Upbit module", (
     const r = checkKeylessSources(dir);
     assert.ok(r.findings.some((f) => f.includes("upbit.ts: Upbit path /v1/orders/chance outside the read allowlist")), r.findings.join("\n"));
   }));
+
+// v2.8 (WP25): the market-radar modules are public-source modules too.
+test("R20 scans lib/radar/*.ts for key, signature and auth handling", () =>
+  withFixture({ [`${LIB}/radar/bad.ts`]: 'export const h = { Authorization: "Bearer x" };\n' }, (r) => {
+    assert.equal(r.ok, false);
+    assert.ok(r.findings.some((f) => f.startsWith(`${LIB}/radar/bad.ts: key/signature/auth handling`)), r.findings.join("\n"));
+  }));
+
+test("R20 passes a keyless radar module and ignores comments and tests in lib/radar", () =>
+  withFixture({
+    [`${LIB}/radar/good.ts`]: '// no signature here\nexport const u = "https://fapi.binance.com/fapi/v1/premiumIndex";\n',
+    [`${LIB}/radar/good.test.ts`]: 'export const h = { Authorization: "x" };\n',
+  }, (r) => assert.deepEqual(r.findings, [])));

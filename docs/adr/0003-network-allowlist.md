@@ -101,3 +101,27 @@ order endpoint (paper trading only; release checks R12 and R20).
   The app's server route and the replay CLI use the same three hosts.
 - **Not verified in the probe:** rate limits (headers are not exposed cross-origin) and each venue's terms; the venue
   modules record their limits as constants marked `[not verified]` where no source confirms them.
+
+## Amendment — v2.8 (16 Nov 2026, WP25: market radar)
+Evidence: probe RD-PROBE-1, `docs/research/evidence/wp25-radar-probe-2026-11-16.json` (built-in browser on the owner's
+computer, 16 Nov 2026). All three hosts are public data only: GET, no key, no credentials, no account and no order endpoint
+(paper trading only; release checks R12 and R20). The radar contacts them only while its panel is open or while the
+recorder's radar option is on; the default build contacts none of them (acceptance BLD-9.4-3a is unchanged).
+- **App, `connect-src` (+3):** `https://fapi.binance.com` (Binance USDⓈ-M futures, REST only: `/fapi/v1/premiumIndex`,
+  `/fapi/v1/fundingRate`, `/futures/data/openInterestHist`, `/futures/data/globalLongShortAccountRatio`,
+  `/futures/data/takerlongshortRatio`; no `wss://`), `https://publicreporting.cftc.gov` (CFTC Commitments of Traders,
+  dataset `gpe5-46if`, CORS allowed in the probe) and `https://stablecoins.llama.fi` (DefiLlama stablecoin supply, CORS
+  allowed in the probe). They are fetched directly and are in `CSP_HOSTS`
+  (`apps/confluence/web/src/lib/public-hosts.ts`), the desktop CSP and `tools/egress-manifest.json` `web.hosts` and
+  `web.csp` (R8, R11). A follow-up probe from the deployed app's own origin found all three hosts CORS-allowed
+  (`premiumIndex` and `takerlongshortRatio` on fapi.binance.com), so no same-origin rewrite is needed.
+- **Rate venue:** Binance futures is the rate venue `binance-fut` (own cooldown and gate, separate from the spot pool); it
+  is not a scan source. Documented IP limits (Binance developer documentation, checked 16 Nov 2026): REQUEST_WEIGHT 2400
+  per minute (exchangeInfo example; the live value is in `rateLimits`), `/futures/data/*` 1000 requests per 5 minutes,
+  `/fapi/v1/fundingRate` 500 per 5 minutes (shared with fundingInfo); `premiumIndex` weight 1 with a symbol,
+  `openInterest` weight 1. The gate is 400 requests per 5 minutes, 80 % of the strictest. A 429 or 418 stops the venue
+  for the `Retry-After` period (else 60 s, or 600 s for 418).
+- **Node processes:** the recorder (`recorder.hosts`) gains `fapi.binance.com`, `publicreporting.cftc.gov`,
+  `stablecoins.llama.fi` and `api.pro.coins.ph` (listed for the radar's later regional-premium reads; its read-path restriction is by policy and the R12/R20 static checks, as the recorder's runtime guard is host-level); `web.hosts` and `web.csp` gain the three
+  hosts (R8, R11).
+- **Not verified:** the live exchangeInfo limit value, the `fundingRate` weight, and the terms of the three hosts.

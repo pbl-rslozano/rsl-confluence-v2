@@ -37,3 +37,8 @@ export { derivativeFields, parseDerivativeSnapshots, DERIV_MAX_AGE_MS } from "..
 // v2.8 (WP21): the Fund trend benchmark and its daily-bar feed (in Node the feed's marker and cache are in memory).
 export { fundTrend } from "../../web/src/lib/fund-trend.ts";
 export { loadFundTrends, cachedDailyBars, resetFundTrendFeedForTests } from "../../web/src/lib/fund-trend-feed.ts";
+// v2.8 (WP25): the market-radar runner and the context joined onto each row (rad).
+export { fetchBreakAwayCloses, realDeps as realRadarFeedDeps } from "../../web/src/lib/radar/breakaway-feed.ts";
+export { fetchDailyVolumesDetailed } from "../../web/src/lib/radar/breakaway-feed.ts";
+export { createRadarRunner, realFetchers as realRadarFetchers, toRadarContext, radarFields, normalizeContext as normalizeRadarContext, RADAR_INTERVAL_MS } from "../../web/src/lib/radar/snapshot.ts";
+export { DEFAULT_THRESHOLDS as DEFAULT_RADAR_THRESHOLDS } from "../../web/src/lib/radar/alerts.ts";

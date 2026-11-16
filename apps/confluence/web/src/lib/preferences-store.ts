@@ -60,6 +60,8 @@ export interface AppPreferences {
   fundPulse: FundPulse;
   /** v2.8 (WP21): optional "Fund rank" list column. Off by default. */
   fundRankColumn: boolean;
+  /** v2.8 (WP25): log the market-radar context (rad) on new ledger rows; contacts the radar hosts while on. Off by default. */
+  recordRadar: boolean;
 }
 export type FundPulse = "three" | "off" | "keep";
 
@@ -84,6 +86,7 @@ export const DEFAULT_APP_PREFERENCES: AppPreferences = {
   liquidityFloorUsd: DEFAULT_LIQUIDITY_FLOOR_USD,
   fundPulse: "three",
   fundRankColumn: false,
+  recordRadar: false,
 };
 
 const STORAGE_KEY = "ct-preferences-v1";
@@ -160,6 +163,7 @@ export function normalizePreferences(saved: unknown): AppPreferences | null {
     liquidityFloorUsd: normalizeLiquidityFloor(saved.liquidityFloorUsd),
     fundPulse: savedOrDefault(saved.fundPulse, FUND_PULSES, DEFAULT_APP_PREFERENCES.fundPulse),
     fundRankColumn: typeof saved.fundRankColumn === "boolean" ? saved.fundRankColumn : DEFAULT_APP_PREFERENCES.fundRankColumn,
+    recordRadar: typeof saved.recordRadar === "boolean" ? saved.recordRadar : DEFAULT_APP_PREFERENCES.recordRadar,
   };
 }
 

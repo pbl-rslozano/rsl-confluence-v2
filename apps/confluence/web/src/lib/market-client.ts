@@ -145,9 +145,11 @@ import {
   priceCurrencyOfQuote, rememberPairs, selectPairs, splitPair, stableQuote,
 } from "./quotes";
 
-const BINANCE_BASE = "https://data-api.binance.vision";
+export const BINANCE_BASE = "https://data-api.binance.vision";
 const BYBIT_BASE = "https://api.bybit.com";
 const BITGET_BASE = "https://api.bitget.com";
+/** v2.8 (WP25): Binance USDⓈ-M futures REST, a rate venue ("binance-fut") for the market radar — not a scan source. */
+export const FAPI_BASE = "https://fapi.binance.com";
 /** v2.8 (WP26): OKX public market data, spot and perpetual (ADR-0003 v2.8; probe wp26-venues-probe-2026-11-15.json). */
 export const OKX_BASE = "https://www.okx.com";
 /** v2.8 (WP26): Coinbase Exchange public market data (ADR-0003 v2.8; probe wp26-venues-probe-2026-11-15.json). */
@@ -583,7 +585,7 @@ async function awaitBinancePace(url: string, signal?: AbortSignal): Promise<void
   // Waited it out; clear unless a newer reading raised it meanwhile (also safe on a frozen test clock).
   if (binancePaceUntil === target) binancePaceUntil = 0;
 }
-function basisPct(mark?: string, index?: string): number | undefined {
+export function basisPct(mark?: string, index?: string): number | undefined {
   const m = parseFloat(mark ?? "");
   const i = parseFloat(index ?? "");
   return m > 0 && i > 0 ? (m / i - 1) * 100 : undefined;
@@ -609,8 +611,8 @@ export class RateLimitError extends Error {
  * Cooldown after a rate-limit response, per venue (v2.6; shared by scans and
  * backfills). A ban from one exchange no longer pauses the others.
  */
-export type Venue = "binance" | "bybit" | "bitget" | "coinsph" | "okx" | "coinbase" | "upbit";
-const rateLimitedUntil: Record<Venue, number> = { binance: 0, bybit: 0, bitget: 0, coinsph: 0, okx: 0, coinbase: 0, upbit: 0 };
+export type Venue = "binance" | "bybit" | "bitget" | "coinsph" | "okx" | "coinbase" | "upbit" | "binance-fut";
+const rateLimitedUntil: Record<Venue, number> = { binance: 0, bybit: 0, bitget: 0, coinsph: 0, okx: 0, coinbase: 0, upbit: 0, "binance-fut": 0 };
 export function venueOf(source: string): Venue {
   if (source.startsWith("bybit")) return "bybit";
   if (source.startsWith("bitget")) return "bitget";
@@ -627,6 +629,7 @@ function venueOfUrl(url: string): Venue {
   if (url.startsWith(OKX_BASE)) return "okx";
   if (url.startsWith(COINBASE_BASE)) return "coinbase";
   if (url.startsWith("https://api.upbit.com")) return "upbit";
+  if (url.startsWith(FAPI_BASE)) return "binance-fut"; // v2.8 (WP25): its own pool, not the spot one
   return "binance";
 }
 /** Remaining cooldown for one source's venue, or the longest one when no source is given. */
@@ -640,6 +643,10 @@ export function rateLimitCooldown(source?: string): number {
 }
 function noteRateLimit(err: RateLimitError, venue: Venue): void {
   rateLimitedUntil[venue] = Math.max(rateLimitedUntil[venue], Date.now() + err.retryAfterMs);
+}
+/** v2.8 (WP25): remaining cooldown of one venue (venueOf maps sources, and "binance-fut" is no source). */
+export function venueCooldown(venue: Venue): number {
+  return venue === "coinsph" ? coinsphCooldown(Date.now()) : Math.max(0, rateLimitedUntil[venue] - Date.now());
 }
 /** v2.8 (WP26): a venue module that does not go through fetchJson (Upbit's relay) sets its cooldown here. */
 export function noteVenueRateLimit(venue: Venue, err: RateLimitError): void {

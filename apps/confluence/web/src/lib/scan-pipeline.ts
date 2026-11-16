@@ -167,6 +167,8 @@ export interface RowContext {
   /** v2.8 (WP19): derivative context from a snapshot ≤ 2 h before the bar close (absent = null). */
   fr?: number | null;
   oiChg?: number | null;
+  /** v2.8 (WP25): radar context at the bar close (absent = null: recording off or nothing qualified). Logged, never scored. */
+  rad?: LedgerRow["rad"];
 }
 
 /**
@@ -240,6 +242,7 @@ export function toLedgerRow(k: Kline[], s: SeriesScore, ctx: RowContext): Ledger
     pc: ctx.pattern ? (REV_CONF[ctx.pattern.confidence] ?? 0) : null,
     fr: ctx.fr ?? null,
     oiChg: ctx.oiChg ?? null,
+    rad: ctx.rad ?? null,
   };
 }
 

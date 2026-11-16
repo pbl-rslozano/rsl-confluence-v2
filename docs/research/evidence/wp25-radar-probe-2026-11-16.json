@@ -1,0 +1,110 @@
+{
+  "id": "RD-PROBE-1",
+  "date": "2026-11-16T03:12Z (first probe), 2026-11-16T03:40Z (follow-up from the app origin)",
+  "method": "Method 1 (03:12Z): Claude desktop built-in browser (Chromium); page origin https://example.com; fetch() default mode 'cors'; the pane also blocked data-api.binance.vision (known CORS-OK) from that page, so its fapi cross-origin result was inconclusive. Method 2 (03:40Z, follow-up): page https://effervescent-bubblegum-1e5c03.netlify.app/robots.txt (the deployed app's own origin, a CSP-free document); fetch() default mode 'cors'.",
+  "purpose": "WP25 build-time check: reachability, CORS headers and endpoint availability of the market-radar hosts (Binance USD-M futures REST, CFTC public reporting, DefiLlama stablecoins); rate limits of the futures REST.",
+  "results": {
+    "fapi_binance_com": {
+      "host": "https://fapi.binance.com",
+      "transport": "REST only, direct fetch, CSP connect-src",
+      "cors": "ALLOWED from the app origin (method 2): /fapi/v1/premiumIndex 200 and /futures/data/takerlongshortRatio 200 cross-origin. Method 1 was inconclusive; same-origin headers showed access-control-allow-origin '*' and x-mbx-used-weight-1m.",
+      "endpoints_200": [
+        "/fapi/v1/premiumIndex",
+        "/fapi/v1/fundingRate",
+        "/fapi/v1/openInterest",
+        "/futures/data/openInterestHist (period 1h)",
+        "/futures/data/globalLongShortAccountRatio (period 1h)",
+        "/futures/data/takerlongshortRatio (period 1h)"
+      ],
+      "endpoints_used": [
+        "/fapi/v1/premiumIndex?symbol=",
+        "/fapi/v1/fundingRate?symbol=&limit=90",
+        "/futures/data/openInterestHist?symbol=&period=1h&limit=25",
+        "/futures/data/globalLongShortAccountRatio?symbol=&period=1h&limit=1",
+        "/futures/data/takerlongshortRatio?symbol=&period=1h&limit=1"
+      ],
+      "rate_limits_documented": {
+        "checked": "2026-11-16, Binance developer documentation (developers.binance.com), USD-M futures",
+        "request_weight_ip": "2400 per minute (REQUEST_WEIGHT, interval MINUTE, intervalNum 1: the example in the exchangeInfo response; the live value is the rateLimits array of /fapi/v1/exchangeInfo, not fetched from here)",
+        "weights": {
+          "premiumIndex": "1 with symbol, 10 without",
+          "openInterest": "1",
+          "fundingRate": "no weight stated; shares 500 requests / 5 min / IP with /fapi/v1/fundingInfo"
+        },
+        "futures_data": "/futures/data/* (openInterestHist, globalLongShortAccountRatio, takerlongshortRatio): IP rate limit 1000 requests / 5 min; latest 30 days (openInterestHist: latest 1 month) only; limit default 30, max 500",
+        "ban": "429 on violation, then HTTP 418 IP ban scaling from 2 minutes to 3 days for repeat offenders; limits are per IP",
+        "sources": [
+          "https://developers.binance.com/docs/derivatives/usds-margined-futures/general-info",
+          "https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api",
+          "https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Open-Interest-Statistics",
+          "https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Exchange-Information"
+        ]
+      },
+      "gate_chosen": "one venue gate 'binance-fut': 400 requests per 300 s = 80 % of the strictest documented limit (500 per 5 min on fundingRate); 80 % of 1000 per 5 min is 800 and 80 % of 2400 weight per minute is 1920, both far above it. 429/418 -> RateLimitError and the 'binance-fut' cooldown (Retry-After, else 600 s for 418 and 60 s for 429).",
+      "fallback": "a same-origin rewrite like Coins.ph, not built (not needed)",
+      "not_verified": [
+        "live exchangeInfo rateLimits value (docs example used)",
+        "fundingRate weight (documented only as a shared 500 / 5 min / IP limit)",
+        "terms of use"
+      ]
+    },
+    "fstream_binance_com": {
+      "host": "wss://fstream.binance.com/ws/!forceOrder@arr",
+      "result": "opened from https://example.com (readyState 1); no message within 8 s",
+      "decision": "not used in 4a (no wss in 4a)"
+    },
+    "stream_bybit_com": {
+      "host": "wss://stream.bybit.com/v5/public/linear",
+      "result": "opened from https://example.com; subscribe allLiquidation.BTCUSDT returned {\"success\":true,\"op\":\"subscribe\"}",
+      "decision": "not used in 4a (existing recorder host only)"
+    },
+    "publicreporting_cftc_gov": {
+      "host": "https://publicreporting.cftc.gov",
+      "cors": "ALLOWED from https://example.com (method 1) and from the app origin (method 2)",
+      "dataset": "/resource/gpe5-46if.json (Traders in Financial Futures, futures only, Socrata)",
+      "latest_btc_133741_report_date": "2026-11-03",
+      "row_fields_verified": {
+        "checked": "2026-11-16 ~03:40Z, live row from the app origin (method 2)",
+        "report_date_as_yyyy_mm_dd": "string \"2026-11-03T00:00:00.000\" (the Tuesday)",
+        "cftc_contract_market_code": "string \"133741\" (BTC), \"146021\" (ETH, verified 2026-11-16 ~04:30Z from the app origin: \"ETHER CASH SETTLED - CHICAGO MERCANTILE EXCHANGE\"; report 2026-11-03 asset_mgr long 1018 / short 2843, lev_money long 3599 / short 7298, open_interest_all 22869; prior 2026-10-27 am 1285/2469, lm 4415/8440, oi 28068; one row per week, no duplicates)",
+        "open_interest_all": "number as string",
+        "asset_mgr_positions_long": "number as string (no _all suffix)",
+        "asset_mgr_positions_short": "number as string (no _all suffix)",
+        "lev_money_positions_long": "number as string (no _all suffix)",
+        "lev_money_positions_short": "number as string (no _all suffix)",
+        "also_present": [
+          "change_in_asset_mgr_long",
+          "change_in_asset_mgr_short",
+          "change_in_lev_money_long",
+          "change_in_lev_money_short"
+        ],
+        "query": "$where=cftc_contract_market_code='133741'&$order=report_date_as_yyyy_mm_dd DESC&$limit=2 (values URL-encoded)"
+      },
+      "gate_chosen": "no documented public limit: conservative 2 requests / 10 s for the host (radar/cftc.ts), at most one fetch per 12 h per asset in the app; 429 -> module-local cooldown (Retry-After, else 60 s)"
+    },
+    "stablecoins_llama_fi": {
+      "host": "https://stablecoins.llama.fi",
+      "cors": "ALLOWED from https://example.com (method 1) and from the app origin (method 2)",
+      "paths": [
+        "/stablecoins",
+        "/stablecoincharts/all"
+      ],
+      "note": "free; api.llama.fi/stablecoin* answered 404",
+      "response_verified": {
+        "checked": "2026-11-16 ~03:40Z, from the app origin (method 2)",
+        "path": "/stablecoincharts/all",
+        "shape": "array of {date: string of UNIX seconds (daily, UTC midnight), totalCirculating, totalCirculatingUSD: {peggedUSD: number, peggedEUR: number, ...}, totalMintedUSD, totalBridgedToUSD}",
+        "field_used": "totalCirculatingUSD.peggedUSD"
+      },
+      "gate_chosen": "no documented public limit: conservative 2 requests / 10 s for the host (radar/stablecoins.ts), at most one fetch per UTC day in the app; 429 -> module-local cooldown (Retry-After, else 60 s)"
+    },
+    "defillama_hacks": {
+      "result": "documented only as a Pro endpoint (pro-api.llama.fi/{key}/api/hacks); api.llama.fi/hacks answers publicly but is undocumented",
+      "decision": "link only, never fetched"
+    }
+  },
+  "fixtures_note": "Method 2 captured real response bodies for premiumIndex, fundingRate, openInterestHist, globalLongShortAccountRatio and takerlongshortRatio; radar-futures.test.mjs uses them verbatim (REAL_* in the real-bodies test). Edge-case fixtures (short histories, bad values) are generated in the same layout. radar-inst.test.mjs (Task 3) uses the CFTC and DefiLlama field names and value formats above; its numbers are generated.",
+  "not_verified": [
+    "rate limits and terms of CFTC and DefiLlama"
+  ]
+}
