@@ -41,7 +41,7 @@ console.log("Host table (ADR-0003 v2.8)");
   const origins = CSP_HOSTS.map((h) => h.origin);
   ok("CSP_HOSTS gains OKX and Coinbase Exchange", origins.includes("https://www.okx.com") && origins.includes("https://api.exchange.coinbase.com"));
   ok("Upbit is NOT in CSP_HOSTS (never fetched cross-origin by the WebView)", !origins.includes(UPBIT_ORIGIN));
-  ok("no other new CSP host (14 entries + 3 WP25 radar hosts)", origins.length === 17 && ["https://fapi.binance.com", "https://publicreporting.cftc.gov", "https://stablecoins.llama.fi"].every((o) => origins.includes(o)), String(origins.length));
+  ok("no other new CSP host (14 entries + 3 WP25 radar hosts + 2 WP25 liquidation websockets)", origins.length === 19 && ["https://fapi.binance.com", "https://publicreporting.cftc.gov", "https://stablecoins.llama.fi", "wss://fstream.binance.com", "wss://stream.bybit.com"].every((o) => origins.includes(o)), String(origins.length));
   for (const p of ["/v1/accounts", "/v1/orders", "/v1/order", "/v1/orders/chance", "/v1/orders/open", "/v1/withdraws", "/v1/deposits", "/v1/api_keys", "/v1/status/wallet"]) {
     ok(`native allowlist refuses private ${p}`, !isAllowedNativeUrl(UPBIT_ORIGIN + p));
   }

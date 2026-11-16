@@ -123,7 +123,10 @@ export class HourBook {
     if (!e || e.venue !== this.venue || !Number.isFinite(e.t) || !Number.isFinite(e.usd)) return;
     this.bump(e.t);
     this.recent.push(e);
-    if (this.recent.length > 1 && this.recent[0].t < e.t - 2 * LIQ_HOUR_MS) this.recent = this.recent.filter((x) => x.t >= e.t - 2 * LIQ_HOUR_MS);
+    // Amortised O(1): events arrive in time order, so only the head can be stale (an out-of-order straggler is pruned later).
+    let drop = 0;
+    while (drop < this.recent.length - 1 && this.recent[drop].t < e.t - 2 * LIQ_HOUR_MS) drop++;
+    if (drop) this.recent.splice(0, drop);
     const h = Math.floor(e.t / LIQ_HOUR_MS) * LIQ_HOUR_MS;
     if (h + LIQ_HOUR_MS <= this.rolledThrough) return; // that hour was already closed and reported
     const b = this.open.get(h) ?? { long: 0, short: 0 };
@@ -131,11 +134,15 @@ export class HourBook {
     this.open.set(h, b);
   }
 
-  /** Hours that closed complete since the previous roll (each hour once). Incomplete hours are dropped for good. */
-  roll(now: number): LiqHour[] {
+  /**
+   * Hours that closed complete since the previous roll (each hour once). Incomplete hours are dropped for good.
+   * An hour is closable only once `now >= hourEnd + graceMs`, so events delivered a little late still count.
+   */
+  roll(now: number, graceMs = 0): LiqHour[] {
     if (!Number.isFinite(now)) return [];
     this.bump(now);
-    const lastClosed = Math.floor(now / LIQ_HOUR_MS) * LIQ_HOUR_MS - LIQ_HOUR_MS;
+    const grace = Number.isFinite(graceMs) && graceMs > 0 ? graceMs : 0;
+    const lastClosed = Math.floor((now - grace) / LIQ_HOUR_MS) * LIQ_HOUR_MS - LIQ_HOUR_MS;
     const out: LiqHour[] = [];
     if (this.firstConnected !== null) {
       const firstWhole = Math.ceil(this.firstConnected / LIQ_HOUR_MS) * LIQ_HOUR_MS;
@@ -169,6 +176,11 @@ export class HourBook {
     return { long, short, coveredMs: Math.max(0, LIQ_HOUR_MS - missing), complete };
   }
 
+  /** Number of events kept for the rolling window (test hook for the pruning bound). */
+  recentSize(): number {
+    return this.recent.length;
+  }
+
   /** Complete hours, oldest first, at most LIQ_KEEP_HOURS and none older than LIQ_KEEP_MS. */
   hours(): LiqHour[] {
     const min = this.clock - LIQ_KEEP_MS;
@@ -180,15 +192,20 @@ export class HourBook {
     if (t > this.clock) this.clock = t;
   }
 
-  /** Disconnected time inside [a, b] and whether every disconnection there is <= LIQ_MAX_GAP_MS. */
+  /**
+   * Disconnected time inside [a, b] (`missing`, clipped to the window) and whether every disconnection touching it is
+   * <= LIQ_MAX_GAP_MS. "Complete" is judged on the gap's FULL length (a still-open gap ends at b), so one outage that
+   * straddles an hour boundary or the window edge spoils every window it touches.
+   */
   private coverage(a: number, b: number): { missing: number; complete: boolean } {
     let missing = 0;
     let complete = true;
     for (const g of this.gaps) {
-      const len = Math.min(g.end ?? b, b) - Math.max(g.start, a);
+      const end = g.end ?? b;
+      const len = Math.min(end, b) - Math.max(g.start, a);
       if (len <= 0) continue;
       missing += len;
-      if (len > LIQ_MAX_GAP_MS) complete = false;
+      if (end - g.start > LIQ_MAX_GAP_MS) complete = false;
     }
     return { missing, complete };
   }

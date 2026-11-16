@@ -519,5 +519,48 @@ console.log("fix wave: M3 depeg since = the scan's reading time");
   ok("M3 without depegAt the refresh time is used (unchanged)", d.alerts.find((x) => x.code === "DEPEG_USDC")?.since === T0);
 }
 
+console.log("v2.8 4b Task 2: liquidation feed wiring");
+{
+  const alert = { code: "LIQ_CASCADE_BINANCE", kind: "liquidation", trigger: { key: "radar.alert.liq", vars: { venue: "Binance", usd: 9e6, mult: 4.5, median: 2e6, longPct: 80 } }, sourceUrl: "https://www.binance.com/en/futures", since: T0 - H };
+  const venue = (connected, cascade) => ({ connected, since: connected ? T0 - H : null, long: 1, short: 2, coveredMs: H, complete: true, sampled: false, cascade });
+  const makeFeed = (view) => {
+    const f = { starts: 0, stops: 0, views: [], start() { f.starts++; }, stop() { f.stops++; }, running: () => f.starts > f.stops, view(now, th) { f.views.push({ now, th }); return view(); } };
+    return f;
+  };
+  const view = () => ({ bybit: venue(false, { status: "collecting", have: 3 }), binance: venue(true, { status: "ready", medianUsd: 2e6, alert }) });
+  const feed = makeFeed(view);
+  const s = setup({}, { liquidations: feed });
+  s.runner.start();
+  await settle();
+  const snap = s.runner.latest();
+  ok("L1 start() starts the feed", feed.starts === 1);
+  ok("L2 the snapshot carries the feed's view", snap?.liquidations?.binance.cascade.status === "ready" && snap.liquidations.bybit.connected === false);
+  ok("L3 snap.alerts includes the venue's cascade alert", snap.alerts.some((a) => a.code === "LIQ_CASCADE_BINANCE"));
+  ok("L4 toRadarContext.al carries the LIQ code", toRadarContext(snap).al.includes("LIQ_CASCADE_BINANCE"));
+  ok("L5 unavailable lists the venue that is not connected, not the connected one", snap.unavailable.includes("liq:bybit") && !snap.unavailable.includes("liq:binance"), JSON.stringify(snap.unavailable));
+  s.runner.rethreshold();
+  ok("L6 rethreshold recomputes from feed.view(now, th) with the current thresholds", feed.views.length >= 2 && feed.views.at(-1).th.liqMult === DEFAULT_THRESHOLDS.liqMult && feed.views.at(-1).now === s.clock.t);
+  s.runner.stop();
+  ok("L7 stop() stops the feed", feed.stops >= 1 && !feed.running());
+}
+{
+  const feed = { starts: 0, stops: 0, start() { feed.starts++; }, stop() { feed.stops++; }, running: () => false, view: () => { throw new Error("no"); } };
+  const s = setup({}, { liquidations: feed, allowed: () => false });
+  s.runner.start();
+  ok("L8 while not allowed, start() never starts the feed", feed.starts === 0);
+  const g = { starts: 0, stops: 0, start() { g.starts++; }, stop() { g.stops++; }, running: () => false, view: () => { throw new Error("view broke"); } };
+  let allowed = true;
+  const s2 = setup({}, { liquidations: g, allowed: () => allowed });
+  s2.runner.start();
+  await settle();
+  ok("L9 a throwing view yields liquidations null and no cascade alert, never a failed refresh", s2.runner.latest()?.liquidations === null && s2.runner.lastError() === null && !s2.runner.latest().alerts.some((a) => a.kind === "liquidation"));
+  allowed = false;
+  [...s2.timers.handles.values()][0].fn();
+  ok("L10 a tick after the gate closed stops the feed", g.stops >= 1);
+  const s3 = setup();
+  const r = await s3.runner.refresh();
+  ok("L11 without a feed: liquidations null, no liq in unavailable", r.liquidations === null && !r.unavailable.some((u) => u.startsWith("liq:")));
+}
+
 console.log(`\nradar snapshot: ${passed} passed, ${failed} failed`);
 if (failed) process.exitCode = 1;

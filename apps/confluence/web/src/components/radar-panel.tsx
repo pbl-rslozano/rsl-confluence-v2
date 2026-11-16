@@ -23,6 +23,7 @@ import { shouldToggleRadar } from "@/lib/radar/radar-keys";
 import { PROVIDERS } from "@/lib/providers";
 import type { DepegReading } from "@/lib/quotes";
 import { DEFAULT_THRESHOLDS, type RadarAlert, type RadarThresholds } from "@/lib/radar/alerts";
+import { createLiquidationFeed } from "@/lib/radar/liquidation-feed";
 import { createRadarRunner, radarAllowed, realFetchers, type RadarRunner, type RadarSnapshot } from "@/lib/radar/snapshot";
 import { etfDailyTotals, parseEtfCsv, type EtfFlow } from "@/lib/radar/etf-csv";
 import { loadEtfRows, saveEtfRows, type RadarPort } from "@/lib/radar/store";
@@ -93,6 +94,8 @@ export function RadarHost({ port, depeg, depegSource, depegAt, recordRadar = fal
       depegSource: () => live.current.source,
       depegAt: () => live.current.depegAt,
       allowed: () => radarAllowed({ panelOpen: live.current.open, recordRadar: live.current.record }),
+      // One feed per runner: its sockets open only when the runner starts (the gate above) and close when it stops.
+      liquidations: createLiquidationFeed({ WebSocketCtor: WebSocket, now: () => Date.now(), store: port }),
     });
     runnerRef.current = runner;
     setSnap(runner.latest());

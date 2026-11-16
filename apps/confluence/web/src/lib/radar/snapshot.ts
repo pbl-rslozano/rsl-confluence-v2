@@ -20,6 +20,9 @@
  * Every section has a deadline (45 s): a timeout is that section's failure, not a stop. `snapshot.t` is the END of the refresh.
  * The context log nulls the fields of a stale section and omits stale break-away codes.
  * Optional `allowed()` dep: while false, start/tick/refresh make no request (refresh rejects).
+ * v2.8 Step 4b: the optional `liquidations` feed (two websockets) is started and stopped with the runner under the same gate;
+ * `snapshot.liquidations` is its view at the end of the refresh, each venue's cascade alert joins `alerts` (re-run by
+ * rethreshold() from `feed.view(now, th)`), and `unavailable` gains `liq:bybit` / `liq:binance` while that venue is not connected.
  *
  * Per-device context log: one doc per UTC day, id `radar-log-YYYY-MM-DD` in the "meta" collection (no schema change), written
  * through the store's serialised queue. A trimmed RadarContext (BTC values) is appended at each refresh. The port has no delete,
@@ -33,6 +36,7 @@ import { fetchCot, type CotAsset, type CotReport } from "./cftc";
 import { fetchBuyerPressure, fetchRegionalDemand, type BuyerPressure, type RegionalDemand } from "./regional";
 import { radRanged } from "./rad-bounds";
 import { fetchStablecoinSupply, type SupplyPoint } from "./stablecoins";
+import type { LiquidationFeed, LiqView } from "./liquidation-feed";
 import {
   CFTC_TTL_MS, RADAR_COLLECTION, isFresh, loadRadarCache, saveCotCache, saveSupplyCache, serialised, supplyFreshForDay,
   type RadarCache, type RadarPort,
@@ -54,6 +58,8 @@ export interface RadarSnapshot {
   cot: Record<"BTC" | "ETH", CotReport | null>;
   supply: SupplyPoint[] | null;
   alerts: RadarAlert[];
+  /** The liquidation feed's view when the runner has one (Step 4b); null without a feed or when the feed failed to answer. */
+  liquidations: LiqView | null;
   /** Section → time (ms) its kept value was last good. */
   stale: Record<string, number>;
   unavailable: string[];
@@ -122,6 +128,8 @@ export interface RadarRunnerDeps {
   allowed?: () => boolean;
   /** Test hook: replaces setInterval/clearInterval. */
   timers?: RadarTimers;
+  /** The liquidation websockets (Step 4b): started and stopped with the runner, so they open only while `allowed()` holds. */
+  liquidations?: LiquidationFeed;
 }
 
 export interface RadarRunner {
@@ -288,8 +296,8 @@ async function attempt<T>(fn: (s: AbortSignal) => Promise<T>, signal: AbortSigna
 interface BreakInputs { closes: Record<string, number[]>; standing: Record<string, number | null>; closeTimes: number[] }
 interface AlertInputs { breakaway: BreakInputs | null; vol: DailyVolumes | null; readings: DepegReading[]; source: string; now: number; readingAt: number; supply: SupplyPoint[] | null }
 
-/** The alert rules over kept inputs, in the order break-away, volume, depeg, supply. Pure: no request. */
-function composeAlerts(inp: AlertInputs, th: RadarThresholds): RadarAlert[] {
+/** The alert rules over kept inputs, in the order break-away, volume, depeg, supply, then each venue's liquidation cascade. Pure: no request. */
+function composeAlerts(inp: AlertInputs, th: RadarThresholds, liq: LiqView | null = null): RadarAlert[] {
   const out: RadarAlert[] = [];
   if (inp.breakaway) out.push(...breakAway(inp.breakaway.closes, inp.breakaway.standing, th, inp.breakaway.closeTimes));
   if (inp.vol) {
@@ -298,6 +306,12 @@ function composeAlerts(inp: AlertInputs, th: RadarThresholds): RadarAlert[] {
   }
   out.push(...depegAlerts(inp.readings, inp.source, inp.readingAt));
   if (inp.supply) { const a = supplyJump(inp.supply, th); if (a) out.push(a); }
+  if (liq) {
+    for (const v of ["bybit", "binance"] as const) {
+      const c = liq[v]?.cascade;
+      if (c && c.status === "ready" && c.alert) out.push(c.alert);
+    }
+  }
   return out;
 }
 
@@ -307,6 +321,13 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
   const timeoutMs = deps.sectionTimeoutMs ?? SECTION_TIMEOUT_MS;
   const listeners = new Set<(s: RadarSnapshot | null, info?: { lastError: string | null }) => void>();
   const permitted = () => { try { return deps.allowed ? deps.allowed() === true : true; } catch { return false; } };
+  const feed = deps.liquidations;
+  /** The feed's view at `now`; null without a feed or when it throws (a broken feed never fails a refresh). */
+  const liqView = (now: number, th: RadarThresholds): LiqView | null => {
+    if (!feed) return null;
+    try { return feed.view(now, th) ?? null; } catch { return null; }
+  };
+  const feedStop = () => { try { feed?.stop(); } catch { /* the feed never breaks the runner */ } };
 
   let timer: unknown = null;
   let latestSnap: RadarSnapshot | null = null;
@@ -427,7 +448,10 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
       try { const x = deps.depegAt?.(); if (typeof x === "number" && Number.isFinite(x) && x > 0) readingAt = Math.min(x, now); } catch { /* the refresh time */ }
       if (readingAt < now - FIELDS_MAX_AGE_MS) readings = []; // an old scan's reading is not a current alert
       const inputs: AlertInputs = { breakaway: kept.breakaway?.v ?? null, vol: volOut.data, readings, source, now, readingAt, supply: supplyOut.points };
-      const alerts = composeAlerts(inputs, sanitizeThresholds(deps.thresholds()));
+      const th = sanitizeThresholds(deps.thresholds());
+      const liquidations = liqView(deps.now(), th);
+      const alerts = composeAlerts(inputs, th, liquidations);
+      if (liquidations) for (const v of ["bybit", "binance"] as const) if (!liquidations[v]?.connected) unavailable.push(`liq:${v}`);
 
       for (const k of Object.keys(cotOut.stale)) stale[k] = cotOut.stale[k];
       for (const a of ["BTC", "ETH"] as const) if (!cotOut.cot[a]) unavailable.push(`cot:${a}`);
@@ -438,7 +462,7 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
       // t is the END of the refresh: every value in this snapshot was observed at or before it (no look-ahead in rad).
       const asOfs = [regional?.asOf, buyer?.asOf, positioning.BTCUSDT?.asOf, positioning.ETHUSDT?.asOf].filter((x): x is number => typeof x === "number" && Number.isFinite(x));
       const t = Math.max(deps.now(), now, ...asOfs);
-      const snap: RadarSnapshot = { t, positioning, regional, buyer, cot: cotOut.cot, supply: supplyOut.points, alerts, stale, unavailable };
+      const snap: RadarSnapshot = { t, positioning, regional, buyer, cot: cotOut.cot, supply: supplyOut.points, alerts, liquidations, stale, unavailable };
       latestSnap = snap;
       lastInputs = inputs;
       lastErr = null;
@@ -521,7 +545,9 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
   }
 
   function tick() {
-    if (timer === null || inflight || !permitted()) return; // stopped, still running (skip, no overlap) or not allowed
+    if (timer === null) return; // stopped
+    if (!permitted()) { feedStop(); return; } // the gate closed: no socket stays open
+    if (inflight) return; // still running (skip, no overlap)
     refresh().catch(() => { /* aborted or failed: lastError is set; the next tick tries again */ });
   }
 
@@ -529,12 +555,14 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
     start() {
       if (timer !== null || !permitted()) return;
       timer = timers.set(tick, RADAR_INTERVAL_MS);
+      try { feed?.start(); } catch { /* the feed never breaks the runner */ }
       tick();
     },
     stop() {
       if (timer !== null) { timers.clear(timer); timer = null; }
       for (const c of [...controllers]) c.abort();
       inflight = null;
+      feedStop();
     },
     refresh,
     latest: () => latestSnap,
@@ -542,7 +570,8 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
       if (!latestSnap || !lastInputs) return;
       let th: RadarThresholds;
       try { th = sanitizeThresholds(deps.thresholds()); } catch { return; }
-      latestSnap = { ...latestSnap, alerts: composeAlerts(lastInputs, th) };
+      const liquidations = liqView(deps.now(), th);
+      latestSnap = { ...latestSnap, alerts: composeAlerts(lastInputs, th, liquidations), liquidations };
       notify(latestSnap, { lastError: lastErr });
     },
     lastError: () => lastErr,

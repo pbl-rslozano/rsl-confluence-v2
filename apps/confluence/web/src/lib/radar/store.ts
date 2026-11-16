@@ -19,6 +19,8 @@ export interface RadarPort {
 export const RADAR_COLLECTION = "meta";
 export const RADAR_CACHE_ID = "radar-cache";
 export const RADAR_ETF_ID = "radar-etf";
+/** v2.8 Step 4b: the liquidation feed's complete UTC hours, `{ v: 1, hours: { bybit, binance } }` (see liquidation-feed.ts). */
+export const RADAR_LIQ_ID = "radar-liq";
 export const CFTC_TTL_MS = 12 * 3_600_000;
 export const SUPPLY_KEEP_DAYS = 400;
 export const ETF_KEEP_DAYS = 800;

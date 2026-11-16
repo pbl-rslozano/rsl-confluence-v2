@@ -185,3 +185,46 @@ test("sanitizeThresholds keeps old objects working", () => {
   assert.equal(DEFAULT_THRESHOLDS.liqMult, 3);
   assert.equal(DEFAULT_THRESHOLDS.whaleMinUsd, 1e7);
 });
+
+test("a 15 s outage straddling an hour boundary makes BOTH hours incomplete", () => {
+  const h = Math.floor(NOW / H) * H;
+  const b = new HourBook("bybit");
+  b.connected(h - 2 * H);
+  b.disconnected(h + H - 5000); // 5 s before the boundary
+  b.connected(h + H + 10_000); // 10 s after: 15 s in all, 5 s + 10 s clipped
+  const r = b.roll(h + 2 * H + 1);
+  assert.equal(r.some((x) => x.h === h), false, "hour h");
+  assert.equal(r.some((x) => x.h === h + H), false, "hour h+1");
+  assert.equal(r.some((x) => x.h === h - H), true, "the hour before is unaffected");
+});
+
+test("an outage straddling the edge of the last-60 window makes it incomplete; clipped length is still what is missing", () => {
+  const b = new HourBook("bybit");
+  b.connected(NOW - 3 * H);
+  b.disconnected(NOW - H - 5000); // 15 s outage, 5 s of it inside the window
+  b.connected(NOW - H + 10_000);
+  const l = b.last60(NOW);
+  assert.equal(l.complete, false);
+  assert.equal(l.coveredMs, H - 10_000);
+});
+
+test("roll waits for the grace period: late events inside the grace still count", () => {
+  const h = Math.floor(NOW / H) * H;
+  const b = new HourBook("bybit");
+  b.connected(h - MIN);
+  b.add({ venue: "bybit", symbol: "BTCUSDT", side: "long", usd: 5, t: h + 59 * MIN });
+  assert.deepEqual(b.roll(h + H + 4000, 5000), []); // 4 s after the hour end: not closable yet
+  b.add({ venue: "bybit", symbol: "BTCUSDT", side: "short", usd: 3, t: h + H - 500 }); // delivered late
+  assert.deepEqual(b.roll(h + H + 5000, 5000).filter((x) => x.h === h), [{ h, long: 5, short: 3 }]);
+  assert.deepEqual(b.roll(h + H + 6000, 5000), []);
+});
+
+test("add prunes the recent list from the head (amortised) and the rolling window is unchanged", () => {
+  const b = new HourBook("bybit");
+  b.connected(NOW - 10 * H);
+  for (let i = 0; i < 5000; i++) b.add({ venue: "bybit", symbol: "BTCUSDT", side: "long", usd: 1, t: NOW - 5 * H + i * 3000 });
+  b.add({ venue: "bybit", symbol: "BTCUSDT", side: "short", usd: 2, t: NOW });
+  assert.ok(b.recentSize() <= 2 * H / 3000 + 2, `kept ${b.recentSize()}`);
+  const l = b.last60(NOW);
+  assert.equal(l.short, 2);
+});

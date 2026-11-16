@@ -125,3 +125,24 @@ recorder's radar option is on; the default build contacts none of them (acceptan
   `stablecoins.llama.fi` and `api.pro.coins.ph` (listed for the radar's later regional-premium reads; its read-path restriction is by policy and the R12/R20 static checks, as the recorder's runtime guard is host-level); `web.hosts` and `web.csp` gain the three
   hosts (R8, R11).
 - **Not verified:** the live exchangeInfo limit value, the `fundingRate` weight, and the terms of the three hosts.
+
+## Amendment — v2.8 part 2 (web) (16 Nov 2026, WP25: liquidation websockets)
+Evidence: probe `docs/research/evidence/wp25-liquidation-ws-probe-2026-11-16.json` (16 Nov 2026, from the deployed app's
+own origin `https://effervescent-bubblegum-1e5c03.netlify.app`). Both streams are public market data only: no key, no
+credentials, no account and no order endpoint (paper trading only; release checks R12 and R20). The radar opens them
+only while its panel is open or the recorder's radar option is on (the runner starts and stops the feed under the same
+gate as every radar request); the default build at rest opens no socket (acceptance BLD-9.4-3a is unchanged).
+- **App, `connect-src` (+2, websocket):** `wss://fstream.binance.com` and `wss://stream.bybit.com`. They are in
+  `CSP_HOSTS` (`apps/confluence/web/src/lib/public-hosts.ts`), the desktop CSP, and `tools/egress-manifest.json` `web.csp`
+  (with the scheme) and `web.hosts` (`fstream.binance.com`, `stream.bybit.com`, without it; R8, R11). R8 reads the full
+  `wss://` origin here, so both origins are written in full in this amendment.
+- **Binance USD-M liquidation stream:** `wss://fstream.binance.com/market/ws/!forceOrder@arr`. Probe: 8 events in 35 s from
+  the app origin. The legacy `/ws/` path opened but sent nothing in about 2 minutes, so it is not used. Binance pushes only
+  the latest liquidation per symbol per second, so its totals are labelled "sampled" wherever they are shown.
+- **Bybit public liquidation stream:** `wss://stream.bybit.com/v5/public/linear`, topics `allLiquidation.BTCUSDT` and
+  `allLiquidation.ETHUSDT`. Probe: the socket opened from the app origin, acknowledged the `allLiquidation.*USDT`
+  subscribe and pushed events. The feed counts Bybit as connected only after that acknowledgement and sends
+  `{"op":"ping"}` every 20 s.
+- **Reconnects:** after a close or error the feed waits 2 s, 4 s, 8 s ... up to 60 s (reset after 5 minutes connected).
+  `stop()` closes both sockets and cancels every timer and pending reconnect.
+- **Not verified:** each venue's terms for the streams and any connection or message rate limit beyond what the probe saw.
