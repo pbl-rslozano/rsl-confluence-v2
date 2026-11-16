@@ -677,5 +677,22 @@
   "radar.th.whaleMinUsd": "Malaking paglilipat (minimum sa US$)",
   "radar.alert.whale": "Inilipat ang {amount} {symbol} ({usd}) mula {from} papunta sa {to} sa {chain}.",
   "radar.prov.gatewayLost": "Hindi tinanggap ng gateway ang token. Kumonekta muli gamit ang button na API sa header.",
-  "radar.whale.rejected": "Tinanggihan ng Whale Alert ang key na ito. Suriin ang subscription, pagkatapos ay idagdag muli ang key."
+  "radar.whale.rejected": "Tinanggihan ng Whale Alert ang key na ito. Suriin ang subscription, pagkatapos ay idagdag muli ang key.",
+  "about.uses.fng": "Crypto Fear & Greed Index (optional widget)",
+  "fng.toggle": "Fear & Greed",
+  "fng.title": "Crypto Fear & Greed",
+  "fng.updated": "Updated {date}",
+  "fng.stale": "Showing the last value from {date}",
+  "fng.loading": "Loading the index…",
+  "fng.unavailable": "The index is unavailable right now.",
+  "fng.history": "Last {n} days, oldest to newest",
+  "fng.gaugeLabel": "Fear & Greed {value}, {label}, {date}",
+  "fng.attribution": "Data: Alternative.me Crypto Fear & Greed Index",
+  "fng.note": "Context only. It never changes a signal or blocks a trade.",
+  "fng.band.extremeFear": "Extreme Fear",
+  "fng.band.fear": "Fear",
+  "fng.band.neutral": "Neutral",
+  "fng.band.greed": "Greed",
+  "fng.band.extremeGreed": "Extreme Greed",
+  "fng.historySummary": "Last {n} days, oldest to newest: from {first} to {last}, low {min}, high {max}"
 }

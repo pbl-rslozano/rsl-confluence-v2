@@ -1,0 +1,34 @@
+{
+  "id": "FNG-PROBE-1",
+  "date": "2026-11-16",
+  "method": "Browser fetch() from a page on the deployed app's own origin, https://effervescent-bubblegum-1e5c03.netlify.app.",
+  "purpose": "WP29 build-time check: does the Alternative.me Crypto Fear & Greed endpoint answer cross-origin from the app origin, with what shape, and under which terms.",
+  "results": {
+    "request": "GET https://api.alternative.me/fng/?limit=31&format=json",
+    "origin": "https://effervescent-bubblegum-1e5c03.netlify.app",
+    "http_status": 200,
+    "content_type": "application/json",
+    "rows": 31,
+    "elapsed": "about 820 ms",
+    "response_keys": ["name", "data", "metadata"],
+    "metadata": { "error": null },
+    "order": "newest first",
+    "newest_row": { "value": "10", "value_classification": "Extreme Fear", "timestamp": "1794787200", "time_until_update": "37530" },
+    "oldest_row": { "value": "55", "value_classification": "Greed", "timestamp": "1792195200" },
+    "decision": "used (FNG_URL); fetched directly, no same-origin rewrite needed"
+  },
+  "terms": {
+    "source": "https://alternative.me/crypto/fear-and-greed-index/",
+    "quotes": [
+      "You must properly acknowledge the source of the data and prominently reference it accordingly.",
+      "Commercial use is allowed as long as the attribution is given right next to the display of the data."
+    ],
+    "scope": "The page applies these rules \"to all of our fear and greed data, not just the API\".",
+    "prohibition": "The data must not be used to impersonate Alternative.me or to make a service that could be confused with it.",
+    "decision": "The panel shows 'Data: Alternative.me Crypto Fear & Greed Index', linked, next to the gauge; the source is also listed in About, Data sources and thanks."
+  },
+  "not_verified": [
+    "rate limits: none is documented; the index is updated daily, and the app fetches at most once per hour while the panel is open",
+    "response headers other than content-type"
+  ]
+}

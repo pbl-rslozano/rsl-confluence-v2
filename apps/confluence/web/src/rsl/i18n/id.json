@@ -677,5 +677,22 @@
   "radar.th.whaleMinUsd": "Transfer besar (minimum US$)",
   "radar.alert.whale": "{amount} {symbol} ({usd}) dipindahkan dari {from} ke {to} di {chain}.",
   "radar.prov.gatewayLost": "Gateway tidak menerima token. Sambungkan ulang dengan tombol API di header.",
-  "radar.whale.rejected": "Whale Alert menolak kunci ini. Periksa langganan, lalu tambahkan kunci lagi."
+  "radar.whale.rejected": "Whale Alert menolak kunci ini. Periksa langganan, lalu tambahkan kunci lagi.",
+  "about.uses.fng": "Crypto Fear & Greed Index (optional widget)",
+  "fng.toggle": "Fear & Greed",
+  "fng.title": "Crypto Fear & Greed",
+  "fng.updated": "Updated {date}",
+  "fng.stale": "Showing the last value from {date}",
+  "fng.loading": "Loading the index…",
+  "fng.unavailable": "The index is unavailable right now.",
+  "fng.history": "Last {n} days, oldest to newest",
+  "fng.gaugeLabel": "Fear & Greed {value}, {label}, {date}",
+  "fng.attribution": "Data: Alternative.me Crypto Fear & Greed Index",
+  "fng.note": "Context only. It never changes a signal or blocks a trade.",
+  "fng.band.extremeFear": "Extreme Fear",
+  "fng.band.fear": "Fear",
+  "fng.band.neutral": "Neutral",
+  "fng.band.greed": "Greed",
+  "fng.band.extremeGreed": "Extreme Greed",
+  "fng.historySummary": "Last {n} days, oldest to newest: from {first} to {last}, low {min}, high {max}"
 }

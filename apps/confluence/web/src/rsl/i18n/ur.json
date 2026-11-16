@@ -677,5 +677,22 @@
   "radar.th.whaleMinUsd": "بڑی منتقلی (کم از کم، US$)",
   "radar.alert.whale": "{amount} {symbol} ({usd}) {chain} پر {from} سے {to} کو منتقل ہوئے۔",
   "radar.prov.gatewayLost": "گیٹ وے نے ٹوکن قبول نہیں کیا۔ ہیڈر میں API بٹن سے دوبارہ جڑیں۔",
-  "radar.whale.rejected": "Whale Alert نے یہ کلید مسترد کر دی۔ سبسکرپشن چیک کریں، پھر کلید دوبارہ شامل کریں۔"
+  "radar.whale.rejected": "Whale Alert نے یہ کلید مسترد کر دی۔ سبسکرپشن چیک کریں، پھر کلید دوبارہ شامل کریں۔",
+  "about.uses.fng": "Crypto Fear & Greed Index (optional widget)",
+  "fng.toggle": "Fear & Greed",
+  "fng.title": "Crypto Fear & Greed",
+  "fng.updated": "Updated {date}",
+  "fng.stale": "Showing the last value from {date}",
+  "fng.loading": "Loading the index…",
+  "fng.unavailable": "The index is unavailable right now.",
+  "fng.history": "Last {n} days, oldest to newest",
+  "fng.gaugeLabel": "Fear & Greed {value}, {label}, {date}",
+  "fng.attribution": "Data: Alternative.me Crypto Fear & Greed Index",
+  "fng.note": "Context only. It never changes a signal or blocks a trade.",
+  "fng.band.extremeFear": "Extreme Fear",
+  "fng.band.fear": "Fear",
+  "fng.band.neutral": "Neutral",
+  "fng.band.greed": "Greed",
+  "fng.band.extremeGreed": "Extreme Greed",
+  "fng.historySummary": "Last {n} days, oldest to newest: from {first} to {last}, low {min}, high {max}"
 }

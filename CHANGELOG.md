@@ -1,7 +1,7 @@
 # v2.8.0 — in progress, Steps 1 to 4b (not released; app still reports v2.7.0)
 
 Steps 1 to 4b of the v2.8 plan (`docs/superpowers/specs/2026-11-15-v2.8-architecture-design.md`): safety fixes, licence
-credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (Step 2); Fund trend (Step 3); Market radar part 1 (Step 4a) and part 2 (Step 4b). Engine 2.4.0 (`5c30b5c39f5ba3f2`);
+credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (Step 2); Fund trend (Step 3); Market radar part 1 (Step 4a) and part 2 (Step 4b); Fear & Greed widget (WP29). Engine 2.4.0 (`5c30b5c39f5ba3f2`);
 ledger rows of engine 2.3.0 stay and are reported separately.
 
 - **Paper safety (WP19):** 10% drawdown lock (Stop + close all at the next open of each chart; pending positions cancelled;
@@ -100,7 +100,16 @@ ledger rows of engine 2.3.0 stay and are reported separately.
   licences — the rsL Coffee Kit v1.1 2026 (build 20261115) card images for GCash, PayPal and Bitcoin, copied unchanged
   into `src/rsl/coffee-kit.json` and shown verbatim; optional and never a fee (nothing gated, never opens by itself); only
   Bitcoin has **Copy address**. Unit tests pin the six image hashes and scan for contact details; acceptance **CK-1**.
-- **Docs:** user guide chapters for WP19, WP20, WP21, WP25 (part 1), WP26 and WP27; ADR-0018 (new venues); R19 accepts this "in progress" entry above the released v2.7.0.
+- **Fear & Greed (WP29):** a collapsed **Fear & Greed** chip at the end of the counts line opens a panel with the Crypto
+  Fear & Greed Index from Alternative.me: a 0 to 100 gauge (band colours; darkened on the light theme for contrast), the
+  last 31 days as bars (mirrored in Arabic and Urdu; the gauge is not) and the source named right under the gauge, linked
+  to its page. Context only: it never reaches a score, a signal, an alert or a paper rule. Closed by default and
+  remembered per device. `api.alternative.me` is contacted only while the panel is open: the cached value shows at once,
+  a request follows when there is none or it is over an hour old, the panel re-checks every 15 minutes while open and
+  closing cancels a request in flight. New host in the CSP, the egress manifest and an ADR-0003 amendment (R8); no new
+  dependency. Acceptance **FG-1**, **FG-2**; DS-1 hides the chip (spec §3 item 8). The strings are Arabic drafts awaiting
+  review and English in the other 16 languages.
+- **Docs:** user guide chapters for WP19, WP20, WP21, WP25 (part 1), WP26, WP27 and WP29; ADR-0018 (new venues); R19 accepts this "in progress" entry above the released v2.7.0.
 - **Before going back to v2.7, export the paper journal** (Paper → Export CSV) and note your open positions: v2.7 cannot
   read the v2.8 paper account format and starts a fresh 10,000 USDT account over it on its first scan.
 

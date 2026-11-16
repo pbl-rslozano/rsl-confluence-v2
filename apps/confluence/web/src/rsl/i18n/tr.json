@@ -677,5 +677,22 @@
   "radar.th.whaleMinUsd": "Büyük transfer (en az, US$)",
   "radar.alert.whale": "{amount} {symbol} ({usd}), {chain} üzerinde {from} konumundan {to} konumuna aktarıldı.",
   "radar.prov.gatewayLost": "Ağ geçidi belirteci kabul etmedi. Üst çubuktaki API düğmesiyle yeniden bağlanın.",
-  "radar.whale.rejected": "Whale Alert bu anahtarı reddetti. Aboneliği kontrol edin, ardından anahtarı yeniden ekleyin."
+  "radar.whale.rejected": "Whale Alert bu anahtarı reddetti. Aboneliği kontrol edin, ardından anahtarı yeniden ekleyin.",
+  "about.uses.fng": "Crypto Fear & Greed Index (optional widget)",
+  "fng.toggle": "Fear & Greed",
+  "fng.title": "Crypto Fear & Greed",
+  "fng.updated": "Updated {date}",
+  "fng.stale": "Showing the last value from {date}",
+  "fng.loading": "Loading the index…",
+  "fng.unavailable": "The index is unavailable right now.",
+  "fng.history": "Last {n} days, oldest to newest",
+  "fng.gaugeLabel": "Fear & Greed {value}, {label}, {date}",
+  "fng.attribution": "Data: Alternative.me Crypto Fear & Greed Index",
+  "fng.note": "Context only. It never changes a signal or blocks a trade.",
+  "fng.band.extremeFear": "Extreme Fear",
+  "fng.band.fear": "Fear",
+  "fng.band.neutral": "Neutral",
+  "fng.band.greed": "Greed",
+  "fng.band.extremeGreed": "Extreme Greed",
+  "fng.historySummary": "Last {n} days, oldest to newest: from {first} to {last}, low {min}, high {max}"
 }

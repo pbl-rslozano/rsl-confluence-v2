@@ -39,6 +39,7 @@ import { useMediaQuery, PHONE_QUERY } from "@/lib/use-media-query";
 import { applyTheme, cssSupportsColorMix, migrateThemePref, resolveTheme, toStoredBackground, THEME_PREF_KEY, type ThemePref } from "@/lib/theme";
 import { useRsl } from "@/rsl/RslContext";
 import { RadarHost } from "@/components/radar-panel";
+import { FearGreedPanel, FearGreedToggle, useFngOpen } from "@/components/fear-greed";
 import { loadRadarLog, type RadarContext } from "@/lib/radar/snapshot";
 import { APP } from "@/rsl/app-info";
 import { BrandBlock } from "@/rsl/components/BrandBlock";
@@ -549,6 +550,7 @@ export default function Home() {
   const [privateApiProfile, setPrivateApiProfile] = useState<PrivateApiProfile | null>(null);
   // Gateway session and data-provider profiles (v2.8 Step 4b): memory only, never persisted.
   const [providerLink, setProviderLink] = useState<ProviderLink | null>(null);
+  const [fngOpen, setFngOpen] = useFngOpen(); // v2.8 (WP29): Fear & Greed panel, remembered per device
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [scanStats, setScanStats] = useState({ durationMs: 0, errors: 0, stale: 0, newestBarTime: 0 });
   const [monitorDraft, setMonitorDraft] = useState("");
@@ -1869,6 +1871,8 @@ export default function Home() {
           </div>
 
           {/* Row 2 — counts and scan telemetry, one line */}
+          {/* v2.8 (WP29, owner decision 16 Nov 2026): one wrapping row. The Fear & Greed chip is its last item (ms-auto); when the last line has no room
+              it takes its own line (at most one line, about 20 px). No existing text is truncated or hidden by the chip. */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-zinc-800/60 py-1 text-[11px] text-zinc-500">
             <StatChip icon={<Activity className="h-3 w-3 text-zinc-400" />} label={t("stat.assets")} value={totals.total} />
             <StatChip icon={<TrendingUp className="h-3 w-3 text-emerald-400" />} label={t("stat.bull")} value={totals.bull} sub={`${pct(totals.bull).toFixed(0)}%`} tone="emerald" />
@@ -1877,7 +1881,7 @@ export default function Home() {
             <StatChip icon={<RotateCcw className="h-3 w-3 text-amber-400" />} label={t("stat.rev")} value={`${totals.revUp}/${totals.revDown}`} tone="amber" />
 
             <span className="hidden text-zinc-700 sm:inline">|</span>
-            <span className="hidden truncate sm:inline">
+            <FullTitle data-testid="scan-telemetry" className="hidden truncate sm:inline">
               <bdi className="text-zinc-300">{id.customer.shortName}</bdi>
               <span className="mx-1.5 text-zinc-700">·</span>
               <span className="text-zinc-400">{selectedSource.label}</span>
@@ -1915,13 +1919,17 @@ export default function Home() {
                   </span>
                 </>
               )}
-            </span>
+            </FullTitle>
             {/* v2.8 (WP26): Upbit BTC market — prices stay in BTC (never converted through fiat FX). */}
             {pricesInBtc && <span data-testid="prices-in-btc" className="text-amber-300/80">{t("scan.pricesInBtc")}</span>}
             {monitorAssets.length > 0 && (
               <span className="text-emerald-400/80">{t("scan.watching", { list: monitorAssets.join(", ") })}</span>
             )}
+            {/* v2.8 (WP29): collapsed Fear & Greed chip, spec §3 item 8. No request while collapsed. */}
+            <FearGreedToggle open={fngOpen} onToggle={() => setFngOpen(!fngOpen)} />
           </div>
+          {/* The header is not sticky (a shrink-0 block above the list), so the open panel pushes the list down and never covers it; it scrolls inside 15 vh on a phone, 55 vh from the sm breakpoint. */}
+          {fngOpen && <FearGreedPanel port={rsl.port} />}
 
           {loading && progress.total > 0 && (
             <div className="h-0.5 w-full overflow-hidden rounded bg-zinc-800">
@@ -2494,6 +2502,13 @@ export default function Home() {
  * Compact inline stat. Replaces the four large cards that previously consumed
  * ~100px of vertical space above the table for four numbers.
  */
+/** A span whose `title` is always its full text, so anything the layout truncates stays reachable (hover / long press). */
+function FullTitle({ children, ...rest }: React.HTMLAttributes<HTMLSpanElement> & { "data-testid"?: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => { const el = ref.current; if (el) el.title = (el.textContent ?? "").replace(/\s+/g, " ").trim(); });
+  return <span ref={ref} {...rest}>{children}</span>;
+}
+
 function StatChip({
   icon, label, value, sub, tone,
 }: {
