@@ -3,12 +3,13 @@
  * (the same document port preferences-store uses: get/put by collection and id).
  *  - cache doc  "radar-cache": the newest CFTC report per asset and the stablecoin series, each with its fetch time;
  *  - ETF doc    "radar-etf": imported ETF rows, at most 800 days (newest kept).
+ * Saves are serialised through one queue, and a failed read aborts a save (never overwrites what it could not read).
  * Both live in the existing "meta" collection, so no new collection (and no IndexedDB version bump) is needed.
  * Everything read back is re-validated; a bad or missing doc reads as empty. Nothing here reaches scoring.
  */
 import type { CotAsset, CotReport } from "./cftc";
-import type { EtfFlow } from "./etf-csv";
-import { parseSupply, type SupplyPoint } from "./stablecoins";
+import { normalizeEtfRow, validEtfDate, type EtfFlow } from "./etf-csv";
+import { SUPPLY_MAX_USD, type SupplyPoint } from "./stablecoins";
 
 export interface RadarPort {
   get(col: string, id: string): Promise<unknown>;
@@ -41,7 +42,34 @@ export function supplyFreshForDay(at: number | null | undefined, now: number): b
   return typeof at === "number" && Number.isFinite(at) && at <= now && Math.floor(at / DAY_MS) === Math.floor(now / DAY_MS);
 }
 
-export function normalizeCache(raw: unknown): RadarCache {
+const COT_MAX_POSITION = 1e9;
+const COT_MAX_CHG = 2e9;
+const SUPPLY_MIN_DAY = Date.UTC(2015, 0, 1);
+
+/** A stored CFTC group: long/short whole numbers in [0, 1e9]; net is recomputed, never trusted; netChg bounded or null. */
+function cotGroup(g: unknown): { long: number; short: number; net: number; netChg: number | null } | null {
+  if (!isObj(g)) return null;
+  const { long, short, netChg } = g;
+  const pos = (x: unknown): x is number => typeof x === "number" && Number.isInteger(x) && x >= 0 && x <= COT_MAX_POSITION;
+  if (!pos(long) || !pos(short)) return null;
+  return { long, short, net: long - short, netChg: typeof netChg === "number" && Number.isFinite(netChg) && Math.abs(netChg) <= COT_MAX_CHG ? netChg : null };
+}
+
+/** Stored supply points: UTC-midnight day in [2015-01-01, now + 1 day], 0 < usd <= 1e13; ascending, one per day, newest 400. */
+function supplyPoints(raw: unknown, now: number): SupplyPoint[] {
+  if (!Array.isArray(raw)) return [];
+  const byDay = new Map<number, number>();
+  for (const p of raw) {
+    if (!isObj(p)) continue;
+    const { day, usd } = p;
+    if (typeof day !== "number" || !Number.isInteger(day) || day % DAY_MS !== 0 || day < SUPPLY_MIN_DAY || day > now + DAY_MS) continue;
+    if (typeof usd !== "number" || !Number.isFinite(usd) || usd <= 0 || usd > SUPPLY_MAX_USD) continue;
+    byDay.set(day, usd);
+  }
+  return [...byDay.entries()].sort((a, b) => a[0] - b[0]).slice(-SUPPLY_KEEP_DAYS).map(([day, usd]) => ({ day, usd }));
+}
+
+export function normalizeCache(raw: unknown, now: number = Date.now()): RadarCache {
   const out: RadarCache = { cot: {}, supply: null };
   if (!isObj(raw)) return out;
   if (isObj(raw.cot)) {
@@ -51,28 +79,20 @@ export function normalizeCache(raw: unknown): RadarCache {
       const at = finiteAt(e.at);
       // The stored report is re-checked field by field, never trusted as written.
       const r = isObj(e.report) ? e.report : null;
-      if (at === null || !r || r.asset !== asset || typeof r.reportDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(r.reportDate)) continue;
-      const group = (g: unknown) => {
-        if (!isObj(g)) return null;
-        const { long, short, net, netChg } = g as Record<string, unknown>;
-        if (![long, short, net].every((x) => typeof x === "number" && Number.isFinite(x))) return null;
-        return { long: long as number, short: short as number, net: net as number, netChg: typeof netChg === "number" && Number.isFinite(netChg) ? netChg : null };
-      };
+      if (at === null || !r || r.asset !== asset || !validEtfDate(r.reportDate)) continue;
       out.cot[asset] = {
         at,
         report: {
           asset, reportDate: r.reportDate,
-          assetManagers: group(r.assetManagers), leveragedFunds: group(r.leveragedFunds),
-          openInterest: typeof r.openInterest === "number" && Number.isFinite(r.openInterest) && r.openInterest >= 0 ? r.openInterest : null,
+          assetManagers: cotGroup(r.assetManagers), leveragedFunds: cotGroup(r.leveragedFunds),
+          openInterest: typeof r.openInterest === "number" && Number.isFinite(r.openInterest) && r.openInterest >= 0 && r.openInterest <= COT_MAX_POSITION ? r.openInterest : null,
         },
       };
     }
   }
   if (isObj(raw.supply)) {
     const at = finiteAt(raw.supply.at);
-    const pts = Array.isArray(raw.supply.points)
-      ? parseSupply(raw.supply.points.map((p: unknown) => (isObj(p) && typeof p.day === "number" ? { date: String(p.day / 1000), totalCirculatingUSD: { peggedUSD: p.usd } } : null)))
-      : [];
+    const pts = supplyPoints(raw.supply.points, now);
     if (at !== null && pts.length) out.supply = { at, points: pts };
   }
   return out;
@@ -82,50 +102,62 @@ export async function loadRadarCache(port: RadarPort): Promise<RadarCache> {
   try { return normalizeCache(await port.get(RADAR_COLLECTION, RADAR_CACHE_ID)); } catch { return { cot: {}, supply: null }; }
 }
 
-/** Merge one slice into the cache doc and write it. Returns false when the port failed. */
-async function writeCache(port: RadarPort, patch: (c: RadarCache) => void): Promise<boolean> {
-  try {
-    const cache = await loadRadarCache(port);
-    patch(cache);
-    await port.put(RADAR_COLLECTION, RADAR_CACHE_ID, cache);
-    return true;
-  } catch { return false; }
+/**
+ * Every read-modify-write of a radar doc runs through this one queue, so two saves never interleave (BTC COT, ETH COT
+ * and supply are saved close together). A failed task never blocks the next one.
+ */
+let writeQueue: Promise<unknown> = Promise.resolve();
+function serialised<T>(task: () => Promise<T>): Promise<T> {
+  const run = writeQueue.then(task, task);
+  writeQueue = run.catch(() => undefined);
+  return run;
+}
+
+/** Merge one slice into the cache doc and write it. Returns false when the port failed; a failed read never writes. */
+function writeCache(port: RadarPort, patch: (c: RadarCache) => void): Promise<boolean> {
+  return serialised(async () => {
+    try {
+      const cache = normalizeCache(await port.get(RADAR_COLLECTION, RADAR_CACHE_ID)); // a throw here skips the write
+      patch(cache);
+      await port.put(RADAR_COLLECTION, RADAR_CACHE_ID, cache);
+      return true;
+    } catch { return false; }
+  });
 }
 export const saveCotCache = (port: RadarPort, report: CotReport, at: number) => writeCache(port, (c) => { c.cot[report.asset] = { at, report }; });
 export const saveSupplyCache = (port: RadarPort, points: SupplyPoint[], at: number) =>
-  writeCache(port, (c) => { c.supply = { at, points: points.slice(-SUPPLY_KEEP_DAYS) }; });
+  writeCache(port, (c) => { c.supply = { at, points: supplyPoints(points, Date.now()) }; });
 
-/** Merge imported rows into the stored ones (same date and issuer: the imported row wins), keep the newest 800 days. */
+/** Merge imported rows into the stored ones (same date and issuer: the imported row wins), keep the newest 800 days. Rows that fail validation are dropped. */
 export function mergeEtfRows(existing: EtfFlow[], incoming: EtfFlow[], keepDays = ETF_KEEP_DAYS): EtfFlow[] {
   const map = new Map<string, EtfFlow>();
-  for (const r of [...existing, ...incoming]) map.set(`${r.date}\u0000${r.issuer}`, r);
+  for (const raw of [...existing, ...incoming]) {
+    const r = normalizeEtfRow(raw);
+    if (r) map.set(`${r.date}\u0000${r.issuer}`, r);
+  }
   const dates = [...new Set([...map.values()].map((r) => r.date))].sort().slice(-keepDays);
   const keep = new Set(dates);
   return [...map.values()].filter((r) => keep.has(r.date)).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.issuer < b.issuer ? -1 : a.issuer > b.issuer ? 1 : 0));
 }
 
-const ETF_ISSUER_RE = /^[A-Za-z0-9 .&-]{1,40}$/;
-/** Stored ETF rows, re-validated (date, issuer, finite flow); anything else is dropped. */
+/** Stored ETF rows, re-validated like an import (calendar date, issuer rule, finite capped flow), de-duplicated, newest 800 dates. */
 export function normalizeEtfDoc(raw: unknown): EtfFlow[] {
-  const rows = isObj(raw) && Array.isArray(raw.rows) ? raw.rows : [];
-  const out: EtfFlow[] = [];
-  for (const r of rows) {
-    if (!isObj(r)) continue;
-    if (typeof r.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(r.date)) continue;
-    if (typeof r.issuer !== "string" || !ETF_ISSUER_RE.test(r.issuer)) continue;
-    if (typeof r.flowUsd !== "number" || !Number.isFinite(r.flowUsd) || Math.abs(r.flowUsd) > 1e11) continue;
-    out.push({ date: r.date, issuer: r.issuer, flowUsd: r.flowUsd });
-  }
-  return out;
+  return mergeEtfRows([], isObj(raw) && Array.isArray(raw.rows) ? raw.rows : []);
 }
 export async function loadEtfRows(port: RadarPort): Promise<EtfFlow[]> {
   try { return normalizeEtfDoc(await port.get(RADAR_COLLECTION, RADAR_ETF_ID)); } catch { return []; }
 }
-/** Merge `incoming` into the stored rows and write them; returns the stored rows, or null when the port failed. */
-export async function saveEtfRows(port: RadarPort, incoming: EtfFlow[]): Promise<EtfFlow[] | null> {
-  try {
-    const merged = mergeEtfRows(await loadEtfRows(port), incoming);
-    await port.put(RADAR_COLLECTION, RADAR_ETF_ID, { rows: merged, savedAt: Date.now() });
-    return merged;
-  } catch { return null; }
+/**
+ * Merge `incoming` into the stored rows and write them; returns the stored rows, or null when the port failed.
+ * A failed read aborts the save (null, nothing written): the imported history must never be replaced by one file.
+ */
+export function saveEtfRows(port: RadarPort, incoming: EtfFlow[]): Promise<EtfFlow[] | null> {
+  return serialised(async () => {
+    try {
+      const existing = normalizeEtfDoc(await port.get(RADAR_COLLECTION, RADAR_ETF_ID)); // a throw here skips the write
+      const merged = mergeEtfRows(existing, incoming);
+      await port.put(RADAR_COLLECTION, RADAR_ETF_ID, { rows: merged, savedAt: Date.now() });
+      return merged;
+    } catch { return null; }
+  });
 }

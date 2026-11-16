@@ -33,6 +33,8 @@ export interface CotReport {
 
 export const CFTC_GATE_LIMIT = 2;
 export const CFTC_GATE_WINDOW_MS = 10_000;
+/** Retry-After is never honoured beyond one hour. */
+const MAX_COOLDOWN_MS = 3_600_000;
 const DEFAULT_COOLDOWN_MS = 60_000;
 
 let clock: RateClock = realClock;
@@ -60,7 +62,7 @@ function cooling(): RateLimitError {
 /** The request path and query. Values are URL-encoded; `$where` holds a quoted contract code. */
 export function cotUrl(asset: CotAsset): string {
   const where = `cftc_contract_market_code='${CFTC_CODES[asset]}'`;
-  return `${CFTC_BASE}/resource/gpe5-46if.json?$where=${encodeURIComponent(where)}&$order=${encodeURIComponent("report_date_as_yyyy_mm_dd DESC")}&$limit=2`;
+  return `${CFTC_BASE}/resource/gpe5-46if.json?$where=${encodeURIComponent(where)}&$order=${encodeURIComponent("report_date_as_yyyy_mm_dd DESC")}&$limit=4`;
 }
 
 /* ---------------- parsing ---------------- */
@@ -141,7 +143,7 @@ export async function fetchCot(asset: CotAsset, signal?: AbortSignal): Promise<C
   const res = await fetch(cotUrl(asset), { cache: "no-store", credentials: "omit", redirect: "error", signal, headers: { accept: "application/json" } });
   if (res.status === 429) {
     const header = Number(res.headers.get("retry-after"));
-    const retryAfterMs = Number.isFinite(header) && header > 0 ? header * 1000 : DEFAULT_COOLDOWN_MS;
+    const retryAfterMs = Number.isFinite(header) && header > 0 ? Math.min(header * 1000, MAX_COOLDOWN_MS) : DEFAULT_COOLDOWN_MS;
     cooldownUntil = Math.max(cooldownUntil, clock.now() + retryAfterMs);
     throw new RateLimitError("CFTC: rate limited (429).", retryAfterMs);
   }

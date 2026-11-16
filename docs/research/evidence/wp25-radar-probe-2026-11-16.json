@@ -66,7 +66,7 @@
       "row_fields_verified": {
         "checked": "2026-11-16 ~03:40Z, live row from the app origin (method 2)",
         "report_date_as_yyyy_mm_dd": "string \"2026-11-03T00:00:00.000\" (the Tuesday)",
-        "cftc_contract_market_code": "string \"133741\" (BTC), \"146021\" (ETH)",
+        "cftc_contract_market_code": "string \"133741\" (BTC), \"146021\" (ETH, verified 2026-11-16 ~04:30Z from the app origin: \"ETHER CASH SETTLED - CHICAGO MERCANTILE EXCHANGE\"; report 2026-11-03 asset_mgr long 1018 / short 2843, lev_money long 3599 / short 7298, open_interest_all 22869; prior 2026-10-27 am 1285/2469, lm 4415/8440, oi 28068; one row per week, no duplicates)",
         "open_interest_all": "number as string",
         "asset_mgr_positions_long": "number as string (no _all suffix)",
         "asset_mgr_positions_short": "number as string (no _all suffix)",

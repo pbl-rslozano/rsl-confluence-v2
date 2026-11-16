@@ -51,7 +51,7 @@ try {
 
   const url = new URL(cotUrl("BTC"));
   ok("cftc url host and path", url.origin === "https://publicreporting.cftc.gov" && url.pathname === "/resource/gpe5-46if.json");
-  ok("cftc url query decodes to the brief's query", url.searchParams.get("$where") === "cftc_contract_market_code='133741'" && url.searchParams.get("$order") === "report_date_as_yyyy_mm_dd DESC" && url.searchParams.get("$limit") === "2");
+  ok("cftc url query decodes to the brief's query", url.searchParams.get("$where") === "cftc_contract_market_code='133741'" && url.searchParams.get("$order") === "report_date_as_yyyy_mm_dd DESC" && url.searchParams.get("$limit") === "4");
   ok("cftc url has no raw space or quote-breaking chars", !/[ ]/.test(cotUrl("ETH")) && cotUrl("ETH").includes("146021"));
   ok("cftc codes", CFTC_CODES.BTC === "133741" && CFTC_CODES.ETH === "146021");
 
@@ -182,6 +182,73 @@ try {
   ok("saveEtfRows persists and reloads", saved.length === 3 && sameJson(await loadEtfRows(port), saved));
   port.m.set("meta/radar-etf", { rows: [{ date: "2026-11-03", issuer: "<b>x</b>", flowUsd: 1 }, { date: "2026-11-03", issuer: "OK", flowUsd: 1e12 }, { date: "2026-11-03", issuer: "OK", flowUsd: 2 }, 5] });
   ok("stored ETF rows are re-validated", sameJson(await loadEtfRows(port), [{ date: "2026-11-03", issuer: "OK", flowUsd: 2 }]));
+
+  /* ---------- fix round 1: store safety, bounds, parser edges ---------- */
+  const R = (o = {}) => ({ asset: "BTC", reportDate: "2026-11-03", assetManagers: { long: 5000, short: 1200, net: 3800, netChg: 100 }, leveragedFunds: { long: 3000, short: 7000, net: -4000, netChg: null }, openInterest: 21450, ...o });
+  const cacheDoc = (report, supply = null) => ({ cot: { BTC: { at: 1000, report } }, supply });
+  const rdCot = async (rep) => { const p = mem(); p.m.set(`meta/${RADAR_CACHE_ID}`, cacheDoc(rep)); return (await loadRadarCache(p)).cot.BTC?.report ?? null; };
+
+  // I-1 a failed read must not overwrite the imported history
+  const hist = [{ date: "2026-11-03", issuer: "IBIT", flowUsd: 1 }];
+  { const p = mem(); await saveEtfRows(p, hist); const before = JSON.stringify([...p.m]);
+    let puts = 0; const failRead = { get: async () => { throw new Error("read"); }, put: async (...a) => { puts++; return p.put(...a); } };
+    const res = await saveEtfRows(failRead, [{ date: "2026-11-04", issuer: "X", flowUsd: 2 }]);
+    ok("I-1 saveEtfRows: read fails -> null, put not called, history intact", res === null && puts === 0 && JSON.stringify([...p.m]) === before && sameJson(await loadEtfRows(p), hist)); }
+
+  // I-2 writeCache: read failure leaves the doc alone; concurrent saves all land
+  { const p = mem(); await saveCotCache(p, r, 5000); const before = JSON.stringify([...p.m]);
+    let puts = 0; const failRead = { get: async () => { throw new Error("read"); }, put: async (...a) => { puts++; return p.put(...a); } };
+    ok("I-2 writeCache: read fails -> false, put not called, doc unchanged", (await saveSupplyCache(failRead, s, 6000)) === false && puts === 0 && JSON.stringify([...p.m]) === before); }
+  { const m = new Map();
+    const slow = { get: async (c, i) => { await new Promise((res) => setTimeout(res, 5)); const v = m.get(`${c}/${i}`); return v === undefined ? null : JSON.parse(JSON.stringify(v)); }, put: async (c, i, d) => { await new Promise((res) => setTimeout(res, 2)); m.set(`${c}/${i}`, JSON.parse(JSON.stringify(d))); } };
+    const eth = parseCotRows([row("2026-11-03", "146021"), row("2026-10-27", "146021")]);
+    const oks = await Promise.all([saveCotCache(slow, r, 7000), saveCotCache(slow, eth, 7001), saveSupplyCache(slow, s, 7002)]);
+    const c = await loadRadarCache(slow);
+    ok("I-2 three concurrent cache saves all land", oks.every((x) => x === true) && c.cot.BTC?.at === 7000 && c.cot.ETH?.at === 7001 && c.supply?.at === 7002); }
+
+  // I-3 tampered cache docs are bounded and recomputed
+  ok("I-3 valid stored report passes unchanged", sameJson(await rdCot(R()), R()));
+  ok("I-3 net is recomputed as long - short", (await rdCot(R({ assetManagers: { long: 5000, short: 1200, net: 999999, netChg: 100 } }))).assetManagers.net === 3800);
+  ok("I-3 negative or huge long/short -> null group", (await rdCot(R({ assetManagers: { long: -1, short: 5, net: 0, netChg: null } }))).assetManagers === null && (await rdCot(R({ leveragedFunds: { long: 1e308, short: 1, net: 1, netChg: null } }))).leveragedFunds === null && (await rdCot(R({ leveragedFunds: { long: 2e9, short: 1, net: 1, netChg: null } }))).leveragedFunds === null);
+  ok("I-3 fractional long -> null group", (await rdCot(R({ assetManagers: { long: 1.5, short: 1, net: 0, netChg: null } }))).assetManagers === null);
+  ok("I-3 netChg unbounded or non-finite -> null", (await rdCot(R({ assetManagers: { long: 5, short: 1, net: 4, netChg: 1e300 } }))).assetManagers.netChg === null && (await rdCot(R({ assetManagers: { long: 5, short: 1, net: 4, netChg: "7" } }))).assetManagers.netChg === null && (await rdCot(R({ assetManagers: { long: 5, short: 1, net: 4, netChg: -200 } }))).assetManagers.netChg === -200);
+  ok("I-3 openInterest negative or huge -> null", (await rdCot(R({ openInterest: -1 }))).openInterest === null && (await rdCot(R({ openInterest: 1e12 }))).openInterest === null);
+  ok("I-3 reportDate must be a real calendar date", (await rdCot(R({ reportDate: "2026-99-99" }))) === null && (await rdCot(R({ reportDate: "2026-02-30" }))) === null);
+  const nowMs = Date.now(); const dayNow = Math.floor(nowMs / 86_400_000) * 86_400_000;
+  const rdSup = async (pts) => { const p = mem(); p.m.set(`meta/${RADAR_CACHE_ID}`, { cot: {}, supply: { at: 1000, points: pts } }); return (await loadRadarCache(p)).supply?.points ?? null; };
+  ok("I-3 supply usd outside (0, 1e13] dropped", sameJson(await rdSup([{ day: dayNow - 86_400_000, usd: 1e14 }, { day: dayNow, usd: 0 }, { day: dayNow - 2 * 86_400_000, usd: 5e11 }]), [{ day: dayNow - 2 * 86_400_000, usd: 5e11 }]));
+  ok("I-3 supply day must be UTC midnight within [2015-01-01, now+1d]", sameJson(await rdSup([{ day: dayNow + 3 * 86_400_000, usd: 1e9 }, { day: Date.UTC(2014, 11, 31), usd: 1e9 }, { day: dayNow + 3600_000, usd: 1e9 }, { day: dayNow, usd: 2e9 }]), [{ day: dayNow, usd: 2e9 }]));
+
+  // Minor 1: read-path caps
+  { const p = mem(); const pts = Array.from({ length: 1000 }, (_, i) => ({ day: dayNow - (999 - i) * 86_400_000, usd: 1e9 + i }));
+    p.m.set(`meta/${RADAR_CACHE_ID}`, { cot: {}, supply: { at: 1000, points: pts } });
+    const sp = (await loadRadarCache(p)).supply.points; ok("read caps supply at 400 newest days", sp.length === 400 && sp[399].usd === 1e9 + 999 && sp[0].usd === 1e9 + 600); }
+  { const p = mem(); const rows = Array.from({ length: 1000 }, (_, i) => ({ date: new Date(Date.UTC(2023, 0, 1 + i)).toISOString().slice(0, 10), issuer: "A", flowUsd: i }));
+    p.m.set("meta/radar-etf", { rows }); const got = await loadEtfRows(p); ok("read caps ETF rows at 800 newest dates", got.length === 800 && got[799].flowUsd === 999 && got[0].flowUsd === 200); }
+  // Minor 2: calendar and issuer rule on stored rows
+  { const p = mem(); p.m.set("meta/radar-etf", { rows: [{ date: "2026-99-99", issuer: "A", flowUsd: 1 }, { date: "2026-02-30", issuer: "A", flowUsd: 1 }, { date: "2026-11-03", issuer: "-x", flowUsd: 1 }, { date: "2026-11-03", issuer: "=x", flowUsd: 1 }, { date: "2026-11-03", issuer: "A", flowUsd: 1 }] });
+    ok("stored ETF rows: calendar check and issuer rule", sameJson(await loadEtfRows(p), [{ date: "2026-11-03", issuer: "A", flowUsd: 1 }])); }
+  // Minor 3: incoming rows are normalised
+  { const p = mem(); const res = await saveEtfRows(p, [{ date: "2026-13-01", issuer: "A", flowUsd: 1 }, { date: "2026-11-03", issuer: "-x", flowUsd: 1 }, { date: "2026-11-03", issuer: "A", flowUsd: 1e12 }, { date: "2026-11-03", issuer: "A", flowUsd: NaN }, { date: "2026-11-03", issuer: "Ok", flowUsd: 3 }]);
+    ok("saveEtfRows drops invalid incoming rows", sameJson(res, [{ date: "2026-11-03", issuer: "Ok", flowUsd: 3 }]) && sameJson(await loadEtfRows(p), res));
+    ok("mergeEtfRows drops invalid incoming and existing rows", sameJson(mergeEtfRows([{ date: "x", issuer: "A", flowUsd: 1 }], [{ date: "2026-11-03", issuer: "A", flowUsd: Infinity }, { date: "2026-11-03", issuer: "B", flowUsd: 2 }]), [{ date: "2026-11-03", issuer: "B", flowUsd: 2 }])); }
+  // Minor 4: Retry-After capped at 1 h
+  { resetCftcForTests(); setCftcClockForTests(fakeClock()); globalThis.fetch = async () => json({}, 429, { "retry-after": "1000000000" });
+    let e = null; try { await fetchCot("BTC"); } catch (x) { e = x; }
+    ok("cftc Retry-After capped at 1 h", e instanceof RateLimitError && e.retryAfterMs === 3_600_000 && cftcCooldown() === 3_600_000);
+    resetLlamaForTests(); setLlamaClockForTests(fakeClock()); let e2 = null; try { await fetchStablecoinSupply(); } catch (x) { e2 = x; }
+    ok("llama Retry-After capped at 1 h", e2 instanceof RateLimitError && e2.retryAfterMs === 3_600_000 && llamaCooldown() === 3_600_000); }
+  // Minor 6: non-finite days
+  { const rs = Array.from({ length: 12 }, (_, i) => ({ date: `2026-10-${String(i + 1).padStart(2, "0")}`, issuer: "A", flowUsd: 1 }));
+    ok("etfDailyTotals: non-finite days falls back to the default 10", etfDailyTotals(rs, NaN).length === 10 && etfDailyTotals(rs, Infinity).length === 10 && etfDailyTotals(rs, -Infinity).length === 10); }
+  // Minor 7: duplicate same-date row in the newest position
+  { const dup = parseCotRows([row("2026-11-03", "133741"), row("2026-11-03", "133741"), row("2026-10-27", "133741", { asset_mgr_positions_long: "4000" })]);
+    ok("cot duplicate same-date rows: netChg still uses the older date", dup.reportDate === "2026-11-03" && dup.assetManagers.netChg === 3800 - 2800); }
+  // Minor 8: CSV blank lines and quoted fields
+  { const x = parseEtfCsv("date,issuer,flow_usd\n\n2026-11-03,IBIT,5\n   \n\n2026-11-04,IBIT,6\n\n");
+    ok("etf csv: blank lines are skipped, not rejected", x.rows.length === 2 && x.rejected === 0);
+    const q = parseEtfCsv('date,issuer,flow_usd\n"2026-11-03","IBIT","5"\n2026-11-03,"IBIT",5\n2026-11-03,IBIT,"1,5"\n');
+    ok("etf csv: quoted fields are rejected and counted", q.rows.length === 0 && q.rejected === 3); }
 } finally {
   globalThis.fetch = realFetch;
   resetCftcForTests(); resetLlamaForTests();

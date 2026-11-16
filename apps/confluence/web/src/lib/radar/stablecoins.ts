@@ -20,6 +20,8 @@ export interface SupplyPoint { day: number; usd: number }
 
 export const LLAMA_GATE_LIMIT = 2;
 export const LLAMA_GATE_WINDOW_MS = 10_000;
+/** Retry-After is never honoured beyond one hour. */
+const MAX_COOLDOWN_MS = 3_600_000;
 const DEFAULT_COOLDOWN_MS = 60_000;
 const DAY_MS = 86_400_000;
 
@@ -50,6 +52,9 @@ function cooling(): RateLimitError {
  * Drops entries with a missing, non-finite or negative supply or a bad date. For a repeated day the last entry in
  * the array wins. A non-array gives [].
  */
+/** No stablecoin supply above this (US$ 10 trillion) is believed. */
+export const SUPPLY_MAX_USD = 1e13;
+
 export function parseSupply(json: unknown): SupplyPoint[] {
   if (!Array.isArray(json)) return [];
   const byDay = new Map<number, number>();
@@ -59,7 +64,7 @@ export function parseSupply(json: unknown): SupplyPoint[] {
     const secRaw = typeof o.date === "string" && o.date.trim() !== "" ? Number(o.date) : typeof o.date === "number" ? o.date : NaN;
     if (!Number.isFinite(secRaw) || secRaw <= 0) continue;
     const pegged = o.totalCirculatingUSD && typeof o.totalCirculatingUSD === "object" ? (o.totalCirculatingUSD as { peggedUSD?: unknown }).peggedUSD : undefined;
-    if (typeof pegged !== "number" || !Number.isFinite(pegged) || pegged < 0) continue;
+    if (typeof pegged !== "number" || !Number.isFinite(pegged) || pegged < 0 || pegged > SUPPLY_MAX_USD) continue;
     const day = Math.floor((secRaw * 1000) / DAY_MS) * DAY_MS;
     byDay.set(day, pegged);
   }
@@ -74,7 +79,7 @@ export async function fetchStablecoinSupply(signal?: AbortSignal): Promise<Suppl
   const res = await fetch(`${LLAMA_BASE}/stablecoincharts/all`, { cache: "no-store", credentials: "omit", redirect: "error", signal, headers: { accept: "application/json" } });
   if (res.status === 429) {
     const header = Number(res.headers.get("retry-after"));
-    const retryAfterMs = Number.isFinite(header) && header > 0 ? header * 1000 : DEFAULT_COOLDOWN_MS;
+    const retryAfterMs = Number.isFinite(header) && header > 0 ? Math.min(header * 1000, MAX_COOLDOWN_MS) : DEFAULT_COOLDOWN_MS;
     cooldownUntil = Math.max(cooldownUntil, clock.now() + retryAfterMs);
     throw new RateLimitError("DefiLlama: rate limited (429).", retryAfterMs);
   }

@@ -28,11 +28,27 @@ export function isFormulaLike(cell: string): boolean {
   return false;
 }
 
-function validDate(s: string): boolean {
+/** True for a real calendar date written YYYY-MM-DD. */
+export function validEtfDate(s: unknown): s is string {
+  if (typeof s !== "string") return false;
   const m = DATE_RE.exec(s);
   if (!m) return false;
   const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
   return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
+}
+
+/** The issuer rule: [A-Za-z0-9 .&-]{1,40} and not starting with + - = @ . */
+export function validEtfIssuer(s: unknown): s is string {
+  return typeof s === "string" && ISSUER_RE.test(s) && !/^[+\-=@]/.test(s);
+}
+
+/** One row re-checked field by field (calendar date, issuer rule, finite flow within the cap); null when it fails. */
+export function normalizeEtfRow(r: unknown): EtfFlow | null {
+  if (!r || typeof r !== "object" || Array.isArray(r)) return null;
+  const { date, issuer, flowUsd } = r as Record<string, unknown>;
+  if (!validEtfDate(date) || !validEtfIssuer(issuer)) return null;
+  if (typeof flowUsd !== "number" || !Number.isFinite(flowUsd) || Math.abs(flowUsd) > ETF_MAX_ABS_FLOW) return null;
+  return { date, issuer, flowUsd: flowUsd === 0 ? 0 : flowUsd };
 }
 
 export function parseEtfCsv(text: string): { rows: EtfFlow[]; rejected: number; duplicates: number } {
@@ -54,7 +70,7 @@ export function parseEtfCsv(text: string): { rows: EtfFlow[]; rejected: number; 
     const date = cells[0].trim();
     const issuer = cells[1].trim().replace(/ {2,}/g, " ");
     const flowText = cells[2].trim();
-    if (!validDate(date) || !ISSUER_RE.test(issuer) || /^[+\-=@]/.test(issuer) || !FLOW_RE.test(flowText)) { out.rejected++; continue; }
+    if (!validEtfDate(date) || !validEtfIssuer(issuer) || !FLOW_RE.test(flowText)) { out.rejected++; continue; }
     const flowUsd = Number(flowText);
     if (!Number.isFinite(flowUsd) || Math.abs(flowUsd) > ETF_MAX_ABS_FLOW) { out.rejected++; continue; }
     const key = `${date}\u0000${issuer}`;
@@ -75,7 +91,7 @@ export function etfDailyTotals(rows: EtfFlow[], days = 10): { date: string; tota
     d.byIssuer[r.issuer] = (Object.hasOwn(d.byIssuer, r.issuer) ? d.byIssuer[r.issuer] : 0) + r.flowUsd;
     byDate.set(r.date, d);
   }
-  const n = Math.max(0, Math.floor(days));
+  const n = Number.isFinite(days) ? Math.max(0, Math.floor(days)) : 10; // a non-finite count falls back to the default
   if (n === 0) return [];
   return [...byDate.keys()].sort().slice(-n).map((date) => ({ date, ...byDate.get(date)! }));
 }
