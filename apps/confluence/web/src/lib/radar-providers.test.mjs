@@ -1,5 +1,5 @@
 // Data-provider client (v2.8 Step 4b, Task 7). Run: npm run test:radar-providers
-import { connectProvider, listProviders, disconnectProvider } from "./private-api.ts";
+import { connectProvider, listProviders, disconnectProvider, nextProviderLink } from "./private-api.ts";
 import { fetchEtfLive, fetchWhaleAlerts } from "./radar/providers-client.ts";
 
 let passed = 0;
@@ -13,6 +13,10 @@ const SESSION = { url: "http://127.0.0.1:8787", token: "tok" };
 const LINK = { session: SESSION, providers: [] };
 const SECRET = "SECRET-PROVIDER-KEY-123456";
 const realFetch = globalThis.fetch;
+const realLocal = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+const realSession = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+const realAny = AbortSignal.any;
+const restoreProp = (name, desc) => { if (desc) Object.defineProperty(globalThis, name, desc); else delete globalThis[name]; };
 const json = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 const mockFetch = (fn) => { globalThis.fetch = fn; };
 
@@ -27,9 +31,10 @@ try {
 
   // posts provider, label and key; returns the profile; no extra fields; key never in a URL or storage
   const store = new Map();
-  const fakeStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k), clear: () => store.clear(), key: () => null, length: 0 };
-  globalThis.localStorage = fakeStorage;
-  globalThis.sessionStorage = fakeStorage;
+  const writes = [];
+  const fakeStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => { writes.push(`${k}=${v}`); store.set(k, String(v)); }, removeItem: (k) => store.delete(k), clear: () => store.clear(), key: () => null, length: 0 };
+  Object.defineProperty(globalThis, "localStorage", { value: fakeStorage, configurable: true, writable: true });
+  Object.defineProperty(globalThis, "sessionStorage", { value: fakeStorage, configurable: true, writable: true });
   let seen = null;
   const profile = { id: "p1", kind: "provider", provider: "coinglass", label: "CG", maskedKey: "SECR…3456", connectedAt: "2026-11-16T00:00:00.000Z" };
   mockFetch(async (url, init) => { seen = { url: String(url), init }; return json(200, { profile }); });
@@ -39,7 +44,7 @@ try {
   ok("connectProvider body has exactly provider, label, apiKey", JSON.stringify(Object.keys(body).sort()) === JSON.stringify(["apiKey", "label", "provider"]) && body.apiKey === SECRET);
   ok("connectProvider returns the profile", got.id === "p1" && got.kind === "provider" && got.maskedKey === "SECR…3456");
   ok("the key is not in the URL", !seen.url.includes(SECRET));
-  ok("the key is never written to storage", store.size === 0 && ![...store.values()].some((v) => v.includes(SECRET)));
+  ok("the key is never written to storage", store.size === 0 && ![...store.values()].some((v) => v.includes(SECRET)) && !writes.some((w) => w.includes(SECRET)));
   ok("the returned profile carries no key", !JSON.stringify(got).includes(SECRET));
 
   // a malformed profile is refused
@@ -72,7 +77,7 @@ try {
         day("bad-date", [{ ticker: "IBIT", flowUsd: 1 }]),
         day("2026-11-13", Array.from({ length: 25 }, (_, i) => ({ ticker: `T${i}`, flowUsd: 1 }))),
       ],
-      eth: Array.from({ length: 40 }, (_, i) => day(`2026-10-${String(i % 28 + 1).padStart(2, "0")}`, [{ ticker: "ETHA", flowUsd: 2 }])),
+      eth: Array.from({ length: 40 }, (_, i) => day(new Date(Date.UTC(2026, 8, 1 + i)).toISOString().slice(0, 10), [{ ticker: "ETHA", flowUsd: 2 }])),
     });
   });
   const etf = await fetchEtfLive(LINK, new AbortController().signal);
@@ -82,8 +87,21 @@ try {
   ok("fetchEtfLive recomputes totalUsd from kept flows", d14.totalUsd === 60);
   ok("fetchEtfLive drops a day with no valid flows and a bad date", !etf.btc.some((d) => d.date === "2026-11-15" || d.date === "bad-date"));
   ok("fetchEtfLive caps 20 tickers per day", etf.btc.find((d) => d.date === "2026-11-13").flows.length === 20);
-  ok("fetchEtfLive caps 30 days", etf.eth.length === 30);
+  ok("fetchEtfLive caps 30 days, keeping the newest", etf.eth.length === 30 && etf.eth[0].date === "2026-09-11" && etf.eth[29].date === "2026-10-10");
   ok("fetchEtfLive keeps asOf", etf.asOf === 1_700_000_000_000);
+  // M2: sorted ascending, dedupe by date and by ticker (last wins) before the caps
+  mockFetch(async () => json(200, { asOf: 1, btc: [
+    day("2026-11-03", [{ ticker: "A", flowUsd: 3 }]),
+    day("2026-11-01", [{ ticker: "A", flowUsd: 1 }, { ticker: "B", flowUsd: 2 }, { ticker: "A", flowUsd: 10 }]),
+    day("2026-11-03", [{ ticker: "Z", flowUsd: 9 }]),
+    day("2026-11-02", [{ ticker: "A", flowUsd: 5 }]),
+  ], eth: [] }));
+  const srt = await fetchEtfLive(LINK, new AbortController().signal);
+  ok("fetchEtfLive sorts days ascending and dedupes dates (last wins)", srt.btc.map((d) => d.date).join() === "2026-11-01,2026-11-02,2026-11-03" && srt.btc[2].flows[0].ticker === "Z");
+  const d1 = srt.btc[0];
+  ok("fetchEtfLive dedupes tickers within a day (last wins) and totals them", d1.flows.length === 2 && d1.flows.find((f) => f.ticker === "A").flowUsd === 10 && d1.totalUsd === 12);
+  mockFetch(async () => json(200, { asOf: 1, btc: [day("2026-11-01", Array.from({ length: 30 }, (_, i) => ({ ticker: `T${i % 22}`, flowUsd: 1 })))], eth: [] }));
+  ok("ticker cap applies after the dedupe", (await fetchEtfLive(LINK, new AbortController().signal)).btc[0].flows.length === 20);
   mockFetch(async () => json(200, { nope: true }));
   msg = await rejects(() => fetchEtfLive(LINK, new AbortController().signal));
   ok("fetchEtfLive maps a malformed answer to unavailable", msg === "gateway:unavailable");
@@ -134,12 +152,65 @@ try {
   aborted.abort();
   mockFetch(async (_u, init) => { if (init.signal.aborted) throw new Error("aborted"); return json(200, {}); });
   ok("the caller's signal is combined", (await rejects(() => fetchEtfLive(LINK, aborted.signal))) === "gateway:unavailable");
+  // M1: no AbortSignal.any (older webviews)
+  try {
+    delete AbortSignal.any;
+    ok("AbortSignal.any is really absent for the fallback test", typeof AbortSignal.any !== "function");
+    let sig = null;
+    mockFetch(async (_u, init) => { sig = init.signal; return json(200, { asOf: 1, btc: [], eth: [] }); });
+    const okRes = await fetchEtfLive(LINK, new AbortController().signal);
+    ok("fallback without AbortSignal.any still fetches", okRes.asOf === 1 && !!sig);
+    const ac = new AbortController();
+    mockFetch(async (_u, init) => new Promise((_res, rej) => { init.signal.addEventListener("abort", () => rej(new Error("aborted"))); ac.abort(); }));
+    ok("fallback honours the caller's signal", (await rejects(() => fetchEtfLive(LINK, ac.signal))) === "gateway:unavailable");
+    const pre = new AbortController();
+    pre.abort();
+    mockFetch(async (_u, init) => { if (init.signal.aborted) throw new Error("aborted"); return json(200, {}); });
+    ok("fallback honours an already-aborted signal", (await rejects(() => fetchEtfLive(LINK, pre.signal))) === "gateway:unavailable");
+  } finally {
+    AbortSignal.any = realAny;
+  }
+  ok("AbortSignal.any restored", AbortSignal.any === realAny);
   called = false;
   mockFetch(async () => { called = true; return json(200, {}); });
   msg = await rejects(() => fetchEtfLive({ session: { url: "http://evil.example", token: "t" }, providers: [] }, new AbortController().signal));
   ok("fetch helpers refuse a non-loopback gateway", msg === "gateway:unavailable" && !called);
+  // 401 and network failures on connect/list/disconnect use fixed codes
+  mockFetch(async () => json(401, { error: "Unauthorized" }));
+  ok("connectProvider maps 401 to gateway:401", (await rejects(() => connectProvider(SESSION, { provider: "coinglass", label: "x", apiKey: SECRET }))) === "gateway:401");
+  ok("listProviders maps 401 to gateway:401", (await rejects(() => listProviders(SESSION))) === "gateway:401");
+  ok("disconnectProvider maps 401 to gateway:401", (await rejects(() => disconnectProvider(SESSION, "p1"))) === "gateway:401");
+  mockFetch(async () => { throw new TypeError("Failed to fetch"); });
+  ok("disconnectProvider maps a network error to gateway:unavailable", (await rejects(() => disconnectProvider(SESSION, "p1"))) === "gateway:unavailable");
+  ok("listProviders maps a network error to gateway:unavailable", (await rejects(() => listProviders(SESSION))) === "gateway:unavailable");
+
+  // nextProviderLink: pure link transitions (I1, I2)
+  const P1 = { id: "p1", kind: "provider", provider: "coinglass", label: "CG", maskedKey: "a…b", connectedAt: "t" };
+  const P2 = { ...P1, id: "p2", provider: "whale-alert" };
+  const S2 = { url: SESSION.url, token: "other" };
+  const l0 = nextProviderLink(null, { type: "connected", session: SESSION, profile: P1 });
+  ok("connect ok creates a link with the profile", l0?.providers.length === 1 && l0.session.token === "tok");
+  const l1 = nextProviderLink(l0, { type: "connected", session: SESSION, profile: P2 });
+  ok("connect ok adds the profile locally", l1?.providers.map((p) => p.id).join() === "p1,p2");
+  ok("connect ok does not duplicate an id", nextProviderLink(l1, { type: "connected", session: SESSION, profile: P2 })?.providers.length === 2);
+  ok("connect ok on a different session replaces the link", nextProviderLink(l1, { type: "connected", session: S2, profile: P1 })?.providers.length === 1);
+  ok("disconnect ok removes the id", nextProviderLink(l1, { type: "disconnected", id: "p1" })?.providers.map((p) => p.id).join() === "p2");
+  ok("disconnect ok of the last one gives null", nextProviderLink(l0, { type: "disconnected", id: "p1" }) === null);
+  ok("disconnect with no link stays null", nextProviderLink(null, { type: "disconnected", id: "p1" }) === null);
+  ok("gateway lost (401 or network) clears the link", nextProviderLink(l1, { type: "gateway-lost" }) === null);
+  ok("a check against the same session keeps the link", nextProviderLink(l1, { type: "checked", session: { url: "http://127.0.0.1:8787/", token: " tok " } }) === l1);
+  ok("a check against a different token clears the stale link", nextProviderLink(l1, { type: "checked", session: S2 }) === null);
+  const l3 = nextProviderLink(l1, { type: "listed", session: S2, providers: [P2] });
+  ok("a re-list replaces the link with the fresh session's list", l3?.session.token === "other" && l3.providers.length === 1);
+  ok("an empty re-list gives null", nextProviderLink(l1, { type: "listed", session: SESSION, providers: [] }) === null);
+  // a failed re-list dispatches nothing: the local result stands
+  const afterDisc = nextProviderLink(l1, { type: "disconnected", id: "p1" });
+  ok("a failed re-list leaves the local result in place", afterDisc?.providers.length === 1);
 } finally {
   globalThis.fetch = realFetch;
+  AbortSignal.any = realAny;
+  restoreProp("localStorage", realLocal);
+  restoreProp("sessionStorage", realSession);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

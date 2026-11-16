@@ -37,25 +37,28 @@ const hasControl = (s: string) => /[\u0000-\u001f\u007f-\u009f]/.test(s);
 function toDay(value: unknown): EtfDay | null {
   if (!isObject(value) || typeof value.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.date)) return null;
   if (!Array.isArray(value.flows)) return null;
-  const flows: EtfFlow[] = [];
+  const byTicker = new Map<string, EtfFlow>();
   for (const entry of value.flows) {
-    if (flows.length >= MAX_TICKERS) break;
     if (!isObject(entry) || typeof entry.ticker !== "string" || !/^[A-Z0-9]{1,8}$/.test(entry.ticker)) continue;
     if (!isNum(entry.flowUsd) || Math.abs(entry.flowUsd) > MAX_FLOW_USD) continue;
-    flows.push({ ticker: entry.ticker, flowUsd: entry.flowUsd });
+    byTicker.delete(entry.ticker); // the last flow for a ticker wins
+    byTicker.set(entry.ticker, { ticker: entry.ticker, flowUsd: entry.flowUsd });
   }
+  const flows = [...byTicker.values()].slice(0, MAX_TICKERS);
   if (flows.length === 0) return null; // a day with no flows is "no data", never a zero day
   return { date: value.date, totalUsd: flows.reduce((sum, f) => sum + f.flowUsd, 0), flows };
 }
 
 function toDays(value: unknown): EtfDay[] {
   if (!Array.isArray(value)) return [];
-  const days: EtfDay[] = [];
+  const byDate = new Map<string, EtfDay>();
   for (const entry of value) {
     const day = toDay(entry);
-    if (day) days.push(day);
+    if (!day) continue;
+    byDate.delete(day.date); // the last day with a date wins
+    byDate.set(day.date, day);
   }
-  return days.slice(-MAX_DAYS);
+  return [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)).slice(-MAX_DAYS);
 }
 
 function toAlert(value: unknown): WhaleAlert | null {
@@ -69,26 +72,48 @@ function toAlert(value: unknown): WhaleAlert | null {
   return { t, chain: chain as string, kind: kind as string, from: from as string, to: to as string, symbol: symbol as string, amount, valueUsd, hash };
 }
 
-async function getJson(link: ProviderLink, path: string, signal: AbortSignal): Promise<unknown> {
-  let response: Response;
-  try {
-    const base = normalizeGatewayUrl(link.session.url);
-    if (!isLoopbackGateway(base) || !link.session.token.trim()) throw new Error("not allowed");
-    response = await fetch(`${base}${path}`, {
-      cache: "no-store",
-      headers: { Authorization: `Bearer ${link.session.token.trim()}` },
-      signal: AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]),
-    });
-  } catch {
-    throw new Error("gateway:unavailable"); // the original message is dropped on purpose
+/** The caller's signal plus the timeout. AbortSignal.any is missing on older webviews: fall back to a controller. */
+function combine(caller: AbortSignal, timeout: AbortSignal, register: (fn: () => void) => void): AbortSignal {
+  if (typeof AbortSignal.any === "function") return AbortSignal.any([caller, timeout]);
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (caller.aborted || timeout.aborted) controller.abort();
+  else {
+    caller.addEventListener("abort", abort, { once: true });
+    timeout.addEventListener("abort", abort, { once: true });
+    register(abort);
   }
-  if (response.status === 401) throw new Error("gateway:401");
-  if (response.status === 409) throw new Error("gateway:409");
-  if (!response.ok) throw new Error("gateway:unavailable");
+  return controller.signal;
+}
+
+async function getJson(link: ProviderLink, path: string, signal: AbortSignal): Promise<unknown> {
+  const timer = new AbortController();
+  const timeout = setTimeout(() => timer.abort(), TIMEOUT_MS); // covers the body read too; cleared in finally
+  let onAbort: (() => void) | null = null;
   try {
-    return await response.json();
-  } catch {
-    throw new Error("gateway:unavailable");
+    let response: Response;
+    try {
+      const base = normalizeGatewayUrl(link.session.url);
+      if (!isLoopbackGateway(base) || !link.session.token.trim()) throw new Error("not allowed");
+      response = await fetch(`${base}${path}`, {
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${link.session.token.trim()}` },
+        signal: combine(signal, timer.signal, (fn) => { onAbort = fn; }),
+      });
+    } catch {
+      throw new Error("gateway:unavailable"); // the original message is dropped on purpose
+    }
+    if (response.status === 401) throw new Error("gateway:401");
+    if (response.status === 409) throw new Error("gateway:409");
+    if (!response.ok) throw new Error("gateway:unavailable");
+    try {
+      return await response.json();
+    } catch {
+      throw new Error("gateway:unavailable");
+    }
+  } finally {
+    clearTimeout(timeout);
+    if (onAbort) signal.removeEventListener("abort", onAbort);
   }
 }
 

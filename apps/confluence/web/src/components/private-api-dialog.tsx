@@ -28,7 +28,10 @@ import {
   disconnectPrivateApi,
   disconnectProvider,
   isLoopbackGateway,
+  isStaleGatewayError,
   listProviders,
+  nextProviderLink,
+  PROVIDER_LINK_STALE_MESSAGE,
   type DataProvider,
   type GatewaySession,
   type PrivateApiEnvironment,
@@ -107,6 +110,7 @@ export function PrivateApiDialog({
     try {
       await checkGateway({ url: gatewayUrl, token: gatewayToken });
       setGatewayStatus("online");
+      void refreshProviderLinkAfterCheck({ url: gatewayUrl, token: gatewayToken });
     } catch (reason) {
       setGatewayStatus("offline");
       setError(reason instanceof Error ? reason.message : "Local gateway is unavailable.");
@@ -135,16 +139,34 @@ export function PrivateApiDialog({
     }
   };
 
-  // The session for provider calls: an existing link or exchange profile has already passed a gateway check; otherwise
-  // the fields above must have passed one (Check -> "online").
-  const providerSession: GatewaySession | null = providerLink
-    ? providerLink.session
-    : profile
-      ? { url: profile.gatewayUrl, token: profile.gatewayToken }
-      : gatewayStatus === "online" && gatewayValid && gatewayToken.trim()
-        ? { url: gatewayUrl, token: gatewayToken }
-        : null;
+  // The session for provider calls: a freshly checked session (the fields above, Check -> "online") wins over the stored
+  // link; the link and an exchange profile have passed a check earlier but may be stale after a gateway restart.
+  const freshSession: GatewaySession | null =
+    gatewayStatus === "online" && gatewayValid && gatewayToken.trim() ? { url: gatewayUrl, token: gatewayToken } : null;
+  const providerSession: GatewaySession | null =
+    freshSession ?? providerLink?.session ?? (profile ? { url: profile.gatewayUrl, token: profile.gatewayToken } : null);
   const providerFormValid = providerSession !== null && providerKey.trim().length > 0;
+
+  /** The gateway restarted or the token changed: drop the stale link locally. */
+  const dropStaleLink = () => {
+    onProviderLinkChange(nextProviderLink(providerLink, { type: "gateway-lost" }));
+    setProviderError(PROVIDER_LINK_STALE_MESSAGE);
+  };
+
+  /** After a passing Check: a link from a different session is cleared, then the fresh session's list replaces it. */
+  async function refreshProviderLinkAfterCheck(session: GatewaySession) {
+    const checked = nextProviderLink(providerLink, { type: "checked", session });
+    if (providerLink && checked === null) {
+      onProviderLinkChange(null);
+      setProviderError(PROVIDER_LINK_STALE_MESSAGE);
+    }
+    try {
+      const providers = await listProviders(session);
+      onProviderLinkChange(nextProviderLink(checked, { type: "listed", session, providers }));
+    } catch {
+      /* the list is only a refresh */
+    }
+  }
 
   const handleProviderConnect = async () => {
     if (!providerSession || !providerFormValid) return;
@@ -152,16 +174,24 @@ export function PrivateApiDialog({
     setProviderKey(""); // cleared at submit, success or failure: no other copy of the key is kept
     setProviderBusy(true);
     setProviderError(null);
+    let link = providerLink;
     try {
-      await connectProvider(providerSession, {
+      const added = await connectProvider(providerSession, {
         provider: dataProvider,
         label: providerLabel.trim() || DATA_PROVIDER_LABELS[dataProvider].split(" — ")[0],
         apiKey,
       });
-      const providers = await listProviders(providerSession);
-      onProviderLinkChange({ session: providerSession, providers });
+      link = nextProviderLink(link, { type: "connected", session: providerSession, profile: added });
+      onProviderLinkChange(link);
+      try {
+        const providers = await listProviders(providerSession);
+        onProviderLinkChange(nextProviderLink(link, { type: "listed", session: providerSession, providers }));
+      } catch {
+        /* the re-list is only a refresh: the local update stands */
+      }
     } catch (reason) {
-      setProviderError(reason instanceof Error ? reason.message : "Could not connect the provider.");
+      if (isStaleGatewayError(reason)) dropStaleLink();
+      else setProviderError(reason instanceof Error ? reason.message : "Could not connect the provider.");
     } finally {
       setProviderBusy(false);
     }
@@ -169,14 +199,22 @@ export function PrivateApiDialog({
 
   const handleProviderDisconnect = async (id: string) => {
     if (!providerLink) return;
+    const session = providerSession ?? providerLink.session;
     setProviderBusy(true);
     setProviderError(null);
     try {
-      await disconnectProvider(providerLink.session, id);
-      const providers = await listProviders(providerLink.session);
-      onProviderLinkChange(providers.length > 0 ? { session: providerLink.session, providers } : null);
+      await disconnectProvider(session, id);
+      const local = nextProviderLink(providerLink, { type: "disconnected", id });
+      onProviderLinkChange(local);
+      try {
+        const providers = await listProviders(session);
+        onProviderLinkChange(nextProviderLink(local, { type: "listed", session, providers }));
+      } catch {
+        /* the re-list is only a refresh: the local update stands */
+      }
     } catch (reason) {
-      setProviderError(reason instanceof Error ? reason.message : "Could not disconnect the provider.");
+      if (isStaleGatewayError(reason)) dropStaleLink();
+      else setProviderError(reason instanceof Error ? reason.message : "Could not disconnect the provider.");
     } finally {
       setProviderBusy(false);
     }
