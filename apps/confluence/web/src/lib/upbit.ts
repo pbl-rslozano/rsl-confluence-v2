@@ -216,6 +216,23 @@ async function upbitGet(pathAndQuery: string, gate: RateGate, label: string, sig
   }
 }
 
+/**
+ * v2.8 (WP25): last trade price of the listed markets from `/v1/ticker?markets=` (an allowed relay read path), on the
+ * quote gate. A market missing from the answer, or with a bad price, is absent from the map. A cooling host throws
+ * RateLimitError and makes no request.
+ */
+export async function fetchUpbitTickerPrices(markets: string[], signal?: AbortSignal): Promise<Map<string, number>> {
+  if (!markets.length || markets.some((m) => !/^[A-Z0-9]{2,10}-[A-Z0-9]{2,10}$/.test(m))) throw new Error("Upbit ticker: bad market list");
+  const json = await upbitGet(`/v1/ticker?markets=${markets.join(",")}`, quoteGate, "Upbit ticker", signal);
+  if (!Array.isArray(json)) throw new Error("Upbit ticker: unexpected response (no row array)");
+  const out = new Map<string, number>();
+  for (const r of json as { market?: unknown; trade_price?: unknown }[]) {
+    if (!r || typeof r.market !== "string" || !markets.includes(r.market)) continue;
+    if (typeof r.trade_price === "number" && r.trade_price > 0 && Number.isFinite(r.trade_price)) out.set(r.market, r.trade_price);
+  }
+  return out;
+}
+
 function marketOrThrow(symbol: string): string {
   const id = venueIdOf("upbit", symbol);
   if (!id || !QUOTES.some((q) => id.startsWith(`${q}-`))) throw new Error(`${symbol}: not an Upbit KRW, USDT or BTC market`);

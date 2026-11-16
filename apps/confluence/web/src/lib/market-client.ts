@@ -145,7 +145,7 @@ import {
   priceCurrencyOfQuote, rememberPairs, selectPairs, splitPair, stableQuote,
 } from "./quotes";
 
-const BINANCE_BASE = "https://data-api.binance.vision";
+export const BINANCE_BASE = "https://data-api.binance.vision";
 const BYBIT_BASE = "https://api.bybit.com";
 const BITGET_BASE = "https://api.bitget.com";
 /** v2.8 (WP25): Binance USDⓈ-M futures REST, a rate venue ("binance-fut") for the market radar — not a scan source. */

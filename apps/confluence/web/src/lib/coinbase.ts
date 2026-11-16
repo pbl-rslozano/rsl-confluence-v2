@@ -157,6 +157,20 @@ async function pacedJson(path: string, label: string, signal?: AbortSignal): Pro
   return fetchJson(`${COINBASE_BASE}${path}`, label, signal);
 }
 
+/**
+ * v2.8 (WP25): last trade price of one product from `/products/{id}/ticker` (CORS-probed in ADR-0018). Same gate and
+ * cooldown as every other Coinbase request: a cooling host throws RateLimitError and makes no request. Throws on a
+ * missing or non-positive price.
+ */
+export async function fetchCoinbaseTicker(productId: string, signal?: AbortSignal): Promise<number> {
+  if (!/^[A-Z0-9]{2,10}-[A-Z0-9]{2,10}$/.test(productId)) throw new Error(`${productId}: not a Coinbase product id`);
+  const j = await pacedJson(`/products/${productId}/ticker`, `Coinbase ticker ${productId}`, signal);
+  const raw = j && typeof j === "object" && !Array.isArray(j) ? (j as { price?: unknown }).price : undefined;
+  const price = typeof raw === "string" && raw.trim() !== "" ? Number(raw) : typeof raw === "number" ? raw : NaN;
+  if (!(price > 0) || !Number.isFinite(price)) throw new Error(`Coinbase ticker ${productId}: no valid price`);
+  return price;
+}
+
 function productIdOrThrow(symbol: string): string {
   const id = venueIdOf("coinbase", symbol);
   if (!id) throw new Error(`${symbol}: not a Coinbase USD or USDT pair`);
