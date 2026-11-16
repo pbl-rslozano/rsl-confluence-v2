@@ -42,3 +42,6 @@ export { fetchBreakAwayCloses, realDeps as realRadarFeedDeps } from "../../web/s
 export { fetchDailyVolumesDetailed } from "../../web/src/lib/radar/breakaway-feed.ts";
 export { createRadarRunner, realFetchers as realRadarFetchers, toRadarContext, radarFields, normalizeContext as normalizeRadarContext, RADAR_INTERVAL_MS } from "../../web/src/lib/radar/snapshot.ts";
 export { DEFAULT_THRESHOLDS as DEFAULT_RADAR_THRESHOLDS } from "../../web/src/lib/radar/alerts.ts";
+// v2.8 Step 4b (WP25 part 2): the liquidation websockets (continuous mode only); the recorder gives them a guarded constructor.
+export { createLiquidationFeed } from "../../web/src/lib/radar/liquidation-feed.ts";
+export { LIQ_BASELINE_HOURS, LIQ_HOUR_MS } from "../../web/src/lib/radar/liquidations.ts";

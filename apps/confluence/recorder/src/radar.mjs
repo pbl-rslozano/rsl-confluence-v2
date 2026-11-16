@@ -19,13 +19,14 @@
  * The stablecoin readings (depeg alerts) come from a scan, which the recorder does not keep: no DEPEG_* codes here.
  */
 import { join } from "node:path";
-import { createRadarRunner, DEFAULT_RADAR_THRESHOLDS, fetchBreakAwayCloses, fetchDailyVolumesDetailed, normalizeRadarContext, realRadarFeedDeps, realRadarFetchers, toRadarContext } from "./engine.mjs";
-import { installGlobalFetch } from "./net.mjs";
+import { createLiquidationFeed, createRadarRunner, DEFAULT_RADAR_THRESHOLDS, fetchBreakAwayCloses, fetchDailyVolumesDetailed, normalizeRadarContext, realRadarFeedDeps, realRadarFetchers, toRadarContext } from "./engine.mjs";
+import { guardedWebSocket, installGlobalFetch, loadRecorderManifest } from "./net.mjs";
 import { readJson, writeJsonAtomic } from "./store.mjs";
 
 /** Entries kept in memory (and read back from the log at start-up): catch-up rows after a gap need older ones. */
 export const RADAR_KEEP_MS = 14 * 86_400_000;
 const CACHE_ID = "radar-cache";
+const LIQ_ID = "radar-liq";
 const DAY_MS = 86_400_000;
 const DAILY_KEEP_BARS = 400;
 const isBar = (b) => b && [b.time, b.open, b.high, b.low, b.close, b.volume].every((v) => typeof v === "number" && Number.isFinite(v));
@@ -63,30 +64,41 @@ export function persistDailyDeps(outDir, base = realRadarFeedDeps, now = Date.no
 
 /**
  * @param {{ guard: { fetch: typeof fetch }, outDir: string, appendJsonl: (path: string, records: object[]) => number, monthOf: (ms: number) => string,
- *   seed?: string, fetchers?: object, now?: () => number }} deps  `seed` = JSONL text of the recent logs.
+ *   seed?: string, fetchers?: object, now?: () => number, liquidations?: boolean, WebSocketCtor?: Function, websocketHosts?: string[] }} deps
+ *   `seed` = JSONL text of the recent logs. `liquidations` (continuous mode only) adds the two liquidation websockets: the feed gets a
+ *   constructor that only reaches the manifest's recorder `websocketHosts` (`WebSocketCtor` replaces the real WebSocket in tests), and the
+ *   caller starts and stops it with start() / stop(); the runner's own timer is never started here, so nothing else would.
  */
-export function createRadarRecorder({ guard, outDir, appendJsonl, monthOf, seed = "", fetchers, now = Date.now }) {
+export function createRadarRecorder({ guard, outDir, appendJsonl, monthOf, seed = "", fetchers, now = Date.now, liquidations = false, WebSocketCtor, websocketHosts }) {
   if (!fetchers) {
     const deps = persistDailyDeps(outDir, realRadarFeedDeps, now);
     fetchers = { ...realRadarFetchers, breakAway: (signal) => fetchBreakAwayCloses(signal, deps), dailyVolumes: (signal) => fetchDailyVolumesDetailed(signal, deps) };
   }
-  // The runner's per-device store, in Node: only its slow-input cache (CFTC, stablecoin supply) is kept on disk, so a
-  // scheduler's `--once` runs do not refetch it every time; the runner's own context log stays in memory (ours is the JSONL).
+  // The runner's per-device store, in Node: its slow-input cache (CFTC, stablecoin supply) and the liquidation hours ("radar-liq", the
+  // 30-day baseline) are kept on disk, so a scheduler's `--once` runs do not refetch the first and a restart keeps the second; the
+  // runner's own context log stays in memory (ours is the JSONL).
   const mem = new Map();
   const cachePath = join(outDir, "radar", "cache.json");
+  const liqPath = join(outDir, "radar", "liq.json");
+  const diskPath = (id) => (id === CACHE_ID ? cachePath : id === LIQ_ID ? liqPath : null);
   const store = {
     async get(col, id) {
       const key = `${col}/${id}`;
       if (mem.has(key)) return mem.get(key);
-      return id === CACHE_ID ? readJson(cachePath, null) : null;
+      const path = diskPath(id);
+      return path ? readJson(path, null) : null;
     },
     async put(col, id, doc) {
       const copy = JSON.parse(JSON.stringify(doc));
       mem.set(`${col}/${id}`, copy);
-      if (id === CACHE_ID) writeJsonAtomic(cachePath, copy);
+      const path = diskPath(id);
+      if (path) writeJsonAtomic(path, copy);
     },
   };
-  const runner = createRadarRunner({ now, fetchers, store, thresholds: () => DEFAULT_RADAR_THRESHOLDS, depeg: () => [], allowed: () => true });
+  const feed = liquidations
+    ? createLiquidationFeed({ WebSocketCtor: guardedWebSocket(websocketHosts ?? loadRecorderManifest().websocketHosts, WebSocketCtor), now, store })
+    : null;
+  const runner = createRadarRunner({ now, fetchers, store, thresholds: () => DEFAULT_RADAR_THRESHOLDS, depeg: () => [], allowed: () => true, ...(feed ? { liquidations: feed } : {}) });
 
   let history = [];
   for (const line of seed.split("\n")) {
@@ -99,6 +111,12 @@ export function createRadarRecorder({ guard, outDir, appendJsonl, monthOf, seed 
   history.sort((a, b) => a.t - b.t);
 
   return {
+    /** Open the liquidation sockets (no-op without `liquidations`). The recorder never calls runner.start(), so this is the only start. */
+    start() { feed?.start(); },
+    /** Close them and cancel every timer (idempotent; safe without a feed). */
+    stop() { feed?.stop(); },
+    /** The feed's view (hour counts, cascade status), or null without a feed. */
+    liquidationView: (at = now()) => (feed ? feed.view(at, DEFAULT_RADAR_THRESHOLDS) : null),
     /** The logged contexts, oldest first (what recordCtx.radar carries). */
     entries: () => history,
     /**

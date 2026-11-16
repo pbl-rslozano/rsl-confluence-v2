@@ -145,4 +145,8 @@ gate as every radar request); the default build at rest opens no socket (accepta
   `{"op":"ping"}` every 20 s.
 - **Reconnects:** after a close or error the feed waits 2 s, 4 s, 8 s ... up to 60 s (reset after 5 minutes connected).
   `stop()` closes both sockets and cancels every timer and pending reconnect.
+- **Recorder (`websocketHosts` +1):** `fstream.binance.com` joins `stream.bybit.com` in the recorder's `websocketHosts`
+  (`tools/egress-manifest.json`). Only in continuous mode with `--radar on`; `--once` opens no socket. The recorder opens them
+  through a WebSocket constructor that refuses, before connecting, any URL that is not `wss:` or whose host is not listed, and
+  its error names only protocol and host. `tools/check-egress.mjs` checks the source; the guard checks at runtime.
 - **Not verified:** each venue's terms for the streams and any connection or message rate limit beyond what the probe saw.

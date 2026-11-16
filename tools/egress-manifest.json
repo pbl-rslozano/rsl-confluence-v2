@@ -81,7 +81,7 @@
       "loopbackListen": true
     },
     "recorder": {
-      "description": "Headless forward-test recorder (apps/confluence/recorder, ADR-0008). Market data only (v2.8 WP26: OKX, Coinbase Exchange and Upbit join the exchange hosts; Upbit read paths only; v2.8 WP25: the market radar reads fapi.binance.com, publicreporting.cftc.gov, stablecoins.llama.fi and the Coins.ph read paths); alert hosts are added at runtime only when the matching environment variables are set.",
+      "description": "Headless forward-test recorder (apps/confluence/recorder, ADR-0008). Market data only (v2.8 WP26: OKX, Coinbase Exchange and Upbit join the exchange hosts; Upbit read paths only; v2.8 WP25: the market radar reads fapi.binance.com, publicreporting.cftc.gov, stablecoins.llama.fi and the Coins.ph read paths; v2.8 WP25 part 2: in continuous mode with --radar on it also listens to the two public liquidation streams, wss://fstream.binance.com and wss://stream.bybit.com, through a host-guarded WebSocket); alert hosts are added at runtime only when the matching environment variables are set.",
       "roots": [
         "apps/confluence/recorder"
       ],
@@ -104,7 +104,8 @@
         "ALERT_WEBHOOK_URL": "the host of the user's own https webhook, only when ALERT_WEBHOOK_URL is set; never a literal in source"
       },
       "websocketHosts": [
-        "stream.bybit.com"
+        "stream.bybit.com",
+        "fstream.binance.com"
       ]
     },
     "mcp": {
