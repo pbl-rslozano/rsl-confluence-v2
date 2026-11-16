@@ -1,4 +1,4 @@
-# Asset classes — crypto, RWA, stocks, currencies, commodities (v2.3 2026)
+# Asset classes — crypto, RWA, stocks, currencies, commodities (2.3.0)
 
 The selector in the header (Crypto · RWA · Stocks (tokenised) · Currencies (FX) · Commodities · All classes) works on the **three exchanges the app already uses** — no new network host, no API key.
 

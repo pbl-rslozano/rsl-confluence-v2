@@ -1,5 +1,5 @@
 /**
- * rsl-identity.js — rsL Core Kit · v1.1 2026
+ * rsl-identity.js — rsL Core Kit · 1.2.0
  * Customer Name Recall: one identity record (customer, site, operator, recent customers),
  * validated, persisted through a StoragePort, observable. Identity masterclass phase 3.
  */

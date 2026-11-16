@@ -1,4 +1,4 @@
-# rsL Confluence Terminal · v2.5 2026 · build 20261107
+# rsL Confluence Terminal · 2.5.0 (build 20261107)
 
 A multi-indicator crypto market scanner: 18 indicator votes per asset on closed bars, combined into one Master Signal. It is an analysis tool, not financial advice, and it never places orders.
 
@@ -23,7 +23,7 @@ New in v2.2:
 ```
 rsl-confluence/
 ├─ packages/
-│  ├─ core/                 rsL Core Kit v1.0 2026 — unchanged (KIT-MANIFEST.sha256, 21 tests)
+│  ├─ core/                 rsL Core Kit 1.2.0 — changed only by KIT-xxx decisions (KIT-MANIFEST.sha256, 22 tests)
 │  └─ adapters/             tauri/ · capacitor/ · web/  — the only place native plugins are imported
 ├─ apps/confluence/
 │  ├─ web/                  Next.js 16 static export (engine, UI, rsL identity, 18 catalogs)

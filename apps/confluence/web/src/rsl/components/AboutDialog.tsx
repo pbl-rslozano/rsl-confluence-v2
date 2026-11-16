@@ -12,7 +12,7 @@ import { useEffect, useState, type MouseEvent } from "react";
 import { LANGUAGES } from "@rsl/core-kit/core/rsl-i18n.js";
 import { CATALOGS, PENDING_REVIEW } from "../i18n/catalogs";
 import { exportSnapshot, importSnapshot } from "@rsl/core-kit/core/rsl-storage.js";
-import { contactMailto, poweredBy, BRAND } from "@rsl/core-kit/core/rsl-brand.js";
+import { buildStamp, contactMailto, poweredBy, BRAND } from "@rsl/core-kit/core/rsl-brand.js";
 import { exportFileName } from "@rsl/core-kit/core/rsl-export.js";
 import type { Identity } from "@rsl/core-kit/core/rsl-identity.js";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -63,7 +63,7 @@ function AboutBody() {
   const doExport = async () => {
     try {
       const head = await audit.head();
-      const snap = await exportSnapshot(port, { appId: APP.code, appVersion: `${APP.version} ${APP.year}`, collections: COLLECTIONS, auditHead: { seq: head.seq, hash: head.hash } });
+      const snap = await exportSnapshot(port, { appId: APP.code, appVersion: buildStamp(STAMP_APP), collections: COLLECTIONS, auditHead: { seq: head.seq, hash: head.hash } });
       const name = exportFileName({ app: "ConfluenceTerminal", customerCode: id.customer.code, docId: "backup", ext: "rslbak" });
       const r = await platform.saveOrShare(JSON.stringify(snap, null, 2), name, "application/json");
       if (r.cancelled) return;

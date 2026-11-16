@@ -20,6 +20,7 @@ import { createAuditTrail, type AuditTrail } from "@rsl/core-kit/core/rsl-audit.
 import { createIdentityStore, validateIdentity, type IdentityStore } from "@rsl/core-kit/core/rsl-identity.js";
 import { applyToDocument, createI18n, negotiateLanguage, type I18n } from "@rsl/core-kit/core/rsl-i18n.js";
 import { readGuardedNow } from "@rsl/core-kit/core/rsl-clock.js";
+import { buildStamp } from "@rsl/core-kit/core/rsl-brand.js";
 import { APP, COLLECTIONS, PERSONAL_IDENTITY } from "./app-info";
 import { CATALOGS } from "./i18n/catalogs";
 import { readLegacyPreferences } from "@/lib/preferences-store";
@@ -57,7 +58,7 @@ export interface BootResult {
   adapters: Adapters;
 }
 
-const VERSION = `${APP.version} ${APP.year}`;
+const VERSION = buildStamp(APP); // KIT-003: "2.7.0 (build 20261111)"
 const LOCAL_SNAPSHOT_KEY = "rsl-conf-premigration-snapshot";
 
 /** Ordered, forward-only, idempotent. Never edit a shipped migration — add a new one. */

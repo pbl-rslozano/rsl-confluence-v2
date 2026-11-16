@@ -11,6 +11,13 @@ ledger rows of engine 2.3.0 stay and are reported separately.
   Dark (`theme.cycle` in all 18 catalogs; Arabic draft pending review); all other labels keep their text. Below 1280 px
   the header is unchanged. New acceptance check **HD-1**; the
   DS-1 baseline is re-captured from this build; theme checks choose a theme through the visible control.
+- **Version stamp (KIT-003, owner decision 16 Nov 2026):** the version and build metadata format
+  is SemVer plus the build date everywhere: `2.7.0 (build 20261111)` in the header brand block, `Powered by rsL Confluence
+  Terminal · 2.7.0 · build 20261111` in the footer and About, no leading "v" and no year (was `v2.7 2026 · build 20261111`).
+  rsL Core Kit 1.2.0 (was shown as `v1.1 2026`): `buildStamp()` pads a short version to `MAJOR.MINOR.PATCH`, ignores `year`
+  and `poweredBy()` follows the identity skill's footer form; the Coffee Kit shows `1.1.0` (its data is unchanged); backups
+  record the same stamp in `appVersion`; the user guide, README, release check R19 and the SBOM component use it too.
+  Guard: `tools/semver-stamp.test.mjs`, kit tests, `KIT-MANIFEST.sha256` regenerated (R4). Past entries keep their old format.
 - **Paper safety (WP19):** 10% drawdown lock (Stop + close all at the next open of each chart; pending positions cancelled;
   typed RESET restarts the 10% from current equity, disabled while closes are pending); open losses count in the daily and
   weekly locks; no loosening while a lock is active; costs inside the risk budget (a clean stop-out ≈ −1 R); event

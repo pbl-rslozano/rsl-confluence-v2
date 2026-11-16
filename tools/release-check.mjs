@@ -153,8 +153,8 @@ const notInAdr = TABLE.filter((h) => !adr3.includes(h.replace(/^https?:\/\//, ""
 check("R8", "connect-src = the public-host table (desktop CSP + web meta CSP), every host in ADR-0003", extra.length + metaConnect.length + desktopMissing.length + notInAdr.length === 0, [...extra, ...metaConnect, ...desktopMissing, ...notInAdr].join("; ") || `${TABLE.length} hosts`);
 
 /* R9 — SBOM */
-const ver = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version.replace(/\.0$/, "");
-const sbom = join(ROOT, "dist", `rsL-Confluence-v${ver}-2026-sbom.cdx.json`);
+const ver = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
+const sbom = join(ROOT, "dist", `rsL-Confluence-${ver}-sbom.cdx.json`);
 {
   const bom = existsSync(sbom) ? JSON.parse(readFileSync(sbom, "utf8")) : null;
   const bare = bom ? (bom.components ?? []).filter((c) => !c.licenses?.length || !c.scope).map((c) => c["bom-ref"]) : [];

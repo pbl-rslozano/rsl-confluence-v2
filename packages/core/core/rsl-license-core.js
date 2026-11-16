@@ -1,5 +1,5 @@
 /**
- * rsl-license-core.js — rsL Core Kit · v1.0 2026
+ * rsl-license-core.js — rsL Core Kit · 1.2.0
  * Offline ES256 (ECDSA P-256 / SHA-256) license verification and the license state machine,
  * implementing "rsL Application License System" masterclass v1.0 2026, phases 2–4.
  *

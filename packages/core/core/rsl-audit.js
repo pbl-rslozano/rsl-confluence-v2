@@ -1,5 +1,5 @@
 /**
- * rsl-audit.js — rsL Core Kit · v1.0 2026
+ * rsl-audit.js — rsL Core Kit · 1.2.0
  * Append-only, SHA-256 hash-chained audit trail for quality records (ALCOA+ / draft EU GMP Annex 11 style).
  *
  * entry = { seq, at, actorId, event, record, reason, before, after, prev, hash }

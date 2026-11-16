@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  COFFEE_APP_NAME, COFFEE_KIT_BUILD, COFFEE_KIT_VERSION, coffeeAlt, coffeeCardSrc, coffeeText, copyToClipboard,
+  COFFEE_APP_NAME, COFFEE_KIT_BUILD, COFFEE_KIT_VERSION, coffeeAlt, coffeeKitVersion, coffeeCardSrc, coffeeText, copyToClipboard,
 } from "./coffee-kit.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -15,19 +15,29 @@ const KIT = JSON.parse(readFileSync(KIT_FILE, "utf8"));
 const byId = (id) => KIT.methods.find((m) => m.id === id);
 const sha256 = (b64) => createHash("sha256").update(Buffer.from(b64, "base64")).digest("hex");
 
-/** The six fingerprints of the master kit v1.1 2026, build 20261115 (QR PNG / card PNG). */
+/** The six fingerprints of the master kit 1.1.0, build 20261115 (QR PNG / card PNG). */
 const KNOWN = {
   gcash: ["0151f6cf9699b30d98fac50073528b6827caff2b7f6533d1e49ea3b0a5062d04", "b3c1a84b184ad6c84ec54f14df16cbccbe4638723cf51381d514b139e26f8314"],
   paypal: ["b2378da740b285d8984dcb97e83864f2e77641409ee452cbce9c1ef0dd9e918b", "dcd63bd337b13060b4d6f37e737bce9b8300c5384ba5b08896277409053d4bee"],
   btc: ["db2e696c0746759048e12e6c509799d5d753ea5529f6cefd53d970630f1d0536", "c8a5e9ed5e4c70e46c2653cf474c0b1b309f0c903c6c90bde51cba4f09b900e0"],
 };
 
-test("kit v1.1 2026 build 20261115 with the three methods in order", () => {
+test("kit 1.1.0 build 20261115 with the three methods in order", () => {
   assert.equal(KIT.kit, "rsL Coffee Kit");
   assert.equal(KIT.kitVersion, "1.1");
-  assert.equal(COFFEE_KIT_VERSION, `v${KIT.kitVersion} 2026`);
+  assert.equal(COFFEE_KIT_VERSION, "1.1.0", "display string is SemVer, no v, no year (KIT-003)");
+  assert.equal(COFFEE_KIT_VERSION, coffeeKitVersion(KIT.kitVersion), "derived from the kit data's kitVersion");
   assert.equal(COFFEE_KIT_BUILD, "20261115");
   assert.deepEqual(KIT.methods.map((m) => m.id), ["gcash", "paypal", "btc"]);
+});
+
+test("coffeeKitVersion pads kitVersion to MAJOR.MINOR.PATCH, the kit data itself is not touched", () => {
+  assert.equal(coffeeKitVersion("1.1"), "1.1.0");
+  assert.equal(coffeeKitVersion("1.0"), "1.0.0");
+  assert.equal(coffeeKitVersion("2"), "2.0.0");
+  assert.equal(coffeeKitVersion("1.2.3"), "1.2.3");
+  assert.equal(coffeeKitVersion("beta"), "beta");
+  assert.equal(KIT.kitVersion, "1.1", "kitVersion in the master kit JSON stays 1.1");
 });
 
 test("image hashes: SHA-256 of each decoded QR and card PNG equals the kit and the known fingerprints", () => {
