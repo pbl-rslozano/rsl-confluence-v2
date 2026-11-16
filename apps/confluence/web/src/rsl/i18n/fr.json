@@ -653,5 +653,6 @@
   "radar.alerts.thVolume": "Threshold: z ≥ {z}",
   "radar.close": "Close the market radar",
   "radar.th.invalid": "Enter a value from {min} to {max}.",
-  "radar.th.invalidWhole": "Enter a whole number from {min} to {max}."
+  "radar.th.invalidWhole": "Enter a whole number from {min} to {max}.",
+  "settings.recordRadar": "Record radar context"
 }

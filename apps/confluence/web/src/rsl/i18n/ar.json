@@ -115,6 +115,7 @@
     "settings.fundPulse.off",
     "settings.fundPulse.keep",
     "settings.fundRankColumn",
+    "settings.recordRadar",
     "col.fundRank",
     "radar.tab",
     "radar.tabLabel",
@@ -851,5 +852,6 @@
   "radar.alerts.thVolume": "الحد: z ≥ {z}",
   "radar.close": "إغلاق رادار السوق",
   "radar.th.invalid": "أدخل قيمة من {min} إلى {max}.",
-  "radar.th.invalidWhole": "أدخل عددًا صحيحًا من {min} إلى {max}."
+  "radar.th.invalidWhole": "أدخل عددًا صحيحًا من {min} إلى {max}.",
+  "settings.recordRadar": "تسجيل سياق الرادار"
 }

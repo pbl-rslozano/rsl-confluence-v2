@@ -94,6 +94,7 @@ export async function buildFixture(dir = mkdtempSync(join(tmpdir(), "conf-mcp-")
   // App CSV export (bybit-perp 1h), written with the web lib's own column list and values.
   const csvRows = [0, 1, 2].map((i) => makeRow({ src: "bybit-perp", tf: "1h", pair: "SOLUSDT", i, sc: [72, -60, 10][i], step: H }));
   csvRows[1].beta = 1.3; csvRows[1].rku = 7; csvRows[1].rks = "live";
+  csvRows[0].rad = { t: csvRows[0].tc, frp: 82.5, oi24: -3.25, ls: 1.8, tk: 0.54, usP: 0.12, krP: -1.4, phP: 0.9, al: ["BREAKAWAY_KR", "DEPEG_USDC"] };
   const q = (s) => (/[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
   const safe = (v) => (v === null || v === undefined ? "" : typeof v === "number" ? (Number.isFinite(v) ? String(v) : "") : /^[=+\-@\u0000-\u001F]/.test(String(v)) ? `'${v}` : String(v));
   const header = [...lib.LEDGER_CSV_COLUMNS, ...lib.DEFAULT_HORIZONS.map((h) => `net_return_h${h}`)];

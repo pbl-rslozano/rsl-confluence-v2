@@ -37,6 +37,7 @@ Add `--disable-warning=ExperimentalWarning` after `node` to hide Node's type-str
 | `--grace-seconds` | `20` | wait after a bar close. Raise it if this PC's clock runs fast. |
 | `--catch-up-max` | `48` | closed bars scored per series after a gap (same as the app) |
 | `--derivs` | `auto` | funding / open-interest log. `auto` = only with `bybit-perp`; `on` = for scanned symbols that also list on Bybit linear. v2.8: rows log `fr` / `oiChg` from a snapshot ≤ 2 h before their close; on bars longer than 2 h the looping recorder adds a derivatives-only snapshot 15 min before each close (not with `--once`). |
+| `--radar` | `off` | `on` = the market-radar context (BTC funding percentile, open-interest change, long/short, taker share, US/Korea/Philippines premiums, alert codes; context only, never scored) is refreshed each cycle and at the derivs pre-close wake, logged to `radar/YYYY-MM.jsonl` and joined onto each row as `rad` (newest entry at or before the row's close, ≤ 2 h old). Reads `fapi.binance.com`, `publicreporting.cftc.gov`, `stablecoins.llama.fi` and the Coinbase, Upbit and Coins.ph read paths, all through the egress guard. With `off` no radar request is made. No depeg alert codes (they need a scan's stablecoin readings). |
 | `--oi-top` | `10` | how many top symbols get an open-interest request each cycle |
 | `--check-heartbeat` | | dead-man check. Exit 1 (and alert, if configured) when no cycle has succeeded for 3 cycle periods + 10 min. |
 
@@ -148,6 +149,7 @@ The token is redacted from logs, heartbeat errors and alert state. When alerts a
 | `ledger/YYYY-MM.ids` | Row ids of that file, line for line. This is the dedupe index, rebuilt automatically if missing. |
 | `rankings/YYYY-MM.jsonl` | The full unfiltered venue ranking (all classes, top 300) of every cycle: `{ t, src, tf, cls, view, bar, n, ranks: [[symbol, quoteVolume], …] }` |
 | `derivs/YYYY-MM.jsonl` | `{ t, venue: "bybit", cat: "linear", pair, fr, nft, fi, mp, oi, oit }`: funding rate per interval, next funding time (ms), funding interval (minutes), mark price, open interest and its timestamp. Never scored. |
+| `radar/YYYY-MM.jsonl` | `--radar on` only: `{ t, frp, oi24, ls, tk, usP, krP, phP, al }`, one line per refresh (BTC values; null = no current value; `al` = alert codes). `radar/cache.json` keeps the CFTC and stablecoin-supply cache between `--once` runs. Never scored. |
 | `candles/<src>/<tf>/<PAIR>.json` | The recorder's candle cache: the newest 2,000 bars, `{ schema, src, tf, pair, bars: [[t, o, h, l, c, v, takerBuy?]] }`. Monthly bars use the folder `1mo`, so they cannot clash with `1m` on Windows or macOS. |
 | `state.json` | Per-series cursors (the newest bar recorded) for catch-up |
 | `heartbeat.json` | Status, `lastSuccessAt` / `at`, `consecutiveFailures`, rows written, last errors, `rateLimitedUntil`, `nextWakeAt`, `staleAfterMs` |

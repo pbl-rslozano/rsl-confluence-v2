@@ -25,6 +25,7 @@ Options (env in brackets):
   --grace-seconds 20                              [RECORDER_GRACE_SECONDS]   wait after each bar close
   --catch-up-max 48                               [RECORDER_CATCHUP_MAX]     closed bars scored per series after a gap
   --derivs auto|on|off                            [RECORDER_DERIVS]          funding/OI log (auto = bybit-perp only)
+  --radar on|off                                  [RECORDER_RADAR]           market-radar context (rad) on rows + <out>/radar log; default off
   --oi-top 10                                     [RECORDER_OI_TOP]          symbols with an open-interest request
   --check-heartbeat                                                          exit 1 (and alert) if the heartbeat is stale
   --profile <file>                                [RECORDER_PROFILE]        exported scoring profile
@@ -52,7 +53,7 @@ function parseArgv(argv) {
   return out;
 }
 
-const KNOWN = new Set(["source", "tf", "limit", "asset-class", "out", "once", "interval-seconds", "grace-seconds", "catch-up-max", "derivs", "oi-top", "check-heartbeat", "profile", "help", "h"]);
+const KNOWN = new Set(["source", "tf", "limit", "asset-class", "out", "once", "interval-seconds", "grace-seconds", "catch-up-max", "derivs", "radar", "oi-top", "check-heartbeat", "profile", "help", "h"]);
 
 function int(name, raw, def, lo, hi) {
   if (raw === undefined || raw === "") return def;
@@ -76,6 +77,8 @@ export function parseConfig(argv = process.argv.slice(2), env = process.env, cwd
   if (!ASSET_CLASS_FILTERS.includes(assetClass)) throw new Error(`--asset-class must be one of ${ASSET_CLASS_FILTERS.join(", ")}`);
   const derivs = pick("derivs", "RECORDER_DERIVS") ?? "auto";
   if (!["auto", "on", "off"].includes(derivs)) throw new Error("--derivs must be auto, on or off");
+  const radar = pick("radar", "RECORDER_RADAR") ?? "off";
+  if (!["on", "off"].includes(radar)) throw new Error("--radar must be on or off");
   const intervalSeconds = int("interval-seconds", pick("interval-seconds", "RECORDER_INTERVAL_SECONDS"), 0, 0, 31 * 86_400);
   if (intervalSeconds > 0 && intervalSeconds < 30) throw new Error("--interval-seconds must be at least 30 (exchange rate limits)");
 
@@ -101,6 +104,7 @@ export function parseConfig(argv = process.argv.slice(2), env = process.env, cwd
     graceMs: int("grace-seconds", pick("grace-seconds", "RECORDER_GRACE_SECONDS"), 20, 0, 600) * 1000,
     catchUpMax: int("catch-up-max", pick("catch-up-max", "RECORDER_CATCHUP_MAX"), 48, 0, 1000),
     derivs,
+    radar: radar === "on",
     oiTop: int("oi-top", pick("oi-top", "RECORDER_OI_TOP"), 10, 0, 50),
     checkHeartbeat: truthy(a["check-heartbeat"]),
   };

@@ -29,7 +29,7 @@ try {
   for (const file of readdirSync(lib)) {
     if (file.endsWith(".ts")) {
       const src = readFileSync(join(lib, file), "utf8").replace(
-        /from\s+"\.\/([A-Za-z0-9_-]+)"/g,
+        /from\s+"\.\/((?:radar\/)?[A-Za-z0-9_-]+)"/g, // v2.8 (WP25): "./radar/x" too
         (_m, name) => `from "./${name}.ts"`,
       );
       writeFileSync(join(dir, file), src);

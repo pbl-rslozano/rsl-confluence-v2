@@ -27,6 +27,7 @@ import { atr as atrSeries, type Kline } from "./indicators";
 import { detectSplit } from "./splits";
 import { ENGINE_BARS } from "./engine-window";
 import { FR_MAX, OI_CHG_MAX, OI_CHG_MIN } from "./derivatives-context";
+import type { RadarContext } from "./radar/snapshot";
 
 export type AssetClass = "crypto" | "rwa" | "stock" | "fx" | "commodity";
 
@@ -99,6 +100,9 @@ export interface LedgerRow {
   /* ---- v2.8 (WP21): a benchmark beside momentum, never scored ---- */
   /** Fund trend −100…+100 (1 decimal) from closed daily bars at or before this bar's close; null = not available then (history, class, halt). */
   ft?: number | null;
+  /* ---- v2.8 (WP25): the market-radar context at the bar close (BTC values), logged, never scored ---- */
+  /** Newest radar context at or before this bar's close (at most 2 h old); null = radar recording was off or nothing qualified. */
+  rad?: RadarContext | null;
 }
 
 /** Fund trend as stored on a row: one decimal, so web and recorder rows match. */
@@ -1043,6 +1047,8 @@ export const LEDGER_CSV_COLUMNS = [
   "vote_vector", "pattern_dir", "pattern_conf", "funding_rate", "oi_change_pct",
   // v2.8 (WP21) — appended last, so a v2.7 or earlier v2.8 CSV (no such column) imports with ft null.
   "fund_trend",
+  // v2.8 (WP25) — appended after fund_trend (WP22's scb/scp go after these). Alerts are codes joined by "|".
+  "radar_funding_pctl", "radar_oi_chg_24h", "radar_long_short", "radar_taker_share", "radar_us_premium", "radar_kr_premium", "radar_ph_premium", "radar_alerts",
 ] as const;
 
 const iso = (ms: number) => (ms ? new Date(ms).toISOString() : "");
@@ -1055,6 +1061,7 @@ export function ledgerRowValues(r: LedgerRow): (string | number)[] {
     r.rku ?? "", r.rks ?? "", r.rs ?? "", r.beta ?? "", r.htf ?? "", r.td ?? "",
     r.mev ?? "", r.bp ?? "", r.pin ?? "", r.spl ?? "", r.earn ?? "", engineBarsOf(r),
     r.vt ?? "", r.pd ?? "", r.pc ?? "", r.fr ?? "", r.oiChg ?? "", r.ft ?? "",
+    r.rad?.frp ?? "", r.rad?.oi24 ?? "", r.rad?.ls ?? "", r.rad?.tk ?? "", r.rad?.usP ?? "", r.rad?.krP ?? "", r.rad?.phP ?? "", r.rad ? r.rad.al.join("|") : "",
   ];
 }
 
@@ -1089,6 +1096,35 @@ function strictNew(r: Record<string, unknown>): Pick<LedgerRow, "vt" | "pd" | "p
   };
 }
 
+/** Alert codes on a row: same shape as radar/alerts.ts ALERT_CODE (kept local so the ledger does not pull in the radar rules). */
+const RAD_CODE = /^[A-Z0-9_]{1,32}$/;
+const RAD_MAX_CODES = 16;
+/**
+ * v2.8 (WP25) strict check of `rad`: absent/null → null; anything else must be an object whose fields are in range, else the
+ * WHOLE row is rejected: frp 0–100, oi24 −100…10,000, ls 0–100, tk 0–1, premiums −50…50, t finite, al ≤ 16 codes.
+ * Unknown keys are dropped; an absent field is null.
+ */
+function strictRad(v: unknown): RadarContext | null | typeof INVALID {
+  if (v === null || v === undefined) return null;
+  if (typeof v !== "object" || Array.isArray(v)) return INVALID;
+  const o = v as Record<string, unknown>;
+  if (!finite(o.t)) return INVALID;
+  const field = (k: string, lo: number, hi: number): number | null | typeof INVALID => {
+    const x = o[k];
+    if (x === null || x === undefined) return null;
+    return finite(x) && x >= lo && x <= hi ? x : INVALID;
+  };
+  const frp = field("frp", 0, 100), oi24 = field("oi24", OI_CHG_MIN, OI_CHG_MAX), ls = field("ls", 0, 100), tk = field("tk", 0, 1);
+  const usP = field("usP", -50, 50), krP = field("krP", -50, 50), phP = field("phP", -50, 50);
+  if ([frp, oi24, ls, tk, usP, krP, phP].some((x) => x === INVALID)) return INVALID;
+  let al: string[] = [];
+  if (o.al !== null && o.al !== undefined) {
+    if (!Array.isArray(o.al) || o.al.length > RAD_MAX_CODES || !o.al.every((c) => typeof c === "string" && RAD_CODE.test(c))) return INVALID;
+    al = o.al as string[];
+  }
+  return { t: o.t, frp: frp as number | null, oi24: oi24 as number | null, ls: ls as number | null, tk: tk as number | null, usP: usP as number | null, krP: krP as number | null, phP: phP as number | null, al: al as RadarContext["al"] };
+}
+
 /**
  * Validate one untrusted row and return a clean copy with only known fields,
  * or null. The id must equal cfg|src|tf|pair|t, so an imported row can never
@@ -1111,6 +1147,8 @@ export function sanitizeLedgerRow(x: unknown): LedgerRow | null {
   if (m === null || st === null || Math.abs(r.sc as number) > 100) return null;
   const v28 = strictNew(r);
   if (v28 === INVALID) return null;
+  const rad = strictRad(r.rad);
+  if (rad === INVALID) return null;
   const bl = Array.isArray(r.bl) && r.bl.length === 4 && r.bl.every(finite) ? (r.bl as number[]) : [0, 0, 0, 0];
   const bit = (v: unknown): 0 | 1 => (v === 1 || v === true ? 1 : 0);
   const out: LedgerRow = {
@@ -1133,7 +1171,7 @@ export function sanitizeLedgerRow(x: unknown): LedgerRow | null {
     eb: finite(r.eb) && r.eb >= 0 ? r.eb : undefined,
   };
   for (const [k, v] of Object.entries(extra)) if (v !== undefined) (out as unknown as Record<string, unknown>)[k] = v;
-  return Object.assign(out, v28);
+  return Object.assign(out, v28, { rad });
 }
 
 /* ------------------------------------------------------------------ *
@@ -1180,6 +1218,22 @@ const csvTime = (c: string | undefined): number | string | null => {
 const DIRECTION_CELL: Record<string, -1 | 0 | 1> = { BUY: 1, SELL: -1, NEUTRAL: 0 };
 const STRENGTH_CELL: Record<string, 0 | 1 | 2> = { WEAK: 0, MODERATE: 1, STRONG: 2 };
 
+const RAD_CELLS = ["radar_funding_pctl", "radar_oi_chg_24h", "radar_long_short", "radar_taker_share", "radar_us_premium", "radar_kr_premium", "radar_ph_premium", "radar_alerts"] as const;
+/**
+ * v2.8 (WP25): the radar columns → an untrusted `rad` object for the sanitiser. All cells empty or absent → null. The CSV has no
+ * column for the context's own time, so `t` is the row's bar close (an upper bound: the context is never later than it). A cell that
+ * is not a number, or an alert cell that is not `|`-joined codes, is passed through as is and rejects the row.
+ */
+function csvRad(get: (n: (typeof LEDGER_CSV_COLUMNS)[number]) => string | undefined, num: (n: (typeof LEDGER_CSV_COLUMNS)[number]) => number | string | null, tc: number | string | null): unknown {
+  if (RAD_CELLS.every((c) => (get(c) ?? "") === "")) return null;
+  const al = get("radar_alerts") ?? "";
+  return {
+    t: tc, frp: num("radar_funding_pctl"), oi24: num("radar_oi_chg_24h"), ls: num("radar_long_short"), tk: num("radar_taker_share"),
+    usP: num("radar_us_premium"), krP: num("radar_kr_premium"), phP: num("radar_ph_premium"),
+    al: al === "" ? [] : al.split("|"),
+  };
+}
+
 /** True when `text` starts with the ledger CSV header (BOM and quotes tolerated). */
 export function looksLikeLedgerCsv(text: string): boolean {
   return /^\uFEFF?"?id"?,"?config_id"?,/.test(text);
@@ -1216,6 +1270,7 @@ export function parseLedgerCsv(text: string, maxRows = 500_000): { rows: LedgerR
       // engine_bars is exported as eb ?? wb: only a value that differs from warm_bars is a real eb.
       eb: eb !== null && eb !== wb ? eb : undefined,
       vt: num("vote_vector"), pd: num("pattern_dir"), pc: num("pattern_conf"), fr: num("funding_rate"), oiChg: num("oi_change_pct"), ft: num("fund_trend"),
+      rad: csvRad(get, num, csvTime(get("bar_close_utc"))),
     };
     const row = sanitizeLedgerRow(raw);
     if (row) rows.push(row); else rejected++;

@@ -20,6 +20,7 @@ import { barWhileClosed } from "./asset-classes";
 import { barCloseTime, type UniverseEntry } from "./market-client";
 import { enrich, percentiles, ret20 } from "./enrichment";
 import { derivativeFields, type DerivativeSnapshot } from "./derivatives-context";
+import { radarFields, type RadarContext } from "./radar/snapshot";
 import type { PatternConfidence, PatternDirection } from "./pattern-signal";
 
 export interface ScanSeries {
@@ -46,6 +47,8 @@ export interface ScanRecordContext {
   derivatives?: ReadonlyArray<DerivativeSnapshot>;
   /** v2.8 (WP21): closed daily bars per pair (catch-up rows). Each row uses only the daily bars closed at or before its own bar close. */
   dailyOf?: (symbol: string) => Kline[];
+  /** v2.8 (WP25): the radar context log (app: per-device log; recorder: <out>/radar). Absent = recording is off, so rows carry rad null. Each row takes the newest entry at or before its own bar close (≤ 2 h old). */
+  radar?: ReadonlyArray<RadarContext>;
 }
 
 /** Scan-wide inputs: relative-strength percentiles, BTC bars, full-ranking positions. */
@@ -87,6 +90,8 @@ export function liveRow(p: ScanSeries, score: SeriesScore, ctx: ScanRecordContex
     rankSource: "live",
     ...(p.pattern ? { pattern: p.pattern } : {}),
     ...(deriv ? deriv : {}),
+    // v2.8 (WP25): the newest radar entry at or before this bar's close (≤ 2 h old); null when recording is off.
+    rad: ctx.radar?.length ? radarFields(ctx.radar as RadarContext[], closeTime) : null,
   });
   if (!row) return null;
   return Object.assign(row, enrich(row, p.kl, {
@@ -116,6 +121,8 @@ export function enrichCatchUp(rows: LedgerRow[], kl: Kline[], ctx: ScanRecordCon
     if (i !== undefined) Object.assign(row, enrich(row, kl.slice(0, i + 1), { intervalMs: ctx.intervalMs, btc: shared.btc, rs: null }));
     // v2.8 (WP19): derivative context as of each catch-up bar's own close (never a later snapshot).
     if (ctx.derivatives?.length) Object.assign(row, derivativeFields(ctx.derivatives, row.pair, row.tc));
+    // v2.8 (WP25): radar context as of each catch-up bar's own close (never a later entry); null when recording is off.
+    row.rad = ctx.radar?.length ? radarFields(ctx.radar as RadarContext[], row.tc) : null;
   }
   if (ctx.dailyOf) applyFundTrend(rows, ctx.dailyOf);
   else for (const row of rows) if (row.ac === "crypto") row.ft = null; // no daily data source (hosted build): "not available", like live rows

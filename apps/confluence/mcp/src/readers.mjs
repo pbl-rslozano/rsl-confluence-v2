@@ -106,6 +106,25 @@ const numOrNull = (s) => (s === "" || s == null || !Number.isFinite(Number(s)) ?
 const ms = (s) => { if (!s) return 0; const v = Date.parse(s); return Number.isFinite(v) ? v : 0; };
 
 /**
+ * v2.8 (WP25): the radar columns of an app CSV → `rad` (BTC context at the bar close), or null when every cell is empty / absent
+ * (an older export). Read-only and tolerant: a field outside its documented range or not a number is null, and an alert code that is
+ * not [A-Z0-9_]{1,32} is dropped (at most 16 kept), so nothing free-form from a file reaches the tools. The CSV has no column for the
+ * context's own time, so `t` is the row's bar close (an upper bound).
+ */
+const RAD_CODE = /^[A-Z0-9_]{1,32}$/;
+function csvRad(get, tc) {
+  const cols = ["radar_funding_pctl", "radar_oi_chg_24h", "radar_long_short", "radar_taker_share", "radar_us_premium", "radar_kr_premium", "radar_ph_premium", "radar_alerts"];
+  if (cols.every((c) => (get(c) ?? "") === "")) return null;
+  const inRange = (name, lo, hi) => { const v = numOrNull(get(name)); return v !== null && v >= lo && v <= hi ? v : null; };
+  const alerts = (get("radar_alerts") ?? "").split("|").filter((c) => RAD_CODE.test(c)).slice(0, 16);
+  return {
+    t: tc, frp: inRange("radar_funding_pctl", 0, 100), oi24: inRange("radar_oi_chg_24h", -100, 10000), ls: inRange("radar_long_short", 0, 100),
+    tk: inRange("radar_taker_share", 0, 1), usP: inRange("radar_us_premium", -50, 50), krP: inRange("radar_kr_premium", -50, 50),
+    phP: inRange("radar_ph_premium", -50, 50), al: alerts,
+  };
+}
+
+/**
  * Map one CSV record (by header position) to a LedgerRow. Header names come
  * from LEDGER_CSV_COLUMNS; `universe_rank` appears twice in the v2.3 list
  * (rk, then the unfiltered rank rku), so duplicates are told apart by occurrence.
@@ -142,6 +161,8 @@ function csvRecordToRow(header, rec) {
     const v = get(col);
     if (v !== undefined && v !== "") row[key] = conv(v);
   }
+  const rad = csvRad(get, row.tc);
+  if (rad) row.rad = rad;
   const net = {};
   header.forEach((h, i) => {
     const m = /^net_return_h(\d+)$/.exec(h);

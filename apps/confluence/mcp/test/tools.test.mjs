@@ -76,6 +76,8 @@ test("query_ledger: CSV and JSON exports round-trip into LedgerRows", async () =
   assert.equal(second.beta, 1.3);
   assert.equal(second.rku, 7, "second universe_rank column = unfiltered rank");
   assert.equal(second.rks, "live");
+  assert.deepEqual(first.rad, { t: first.tc, frp: 82.5, oi24: -3.25, ls: 1.8, tk: 0.54, usP: 0.12, krP: -1.4, phP: 0.9, al: ["BREAKAWAY_KR", "DEPEG_USDC"] }, "v2.8 (WP25): the radar columns come back as rad");
+  assert.ok(!("rad" in second), "a row with empty radar cells has no rad");
   const json = await ctx.call("query_ledger", { file: "exports/ledger-bitget.json" });
   assert.equal(json.matched, 2);
   assert.ok(json.rows.every((r) => r.src === "bitget" && r.tf === "1d"));

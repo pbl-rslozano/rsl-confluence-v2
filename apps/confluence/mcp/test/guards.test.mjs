@@ -235,6 +235,19 @@ test("CSV reader: quotes, injection guard and notice line", async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+test("CSV reader (WP25): radar columns are range-checked, alert codes are pattern-checked, older exports have no rad", async () => {
+  const dir = tmp();
+  const p = join(dir, "r.csv");
+  const head = "id,config_id,source,timeframe,pair,bar_open_utc,bar_close_utc,score,direction,strength,warm_bars,radar_funding_pctl,radar_oi_chg_24h,radar_long_short,radar_taker_share,radar_us_premium,radar_kr_premium,radar_ph_premium,radar_alerts\r\n";
+  writeFileSync(p, head +
+    "a,c,binance,4h,BTCUSDT,2026-09-01T00:00:00.000Z,2026-09-01T04:00:00.000Z,60,BUY,WEAK,1000,150,-3,1.5,0.5,0.1,,99,\"OK_1|'=cmd|lower|OK_2\"\r\n" +
+    "b,c,binance,4h,BTCUSDT,2026-09-01T04:00:00.000Z,2026-09-01T08:00:00.000Z,60,BUY,WEAK,1000,,,,,,,,\r\n");
+  const { items } = await readLedgerCsv(p);
+  assert.deepEqual(items[0].rad, { t: Date.UTC(2026, 8, 1, 4), frp: null, oi24: -3, ls: 1.5, tk: 0.5, usP: 0.1, krP: null, phP: null, al: ["OK_1", "OK_2"] });
+  assert.ok(!("rad" in items[1]));
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test("candle cache: path layouts and bar shapes", () => {
   assert.deepEqual(candleMetaFromPath("binance/4h/btcusdt.json"), { src: "binance", tf: "4h", pair: "BTCUSDT" });
   assert.deepEqual(candleMetaFromPath("bybit-perp/1h/SOLUSDT/2026-10.json"), { src: "bybit-perp", tf: "1h", pair: "SOLUSDT" });
