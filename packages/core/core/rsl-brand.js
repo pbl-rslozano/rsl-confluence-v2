@@ -33,25 +33,35 @@ export function monogramSVG({ className = 'rsl-mono', label = 'rsLozano monogram
 }
 
 /**
- * SemVer version as MAJOR.MINOR.PATCH (KIT-003): missing parts are padded with ".0", so "1.0" -> "1.0.0" and
- * "2.7.0" stays "2.7.0". A version that is not plain numeric (for example "2.8.0-rc.1") is shown as given.
- * @param {string|number} version
+ * SemVer version as MAJOR.MINOR.PATCH (KIT-003): the value is trimmed, missing parts are padded with ".0", so "1.0" ->
+ * "1.0.0" and "2.7.0" stays "2.7.0". A version that is not plain numeric (for example "2.8.0-rc.1") is shown as given.
+ * null, undefined and blank give "".
+ * @param {string|number|null|undefined} version
  */
 export const semver = (version) => {
-  const v = String(version).trim();
+  const v = version == null ? '' : String(version).trim();
   if (!/^\d+(\.\d+){0,2}$/.test(v)) return v;
   const parts = v.split('.');
   while (parts.length < 3) parts.push('0');
   return parts.join('.');
 };
+const clean = (value) => (value == null ? '' : String(value).trim());
 /**
  * Version and build date: "1.0.0 (build 20261029)". No leading "v", no year. `year` is still accepted so older
- * callers keep working, but it is ignored (KIT-003).
- * @param {{ version:string, year?:number, build:string|number }} app
+ * callers keep working, but it is ignored (KIT-003). A blank version gives "build 20261029"; a blank build gives the
+ * version alone; both blank give "" (never "undefined", "null" or a stray space).
+ * @param {{ version?:string|null, year?:number, build?:string|number|null }} app
  */
-export const buildStamp = ({ version, build }) => `${semver(version)} (build ${build})`;
-/** Identity-skill footer form: "Powered by rsL PackOS · 1.0.0 · build 20261029" */
-export const poweredBy = (app) => `Powered by rsL ${app.name} · ${semver(app.version)} · build ${app.build}`;
+export const buildStamp = ({ version, build }) => {
+  const v = semver(version);
+  const b = clean(build);
+  return v && b ? `${v} (build ${b})` : v || (b ? `build ${b}` : '');
+};
+/** Identity-skill footer form: "Powered by rsL PackOS · 1.0.0 · build 20261029" (blank parts are left out). */
+export const poweredBy = (app) => {
+  const b = clean(app.build);
+  return ['Powered by rsL ' + app.name, semver(app.version), b ? `build ${b}` : ''].filter(Boolean).join(' · ');
+};
 /** mailto for the Contact developer button (shown as selectable text as well; mail links can fail). */
 export const contactMailto = (app, subject = app.name) => `mailto:${BRAND.contactEmail}?subject=${encodeURIComponent(subject)}`;
 

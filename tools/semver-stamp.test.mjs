@@ -63,3 +63,11 @@ test("the app stamp, footer and kit label use SemVer", () => {
   assert.match(readFileSync(join(ROOT, "packages/core/README.md"), "utf8"), /^# rsL Core Kit · 1\.2\.0$/m);
   assert.ok(readFileSync(join(ROOT, "docs/kit-issues/KIT-003.md"), "utf8").startsWith("# KIT-003"), "KIT-003 records the owner decision");
 });
+
+test("the SBOM file name is rsL-Confluence-<SemVer>-sbom.cdx.json in the writer and in R9 (no v, no year)", () => {
+  const writer = readFileSync(join(ROOT, "tools/sbom.mjs"), "utf8");
+  const r9 = readFileSync(join(ROOT, "tools/release-check.mjs"), "utf8");
+  assert.ok(writer.includes("`rsL-Confluence-${pkg.version}-sbom.cdx.json`"), "sbom.mjs writes rsL-Confluence-${pkg.version}-sbom.cdx.json");
+  assert.ok(r9.includes("`rsL-Confluence-${ver}-sbom.cdx.json`") && /const ver = [^\n]*\.version;/.test(r9), "R9 reads the same name from the root package version");
+  for (const [name, text] of [["sbom.mjs", writer], ["release-check.mjs", r9]]) assert.ok(!/-(2026|\$\{YEAR\})-sbom|Confluence-v\$\{/.test(text), `${name}: no v<ver>-<year> SBOM name`);
+});

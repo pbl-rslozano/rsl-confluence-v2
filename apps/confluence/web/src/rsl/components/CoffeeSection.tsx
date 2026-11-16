@@ -7,7 +7,7 @@
  * whole at 600 × 868, never cropped, overlaid or recoloured. GCash and PayPal are scan-only; only a method with a
  * copyValue (Bitcoin) gets a Copy button.
  */
-import KIT_JSON from "../coffee-kit.json";
+import KIT_JSON from "../coffee-kit.json" with { type: "json" };
 import { coffeeAlt, coffeeCardSrc, coffeeText, copyToClipboard, type CoffeeKit } from "../coffee-kit";
 
 const KIT = KIT_JSON as CoffeeKit;

@@ -2,7 +2,7 @@
 /**
  * sbom.mjs — CycloneDX 1.6 JSON SBOM for rsL Confluence Terminal.
  *
- *   node tools/sbom.mjs            → dist/rsL-Confluence-v<ver>-<year>-sbom.cdx.json
+ *   node tools/sbom.mjs            → dist/rsL-Confluence-<version>-sbom.cdx.json   (e.g. rsL-Confluence-2.7.0-sbom.cdx.json)
  *
  * Sources: pnpm-lock.yaml (npm packages, with integrity hashes) and
  * apps/confluence/desktop/src-tauri/Cargo.lock (Rust crates, with checksums).
@@ -21,8 +21,6 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-const VERSION = pkg.version.replace(/\.0$/, "");          // 2.1.0 → 2.1
-const YEAR = 2026;
 const components = [];
 
 /** SPDX id → CycloneDX licence choice (an expression for compound licences). */
@@ -116,7 +114,7 @@ const bom = {
   components,
 };
 mkdirSync(join(ROOT, "dist"), { recursive: true });
-const out = join(ROOT, "dist", `rsL-Confluence-v${VERSION}-${YEAR}-sbom.cdx.json`);
+const out = join(ROOT, "dist", `rsL-Confluence-${pkg.version}-sbom.cdx.json`);
 writeFileSync(out, JSON.stringify(bom, null, 2) + "\n");
 const req = components.filter((c) => c.scope === "required").length;
 console.log(`SBOM: ${npmCount} npm + ${components.length - npmCount - 1} cargo + 1 vendored = ${components.length} components (${req} required, ${components.length - req} excluded) → ${out.replace(ROOT + "/", "")}`);
