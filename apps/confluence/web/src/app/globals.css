@@ -323,9 +323,16 @@ body { background-color: var(--color-zinc-950); color: var(--color-zinc-100); }
 /* v2.8 (WP25): the Radar sheet slides in only when motion is allowed. */
 @media (prefers-reduced-motion: reduce) { .radar-sheet { animation: none !important; transition: none !important; } }
 
-/* v2.8 (WP29): Fear & Greed band colours (FNG_COLORS, set as --fng-c). On the light theme they are darkened 50 % toward black
-   so arcs, bars and the band label keep at least 3:1 (text 4.5:1) on white surfaces. */
+/* v2.8 (WP29): Fear & Greed band colours. --fng-c is the dark-theme colour (FNG_COLORS); on the light theme --fng-l (FNG_COLORS_LIGHT,
+   precomputed hex, at least 4.5:1 on #f5f7fa, distinct hues) is used. No colour functions, so nothing falls back to pastel on white. */
 .fng-fill { fill: var(--fng-c); }
 .fng-stroke { stroke: var(--fng-c); }
-:root[data-theme="light"] .fng-fill { fill: color-mix(in srgb, var(--fng-c) 50%, #000); }
-:root[data-theme="light"] .fng-stroke { stroke: color-mix(in srgb, var(--fng-c) 50%, #000); }
+:root[data-theme="light"] .fng-fill { fill: var(--fng-l); }
+:root[data-theme="light"] .fng-stroke { stroke: var(--fng-l); }
+/* v2.8 (WP29 final review, I-2): on a phone the gauge is drawn about 120 px wide so the panel stays short; its text is enlarged in user units to stay readable. */
+@media (max-width: 639px) {
+  .fng-t-val { font-size: 50px; }
+  .fng-t-lbl { font-size: 22px; }
+  .fng-t-end { font-size: 14px; }
+  .fng-t-upd { font-size: 14px; }
+}

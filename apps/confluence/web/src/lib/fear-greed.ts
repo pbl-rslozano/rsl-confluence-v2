@@ -31,6 +31,19 @@ export const FNG_COLORS: Record<FngBand, string> = {
   extremeGreed: "#28cdb0",
 };
 
+/**
+ * Light-theme band colours, precomputed (no CSS colour functions, so an engine without color-mix still draws them). Each has at least
+ * 4.5:1 on #f5f7fa (the light page background; more on white) and the hues stay 30+ degrees apart:
+ * extremeFear #bf1040 5.83, fear #b83a0a 5.36, neutral #706a00 5.22, greed #1c7a3a 5.02, extremeGreed #0a7a6a 4.89.
+ */
+export const FNG_COLORS_LIGHT: Record<FngBand, string> = {
+  extremeFear: "#bf1040",
+  fear: "#b83a0a",
+  neutral: "#706a00",
+  greed: "#1c7a3a",
+  extremeGreed: "#0a7a6a",
+};
+
 const BAND_LABEL: Record<FngBand, string> = {
   extremeFear: "Extreme Fear",
   fear: "Fear",
@@ -184,4 +197,23 @@ export async function saveFngCache(port: FngPort, data: FngData): Promise<void> 
 /** Fresh when fetched at or before `now` and less than an hour ago. */
 export function isFngFresh(data: FngData, now: number): boolean {
   return Number.isFinite(data.asOf) && data.asOf <= now && now - data.asOf < FNG_TTL_MS;
+}
+
+/**
+ * Whether to contact the source. On open: when there is no data or it is not fresh. On the 15-minute re-check: only when the data is
+ * stale (or absent) AND no attempt was made in the last hour, so a failing source is tried at most once an hour.
+ */
+export function shouldFetch(data: FngData | null, lastAttempt: number | null, now: number, initial: boolean): boolean {
+  const stale = !data || !isFngFresh(data, now);
+  if (initial) return stale;
+  return stale && (lastAttempt === null || now - lastAttempt >= FNG_TTL_MS);
+}
+
+/** A history needs at least two valid days; one row is only the gauge. */
+export const hasHistory = (data: FngData): boolean => data.points.length >= 2;
+
+/** Numbers for the history's text alternative (oldest to newest). */
+export function fngHistoryStats(data: FngData): { n: number; first: number; last: number; min: number; max: number } {
+  const v = data.points.map((p) => p.value);
+  return { n: v.length, first: v[0], last: v[v.length - 1], min: Math.min(...v), max: Math.max(...v) };
 }

@@ -3117,13 +3117,13 @@ function dsCompare(base, now, prefix = "") {
       return { value: String(value), value_classification, timestamp: String(todayS - i * DAY_S), ...(i === 0 ? { time_until_update: "37530" } : {}) };
     });
     const fngBody = JSON.stringify({ name: "Fear and Greed Index", data: fngRows, metadata: { error: null } });
-    const fngContext = async (status = 200) => {
+    const fngContext = async (status = 200, body200 = fngBody) => {
       const c = await newContext(browser, { reducedMotion: "reduce", serviceWorkers: "block", deviceScaleFactor: 1 });
       const st = await rdMock(c);
       const hits = [];
       await c.route("https://api.alternative.me/fng/**", (route) => {
         hits.push(route.request().url());
-        return route.fulfill({ status, headers: { "access-control-allow-origin": "*", "content-type": "application/json" }, body: status === 200 ? fngBody : "oops" });
+        return route.fulfill({ status, headers: { "access-control-allow-origin": "*", "content-type": "application/json" }, body: status === 200 ? body200 : "oops" });
       });
       const p = await c.newPage();
       await p.goto(BASE, { waitUntil: "domcontentloaded" });
@@ -3141,8 +3141,8 @@ function dsCompare(base, now, prefix = "") {
       const geo = await p.evaluate(() => {
         const toggles = [...document.querySelectorAll('[data-testid="fng-toggle"]')];
         const t = toggles[0];
-        const row = t?.parentElement;
-        const chip = row?.firstElementChild; // the first StatChip
+        const row = t?.closest("div.border-t"); // the counts row: [wrapping content (min-w-0 flex-1)] [chip]
+        const chip = row?.firstElementChild?.firstElementChild; // the first StatChip
         const tr = t?.getBoundingClientRect(), rr = row?.getBoundingClientRect(), cr = chip?.getBoundingClientRect();
         const last = row ? [...row.children].filter((el) => getComputedStyle(el).display !== "none").pop() : null;
         return {
@@ -3155,11 +3155,30 @@ function dsCompare(base, now, prefix = "") {
           endOfLine: !!t && tr.right <= rr.right + 0.5 && tr.left > cr.right,
         };
       });
+      // I-3: the chip never changes the counts row's height, at the widths where real scans (liquidity note, long source names) used to wrap it.
+      const wrap = {};
+      for (const w of [1024, 360]) {
+        await p.setViewportSize({ width: w, height: 800 });
+        await p.waitForTimeout(300);
+        wrap[w] = await p.evaluate(() => {
+          const t = document.querySelector('[data-testid="fng-toggle"]');
+          const row = t.closest("div.border-t");
+          const h = () => Math.round(row.getBoundingClientRect().height * 10) / 10;
+          const shown = h(), tr = t.getBoundingClientRect(), rr = row.getBoundingClientRect();
+          const inRow = tr.top >= rr.top - 0.5 && tr.bottom <= rr.bottom + 0.5;
+          t.style.display = "none";
+          const hidden = h();
+          t.style.display = "";
+          return { shown, hidden, inRow };
+        });
+      }
+      await p.setViewportSize({ width: 1366, height: 768 });
+      const noWrap = [1024, 360].every((w) => Math.abs(wrap[w].shown - wrap[w].hidden) <= 1 && wrap[w].inRow);
       // One line: the row is the StatChip's height plus the row's own vertical padding (py-1 = 8 px), within 1 px.
       const oneLine = geo.rowH !== null && Math.abs(geo.rowH - (geo.statH + 8)) <= 1 && geo.chipH <= geo.statH + 1;
       record("FG-1", "Fear & Greed at rest: one collapsed chip at the end of the counts line, no panel, no request to api.alternative.me (DS-1 checked separately with the chip excluded per spec §3 item 8)",
-        geo.toggles === 1 && geo.expanded === "false" && geo.controls === "fng-panel" && /Fear & Greed/.test(geo.text) && geo.inHeader && geo.isLast && geo.hasStat && geo.sameLine && geo.endOfLine && oneLine && geo.panels === 0 && hits.length === 0,
-        { geo, hits });
+        geo.toggles === 1 && geo.expanded === "false" && geo.controls === "fng-panel" && /Fear & Greed/.test(geo.text) && geo.inHeader && geo.isLast && geo.hasStat && geo.sameLine && geo.endOfLine && oneLine && noWrap && geo.panels === 0 && hits.length === 0,
+        { geo, wrap, hits });
       await c.close();
     }
 
@@ -3167,7 +3186,7 @@ function dsCompare(base, now, prefix = "") {
     {
       const { c, p, hits } = await fngContext();
       const top0 = await listTop(p);
-      const rowBottom = await p.evaluate(() => document.querySelector('[data-testid="fng-toggle"]').parentElement.getBoundingClientRect().bottom);
+      const rowBottom = await p.evaluate(() => document.querySelector('[data-testid="fng-toggle"]').closest("div.border-t").getBoundingClientRect().bottom);
       await p.getByTestId("fng-toggle").click();
       await p.getByTestId("fng-gauge").waitFor({ timeout: 10000 });
       await p.waitForTimeout(600);
@@ -3187,9 +3206,14 @@ function dsCompare(base, now, prefix = "") {
           attrVisible: !!a && ar.width > 0 && ar.height > 0, attrText: a?.textContent?.trim(), href: link?.getAttribute("href"),
           nextToGauge: !!a && !!gr && (Math.abs(ar.top - gr.bottom) < 80 || (ar.left >= gr.right - 4 && ar.top < gr.bottom)),
           inPanel: !!panel && !!a && panel.contains(a) && panel.contains(g),
+          histAria: h?.getAttribute("aria-label"),
+          captionHidden: [...(panel?.querySelectorAll("p") || [])].filter((e) => /^Last \d+ days, oldest to newest$/.test((e.textContent || "").trim())).every((e) => e.getAttribute("aria-hidden") === "true") && [...(panel?.querySelectorAll("p") || [])].some((e) => /^Last \d+ days, oldest to newest$/.test((e.textContent || "").trim())),
         };
       });
       const oneRequest = hits.length === 1;
+      const vals = fngRows.map((r) => Number(r.value)).reverse();
+      const summary = `Last 31 days, oldest to newest: from ${vals[0]} to ${vals[30]}, low ${Math.min(...vals)}, high ${Math.max(...vals)}`; // M4: values in the text alternative, caption not read twice
+      const histOk = open.histAria === summary && open.captionHidden;
       const below = open.top >= rowBottom - 1 && open.bottom <= open.mainTop + 1 && open.mainTop > top0 + 100;
       const gaugeOk = /\b10\b/.test(open.aria || "") && /Extreme Fear/.test(open.aria || "") && open.gaugeRole === "img" && /Updated /.test(open.text);
       // Reload: same storage (IndexedDB "meta" cache + localStorage fng.open): still open, no second request.
@@ -3211,10 +3235,51 @@ function dsCompare(base, now, prefix = "") {
         const panel = document.querySelector('[data-testid="fng-panel"]');
         const r = panel.getBoundingClientRect();
         const wide = [...panel.querySelectorAll("*")].filter((el) => el.getBoundingClientRect().right > innerWidth + 0.5).length;
-        return { right: Math.round(r.right), left: Math.round(r.left), iw: innerWidth, docScroll: document.documentElement.scrollWidth, panelScroll: panel.scrollWidth, panelClient: panel.clientWidth, wide };
+        const mainH = document.querySelector("main").getBoundingClientRect().height;
+        const t = document.querySelector('[data-testid="fng-toggle"]'), tr = t.getBoundingClientRect();
+        const cx = tr.left + tr.width / 2, cy = tr.top + tr.height / 2;
+        const hit = (dy) => { const e = document.elementFromPoint(cx, cy + dy); return !!e && (e === t || t.contains(e)); };
+        const g = document.querySelector('[data-testid="fng-gauge"]').getBoundingClientRect();
+        const mr = document.querySelector("main").getBoundingClientRect();
+        const rowsVisible = [...document.querySelectorAll("main tbody tr")].filter((e) => { const b = e.getBoundingClientRect(); return b.top >= mr.top - 0.5 && b.bottom <= mr.bottom + 0.5; }).length;
+        return { right: Math.round(r.right), left: Math.round(r.left), iw: innerWidth, ih: innerHeight, docScroll: document.documentElement.scrollWidth, panelScroll: panel.scrollWidth, panelClient: panel.clientWidth, wide,
+          mainH: Math.round(mainH), rowsVisible, rowsBottom: [...document.querySelectorAll("main tbody tr")].slice(0, 5).map((e) => Math.round(e.getBoundingClientRect().bottom - mr.top)), rowH: Math.round(document.querySelector("main tbody tr")?.getBoundingClientRect().height || 0), headH: Math.round(document.querySelector("main thead")?.getBoundingClientRect().height || 0), mainTop: Math.round(mr.top), panelH: Math.round(r.height), gaugeW: Math.round(g.width), chipH: Math.round(tr.height * 10) / 10, hitUp: hit(-11), hitDown: hit(11), hit0: hit(0) };
       });
+      const phone = (narrow.mainH >= narrow.ih * 0.4 || narrow.rowsVisible >= 3) && narrow.gaugeW <= 200 && narrow.chipH <= 17 && narrow.hit0 && narrow.hitUp && narrow.hitDown; // I-2: the list keeps 40 % of the screen or at least 3 whole rows; the chip's hit box is at least 24 px tall (+/-11 px around its centre) while it still looks 16 px
       const fits = narrow.right <= narrow.iw && narrow.left >= 0 && narrow.docScroll <= narrow.iw && narrow.panelScroll <= narrow.panelClient + 1 && narrow.wide === 0;
       await c.close();
+      // M3: a cache 2 h old and HTTP 500: the cached value shows with the stale notice (under the gauge's Updated line); exactly one request.
+      const st = await fngContext(500);
+      await st.p.evaluate((rows) => new Promise((resolve, reject) => {
+        const req = indexedDB.open("rsl-conf");
+        req.onerror = () => reject(new Error("idb"));
+        req.onsuccess = () => {
+          const db = req.result, tx = db.transaction("meta", "readwrite");
+          tx.objectStore("meta").put({ asOf: Date.now() - 2 * 3600e3, points: rows.slice().reverse().map((r) => ({ t: Number(r.timestamp) * 1000, value: Number(r.value), label: r.value_classification, band: "x" })) }, "fng-cache");
+          tx.oncomplete = () => { db.close(); resolve(true); };
+          tx.onerror = () => reject(new Error("idb put"));
+        };
+      }), fngRows);
+      await st.p.getByTestId("fng-toggle").click();
+      await st.p.getByTestId("fng-gauge").waitFor({ timeout: 10000 });
+      await st.p.waitForFunction(() => /Showing the last value from/.test(document.querySelector('[data-testid="fng-panel"]')?.textContent || ""), null, { timeout: 15000 }).catch(() => null);
+      await st.p.waitForTimeout(1500);
+      const stale = await st.p.evaluate(() => {
+        const panel = document.querySelector('[data-testid="fng-panel"]'), g = document.querySelector('[data-testid="fng-gauge"]');
+        const sp = [...panel.querySelectorAll("p")].find((e) => /Showing the last value from/.test(e.textContent || ""));
+        const a = document.querySelector('[data-testid="fng-attribution"]');
+        const gr = g.getBoundingClientRect(), sr = sp?.getBoundingClientRect(), ar = a.getBoundingClientRect();
+        return { text: sp?.textContent || "", aria: g.getAttribute("aria-label"), underGauge: !!sp && sr.top >= gr.bottom - 2 && sr.top - gr.bottom < 24 && Math.abs(sr.left - gr.left) < 4 && ar.top >= sr.bottom - 2 };
+      });
+      const staleOk = /^Showing the last value from \d{1,2} [A-Z][a-z]{2} \d{4}$/.test(stale.text) && /\b10\b/.test(stale.aria || "") && /Extreme Fear/.test(stale.aria || "") && stale.underGauge && st.hits.length === 1;
+      await st.c.close();
+      // N1: one valid row is the gauge only: no history.
+      const one = await fngContext(200, JSON.stringify({ name: "Fear and Greed Index", data: [fngRows[0]], metadata: { error: null } }));
+      await one.p.getByTestId("fng-toggle").click();
+      await one.p.getByTestId("fng-gauge").waitFor({ timeout: 10000 });
+      await one.p.waitForTimeout(500);
+      const oneRow = { history: await one.p.getByTestId("fng-history").count(), caption: /oldest to newest/.test((await one.p.getByTestId("fng-panel").textContent()) || "") };
+      await one.c.close();
       // HTTP 500 with no cache: a fresh context.
       const bad = await fngContext(500);
       await bad.p.getByTestId("fng-toggle").click();
@@ -3223,12 +3288,12 @@ function dsCompare(base, now, prefix = "") {
       const badText = await bad.p.getByTestId("fng-panel").textContent();
       const unavailable = /The index is unavailable right now\./.test(badText || "") && (await bad.p.getByTestId("fng-gauge").count()) === 0;
       await bad.c.close();
-      record("FG-2", "Fear & Greed open on mocked data: gauge 10 Extreme Fear with date, 31 history bars, Alternative.me attribution next to the gauge, one request, remembered open with cache on reload, collapsing restores the list position, unavailable state on HTTP 500, fits at 390 px",
+      record("FG-2", "Fear & Greed open on mocked data: gauge 10 Extreme Fear with date, 31 history bars, Alternative.me attribution next to the gauge, one request, remembered open with cache on reload, collapsing restores the list position, unavailable state on HTTP 500, fits at 390 px with the list keeping 40 % of the screen and a 24 px chip hit box, stale cache + HTTP 500 shows the cached value with the dated notice and one request, one valid row draws no history, the history text alternative carries the values",
         open.role === "region" && open.id === "fng-panel" && open.labelled && open.expanded === "true" && below && gaugeOk && open.bars === 31
           && open.attrVisible && open.inPanel && open.nextToGauge && /Alternative\.me/.test(open.attrText || "") && open.href === "https://alternative.me/crypto/fear-and-greed-index/"
           && oneRequest && reloaded.stillOpen && reloaded.expanded === "true" && reloaded.hits === 1
-          && collapsed.panels === 0 && Math.abs(collapsed.top1 - collapsed.top0) <= 2 && unavailable && fits,
-        { open: { ...open, text: undefined }, below, gaugeOk, oneRequest, reloaded, collapsed, narrow, unavailable, badText: (badText || "").slice(0, 120) });
+          && collapsed.panels === 0 && Math.abs(collapsed.top1 - collapsed.top0) <= 2 && unavailable && fits && phone && staleOk && oneRow.history === 0 && !oneRow.caption && histOk,
+        { open: { ...open, text: undefined }, below, gaugeOk, oneRequest, reloaded, collapsed, narrow, phone, stale, staleOk, oneRow, histOk, summary, unavailable, badText: (badText || "").slice(0, 120) });
     }
   }
   } // end of the full run (skipped with --ds-only)

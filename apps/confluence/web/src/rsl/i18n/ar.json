@@ -230,6 +230,7 @@
     "fng.loading",
     "fng.unavailable",
     "fng.history",
+    "fng.historySummary",
     "fng.gaugeLabel",
     "fng.attribution",
     "fng.note",
@@ -931,5 +932,6 @@
   "fng.band.fear": "خوف",
   "fng.band.neutral": "محايد",
   "fng.band.greed": "طمع",
-  "fng.band.extremeGreed": "طمع شديد"
+  "fng.band.extremeGreed": "طمع شديد",
+  "fng.historySummary": "آخر {n} يومًا، من الأقدم إلى الأحدث: من {first} إلى {last}، الأدنى {min}، الأعلى {max}"
 }

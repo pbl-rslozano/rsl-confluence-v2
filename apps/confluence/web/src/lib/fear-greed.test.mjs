@@ -3,7 +3,7 @@
 //
 // Fixtures follow the live sample of 16 Nov 2026 (docs/research/evidence/wp29-fng-probe-2026-11-16.json): newest row first,
 // value and timestamp as strings, `time_until_update` on the newest row only. The numbers are generated.
-import { FNG_CACHE_ID, FNG_COLORS, FNG_TTL_MS, FNG_URL, fetchFng, fngBand, isFngFresh, loadFngCache, parseFng, saveFngCache } from "./fear-greed.ts";
+import { FNG_CACHE_ID, FNG_COLORS, FNG_COLORS_LIGHT, FNG_TTL_MS, fngHistoryStats, hasHistory, shouldFetch, FNG_URL, fetchFng, fngBand, isFngFresh, loadFngCache, parseFng, saveFngCache } from "./fear-greed.ts";
 
 let passed = 0;
 let failed = 0;
@@ -126,6 +126,39 @@ try {
     store.set("meta/fng-cache", { junk: true });
     ok("a junk doc loads as null", (await loadFngCache(port, NOW)) === null);
     ok("a throwing port loads as null", (await loadFngCache({ get: async () => { throw new Error("x"); }, put: async () => {} }, NOW)) === null); }
+
+/* ---------- WP29 final review: fetch gate, history rule, light colours ---------- */
+{ const mk = (asOf, n = 3) => ({ asOf, points: Array.from({ length: n }, (_, i) => ({ t: 1794700800000 + i * 86_400_000, value: 10 + i * 20, label: "Fear", band: fngBand(10 + i * 20) })) });
+  const T = 1_800_000_000_000, H = FNG_TTL_MS;
+  const fresh = mk(T - 10 * 60_000), stale = mk(T - 2 * H);
+  ok("initial: no data fetches", shouldFetch(null, null, T, true) === true);
+  ok("initial: stale data fetches", shouldFetch(stale, null, T, true) === true);
+  ok("initial: fresh data does not fetch", shouldFetch(fresh, null, T, true) === false);
+  ok("interval: fresh data does not fetch", shouldFetch(fresh, null, T, false) === false);
+  ok("interval: stale, never attempted fetches", shouldFetch(stale, null, T, false) === true);
+  ok("interval: no data, never attempted fetches", shouldFetch(null, null, T, false) === true);
+  ok("interval: stale, attempted 15 min ago does not fetch (failing source: at most once an hour)", shouldFetch(stale, T - 15 * 60_000, T, false) === false);
+  ok("interval: no data, attempted 59 min ago does not fetch", shouldFetch(null, T - 59 * 60_000, T, false) === false);
+  ok("interval: stale, attempted exactly one hour ago fetches", shouldFetch(stale, T - H, T, false) === true);
+  ok("interval: stale, attempted 61 min ago fetches", shouldFetch(stale, T - 61 * 60_000, T, false) === true);
+  // four 15-minute ticks of a failing source: exactly one attempt per hour
+  { let last = null, n = 0; for (let k = 0; k < 8; k++) { const now = T + k * 15 * 60_000; if (shouldFetch(null, last, now, false)) { n++; last = now; } } ok("a failing source gets 2 attempts in 2 hours of 15-minute ticks", n === 2, String(n)); }
+  ok("history needs at least 2 points", hasHistory(mk(T, 0)) === false && hasHistory(mk(T, 1)) === false && hasHistory(mk(T, 2)) === true && hasHistory(mk(T, 31)) === true);
+  const st = fngHistoryStats(mk(T, 3));
+  ok("history stats: n, first, last, min, max", st.n === 3 && st.first === 10 && st.last === 50 && st.min === 10 && st.max === 50);
+  const st2 = fngHistoryStats({ asOf: T, points: [30, 70, 5, 40].map((v, i) => ({ t: i, value: v, label: "", band: fngBand(v) })) });
+  ok("history stats pick min and max, not first and last", st2.first === 30 && st2.last === 40 && st2.min === 5 && st2.max === 70);
+  const lum = (h) => { const c = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((x) => (x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+  const cr = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+  const hue = (h) => { const [r, g, b] = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255); const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; const k = mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return k * 60; };
+  const bands = ["extremeFear", "fear", "neutral", "greed", "extremeGreed"];
+  ok("light colours: five precomputed hex values", bands.every((b) => /^#[0-9a-f]{6}$/.test(FNG_COLORS_LIGHT[b])));
+  ok("light colours: at least 4.5:1 on #f5f7fa", bands.every((b) => cr(FNG_COLORS_LIGHT[b], "#f5f7fa") >= 4.5), bands.map((b) => cr(FNG_COLORS_LIGHT[b], "#f5f7fa").toFixed(2)).join(","));
+  ok("light colours: at least 4.5:1 on white", bands.every((b) => cr(FNG_COLORS_LIGHT[b], "#ffffff") >= 4.5));
+  { const diff = (a, b) => { const d = Math.abs(hue(a) - hue(b)); return Math.min(d, 360 - d); }; let min = 360;
+    for (let i = 0; i < 5; i++) for (let j = i + 1; j < 5; j++) min = Math.min(min, diff(FNG_COLORS_LIGHT[bands[i]], FNG_COLORS_LIGHT[bands[j]]));
+    ok("light colours: every pair of bands differs by at least 30 degrees of hue", min >= 30, String(min)); }
+}
 } finally {
   // nothing global is replaced: every fetch above uses an injected fetcher
 }

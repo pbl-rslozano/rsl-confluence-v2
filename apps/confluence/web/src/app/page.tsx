@@ -1871,7 +1871,12 @@ export default function Home() {
           </div>
 
           {/* Row 2 — counts and scan telemetry, one line */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-zinc-800/60 py-1 text-[11px] text-zinc-500">
+          {/* v2.8 (WP29 final review, I-3): the Fear & Greed chip must not move the list at rest.
+              From sm up the row is [content (min-w-0 flex-1, one line; the telemetry span already truncates)] [chip (shrink-0)], so the chip is on the line
+              and takes width from the telemetry text, never a line of its own. Below sm the content wrapper is display: contents, so the chip is one more
+              item of the same wrapping row (it fits in the free end of the last line). */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-zinc-800/60 py-1 text-[11px] text-zinc-500 sm:flex-nowrap">
+          <div className="contents sm:flex sm:min-w-0 sm:flex-1 sm:flex-nowrap sm:items-center sm:gap-x-3 sm:[&>*:not(.truncate)]:shrink-0">
             <StatChip icon={<Activity className="h-3 w-3 text-zinc-400" />} label={t("stat.assets")} value={totals.total} />
             <StatChip icon={<TrendingUp className="h-3 w-3 text-emerald-400" />} label={t("stat.bull")} value={totals.bull} sub={`${pct(totals.bull).toFixed(0)}%`} tone="emerald" />
             <StatChip icon={<TrendingDown className="h-3 w-3 text-rose-400" />} label={t("stat.bear")} value={totals.bear} sub={`${pct(totals.bear).toFixed(0)}%`} tone="rose" />
@@ -1923,10 +1928,11 @@ export default function Home() {
             {monitorAssets.length > 0 && (
               <span className="text-emerald-400/80">{t("scan.watching", { list: monitorAssets.join(", ") })}</span>
             )}
+          </div>
             {/* v2.8 (WP29): collapsed Fear & Greed chip, spec §3 item 8. No request while collapsed. */}
             <FearGreedToggle open={fngOpen} onToggle={() => setFngOpen(!fngOpen)} />
           </div>
-          {/* The header is not sticky (a shrink-0 block above the list), so the open panel pushes the list down and never covers it; it scrolls inside 55 vh. */}
+          {/* The header is not sticky (a shrink-0 block above the list), so the open panel pushes the list down and never covers it; it scrolls inside 35 vh on a phone, 55 vh from the sm breakpoint. */}
           {fngOpen && <FearGreedPanel port={rsl.port} />}
 
           {loading && progress.total > 0 && (
