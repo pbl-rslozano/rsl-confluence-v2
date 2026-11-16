@@ -665,5 +665,16 @@
   "radar.liq.ready": "Çağlayan kontrolü: medyan saat {median}",
   "radar.alert.liq": "{venue} tasfiyeleri son bir saatte {usd} oldu; bu, medyan saatin ({median}) {mult} katı. %{longPct} oranında long idi.",
   "radar.alerts.thLiq": "Eşik: medyan saatin {mult} katı",
-  "radar.th.liqMult": "Tasfiye çağlayanı (× medyan saat)"
+  "radar.th.liqMult": "Tasfiye çağlayanı (× medyan saat)",
+  "radar.etf.liveTitle": "ETF akışları (CoinGlass, ağ geçidiniz üzerinden)",
+  "radar.etf.liveBtc": "Bitcoin spot ETF'leri, günlük net akış",
+  "radar.etf.liveEth": "Ether spot ETF'leri, günlük net akış",
+  "radar.etf.liveNote": "Fon sembolüne göre. Bir gün için verisi olmayan fon dışarıda bırakılır, sıfır sayılmaz. En son gün hâlâ düzeltilebilir.",
+  "radar.whale.title": "Büyük transferler (Whale Alert, ağ geçidiniz üzerinden)",
+  "radar.whale.row": "{time} · {amount} {symbol} ({usd}) · {from} → {to} · {chain}",
+  "radar.whale.none": "Son 24 saatte eşiğe eşit veya üzerinde transfer yok.",
+  "radar.whale.connecting": "Whale Alert'e bağlanılıyor…",
+  "radar.th.whaleMinUsd": "Büyük transfer (en az, US$)",
+  "radar.alert.whale": "{amount} {symbol} ({usd}), {chain} üzerinde {from} konumundan {to} konumuna aktarıldı.",
+  "radar.prov.gatewayLost": "Ağ geçidi belirteci kabul etmedi. Ayarlar → API bölümünden yeniden bağlanın."
 }

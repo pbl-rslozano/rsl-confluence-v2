@@ -2584,7 +2584,7 @@ function dsCompare(base, now, prefix = "") {
     await c.close();
   }
   /* ===== v2.8 WP25: market radar (tab, panel, gating, alerts) — every radar host mocked, unmocked hosts logged ===== */
-  /* acceptance-ids: RD-1, RD-2, RD-3, RD-4, RD-5, RD-6, RD-7, RD-8 */
+  /* acceptance-ids: RD-1, RD-2, RD-3, RD-4, RD-5, RD-6, RD-7, RD-8, RD-9 */
   {
     const shotDir = process.env.RD_SHOT_DIR || OUT;
     const radarContext = async (extra = {}, pre = null) => {
@@ -2956,6 +2956,150 @@ function dsCompare(base, now, prefix = "") {
         && opened.subscribes.some((s) => Array.isArray(s) && s.includes("allLiquidation.BTCUSDT") && s.includes("allLiquidation.ETHUSDT"))
         && closed,
       { restHits, ...ev, opened, rowsMs, preOpen, connects: seen.connects, closed, closeMs });
+    }
+
+    /* RD-9: Step 4b provider keys through a mocked gateway (page.route on http://127.0.0.1:8787): connect, no key in browser storage, live ETF flows, large transfer alert, 401 */
+    {
+    const GW = /^http:\/\/127\.0\.0\.1:8787\//;
+    const KEY_WHALE = "FAKE-WHALE-KEY-5b1e9d27c4a8f3", KEY_CG = "FAKE-COINGLASS-KEY-7d3a1c9e6b20f5";
+    const gw = { profiles: [], calls: [], bodies: [], unauth: false, bad: [] };
+    const NOW0 = Date.now();
+    const isoDay = (back) => new Date(NOW0 - back * RD_D).toISOString().slice(0, 10);
+    const etfBody = () => ({
+      asOf: Date.now(),
+      btc: [3, 2, 1].map((b, i) => ({ date: isoDay(b), flows: [{ ticker: "IBIT", flowUsd: 300e6 + i * 1e6 }, { ticker: "FBTC", flowUsd: 100e6 }] })),
+      eth: [3, 2, 1].map((b) => ({ date: isoDay(b), flows: [{ ticker: "ETHA", flowUsd: 30e6 }, { ticker: "FETH", flowUsd: -10e6 }] })),
+    });
+    const whaleBody = () => ({
+      connected: true,
+      alerts: [
+        { t: Date.now() - 5 * 60_000, chain: "bitcoin", kind: "transfer", from: "Coinbase", to: "unknown wallet", symbol: "BTC", amount: 380, valueUsd: 25e6, hash: "aa11" },
+        { t: Date.now() - 8 * 60_000, chain: "ethereum", kind: "transfer", from: "Kraken", to: "Binance", symbol: "ETH", amount: 700, valueUsd: 2e6, hash: "bb22" },
+      ],
+    });
+    const mockGateway = async (c) => {
+      await c.route(GW, async (route) => {
+        const req = route.request();
+        const u = new URL(req.url());
+        const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, content-type", "access-control-allow-methods": "GET, POST, DELETE, OPTIONS", "content-type": "application/json" };
+        const reply = (status, b) => route.fulfill({ status, headers: cors, body: JSON.stringify(b) });
+        if (req.method() === "OPTIONS") return route.fulfill({ status: 204, headers: cors });
+        gw.calls.push(`${req.method()} ${u.pathname}${u.search}`);
+        if (req.headers().authorization !== "Bearer fixture-token") { gw.bad.push(u.pathname); return reply(401, { error: "unauthorized" }); }
+        if (gw.unauth && /^\/providers\/(etf-flows|whale-alerts)/.test(u.pathname)) return reply(401, { error: "unauthorized" });
+        if (u.pathname === "/health") return reply(200, { ok: true, service: "rsl-gateway", profiles: 0 });
+        if (u.pathname === "/profiles") return reply(200, { profiles: [] });
+        if (u.pathname === "/providers/connect" && req.method() === "POST") {
+          const b = JSON.parse(req.postData() || "{}");
+          gw.bodies.push(b);
+          const profile = { id: `prov-${gw.profiles.length + 1}`, kind: "provider", provider: b.provider, label: String(b.label || b.provider), maskedKey: "FAKE…" + String(b.apiKey).slice(-4), connectedAt: new Date().toISOString() };
+          gw.profiles.push(profile);
+          return reply(200, { profile });
+        }
+        if (u.pathname === "/providers" && req.method() === "GET") return reply(200, { profiles: gw.profiles });
+        if (u.pathname === "/providers/etf-flows") return reply(200, etfBody());
+        if (u.pathname === "/providers/whale-alerts") return reply(200, whaleBody());
+        return reply(404, { error: "not found" });
+      });
+    };
+    const dumpStorage = (p) => p.evaluate(async () => {
+      const out = { local: JSON.stringify({ ...localStorage }), session: JSON.stringify({ ...sessionStorage }), idb: [], stores: 0 };
+      const dbs = indexedDB.databases ? await indexedDB.databases() : [];
+      for (const d of dbs) {
+        await new Promise((done) => {
+          const rq = indexedDB.open(d.name);
+          rq.onerror = () => done();
+          rq.onsuccess = () => {
+            const db = rq.result;
+            const names = [...db.objectStoreNames];
+            if (!names.length) { db.close(); done(); return; }
+            const tx = db.transaction(names, "readonly");
+            let left = names.length;
+            const fin = () => { if (--left === 0) { db.close(); done(); } };
+            for (const n of names) {
+              const g = tx.objectStore(n).getAll();
+              const k = tx.objectStore(n).getAllKeys();
+              g.onsuccess = () => { out.stores++; try { out.idb.push(JSON.stringify({ db: d.name, store: n, rows: g.result })); } catch { /* unserialisable row */ } fin(); };
+              g.onerror = fin;
+              k.onsuccess = () => { try { out.idb.push(JSON.stringify({ db: d.name, store: n, keys: k.result })); } catch { /* skip */ } };
+            }
+          };
+        });
+      }
+      return out;
+    });
+    const { c, p, st } = await radarContext({}, mockGateway);
+    const flat = (s) => (s || "").replace(/[⁨⁩]/g, "").replace(/\s+/g, " ").trim();
+    const txt = async (id) => flat(await p.getByTestId(id).first().textContent({ timeout: 500 }).catch(() => ""));
+    // 1. Settings -> API: check the gateway, connect a Whale Alert key and a CoinGlass key
+    await p.getByRole("button", { name: /Private API/ }).first().click();
+    const dlg = p.getByRole("dialog");
+    await dlg.waitFor({ timeout: 10000 });
+    await dlg.locator("#gateway-token").fill("fixture-token");
+    await dlg.getByRole("button", { name: "Check", exact: true }).click();
+    await dlg.getByText("Gateway online").waitFor({ timeout: 10000 });
+    await dlg.locator("#data-provider-key").fill(KEY_WHALE);
+    await dlg.locator("#data-provider-label").fill("Whale");
+    await dlg.getByRole("button", { name: "Connect", exact: true }).last().click();
+    await dlg.getByLabel("Connected data providers").getByText("Whale", { exact: true }).waitFor({ timeout: 10000 });
+    const whaleFieldEmpty = (await dlg.locator("#data-provider-key").inputValue()) === "";
+    await dlg.locator("#data-provider").click();
+    await p.getByRole("option", { name: /CoinGlass/ }).click();
+    await dlg.locator("#data-provider-label").fill("Glass");
+    await dlg.locator("#data-provider-key").fill(KEY_CG);
+    await dlg.getByRole("button", { name: "Connect", exact: true }).last().click();
+    await dlg.getByLabel("Connected data providers").getByText("Glass", { exact: true }).waitFor({ timeout: 10000 });
+    const cgFieldEmpty = (await dlg.locator("#data-provider-key").inputValue()) === "";
+    const dialogHtml = await dlg.innerHTML();
+    const dataCallsBeforeOpen = gw.calls.filter((x) => /\/providers\/(etf-flows|whale-alerts)/.test(x)).length;
+    await p.keyboard.press("Escape");
+    await dlg.waitFor({ state: "hidden", timeout: 5000 }).catch(() => null);
+    // 2. open the radar: live ETF flows, the large transfer and its alert
+    await p.locator("body").click({ position: { x: 5, y: 400 } });
+    await p.keyboard.press("r");
+    await panel(p).waitFor({ timeout: 10000 });
+    await waitSections(p).catch(() => null);
+    await p.getByTestId("radar-whale-row").first().waitFor({ timeout: 20000 }).catch(() => null);
+    await p.getByTestId("radar-etf-live-btc").waitFor({ timeout: 20000 }).catch(() => null);
+    const btcDays = (await p.locator('[data-testid="radar-etf-live-btc"] [data-testid="radar-etf-live-day"]').evaluateAll((els) => els.map((e) => ({ date: e.getAttribute("data-date"), total: e.querySelector('[data-testid="radar-etf-live-total"]')?.textContent || "", tickers: [...e.querySelectorAll("li span.font-mono")].map((x) => x.textContent) }))));
+    const ethDays = (await p.locator('[data-testid="radar-etf-live-eth"] [data-testid="radar-etf-live-day"]').evaluateAll((els) => els.map((e) => ({ date: e.getAttribute("data-date"), total: e.querySelector('[data-testid="radar-etf-live-total"]')?.textContent || "" }))));
+    const whaleRows = (await p.getByTestId("radar-whale-row").allTextContents()).map(flat);
+    const alertText = flat(await p.locator('[data-testid="radar-alert"][data-code="WHALE_TRANSFER"]').first().textContent({ timeout: 500 }).catch(() => ""));
+    const etfTitle = await txt("radar-etf-live");
+    const whaleMinInput = await p.getByTestId("radar-th-whaleMinUsd").count();
+    const dataCalls = gw.calls.filter((x) => /\/providers\/(etf-flows|whale-alerts)/.test(x));
+    await p.screenshot({ path: path.join(shotDir, "radar-providers.png") }).catch(() => null);
+    // 3. no key in any browser storage, in a URL, in the page or in the dialog markup
+    const dump = await dumpStorage(p);
+    const everything = [dump.local, dump.session, ...dump.idb].join("\n");
+    const pageText = await p.evaluate(() => document.body.innerText + document.documentElement.outerHTML);
+    const keyHits = [KEY_WHALE, KEY_CG].filter((k) => everything.includes(k) || pageText.includes(k) || dialogHtml.includes(k) || gw.calls.some((x) => x.includes(k)));
+    const keysSent = gw.bodies.length === 2 && gw.bodies[0].apiKey === KEY_WHALE && gw.bodies[1].apiKey === KEY_CG;
+    // 4. the next refresh gets a 401: the reconnect line shows in both rows, the other sections keep updating
+    gw.unauth = true;
+    await p.keyboard.press("Escape");
+    await panel(p).waitFor({ state: "hidden", timeout: 5000 }).catch(() => null);
+    await p.keyboard.press("r");
+    await panel(p).waitFor({ timeout: 10000 });
+    await p.getByTestId("radar-whale-lost").waitFor({ timeout: 30000 }).catch(() => null);
+    await waitSections(p).catch(() => null);
+    const lostWhale = await txt("radar-whale-lost"), lostEtf = await txt("radar-etf-live-lost");
+    const statuses = await Promise.all(["positioning", "buyer", "regional", "institutions", "alerts"].map((id) => txt(`radar-status-${id}`)));
+    const alertsAfter = await p.locator('[data-testid="radar-alert"][data-code="WHALE_TRANSFER"]').count();
+    await p.screenshot({ path: path.join(shotDir, "radar-providers-401.png") }).catch(() => null);
+    record("RD-9", "Provider keys: CoinGlass and Whale Alert connect through the mocked gateway, the key field is cleared and no browser storage holds the key; the panel shows live BTC/ETH ETF flows and a large transfer alert; a 401 shows the reconnect message and the rest of the radar keeps updating",
+      whaleFieldEmpty && cgFieldEmpty && keysSent && gw.bad.length === 0 && dataCallsBeforeOpen === 0
+        && keyHits.length === 0 && dump.stores > 0
+        && /ETF flows \(CoinGlass, via your gateway\)/.test(etfTitle)
+        && btcDays.length === 3 && btcDays[0].date === isoDay(1) && btcDays.map((d) => d.total.replace(/\s/g, "").toUpperCase()).join() === "+US$402M,+US$401M,+US$400M" && btcDays[0].tickers.includes("IBIT") && btcDays[0].tickers.includes("FBTC")
+        && ethDays.length === 3 && ethDays.every((d) => d.total.replace(/\s/g, "").toUpperCase() === "+US$20M")
+        && whaleRows.length === 1 && /380 BTC \(US\$25M\) · Coinbase → unknown wallet · bitcoin$/i.test(whaleRows[0])
+        && /380 BTC \(US\$25M\) moved from Coinbase to unknown wallet on bitcoin\./i.test(alertText)
+        && whaleMinInput === 1 && dataCalls.some((x) => x.includes("min=10000000"))
+        && /The gateway did not accept the token\. Reconnect in Settings → API\./.test(lostWhale) && /The gateway did not accept the token\. Reconnect in Settings → API\./.test(lostEtf)
+        && statuses.every((x) => /^Updated /.test(x)) && alertsAfter === 0,
+      { whaleFieldEmpty, cgFieldEmpty, keysSent, bad: gw.bad, dataCallsBeforeOpen, keyHits: keyHits.length, stores: dump.stores, etfTitle, btcDays, ethDays, whaleRows, alertText, whaleMinInput, dataCalls: dataCalls.slice(0, 4), lostWhale, lostEtf, statuses, alertsAfter, unmockedRadarHosts: unknownRadar(st) });
+    await c.close();
     }
   }
   } // end of the full run (skipped with --ds-only)

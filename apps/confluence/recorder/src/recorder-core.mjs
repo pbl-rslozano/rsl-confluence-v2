@@ -535,7 +535,7 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
       checkStartupGap();
       if (radarOn) {
         if (once) log("radar: liquidation streams need continuous mode (they are not opened with --once)");
-        else {
+        else if (!signal?.aborted) { // already aborted at start: nothing to open (an abort listener would never fire)
           signal?.addEventListener("abort", stopLiquidations, { once: true });
           try {
             radar.start();

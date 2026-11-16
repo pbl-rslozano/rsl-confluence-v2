@@ -665,5 +665,16 @@
   "radar.liq.ready": "Control de cascada: hora mediana {median}",
   "radar.alert.liq": "Las liquidaciones de {venue} alcanzaron {usd} en la última hora, {mult}× la hora mediana ({median}); el {longPct} % fueron largos.",
   "radar.alerts.thLiq": "Umbral: {mult}× la hora mediana",
-  "radar.th.liqMult": "Cascada de liquidaciones (× hora mediana)"
+  "radar.th.liqMult": "Cascada de liquidaciones (× hora mediana)",
+  "radar.etf.liveTitle": "Flujos de ETF (CoinGlass, a través de su pasarela)",
+  "radar.etf.liveBtc": "ETF spot de Bitcoin, flujo neto por día",
+  "radar.etf.liveEth": "ETF spot de Ether, flujo neto por día",
+  "radar.etf.liveNote": "Por ticker de fondo. Un fondo sin cifra para un día se omite, no se cuenta como cero. El último día aún puede revisarse.",
+  "radar.whale.title": "Transferencias grandes (Whale Alert, a través de su pasarela)",
+  "radar.whale.row": "{time} · {amount} {symbol} ({usd}) · {from} → {to} · {chain}",
+  "radar.whale.none": "Ninguna transferencia igual o superior al umbral en las últimas 24 horas.",
+  "radar.whale.connecting": "Conectando con Whale Alert…",
+  "radar.th.whaleMinUsd": "Transferencia grande (mínimo en US$)",
+  "radar.alert.whale": "{amount} {symbol} ({usd}) se movieron de {from} a {to} en {chain}.",
+  "radar.prov.gatewayLost": "La pasarela no aceptó el token. Vuelva a conectar en Ajustes → API."
 }

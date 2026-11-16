@@ -665,5 +665,16 @@
   "radar.liq.ready": "캐스케이드 점검: 중앙값 시간 {median}",
   "radar.alert.liq": "{venue} 청산이 최근 1시간에 {usd}에 달해 중앙값 시간({median})의 {mult}배였습니다. {longPct} %가 롱이었습니다.",
   "radar.alerts.thLiq": "임계값: 중앙값 시간의 {mult}배",
-  "radar.th.liqMult": "청산 캐스케이드 (× 중앙값 시간)"
+  "radar.th.liqMult": "청산 캐스케이드 (× 중앙값 시간)",
+  "radar.etf.liveTitle": "ETF 자금 흐름 (CoinGlass, 게이트웨이 경유)",
+  "radar.etf.liveBtc": "비트코인 현물 ETF, 일별 순유입",
+  "radar.etf.liveEth": "이더 현물 ETF, 일별 순유입",
+  "radar.etf.liveNote": "펀드 티커별. 하루 수치가 없는 펀드는 0으로 계산하지 않고 제외합니다. 가장 최근 날짜는 수정될 수 있습니다.",
+  "radar.whale.title": "대규모 이체 (Whale Alert, 게이트웨이 경유)",
+  "radar.whale.row": "{time} · {amount} {symbol} ({usd}) · {from} → {to} · {chain}",
+  "radar.whale.none": "최근 24시간 동안 기준 이상인 이체가 없습니다.",
+  "radar.whale.connecting": "Whale Alert에 연결하는 중…",
+  "radar.th.whaleMinUsd": "대규모 이체 (최소 금액, US$)",
+  "radar.alert.whale": "{amount} {symbol}({usd})이(가) {chain}에서 {from}에서 {to}(으)로 이동했습니다.",
+  "radar.prov.gatewayLost": "게이트웨이가 토큰을 수락하지 않았습니다. 설정 → API에서 다시 연결하세요."
 }

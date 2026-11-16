@@ -3,8 +3,9 @@
  * Context only: nothing here reaches scoring or any order path. The web trusts nothing from the gateway: every field is
  * re-validated with the gateway's own rules, and anything invalid is dropped, never thrown. Errors are fixed codes
  * ("gateway:401", "gateway:409", "gateway:unavailable"): no upstream text, URL or key is ever surfaced.
+ * Lives in lib/ (beside private-api.ts), not in lib/radar/: it sends the gateway session token, and R20 keeps every lib/radar module free of auth handling.
  */
-import { isLoopbackGateway, normalizeGatewayUrl, type ProviderLink } from "../private-api";
+import { isLoopbackGateway, normalizeGatewayUrl, type ProviderLink } from "./private-api";
 
 export interface EtfFlow { ticker: string; flowUsd: number }
 export interface EtfDay { date: string; totalUsd: number; flows: EtfFlow[] }

@@ -665,5 +665,16 @@
   "radar.liq.ready": "کیسکیڈ جانچ: وسطانی گھنٹہ {median}",
   "radar.alert.liq": "آخری گھنٹے میں {venue} کی لیکویڈیشنز {usd} تک پہنچیں، یعنی وسطانی گھنٹے ({median}) کا {mult}×؛ ان میں {longPct} % لانگ تھیں۔",
   "radar.alerts.thLiq": "حد: وسطانی گھنٹے کا {mult}×",
-  "radar.th.liqMult": "لیکویڈیشن کیسکیڈ (× وسطانی گھنٹہ)"
+  "radar.th.liqMult": "لیکویڈیشن کیسکیڈ (× وسطانی گھنٹہ)",
+  "radar.etf.liveTitle": "ETF بہاؤ (CoinGlass، آپ کے گیٹ وے کے ذریعے)",
+  "radar.etf.liveBtc": "بٹ کوائن اسپاٹ ETF، یومیہ خالص بہاؤ",
+  "radar.etf.liveEth": "ایتھر اسپاٹ ETF، یومیہ خالص بہاؤ",
+  "radar.etf.liveNote": "فنڈ ٹکر کے مطابق۔ جس فنڈ کا کسی دن کا کوئی عدد نہ ہو اسے شامل نہیں کیا جاتا، صفر شمار نہیں کیا جاتا۔ تازہ ترین دن میں ابھی نظرثانی ہو سکتی ہے۔",
+  "radar.whale.title": "بڑی منتقلیاں (Whale Alert، آپ کے گیٹ وے کے ذریعے)",
+  "radar.whale.row": "{time} · {amount} {symbol} ({usd}) · {from} ← {to} · {chain}",
+  "radar.whale.none": "پچھلے 24 گھنٹوں میں حد کے برابر یا اس سے زیادہ کوئی منتقلی نہیں ہوئی۔",
+  "radar.whale.connecting": "Whale Alert سے رابطہ کیا جا رہا ہے…",
+  "radar.th.whaleMinUsd": "بڑی منتقلی (کم از کم، US$)",
+  "radar.alert.whale": "{amount} {symbol} ({usd}) {chain} پر {from} سے {to} کو منتقل ہوئے۔",
+  "radar.prov.gatewayLost": "گیٹ وے نے ٹوکن قبول نہیں کیا۔ ترتیبات ← API میں دوبارہ جڑیں۔"
 }

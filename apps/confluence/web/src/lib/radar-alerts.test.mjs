@@ -1,7 +1,7 @@
 // Radar alerts and their feeds — v2.8 Step 4a (WP25, Task 4).
 // Run: npm run test:radar-alerts   (node scripts/run-engine-tests.mjs radar-alerts.test.mjs)
 import {
-  DEFAULT_THRESHOLDS, sanitizeThresholds, breakAway, volumeSpike, depegAlerts, supplyJump, setAlertsClockForTests, ALERT_CODE,
+  DEFAULT_THRESHOLDS, sanitizeThresholds, breakAway, volumeSpike, depegAlerts, supplyJump, whaleAlert, setAlertsClockForTests, ALERT_CODE,
 } from "./radar/alerts.ts";
 import {
   fetchBreakAwayCloses, fetchDailyVolumes, fetchDailyVolumesDetailed, setFeedClockForTests, resetFeedBackoffForTests, BREAKAWAY_BARS, DAILY_BACKOFF_MS,
@@ -444,6 +444,23 @@ console.log("fix round 1: feeds");
 
 console.log("shared pieces");
 ok("standingPremiumMedian is the Task 2 function (20-day minimum)", standingPremiumMedian(Array(19).fill(1)) === null && standingPremiumMedian(Array(20).fill(1)) === 1);
+
+console.log("whale transfers (v2.8 4b Task 8)");
+{
+  const W = (o) => ({ t: NOW - 10 * 60_000, chain: "ethereum", kind: "transfer", from: "Binance", to: "unknown wallet", symbol: "USDT", amount: 20_000_000, valueUsd: 20_000_000, hash: "ab12", ...o });
+  const th = { ...DEFAULT_THRESHOLDS };
+  const a = whaleAlert([W({ valueUsd: 12e6, hash: "a" }), W({ valueUsd: 31e6, amount: 500, symbol: "BTC", chain: "bitcoin", hash: "b" }), W({ valueUsd: 15e6, hash: "c" })], th, NOW);
+  ok("whale alert picks the largest in the last hour above the threshold", a !== null && a.code === "WHALE_TRANSFER" && a.kind === "whale" && a.trigger.key === "radar.alert.whale"
+    && a.trigger.vars.usd === 31e6 && a.trigger.vars.symbol === "BTC" && a.trigger.vars.amount === 500 && a.trigger.vars.chain === "bitcoin" && a.trigger.vars.from === "Binance" && a.trigger.vars.to === "unknown wallet");
+  ok("whale alert: source is the Whale Alert site, since = the transfer time, code is valid", a.sourceUrl === "https://whale-alert.io" && a.since === NOW - 10 * 60_000 && ALERT_CODE.test(a.code));
+  ok("whale alert ignores transfers older than 1 h", whaleAlert([W({ t: NOW - H - 1, valueUsd: 99e6 })], th, NOW) === null);
+  ok("whale alert keeps a transfer exactly 1 h old", whaleAlert([W({ t: NOW - H, valueUsd: 99e6 })], th, NOW) !== null);
+  ok("whale alert ignores transfers below the threshold (at the threshold counts)", whaleAlert([W({ valueUsd: 9_999_999 })], th, NOW) === null && whaleAlert([W({ valueUsd: 10_000_000 })], th, NOW) !== null);
+  ok("whale alert: an older big transfer does not hide a recent smaller one", whaleAlert([W({ t: NOW - 2 * H, valueUsd: 90e6 }), W({ valueUsd: 11e6, hash: "n" })], th, NOW).trigger.vars.usd === 11e6);
+  ok("whale alert follows the threshold", whaleAlert([W({ valueUsd: 20e6 })], { ...th, whaleMinUsd: 50e6 }, NOW) === null && whaleAlert([W({ valueUsd: 20e6 })], { ...th, whaleMinUsd: 5e6 }, NOW) !== null);
+  ok("whale alert: empty, junk and non-array input give null, never throw", whaleAlert([], th, NOW) === null && whaleAlert(null, th, NOW) === null && whaleAlert([null, 5, { valueUsd: "x", t: NOW }], th, NOW) === null);
+  ok("whale alert: a transfer from the future (clock skew over 5 min) is ignored", whaleAlert([W({ t: NOW + 10 * 60_000, valueUsd: 99e6 })], th, NOW) === null);
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -665,5 +665,16 @@
   "radar.liq.ready": "Проверка каскада: медианный час {median}",
   "radar.alert.liq": "Ликвидации на {venue} за последний час достигли {usd}, это в {mult}× больше медианного часа ({median}); {longPct} % составили лонги.",
   "radar.alerts.thLiq": "Порог: {mult}× медианного часа",
-  "radar.th.liqMult": "Каскад ликвидаций (× медианный час)"
+  "radar.th.liqMult": "Каскад ликвидаций (× медианный час)",
+  "radar.etf.liveTitle": "Потоки ETF (CoinGlass, через ваш шлюз)",
+  "radar.etf.liveBtc": "Спотовые ETF на биткоин, чистый поток за день",
+  "radar.etf.liveEth": "Спотовые ETF на эфир, чистый поток за день",
+  "radar.etf.liveNote": "По тикеру фонда. Фонд без значения за день пропускается и не считается нулём. Данные за последний день могут быть пересмотрены.",
+  "radar.whale.title": "Крупные переводы (Whale Alert, через ваш шлюз)",
+  "radar.whale.row": "{time} · {amount} {symbol} ({usd}) · {from} → {to} · {chain}",
+  "radar.whale.none": "За последние 24 часа не было переводов на уровне порога или выше.",
+  "radar.whale.connecting": "Подключение к Whale Alert…",
+  "radar.th.whaleMinUsd": "Крупный перевод (минимум, US$)",
+  "radar.alert.whale": "{amount} {symbol} ({usd}) переведены с {from} на {to} в сети {chain}.",
+  "radar.prov.gatewayLost": "Шлюз не принял токен. Подключитесь заново: Настройки → API."
 }

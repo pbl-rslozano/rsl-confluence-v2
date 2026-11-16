@@ -665,5 +665,16 @@
   "radar.liq.ready": "Pemeriksaan kaskade: jam median {median}",
   "radar.alert.liq": "Likuidasi {venue} mencapai {usd} dalam satu jam terakhir, {mult}× jam median ({median}); {longPct} % adalah posisi long.",
   "radar.alerts.thLiq": "Ambang: {mult}× jam median",
-  "radar.th.liqMult": "Kaskade likuidasi (× jam median)"
+  "radar.th.liqMult": "Kaskade likuidasi (× jam median)",
+  "radar.etf.liveTitle": "Arus ETF (CoinGlass, melalui gateway Anda)",
+  "radar.etf.liveBtc": "ETF spot Bitcoin, arus bersih per hari",
+  "radar.etf.liveEth": "ETF spot Ether, arus bersih per hari",
+  "radar.etf.liveNote": "Per ticker dana. Dana tanpa angka pada suatu hari dikecualikan, bukan dihitung nol. Hari terbaru masih bisa direvisi.",
+  "radar.whale.title": "Transfer besar (Whale Alert, melalui gateway Anda)",
+  "radar.whale.row": "{time} · {amount} {symbol} ({usd}) · {from} → {to} · {chain}",
+  "radar.whale.none": "Tidak ada transfer pada atau di atas ambang batas dalam 24 jam terakhir.",
+  "radar.whale.connecting": "Menghubungkan ke Whale Alert…",
+  "radar.th.whaleMinUsd": "Transfer besar (minimum US$)",
+  "radar.alert.whale": "{amount} {symbol} ({usd}) dipindahkan dari {from} ke {to} di {chain}.",
+  "radar.prov.gatewayLost": "Gateway tidak menerima token. Hubungkan kembali di Pengaturan → API."
 }

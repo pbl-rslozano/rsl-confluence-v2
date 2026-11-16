@@ -665,5 +665,16 @@
   "radar.liq.ready": "Semakan lata: jam median {median}",
   "radar.alert.liq": "Pelikuidan {venue} mencecah {usd} dalam sejam terakhir, {mult}× jam median ({median}); {longPct} % ialah posisi long.",
   "radar.alerts.thLiq": "Ambang: {mult}× jam median",
-  "radar.th.liqMult": "Lata pelikuidan (× jam median)"
+  "radar.th.liqMult": "Lata pelikuidan (× jam median)",
+  "radar.etf.liveTitle": "Aliran ETF (CoinGlass, melalui get laluan anda)",
+  "radar.etf.liveBtc": "ETF spot Bitcoin, aliran bersih sehari",
+  "radar.etf.liveEth": "ETF spot Ether, aliran bersih sehari",
+  "radar.etf.liveNote": "Mengikut tiker dana. Dana tanpa angka bagi sesuatu hari ditinggalkan, bukan dikira sifar. Hari terkini mungkin masih disemak semula.",
+  "radar.whale.title": "Pemindahan besar (Whale Alert, melalui get laluan anda)",
+  "radar.whale.row": "{time} · {amount} {symbol} ({usd}) · {from} → {to} · {chain}",
+  "radar.whale.none": "Tiada pemindahan pada atau melebihi ambang dalam 24 jam lepas.",
+  "radar.whale.connecting": "Menyambung ke Whale Alert…",
+  "radar.th.whaleMinUsd": "Pemindahan besar (minimum US$)",
+  "radar.alert.whale": "{amount} {symbol} ({usd}) dipindahkan dari {from} ke {to} di {chain}.",
+  "radar.prov.gatewayLost": "Get laluan tidak menerima token. Sambung semula di Tetapan → API."
 }

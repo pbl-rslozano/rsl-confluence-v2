@@ -665,5 +665,16 @@
   "radar.liq.ready": "Kaskadenprüfung: Median-Stunde {median}",
   "radar.alert.liq": "Die Liquidationen auf {venue} erreichten in der letzten Stunde {usd}, das {mult}-Fache der Median-Stunde ({median}); {longPct} % waren Longs.",
   "radar.alerts.thLiq": "Schwelle: {mult}× die Median-Stunde",
-  "radar.th.liqMult": "Liquidationskaskade (× Median-Stunde)"
+  "radar.th.liqMult": "Liquidationskaskade (× Median-Stunde)",
+  "radar.etf.liveTitle": "ETF-Flüsse (CoinGlass, über Ihr Gateway)",
+  "radar.etf.liveBtc": "Bitcoin-Spot-ETFs, Nettofluss pro Tag",
+  "radar.etf.liveEth": "Ether-Spot-ETFs, Nettofluss pro Tag",
+  "radar.etf.liveNote": "Je Fonds-Ticker. Ein Fonds ohne Wert für einen Tag wird weggelassen, nicht als null gezählt. Der neueste Tag kann noch korrigiert werden.",
+  "radar.whale.title": "Große Transfers (Whale Alert, über Ihr Gateway)",
+  "radar.whale.row": "{time} · {amount} {symbol} ({usd}) · {from} → {to} · {chain}",
+  "radar.whale.none": "Kein Transfer in Höhe der Schwelle oder darüber in den letzten 24 Stunden.",
+  "radar.whale.connecting": "Verbindung zu Whale Alert wird hergestellt…",
+  "radar.th.whaleMinUsd": "Großer Transfer (Minimum in US$)",
+  "radar.alert.whale": "{amount} {symbol} ({usd}) wurden von {from} nach {to} auf {chain} übertragen.",
+  "radar.prov.gatewayLost": "Das Gateway hat das Token nicht akzeptiert. Neu verbinden unter Einstellungen → API."
 }

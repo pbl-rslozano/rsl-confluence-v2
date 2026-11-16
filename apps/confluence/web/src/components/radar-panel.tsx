@@ -31,6 +31,7 @@ import { loadEtfRows, saveEtfRows, type RadarPort } from "@/lib/radar/store";
 import type { CotReport, CotGroup } from "@/lib/radar/cftc";
 import type { FuturesPositioning } from "@/lib/radar/binance-futures";
 import type { ProviderLink } from "@/lib/private-api";
+import type { WhaleAlert } from "@/lib/provider-data-client";
 import { THRESHOLD_FIELDS, radarUiSnapshot, setRadarOpen, setRadarSectionCollapsed, setRadarThresholds, useRadarUi, type RadarSection } from "@/lib/radar/radar-ui";
 
 type T = (key: string, vars?: Record<string, string | number>) => string;
@@ -48,7 +49,7 @@ export interface RadarHostProps {
   depegAt?: number;
   /** Record radar context setting (Task 7). False until it exists. */
   recordRadar?: boolean;
-  /** Gateway session and connected data-provider profiles (memory only). Unused until Task 8. */
+  /** Gateway session and connected data-provider profiles (memory only). Live ETF flows and large transfers need a matching profile. */
   providerLink?: ProviderLink | null;
 }
 
@@ -69,7 +70,7 @@ function useHeaderBottom(active: boolean): number {
   return useSyncExternalStore(subscribe, get, () => 0);
 }
 
-export function RadarHost({ port, depeg, depegSource, depegAt, recordRadar = false }: RadarHostProps) {
+export function RadarHost({ port, depeg, depegSource, depegAt, recordRadar = false, providerLink = null }: RadarHostProps) {
   const rsl = useRsl();
   const { t } = rsl;
   const ui = useRadarUi();
@@ -81,8 +82,8 @@ export function RadarHost({ port, depeg, depegSource, depegAt, recordRadar = fal
   const userOpened = useRef(false);
 
   /* ---- runner: created once; its getters read the latest props through refs ---- */
-  const live = useRef({ open: ui.open, record: recordRadar, thresholds: ui.thresholds, depeg: depeg ?? [], source: depegSource, depegAt });
-  useEffect(() => { live.current = { open: ui.open, record: recordRadar, thresholds: ui.thresholds, depeg: depeg ?? [], source: depegSource, depegAt }; });
+  const live = useRef({ open: ui.open, record: recordRadar, thresholds: ui.thresholds, depeg: depeg ?? [], source: depegSource, depegAt, link: providerLink });
+  useEffect(() => { live.current = { open: ui.open, record: recordRadar, thresholds: ui.thresholds, depeg: depeg ?? [], source: depegSource, depegAt, link: providerLink }; });
   const runnerRef = useRef<RadarRunner | null>(null);
   const feedRef = useRef<LiquidationFeed | null>(null);
   const [snap, setSnap] = useState<RadarSnapshot | null>(null);
@@ -105,6 +106,7 @@ export function RadarHost({ port, depeg, depegSource, depegAt, recordRadar = fal
       depegAt: () => live.current.depegAt,
       allowed: () => radarAllowed({ panelOpen: live.current.open, recordRadar: live.current.record }),
       liquidations: feed,
+      providers: () => live.current.link,
     });
     runnerRef.current = runner;
     setSnap(runner.latest());
@@ -118,6 +120,15 @@ export function RadarHost({ port, depeg, depegSource, depegAt, recordRadar = fal
     if (!runner) return;
     if (allowed) runner.start(); else runner.stop();
   }, [allowed, port]);
+
+  // A new gateway session or a changed set of provider profiles is picked up at once while the radar runs (otherwise at the next 5-minute tick).
+  const linkKey = providerLink ? `${providerLink.session.url}|${providerLink.session.token}|${providerLink.providers.map((p) => `${p.provider}:${p.id}`).sort().join(",")}` : "";
+  const linkSeen = useRef(linkKey);
+  useEffect(() => {
+    if (linkSeen.current === linkKey) return;
+    linkSeen.current = linkKey;
+    if (live.current.open || live.current.record) runnerRef.current?.refresh().catch(() => undefined);
+  }, [linkKey]);
 
   // A changed threshold re-runs the alert rules over the last fetched inputs: no request, no log row.
   const thKey = JSON.stringify(ui.thresholds);
@@ -207,7 +218,7 @@ export function RadarHost({ port, depeg, depegSource, depegAt, recordRadar = fal
             if (desktop) e.preventDefault();
           }}
         >
-          <RadarBody snap={snap} liq={liq} failed={failed} ui={ui} port={port} t={t} formatNumber={rsl.i18n.formatNumber} formatDate={rsl.i18n.formatDate} />
+          <RadarBody snap={snap} liq={liq} failed={failed} ui={ui} port={port} link={providerLink} rtl={rtl} t={t} formatNumber={rsl.i18n.formatNumber} formatDate={rsl.i18n.formatDate} />
         </SheetContent>
       </Sheet>
     </>
@@ -222,6 +233,9 @@ interface BodyProps {
   failed: boolean;
   ui: { collapsed: string[]; thresholds: RadarThresholds };
   port: RadarPort;
+  /** The gateway link: which provider rows are live (a CoinGlass / Whale Alert profile) and which show the "available with a key" row. */
+  link: ProviderLink | null;
+  rtl: boolean;
   t: T;
   formatNumber: (n: number, opt?: Intl.NumberFormatOptions) => string;
   formatDate: (d: Date | number, opt?: Intl.DateTimeFormatOptions) => string;
@@ -232,7 +246,7 @@ const isNum = (n: unknown): n is number => typeof n === "number" && Number.isFin
 /** A usable time: a finite number above 0 (an asOf of 0 means "no time", never shown). */
 const usable = (ms: unknown): ms is number => isNum(ms) && ms > 0;
 
-function RadarBody({ snap, liq, failed, ui, port, t, formatNumber, formatDate }: BodyProps) {
+function RadarBody({ snap, liq, failed, ui, port, link, rtl, t, formatNumber, formatDate }: BodyProps) {
   const num = (n: number, dp: number, signed = false) =>
     formatNumber(n, { minimumFractionDigits: dp, maximumFractionDigits: dp, signDisplay: signed ? "exceptZero" : "auto" });
   const pct = (n: number | null | undefined, dp = 2, signed = true) => (isNum(n) ? `${num(n, dp, signed)} %` : "—");
@@ -248,6 +262,7 @@ function RadarBody({ snap, liq, failed, ui, port, t, formatNumber, formatDate }:
   const usd = (n: number, signed = false) =>
     formatNumber(n, { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 2, signDisplay: signed ? "exceptZero" : "auto" });
   const whole = (n: number) => formatNumber(Math.round(n), { maximumFractionDigits: 0 });
+  const compact = (n: number) => formatNumber(n, { notation: "compact", maximumFractionDigits: 2 });
   const mult = (n: number) => formatNumber(n, { maximumFractionDigits: 1 });
   // A signed whole number: the sign comes from the locale formatter (it carries its own direction mark), never a hand-built "+": right in RTL.
   const sign = (n: number) => formatNumber(Math.round(n), { maximumFractionDigits: 0, signDisplay: "exceptZero" });
@@ -342,7 +357,7 @@ function RadarBody({ snap, liq, failed, ui, port, t, formatNumber, formatDate }:
           </a>
         </p>
         <EtfBlock port={port} t={t} usd={usd} day={day} />
-        <GatewayRow label={t("radar.etf.live")} testId="radar-etf-live" t={t} />
+        <LiveEtf snap={snap} has={!!link?.providers.some((p) => p.provider === "coinglass")} t={t} usd={usd} day={day} clock={clock} />
       </Sec>
 
       {/* ---------- Alerts ---------- */}
@@ -351,11 +366,11 @@ function RadarBody({ snap, liq, failed, ui, port, t, formatNumber, formatDate }:
         <p className="text-zinc-400">{t("radar.alerts.note")}</p>
         {snap && snap.alerts.length === 0 && <p data-testid="radar-alerts-none">{t("radar.alerts.none")}</p>}
         <ul className="space-y-1.5" data-testid="radar-alerts">
-          {(snap?.alerts ?? []).map((a) => <AlertItem key={a.code} a={a} th={ui.thresholds} t={t} num={num} pct={pct} usd={usd} whole={whole} mult={mult} clock={clock} staleAt={a.kind === "breakaway" ? stale.breakaway : undefined} />)}
+          {(snap?.alerts ?? []).map((a) => <AlertItem key={a.code} a={a} th={ui.thresholds} t={t} num={num} pct={pct} usd={usd} whole={whole} mult={mult} compact={compact} clock={clock} staleAt={a.kind === "breakaway" ? stale.breakaway : undefined} />)}
         </ul>
         <LeftOut snap={snap} t={t} />
         <Thresholds value={ui.thresholds} t={t} />
-        <GatewayRow label={t("radar.whale")} testId="radar-whale" t={t} />
+        <WhaleBlock snap={snap} has={!!link?.providers.some((p) => p.provider === "whale-alert")} minUsd={ui.thresholds.whaleMinUsd} rtl={rtl} t={t} usd={usd} compact={compact} clock={clock} />
         <p>
           <a className="text-cyan-300 underline-offset-2 hover:underline" data-testid="radar-hacks-link" href="https://defillama.com/hacks" target="_blank" rel="noopener noreferrer">
             {t("radar.hacks")}
@@ -567,9 +582,106 @@ function EtfBlock({ port, t, usd, day }: { port: RadarPort; t: T; usd: (n: numbe
   );
 }
 
-function AlertItem({ a, th, t, num, pct, usd, whole, mult, clock, staleAt }: {
+/** One provider row's "the gateway did not accept the token" line (gateway 401). */
+function GatewayLost({ testId, t }: { testId: string; t: T }) {
+  return <p role="status" data-testid={testId} className="rounded border border-amber-500/40 px-2 py-1.5 text-amber-300">{t("radar.prov.gatewayLost")}</p>;
+}
+
+const ETF_DAYS_SHOWN = 10;
+
+/** Live US spot ETF flows from the gateway's CoinGlass profile: newest day first, the last 10, each day expandable to its fund tickers. */
+function LiveEtf({ snap, has, t, usd, day, clock }: { snap: RadarSnapshot | null; has: boolean; t: T; usd: (n: number, signed?: boolean) => string; day: (iso: string) => string; clock: (ms: number) => string }) {
+  const gone = snap?.unavailable ?? [];
+  if (!has || gone.includes("provider:etf")) return <GatewayRow label={t("radar.etf.live")} testId="radar-etf-live" t={t} />;
+  if (gone.includes("gateway")) return <GatewayLost testId="radar-etf-live-lost" t={t} />;
+  const live = snap?.etfLive ?? null;
+  const staleAt = snap?.stale.etfLive;
+  const assets = [["btc", "radar.etf.liveBtc"], ["eth", "radar.etf.liveEth"]] as const;
+  return (
+    <div data-testid="radar-etf-live" data-live="true" className="rounded border border-zinc-800 px-2 py-1.5">
+      <p className="font-semibold text-zinc-100">{t("radar.etf.liveTitle")}</p>
+      {live ? (
+        <>
+          {assets.map(([id, label]) => (
+            <div key={id} data-testid={`radar-etf-live-${id}`} className="mt-1.5">
+              <p className="text-zinc-400">{t(label)}</p>
+              {live[id].length === 0 ? <p className="text-amber-300">{t("radar.unavailable")}</p> : (
+                <ul className="mt-0.5 space-y-0.5">
+                  {live[id].slice(-ETF_DAYS_SHOWN).reverse().map((d) => (
+                    <li key={d.date}>
+                      <details data-testid="radar-etf-live-day" data-asset={id} data-date={d.date}>
+                        <summary className="flex cursor-pointer select-none items-baseline justify-between gap-2 text-[11px]">
+                          <span className="text-zinc-400">{day(d.date)}</span>
+                          <span className={`font-mono ${d.totalUsd < 0 ? "text-rose-300" : "text-emerald-300"}`} dir="ltr" data-testid="radar-etf-live-total">{usd(d.totalUsd, true)}</span>
+                        </summary>
+                        <ul className="mt-0.5 space-y-0.5 ps-3 text-[11px]">
+                          {d.flows.map((f) => (
+                            <li key={f.ticker} className="flex items-baseline justify-between gap-2">
+                              <span className="font-mono text-zinc-300" dir="ltr">{f.ticker}</span>
+                              <span className={`font-mono ${f.flowUsd < 0 ? "text-rose-300" : "text-emerald-300"}`} dir="ltr">{usd(f.flowUsd, true)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+          <p className="mt-1.5 text-[11px] text-zinc-400" data-testid="radar-etf-live-note">{t("radar.etf.liveNote")}</p>
+          {isNum(staleAt) && <p className="text-[11px] text-amber-300" data-testid="radar-etf-live-stale">{usable(staleAt) ? t("radar.unavailableLast", { time: clock(staleAt) }) : t("radar.unavailable")}</p>}
+        </>
+      ) : snap ? <p className="mt-1 text-amber-300" data-testid="radar-etf-live-off">{t("radar.unavailable")}</p> : <p className="mt-1 text-zinc-400">{t("radar.loading")}</p>}
+    </div>
+  );
+}
+
+/** Provider text inside a translated sentence: isolated, so its own direction never reorders the sentence or flips the arrow (also in RTL). */
+const iso = (s: string) => `\u2068${s}\u2069`;
+
+const WHALE_SHOWN = 10;
+const WHALE_WINDOW_MS = 86_400_000;
+
+/** Large transfers from the gateway's Whale Alert profile: the newest 10 at or above the threshold from the last 24 hours. Provider text is rendered as text only. */
+function WhaleBlock({ snap, has, minUsd, rtl, t, usd, compact, clock }: {
+  snap: RadarSnapshot | null; has: boolean; minUsd: number; rtl: boolean; t: T; usd: (n: number, signed?: boolean) => string; compact: (n: number) => string; clock: (ms: number) => string;
+}) {
+  const gone = snap?.unavailable ?? [];
+  if (!has || gone.includes("provider:whale")) return <GatewayRow label={t("radar.whale")} testId="radar-whale" t={t} />;
+  if (gone.includes("gateway")) return <GatewayLost testId="radar-whale-lost" t={t} />;
+  const w = snap?.whale ?? null;
+  const staleAt = snap?.stale.whale;
+  const rows: WhaleAlert[] = w && snap
+    ? w.alerts.filter((a) => a.valueUsd >= minUsd && a.t >= snap.t - WHALE_WINDOW_MS).sort((x, y) => y.t - x.t).slice(0, WHALE_SHOWN)
+    : [];
+  return (
+    <div data-testid="radar-whale" data-live="true" className="rounded border border-zinc-800 px-2 py-1.5">
+      <p className="font-semibold text-zinc-100">{t("radar.whale.title")}</p>
+      {w ? (
+        <>
+          {!w.connected && <p className="mt-1 text-zinc-400" data-testid="radar-whale-connecting">{t("radar.whale.connecting")}</p>}
+          {rows.length === 0 ? (
+            w.connected && <p className="mt-1 text-zinc-400" data-testid="radar-whale-none">{t("radar.whale.none")}</p>
+          ) : (
+            <ul className="mt-1 space-y-1" data-testid="radar-whale-list">
+              {rows.map((a, i) => (
+                <li key={`${a.hash}-${a.t}-${i}`} data-testid="radar-whale-row" className="text-[11px]" dir={rtl ? "rtl" : "ltr"}>
+                  {t("radar.whale.row", { time: clock(a.t), amount: compact(a.amount), symbol: iso(a.symbol), usd: usd(a.valueUsd), from: iso(a.from), to: iso(a.to), chain: iso(a.chain) })}
+                </li>
+              ))}
+            </ul>
+          )}
+          {isNum(staleAt) && <p className="mt-1 text-[11px] text-amber-300" data-testid="radar-whale-stale">{usable(staleAt) ? t("radar.unavailableLast", { time: clock(staleAt) }) : t("radar.unavailable")}</p>}
+        </>
+      ) : snap ? <p className="mt-1 text-amber-300" data-testid="radar-whale-off">{t("radar.unavailable")}</p> : <p className="mt-1 text-zinc-400">{t("radar.loading")}</p>}
+    </div>
+  );
+}
+
+function AlertItem({ a, th, t, num, pct, usd, whole, mult, compact, clock, staleAt }: {
   a: RadarAlert; staleAt?: number; th: RadarThresholds; t: T; num: (n: number, dp: number, signed?: boolean) => string; pct: (n: number | null | undefined, dp?: number, signed?: boolean) => string;
-  usd: (n: number, signed?: boolean) => string; whole: (n: number) => string; mult: (n: number) => string; clock: (ms: number) => string;
+  usd: (n: number, signed?: boolean) => string; whole: (n: number) => string; mult: (n: number) => string; compact: (n: number) => string; clock: (ms: number) => string;
 }) {
   const v = a.trigger.vars;
   const n = (x: unknown) => (isNum(x) ? x : 0);
@@ -586,8 +698,11 @@ function AlertItem({ a, th, t, num, pct, usd, whole, mult, clock, staleAt }: {
     vars = { pct: pct(Math.abs(n(v.pct)), 2, false), usd: usd(Math.abs(n(v.usd))), pctl: n(v.pctl) };
   } else if (key === "radar.alert.liq") {
     vars = { venue: String(v.venue ?? ""), usd: usd(n(v.usd)), mult: mult(n(v.mult)), median: usd(n(v.median)), longPct: whole(n(v.longPct)) };
+  } else if (key === "radar.alert.whale") {
+    // Provider text (symbol, from, to, chain) is only ever rendered as text.
+    vars = { amount: compact(n(v.amount)), symbol: iso(String(v.symbol ?? "")), usd: usd(n(v.usd)), from: iso(String(v.from ?? "")), to: iso(String(v.to ?? "")), chain: iso(String(v.chain ?? "")) };
   }
-  const known = ["radar.alert.breakaway", "radar.alert.volume", "radar.alert.depeg", "radar.alert.supplyUp", "radar.alert.supplyDown", "radar.alert.liq"].includes(key);
+  const known = ["radar.alert.breakaway", "radar.alert.volume", "radar.alert.depeg", "radar.alert.supplyUp", "radar.alert.supplyDown", "radar.alert.liq", "radar.alert.whale"].includes(key);
   return (
     <li data-testid="radar-alert" data-code={a.code} data-stale={staleAt !== undefined ? "true" : undefined} className="rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1.5">
       <p dir="auto">{known ? t(key, vars) : a.code}</p>
@@ -622,7 +737,7 @@ function LeftOut({ snap, t }: { snap: RadarSnapshot | null; t: T }) {
   return <ul data-testid="radar-leftout" className="list-disc space-y-0.5 ps-4 text-[11px] text-zinc-400">{lines.map((l) => <li key={l}>{l}</li>)}</ul>;
 }
 
-function ThresholdField({ id, label, value, t }: { id: keyof RadarThresholds; label: string; value: number; t: T }) {
+function ThresholdField({ id, label, value, t, wide = false }: { id: keyof RadarThresholds; label: string; value: number; t: T; wide?: boolean }) {
   const f = THRESHOLD_FIELDS[id];
   // `draft` is what the user is typing (null = not editing: show the stored value). A valid value is stored at once; an
   // invalid one stays in the field, marked, and the stored value is kept.
@@ -638,7 +753,7 @@ function ThresholdField({ id, label, value, t }: { id: keyof RadarThresholds; la
         <input
           type="number" min={f.min} max={f.max} step={f.step} dir="ltr" data-testid={`radar-th-${id}`} value={shown}
           aria-invalid={invalid} aria-describedby={invalid ? msgId : undefined}
-          className={`w-20 rounded border bg-zinc-950 px-1.5 py-0.5 text-end font-mono text-zinc-100 ${invalid ? "border-rose-500" : "border-zinc-700"}`}
+          className={`${wide ? "w-32" : "w-20"} rounded border bg-zinc-950 px-1.5 py-0.5 text-end font-mono text-zinc-100 ${invalid ? "border-rose-500" : "border-zinc-700"}`}
           onChange={(e) => {
             const text = e.target.value;
             setDraft(text);
@@ -668,6 +783,7 @@ function Thresholds({ value, t }: { value: RadarThresholds; t: T }) {
         <ThresholdField id="volumeZ" label={t("radar.th.volumeZ")} value={value.volumeZ} t={t} />
         <ThresholdField id="supplyPctl" label={t("radar.th.supplyPctl")} value={value.supplyPctl} t={t} />
         <ThresholdField id="liqMult" label={t("radar.th.liqMult")} value={value.liqMult} t={t} />
+        <ThresholdField id="whaleMinUsd" label={t("radar.th.whaleMinUsd")} value={value.whaleMinUsd} t={t} wide />
       </div>
       <button type="button" data-testid="radar-th-reset" className="mt-2 rounded border border-zinc-700 px-2 py-1 text-[11px] text-cyan-300 hover:bg-zinc-800"
         onClick={() => setRadarThresholds(DEFAULT_THRESHOLDS)}>{t("radar.th.reset")}</button>

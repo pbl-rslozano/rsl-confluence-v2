@@ -665,5 +665,16 @@
   "radar.liq.ready": "Cascade check: median hour {median}",
   "radar.alert.liq": "{venue} liquidations reached {usd} in the last hour, {mult}× the median hour ({median}); {longPct} % were longs.",
   "radar.alerts.thLiq": "Threshold: {mult}× the median hour",
-  "radar.th.liqMult": "Liquidation cascade (× median hour)"
+  "radar.th.liqMult": "Liquidation cascade (× median hour)",
+  "radar.etf.liveTitle": "ETF flows (CoinGlass, via your gateway)",
+  "radar.etf.liveBtc": "Bitcoin spot ETFs, net flow per day",
+  "radar.etf.liveEth": "Ether spot ETFs, net flow per day",
+  "radar.etf.liveNote": "Per fund ticker. A fund with no figure for a day is left out, not counted as zero. The latest day may still be revised.",
+  "radar.whale.title": "Large transfers (Whale Alert, via your gateway)",
+  "radar.whale.row": "{time} · {amount} {symbol} ({usd}) · {from} → {to} · {chain}",
+  "radar.whale.none": "No transfer at or above the threshold in the last 24 hours.",
+  "radar.whale.connecting": "Connecting to Whale Alert…",
+  "radar.th.whaleMinUsd": "Large transfer (US$ minimum)",
+  "radar.alert.whale": "{amount} {symbol} ({usd}) moved from {from} to {to} on {chain}.",
+  "radar.prov.gatewayLost": "The gateway did not accept the token. Reconnect in Settings → API."
 }

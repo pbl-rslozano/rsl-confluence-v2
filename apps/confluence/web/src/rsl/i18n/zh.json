@@ -665,5 +665,16 @@
   "radar.liq.ready": "连锁清算检查：中位小时 {median}",
   "radar.alert.liq": "{venue} 最近一小时清算达 {usd}，为中位小时（{median}）的 {mult} 倍；其中 {longPct} % 为多头。",
   "radar.alerts.thLiq": "阈值：中位小时的 {mult} 倍",
-  "radar.th.liqMult": "清算连锁（× 中位小时）"
+  "radar.th.liqMult": "清算连锁（× 中位小时）",
+  "radar.etf.liveTitle": "ETF 资金流（CoinGlass，经由您的网关）",
+  "radar.etf.liveBtc": "比特币现货 ETF，每日净流量",
+  "radar.etf.liveEth": "以太币现货 ETF，每日净流量",
+  "radar.etf.liveNote": "按基金代码列出。某日没有数据的基金会被剔除，而不是按零计算。最新一天的数据仍可能被修订。",
+  "radar.whale.title": "大额转账（Whale Alert，经由您的网关）",
+  "radar.whale.row": "{time} · {amount} {symbol} ({usd}) · {from} → {to} · {chain}",
+  "radar.whale.none": "过去 24 小时内没有达到或超过阈值的转账。",
+  "radar.whale.connecting": "正在连接 Whale Alert…",
+  "radar.th.whaleMinUsd": "大额转账（最低金额，US$）",
+  "radar.alert.whale": "{amount} {symbol}（{usd}）已在 {chain} 上从 {from} 转至 {to}。",
+  "radar.prov.gatewayLost": "网关未接受该令牌。请在 设置 → API 中重新连接。"
 }

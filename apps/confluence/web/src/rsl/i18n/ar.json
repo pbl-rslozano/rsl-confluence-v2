@@ -209,7 +209,18 @@
     "radar.liq.ready",
     "radar.alert.liq",
     "radar.alerts.thLiq",
-    "radar.th.liqMult"
+    "radar.th.liqMult",
+    "radar.etf.liveTitle",
+    "radar.etf.liveBtc",
+    "radar.etf.liveEth",
+    "radar.etf.liveNote",
+    "radar.whale.title",
+    "radar.whale.row",
+    "radar.whale.none",
+    "radar.whale.connecting",
+    "radar.th.whaleMinUsd",
+    "radar.alert.whale",
+    "radar.prov.gatewayLost"
   ],
   "app.subtitle": "ماسح توافق مؤشرات العملات المشفّرة",
   "ctx.page": "الماسح",
@@ -875,5 +886,16 @@
   "radar.liq.ready": "فحص التتابع: الساعة الوسيطة {median}",
   "radar.alert.liq": "بلغت تصفيات {venue} {usd} في الساعة الأخيرة، أي {mult}× الساعة الوسيطة ({median})؛ وكانت {longPct} % منها مراكز طويلة.",
   "radar.alerts.thLiq": "الحد: {mult}× الساعة الوسيطة",
-  "radar.th.liqMult": "تتابع التصفية (× الساعة الوسيطة)"
+  "radar.th.liqMult": "تتابع التصفية (× الساعة الوسيطة)",
+  "radar.etf.liveTitle": "تدفقات الصناديق المتداولة (CoinGlass، عبر بوابتك)",
+  "radar.etf.liveBtc": "صناديق بيتكوين الفورية المتداولة، صافي التدفق يوميًا",
+  "radar.etf.liveEth": "صناديق إيثر الفورية المتداولة، صافي التدفق يوميًا",
+  "radar.etf.liveNote": "لكل رمز صندوق. الصندوق الذي لا توجد له قيمة ليوم ما يُستبعد ولا يُحتسب صفرًا. وقد يُعدَّل آخر يوم.",
+  "radar.whale.title": "التحويلات الكبيرة (Whale Alert، عبر بوابتك)",
+  "radar.whale.row": "{time} · {amount} {symbol} ({usd}) · {from} ← {to} · {chain}",
+  "radar.whale.none": "لا يوجد تحويل بمستوى الحد أو أعلى منه خلال آخر 24 ساعة.",
+  "radar.whale.connecting": "جارٍ الاتصال بـ Whale Alert…",
+  "radar.th.whaleMinUsd": "تحويل كبير (الحد الأدنى بالدولار الأمريكي)",
+  "radar.alert.whale": "نُقل {amount} {symbol} ({usd}) من {from} إلى {to} على شبكة {chain}.",
+  "radar.prov.gatewayLost": "لم تقبل البوابة الرمز. أعد الاتصال من الإعدادات ← API."
 }

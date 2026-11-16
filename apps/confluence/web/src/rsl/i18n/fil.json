@@ -665,5 +665,16 @@
   "radar.liq.ready": "Cascade check: median na oras {median}",
   "radar.alert.liq": "Umabot sa {usd} ang mga liquidation sa {venue} sa nakaraang oras, {mult}× ng median na oras ({median}); {longPct} % ay mga long.",
   "radar.alerts.thLiq": "Threshold: {mult}× ng median na oras",
-  "radar.th.liqMult": "Liquidation cascade (× median na oras)"
+  "radar.th.liqMult": "Liquidation cascade (× median na oras)",
+  "radar.etf.liveTitle": "Mga daloy ng ETF (CoinGlass, sa pamamagitan ng iyong gateway)",
+  "radar.etf.liveBtc": "Bitcoin spot ETF, netong daloy kada araw",
+  "radar.etf.liveEth": "Ether spot ETF, netong daloy kada araw",
+  "radar.etf.liveNote": "Kada ticker ng pondo. Ang pondong walang numero para sa isang araw ay hindi isinasama, hindi binibilang bilang zero. Maaari pang baguhin ang pinakabagong araw.",
+  "radar.whale.title": "Malalaking paglilipat (Whale Alert, sa pamamagitan ng iyong gateway)",
+  "radar.whale.row": "{time} · {amount} {symbol} ({usd}) · {from} → {to} · {chain}",
+  "radar.whale.none": "Walang paglilipat na katumbas o higit sa limitasyon sa nakalipas na 24 oras.",
+  "radar.whale.connecting": "Kumokonekta sa Whale Alert…",
+  "radar.th.whaleMinUsd": "Malaking paglilipat (minimum sa US$)",
+  "radar.alert.whale": "Inilipat ang {amount} {symbol} ({usd}) mula {from} papunta sa {to} sa {chain}.",
+  "radar.prov.gatewayLost": "Hindi tinanggap ng gateway ang token. Kumonekta muli sa Mga Setting → API."
 }

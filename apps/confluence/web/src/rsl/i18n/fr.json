@@ -665,5 +665,16 @@
   "radar.liq.ready": "Contrôle de cascade : heure médiane {median}",
   "radar.alert.liq": "Les liquidations de {venue} ont atteint {usd} sur la dernière heure, soit {mult}× l'heure médiane ({median}) ; {longPct} % étaient des longs.",
   "radar.alerts.thLiq": "Seuil : {mult}× l'heure médiane",
-  "radar.th.liqMult": "Cascade de liquidations (× heure médiane)"
+  "radar.th.liqMult": "Cascade de liquidations (× heure médiane)",
+  "radar.etf.liveTitle": "Flux des ETF (CoinGlass, via votre passerelle)",
+  "radar.etf.liveBtc": "ETF Bitcoin au comptant, flux net par jour",
+  "radar.etf.liveEth": "ETF Ether au comptant, flux net par jour",
+  "radar.etf.liveNote": "Par ticker de fonds. Un fonds sans chiffre pour un jour est omis, et non compté comme zéro. Le dernier jour peut encore être révisé.",
+  "radar.whale.title": "Gros transferts (Whale Alert, via votre passerelle)",
+  "radar.whale.row": "{time} · {amount} {symbol} ({usd}) · {from} → {to} · {chain}",
+  "radar.whale.none": "Aucun transfert égal ou supérieur au seuil au cours des dernières 24 heures.",
+  "radar.whale.connecting": "Connexion à Whale Alert…",
+  "radar.th.whaleMinUsd": "Gros transfert (minimum en US$)",
+  "radar.alert.whale": "{amount} {symbol} ({usd}) ont été transférés de {from} vers {to} sur {chain}.",
+  "radar.prov.gatewayLost": "La passerelle n'a pas accepté le jeton. Reconnectez-vous dans Paramètres → API."
 }

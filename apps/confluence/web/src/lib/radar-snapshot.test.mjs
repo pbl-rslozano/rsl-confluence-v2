@@ -565,5 +565,160 @@ console.log("v2.8 4b Task 2: liquidation feed wiring");
   ok("L11 without a feed: liquidations null, no liq in unavailable", r.liquidations === null && !r.unavailable.some((u) => u.startsWith("liq:")));
 }
 
+console.log("v2.8 4b Task 8: provider data");
+{
+  const prof = (provider) => ({ id: `p-${provider}`, kind: "provider", provider, label: provider, maskedKey: "abcd…wxyz", connectedAt: "2026-11-16T00:00:00.000Z" });
+  const mkLink = (...provs) => ({ session: { url: "http://127.0.0.1:8787", token: "tok" }, providers: provs.map(prof) });
+  const etfDay = (date, usd) => ({ date, totalUsd: usd, flows: [{ ticker: "IBIT", flowUsd: usd }] });
+  const etf = (asOf) => ({ asOf, btc: [etfDay("2026-11-13", 5e8)], eth: [etfDay("2026-11-13", -1e7)] });
+  const whaleAt = (t, usd) => ({ t, chain: "ethereum", kind: "transfer", from: "Binance", to: "unknown wallet", symbol: "USDT", amount: usd, valueUsd: usd, hash: "ab" });
+  const provFetchers = (clock) => {
+    const c = { etf: 0, whale: [], fail: null, whaleOut: null, etfSignal: null };
+    return { c, over: {
+      async etfLive(link, signal) { c.etf++; c.etfSignal = signal; if (c.fail?.etf) throw new Error(c.fail.etf); return etf(clock.t); },
+      async whale(link, min) { c.whale.push(min); if (c.fail?.whale) throw new Error(c.fail.whale); return c.whaleOut ?? { connected: true, alerts: [whaleAt(clock.t - 5 * MIN, 25e6)] }; },
+    } };
+  };
+  const both = () => mkLink("coinglass", "whale-alert");
+  const mk = (linkRef, dep = {}, th = DEFAULT_THRESHOLDS) => {
+    const clock = { t: T0 };
+    const pf = provFetchers(clock);
+    const fetchers = makeFetchers(clock, pf.over);
+    const timers = fakeTimers();
+    const runner = createRadarRunner({ now: () => clock.t, fetchers, store: memPort(), thresholds: () => th, depeg: () => [], timers, providers: () => linkRef.link, ...dep });
+    return { clock, c: pf.c, runner, timers, fetchers };
+  };
+
+  // 1. etfLive at most every 6 h, whale on every refresh
+  {
+    const ref = { link: both() };
+    const s = mk(ref);
+    const r1 = await s.runner.refresh();
+    ok("P1 first refresh fetches both and publishes them", s.c.etf === 1 && s.c.whale.length === 1 && r1.etfLive?.btc[0].totalUsd === 5e8 && r1.whale?.connected === true && r1.whale.alerts.length === 1);
+    ok("P1 the whale poll carries the sanitized minimum", s.c.whale[0] === DEFAULT_THRESHOLDS.whaleMinUsd);
+    s.clock.t += 10 * MIN;
+    const r2 = await s.runner.refresh();
+    ok("P2 ten minutes later: whale again, etfLive kept in memory (no second fetch)", s.c.etf === 1 && s.c.whale.length === 2 && r2.etfLive !== null && r2.stale.etfLive === undefined);
+    s.clock.t += 5 * H;
+    await s.runner.refresh();
+    ok("P2 5 h 10 min after the first: still no etf fetch", s.c.etf === 1);
+    s.clock.t += 1 * H;
+    await s.runner.refresh();
+    ok("P2 past 6 h: etfLive fetched again", s.c.etf === 2 && s.c.whale.length === 4);
+  }
+  // 2. profile gate
+  {
+    const ref = { link: mkLink("whale-alert") };
+    const s = mk(ref);
+    const r = await s.runner.refresh();
+    ok("P3 only a whale-alert profile: no etf call, etfLive null", s.c.etf === 0 && r.etfLive === null && r.whale !== null && !r.unavailable.includes("etfLive"));
+    const ref2 = { link: mkLink("coinglass") };
+    const s2 = mk(ref2);
+    const r2 = await s2.runner.refresh();
+    ok("P3 only a coinglass profile: no whale call, whale null", s2.c.whale.length === 0 && r2.whale === null && r2.etfLive !== null);
+  }
+  // 3. no link / gate closed: no provider call at all
+  {
+    const ref = { link: null };
+    const s = mk(ref);
+    const r = await s.runner.refresh();
+    ok("P4 without a link there is no provider call and both are null", s.c.etf === 0 && s.c.whale.length === 0 && r.etfLive === null && r.whale === null);
+    const closed = mk({ link: both() }, { allowed: () => false });
+    let rej = false;
+    try { await closed.runner.refresh(); } catch { rej = true; }
+    closed.runner.start();
+    [...closed.timers.handles.values()].forEach((h) => h.fn());
+    await settle();
+    ok("P4 while not allowed: no provider call", rej && closed.c.etf === 0 && closed.c.whale.length === 0);
+    const ref3 = { link: both() };
+    const s3 = mk(ref3);
+    await s3.runner.refresh();
+    ref3.link = null;
+    s3.clock.t += 10 * MIN;
+    const r3 = await s3.runner.refresh();
+    ok("P4 a link that goes away clears the provider data", r3.etfLive === null && r3.whale === null);
+    ref3.link = { ...both(), session: { url: "http://127.0.0.1:8787", token: "other" } };
+    s3.clock.t += 10 * MIN;
+    await s3.runner.refresh();
+    ok("P4 a new link fetches etfLive again at once", s3.c.etf === 2);
+  }
+  // 4. 401 / 409 / unavailable
+  {
+    const ref = { link: both() };
+    const s = mk(ref);
+    await s.runner.refresh();
+    s.c.fail = { etf: "gateway:401", whale: "gateway:401" };
+    s.clock.t += 7 * H;
+    const r = await s.runner.refresh();
+    ok("P5 gateway 401: unavailable gains gateway, provider data dropped, the radar still refreshes", r.unavailable.includes("gateway") && r.etfLive === null && r.whale === null && r.positioning.BTCUSDT !== null && s.runner.lastError() === null);
+    ok("P5 gateway 401 is not shown as a stale value or as plain unavailable", r.stale.etfLive === undefined && r.stale.whale === undefined && !r.unavailable.includes("etfLive") && !r.unavailable.includes("whale"));
+    ok("P5 alerts keep refreshing: no whale alert after a 401", !r.alerts.some((a) => a.kind === "whale"));
+    s.clock.t += 10 * MIN;
+    s.c.fail = null;
+    const r2 = await s.runner.refresh();
+    ok("P5 after the gateway accepts again the whale rows return", !r2.unavailable.includes("gateway") && r2.whale !== null);
+  }
+  {
+    const s = mk({ link: both() });
+    s.c.fail = { etf: "gateway:409", whale: "gateway:409" };
+    const r = await s.runner.refresh();
+    ok("P6 gateway 409: the rows fall back (flagged no-profile), not a failure", r.etfLive === null && r.whale === null && r.unavailable.includes("provider:etf") && r.unavailable.includes("provider:whale") && !r.unavailable.includes("gateway"));
+  }
+  {
+    const s = mk({ link: both() });
+    await s.runner.refresh();
+    s.c.fail = { etf: "gateway:unavailable", whale: "gateway:unavailable" };
+    s.clock.t += 7 * H;
+    const r = await s.runner.refresh();
+    ok("P7 gateway unavailable: last values kept and marked stale", r.etfLive !== null && r.whale !== null && typeof r.stale.etfLive === "number" && typeof r.stale.whale === "number");
+    const n = s.c.etf;
+    s.clock.t += 10 * MIN;
+    await s.runner.refresh();
+    ok("P7 etfLive is retried only after RETRY_MS", s.c.etf === n);
+    s.clock.t += RETRY_MS;
+    s.c.fail = null;
+    const r2 = await s.runner.refresh();
+    ok("P7 after RETRY_MS it is fetched again and no longer stale", s.c.etf === n + 1 && r2.stale.etfLive === undefined && r2.stale.whale === undefined);
+    const s2 = mk({ link: both() });
+    s2.c.fail = { etf: "gateway:unavailable", whale: "gateway:unavailable" };
+    const r3 = await s2.runner.refresh();
+    ok("P7 unavailable with nothing kept: listed as unavailable", r3.unavailable.includes("etfLive") && r3.unavailable.includes("whale") && r3.etfLive === null);
+  }
+  // 5. alert and rethreshold
+  {
+    const th = { ...DEFAULT_THRESHOLDS };
+    const s = mk({ link: both() }, { thresholds: () => th });
+    const r = await s.runner.refresh();
+    ok("P8 a 25M transfer in the last hour becomes WHALE_TRANSFER", r.alerts.some((a) => a.code === "WHALE_TRANSFER" && a.trigger.vars.chain === "ethereum"));
+    th.whaleMinUsd = 50_000_000;
+    s.runner.rethreshold();
+    ok("P8 raising the threshold removes the alert locally with no request", !s.runner.latest().alerts.some((a) => a.kind === "whale") && s.c.whale.length === 1 && s.c.etf === 1);
+    th.whaleMinUsd = 10_000_000;
+    s.runner.rethreshold();
+    ok("P8 and lowering it brings it back from the kept transfers", s.runner.latest().alerts.some((a) => a.kind === "whale"));
+    th.whaleMinUsd = 20_000_000;
+    s.clock.t += 10 * MIN;
+    await s.runner.refresh();
+    ok("P8 the next refresh polls with the new minimum", s.c.whale.at(-1) === 20_000_000);
+    ok("P8 the whale alert reaches the context log codes", toRadarContext(s.runner.latest()).al.includes("WHALE_TRANSFER"));
+  }
+  // 6. the signal reaches the fetcher; bad thresholds never reach the poll
+  {
+    const s = mk({ link: both() }, { thresholds: () => ({ ...DEFAULT_THRESHOLDS, whaleMinUsd: 5 }) });
+    await s.runner.refresh();
+    ok("P9 an out-of-range stored minimum is sanitized before the poll", s.c.whale[0] === DEFAULT_THRESHOLDS.whaleMinUsd && s.c.etfSignal instanceof AbortSignal);
+  }
+  // 7. a runner whose fetchers lack the provider hooks (older callers) just has no provider data
+  {
+    const clock = { t: T0 };
+    const runner = createRadarRunner({ now: () => clock.t, fetchers: makeFetchers(clock), store: memPort(), thresholds: () => DEFAULT_THRESHOLDS, depeg: () => [], timers: fakeTimers(), providers: () => both() });
+    const r = await runner.refresh();
+    ok("P10 no provider hooks: null, no error", r.etfLive === null && r.whale === null && runner.lastError() === null);
+    const s = setup();
+    const r2 = await s.runner.refresh();
+    ok("P10 no providers dep: null and unchanged unavailable", r2.etfLive === null && r2.whale === null && !r2.unavailable.some((u) => u === "gateway" || u.startsWith("provider:")));
+  }
+}
+
 console.log(`\nradar snapshot: ${passed} passed, ${failed} failed`);
 if (failed) process.exitCode = 1;

@@ -665,5 +665,16 @@
   "radar.liq.ready": "कैस्केड जाँच: माध्यिका घंटा {median}",
   "radar.alert.liq": "पिछले घंटे में {venue} के लिक्विडेशन {usd} तक पहुँचे, यानी माध्यिका घंटे ({median}) का {mult}×; इनमें {longPct} % लॉन्ग थे।",
   "radar.alerts.thLiq": "सीमा: माध्यिका घंटे का {mult}×",
-  "radar.th.liqMult": "लिक्विडेशन कैस्केड (× माध्यिका घंटा)"
+  "radar.th.liqMult": "लिक्विडेशन कैस्केड (× माध्यिका घंटा)",
+  "radar.etf.liveTitle": "ETF प्रवाह (CoinGlass, आपके गेटवे के माध्यम से)",
+  "radar.etf.liveBtc": "बिटकॉइन स्पॉट ETF, प्रतिदिन शुद्ध प्रवाह",
+  "radar.etf.liveEth": "ईथर स्पॉट ETF, प्रतिदिन शुद्ध प्रवाह",
+  "radar.etf.liveNote": "फ़ंड टिकर के अनुसार। जिस फ़ंड का किसी दिन का आँकड़ा नहीं है उसे छोड़ दिया जाता है, शून्य नहीं गिना जाता। नवीनतम दिन में अब भी संशोधन हो सकता है।",
+  "radar.whale.title": "बड़े ट्रांसफ़र (Whale Alert, आपके गेटवे के माध्यम से)",
+  "radar.whale.row": "{time} · {amount} {symbol} ({usd}) · {from} → {to} · {chain}",
+  "radar.whale.none": "पिछले 24 घंटों में सीमा के बराबर या उससे ऊपर कोई ट्रांसफ़र नहीं हुआ।",
+  "radar.whale.connecting": "Whale Alert से कनेक्ट हो रहा है…",
+  "radar.th.whaleMinUsd": "बड़ा ट्रांसफ़र (न्यूनतम, US$)",
+  "radar.alert.whale": "{amount} {symbol} ({usd}) {chain} पर {from} से {to} में भेजे गए।",
+  "radar.prov.gatewayLost": "गेटवे ने टोकन स्वीकार नहीं किया। सेटिंग्स → API में फिर से कनेक्ट करें।"
 }

@@ -1,7 +1,7 @@
-# v2.8.0 — in progress, Steps 1 to 4a (not released; app still reports v2.7.0)
+# v2.8.0 — in progress, Steps 1 to 4b (not released; app still reports v2.7.0)
 
-Steps 1 to 4a of the v2.8 plan (`docs/superpowers/specs/2026-11-15-v2.8-architecture-design.md`): safety fixes, licence
-credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (Step 2); Fund trend (Step 3); Market radar part 1 (Step 4a). Engine 2.4.0 (`5c30b5c39f5ba3f2`);
+Steps 1 to 4b of the v2.8 plan (`docs/superpowers/specs/2026-11-15-v2.8-architecture-design.md`): safety fixes, licence
+credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (Step 2); Fund trend (Step 3); Market radar part 1 (Step 4a) and part 2 (Step 4b). Engine 2.4.0 (`5c30b5c39f5ba3f2`);
 ledger rows of engine 2.3.0 stay and are reported separately.
 
 - **Paper safety (WP19):** 10% drawdown lock (Stop + close all at the next open of each chart; pending positions cancelled;
@@ -66,14 +66,31 @@ ledger rows of engine 2.3.0 stay and are reported separately.
   `radar_*` CSV columns after `fund_trend` (newest reading at or before the bar's close, at most 2 h old; null when
   off); the recorder gains `--radar on|off`. Live ETF flows and Whale Alert transfers (desktop-gateway keys),
   liquidations and the cascade alert are part 2. Acceptance **RD-1**…**RD-7**.
-- **Market radar, part 2 (WP25, Step 4b, in progress):** the Radar's Positioning section lists the last hour of Bybit and Binance
-  BTC/ETH perpetual liquidations (long and short, read live from two websockets that open only while the panel is open or
-  recording is on; Binance is labelled *sampled*), a cascade status per venue ("collecting the baseline" until 720 complete
-  hours are logged on the device) and a **Liquidation cascade** threshold (starting value 3 × the median hour). Acceptance **RD-8**.
+- **Market radar, part 2 (WP25, Step 4b):**
+  - **Liquidations and the cascade alert:** the Radar's Positioning section lists the last hour of Bybit and Binance BTC/ETH
+    perpetual liquidations (long and short, read live from two websockets that open only while the panel is open or
+    recording is on; Binance is labelled *sampled*), a cascade status per venue ("collecting the baseline" until 720 complete
+    hours are logged on the device; a missing hour is left out, never zero) and a **Liquidation cascade** alert and
+    threshold (starting value 3 × the median hour). New web hosts `wss://fstream.binance.com` and `wss://stream.bybit.com`
+    (ADR-0003 amendment, R8). Acceptance **RD-8**.
+  - **Recorder streams:** with `--radar on` in continuous mode the recorder keeps the same two websockets open and builds the
+    baseline in `radar/liq.json` (`--once` opens none); the cascade codes join the `rad` alert codes. A damaged
+    `radar/liq.json` reads as empty, and an already aborted run opens no socket.
+  - **Provider keys (optional, paid):** **Private API → Data providers** takes a CoinGlass and a Whale Alert key. Keys live
+    only in the gateway's memory (cleared at exit and on a crash), never in the web app's storage, a backup, a log, an error
+    or a response; the dialog shows the masked key only. Exchange keys with write permission are still refused. Gateway
+    hosts `open-api-v4.coinglass.com` (https) and `leviathan.whale-alert.io` (wss).
+  - **Live ETF flows:** BTC and ETH spot ETF net flow per day (last 10 days, each day expandable to its fund tickers),
+    read at most every 6 hours through the gateway.
+  - **Large transfers:** the newest 10 transfers of the last 24 hours at or above the new **Large transfer (US$ minimum)**
+    threshold (starting value US$10 million), and a `WHALE_TRANSFER` alert for the largest of the last hour. A gateway
+    that no longer accepts the token shows a reconnect line and the rest of the radar keeps updating; without a key the
+    rows still say "Available with a key on the desktop gateway". Acceptance **RD-9**.
 - **Design unchanged (spec §3):** acceptance **DS-1** (main screen) and **DS-2** (detail sheet top and chart layers, paper
   dialog, ledger dialog) compare the layout at rest with text masked against baselines captured from the v2.7.0-web build.
 - **Languages:** the new and changed v2.8 strings are Arabic drafts awaiting native-speaker review (About shows the count;
-  release check **R25** blocks a release until they are reviewed); the other 16 languages show them in English for now.
+  release check **R25** blocks a release until they are reviewed). The Step 4b radar strings are machine-checked drafts in the
+  other 16 languages; earlier v2.8 radar strings still show in English there.
 - **Coffee tip card (owner addition, no WP):** About → *☕ Treat the developer to a coffee*, collapsed above Open-source
   licences — the rsL Coffee Kit v1.1 2026 (build 20261115) card images for GCash, PayPal and Bitcoin, copied unchanged
   into `src/rsl/coffee-kit.json` and shown verbatim; optional and never a fee (nothing gated, never opens by itself); only

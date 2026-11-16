@@ -1,6 +1,6 @@
 // Data-provider client (v2.8 Step 4b, Task 7). Run: npm run test:radar-providers
 import { connectProvider, listProviders, disconnectProvider, nextProviderLink } from "./private-api.ts";
-import { fetchEtfLive, fetchWhaleAlerts } from "./radar/providers-client.ts";
+import { fetchEtfLive, fetchWhaleAlerts } from "./provider-data-client.ts";
 
 let passed = 0;
 let failed = 0;

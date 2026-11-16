@@ -1,7 +1,7 @@
 // v2.8 Step 4b (WP25, Task 4): the recorder's liquidation streams (--radar on, continuous mode) — fake sockets, mocked clock.
 import test, { beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { resetRateLimitForTests } from "../src/engine.mjs";
 import { createRecorder } from "../src/recorder-core.mjs";
@@ -179,4 +179,38 @@ test("context rows carry LIQ_CASCADE codes", async (t) => {
   rec.stop();
   assert.ok(ctx.al.includes("LIQ_CASCADE_BYBIT"), `al: ${JSON.stringify(ctx.al)}`);
   assert.ok(!ctx.al.includes("LIQ_CASCADE_BINANCE"));
+});
+
+test("a corrupt or hostile radar/liq.json reads as an empty baseline and never throws", async (t) => {
+  const bad = [
+    JSON.stringify({ v: 1, hours: { bybit: [{ h: "x", long: -1, short: 1e30 }, null], binance: "nope" } }),
+    JSON.stringify({ v: 1, hours: { bybit: [{ h: Number.NaN, long: 1, short: 1 }, { h: 1.5, long: 1, short: 1 }, [], 7] } }),
+    JSON.stringify([1, 2, 3]),
+    "{ not json at all",
+    "",
+  ];
+  for (const text of bad) {
+    const dir = tempDir(t);
+    ensureDir(join(dir, "radar"));
+    writeFileSync(join(dir, "radar", "liq.json"), text);
+    let rec;
+    assert.doesNotThrow(() => { rec = makeRadar(dir, { liquidations: true, WebSocketCtor: FakeWs }); }, text);
+    await settle();
+    const view = rec.liquidationView(Date.now());
+    assert.equal(view.bybit.cascade.status, "collecting", text);
+    assert.equal(view.bybit.cascade.have, 0, text);
+    assert.equal(view.binance.cascade.have, 0, text);
+  }
+});
+
+test("an already aborted signal starts no liquidation stream", async (t) => {
+  const dir = tempDir(t);
+  const ex = mockExchange();
+  const ac = new AbortController();
+  ac.abort();
+  const lines = [];
+  const rec = createRecorder(baseConfig(dir, { once: false, radar: true }), { ...quiet, log: (l) => lines.push(l), sleepUntil: async () => undefined, baseFetch: ex.fetch, env: {}, radarFetchers: fakeFetchers(), WebSocketCtor: FakeWs });
+  await rec.run(ac.signal);
+  assert.equal(FakeWs.all.length, 0, "no socket was constructed");
+  assert.equal(lines.filter((l) => /liquidation streams started/.test(l)).length, 0);
 });
