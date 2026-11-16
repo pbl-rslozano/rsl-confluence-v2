@@ -7,7 +7,7 @@ const ok = (n, c, x = "") => { if (c) { passed++; console.log(`  ok   ${n}`); } 
 const mem = new Map();
 globalThis.localStorage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => { mem.set(k, String(v)); } };
 
-ok("default is closed, nothing collapsed, starting thresholds", JSON.stringify(parseRadarUi(null)) === JSON.stringify({ open: false, collapsed: [], thresholds: { breakAwayPct: 1, breakAwayBars: 2, volumeZ: 3, supplyPctl: 99 } }));
+ok("default is closed, nothing collapsed, starting thresholds", JSON.stringify(parseRadarUi(null)) === JSON.stringify({ open: false, collapsed: [], thresholds: { breakAwayPct: 1, breakAwayBars: 2, volumeZ: 3, supplyPctl: 99, liqMult: 3, whaleMinUsd: 10_000_000 } }));
 ok("junk falls back", parseRadarUi("x").open === false && parseRadarUi([]).open === false && parseRadarUi({ open: "yes" }).open === false);
 ok("unknown sections dropped, order fixed", JSON.stringify(parseRadarUi({ collapsed: ["alerts", "nope", "positioning", "alerts"] }).collapsed) === '["positioning","alerts"]');
 ok("bad thresholds fall back per field", parseRadarUi({ thresholds: { breakAwayPct: 50, volumeZ: 4 } }).thresholds.breakAwayPct === 1 && parseRadarUi({ thresholds: { breakAwayPct: 50, volumeZ: 4 } }).thresholds.volumeZ === 4);

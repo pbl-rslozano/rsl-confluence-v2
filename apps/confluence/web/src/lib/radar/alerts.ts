@@ -10,6 +10,7 @@
  *   radar.alert.breakaway  { venue, pct, bars }   pct = signed deviation of the newest bar after the standing premium, %
  *   radar.alert.volume     { z, pct }             z = z-score, pct = the day's volume vs the 30-day mean, %
  *   radar.alert.depeg      { coin, reference, dev, level }   dev = signed % from 1:1, level = watch | warning | severe
+ *   radar.alert.liq       { venue, usd, mult, median, longPct }   (Step 4b, liquidations.ts)
  *   radar.alert.supply     { pct, usd, pctl }     pct / usd = SIGNED daily change (% of the previous day's supply / US$): + mint, - redemption
  */
 import type { DepegReading } from "../quotes";
@@ -17,8 +18,16 @@ import { depegLevel } from "../quotes";
 import { PROVIDERS } from "../providers";
 import type { SupplyPoint } from "./stablecoins";
 
-export interface RadarThresholds { breakAwayPct: number; breakAwayBars: number; volumeZ: number; supplyPctl: number }
-export const DEFAULT_THRESHOLDS: RadarThresholds = { breakAwayPct: 1, breakAwayBars: 2, volumeZ: 3, supplyPctl: 99 };
+export interface RadarThresholds {
+  breakAwayPct: number; breakAwayBars: number; volumeZ: number; supplyPctl: number;
+  /** Step 4b: a liquidation cascade is the last 60 minutes at >= liqMult x the median complete hour. */
+  liqMult: number;
+  /** Step 4b: smallest whale transfer (US$) that is shown. */
+  whaleMinUsd: number;
+}
+export const DEFAULT_THRESHOLDS: RadarThresholds = {
+  breakAwayPct: 1, breakAwayBars: 2, volumeZ: 3, supplyPctl: 99, liqMult: 3, whaleMinUsd: 10_000_000,
+};
 
 /** Allowed ranges (inclusive) per threshold; `int` = whole numbers only. */
 const RANGES: Record<keyof RadarThresholds, { min: number; max: number; int?: boolean }> = {
@@ -26,6 +35,8 @@ const RANGES: Record<keyof RadarThresholds, { min: number; max: number; int?: bo
   breakAwayBars: { min: 1, max: 6, int: true },
   volumeZ: { min: 1.5, max: 10 },
   supplyPctl: { min: 90, max: 99.9 },
+  liqMult: { min: 1.5, max: 20 },
+  whaleMinUsd: { min: 1_000_000, max: 10_000_000_000, int: true },
 };
 
 /** Anything that is not a finite number inside its range (or not an own property) falls back to the default; unknown keys are dropped. */
@@ -45,7 +56,7 @@ export type AlertCode = string;
 export const ALERT_CODE = /^[A-Z0-9_]{1,32}$/;
 export interface RadarAlert {
   code: AlertCode;
-  kind: "breakaway" | "volume" | "depeg" | "supply";
+  kind: "breakaway" | "volume" | "depeg" | "supply" | "liquidation" | "whale";
   trigger: { key: string; vars: Record<string, string | number> };
   sourceUrl: string;
   /** Close time (ms) of the first bar (or day) of the run that triggered the alert. */
@@ -74,7 +85,7 @@ function providerIdOf(id: string): string {
   const head = key.split("-")[0];
   return PROVIDERS.some((p) => p.id === head) ? head : "";
 }
-function pageOf(id: string): string {
+export function pageOf(id: string): string {
   const pid = providerIdOf(id);
   return PROVIDERS.find((p) => p.id === pid)?.apiDocs ?? EXTRA_PAGES[pid] ?? "";
 }
@@ -85,7 +96,7 @@ const round = (n: number, dp: number) => Math.round(n * 10 ** dp) / 10 ** dp;
 /** Code part: upper case, every run of other characters one "_", none leading or trailing. Same for every alert kind. */
 const upper = (s: string) => String(s ?? "").toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 
-function median(xs: number[]): number {
+export function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b);
   const m = s.length >> 1;
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;

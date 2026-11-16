@@ -171,11 +171,11 @@ console.log("thresholds sanitize");
   const eq = (x, y) => JSON.stringify(x) === JSON.stringify(y);
   ok("non-objects give the defaults", [null, undefined, 5, "x", [], true].every((x) => eq(sanitizeThresholds(x), d)));
   ok("NaN / Infinity / strings / out of range fall back", eq(sanitizeThresholds({ breakAwayPct: NaN, breakAwayBars: Infinity, volumeZ: "4", supplyPctl: 100 }), d));
-  ok("range edges are kept", eq(sanitizeThresholds({ breakAwayPct: 0.2, breakAwayBars: 6, volumeZ: 10, supplyPctl: 99.9 }), { breakAwayPct: 0.2, breakAwayBars: 6, volumeZ: 10, supplyPctl: 99.9 }));
+  ok("range edges are kept", eq(sanitizeThresholds({ breakAwayPct: 0.2, breakAwayBars: 6, volumeZ: 10, supplyPctl: 99.9 }), { breakAwayPct: 0.2, breakAwayBars: 6, volumeZ: 10, supplyPctl: 99.9, liqMult: 3, whaleMinUsd: 10_000_000 }));
   ok("just outside the range falls back", eq(sanitizeThresholds({ breakAwayPct: 0.19, breakAwayBars: 7, volumeZ: 1.4, supplyPctl: 89.9 }), d) && eq(sanitizeThresholds({ breakAwayPct: 10.1, breakAwayBars: 0, volumeZ: 10.1, supplyPctl: 99.91 }), d));
   ok("a fractional bar count falls back", sanitizeThresholds({ breakAwayBars: 2.5 }).breakAwayBars === 2 && sanitizeThresholds({ breakAwayBars: 3 }).breakAwayBars === 3);
-  ok("valid values pass, bad ones fall back individually", eq(sanitizeThresholds({ breakAwayPct: 2, breakAwayBars: 99, volumeZ: 4, supplyPctl: NaN }), { breakAwayPct: 2, breakAwayBars: 2, volumeZ: 4, supplyPctl: 99 }));
-  ok("unknown keys dropped, no mutation of defaults", !("extra" in sanitizeThresholds({ extra: 1, __proto__: { breakAwayPct: 5 } })) && sanitizeThresholds({ __proto__: { breakAwayPct: 5 } }).breakAwayPct === 1 && eq(DEFAULT_THRESHOLDS, { breakAwayPct: 1, breakAwayBars: 2, volumeZ: 3, supplyPctl: 99 }));
+  ok("valid values pass, bad ones fall back individually", eq(sanitizeThresholds({ breakAwayPct: 2, breakAwayBars: 99, volumeZ: 4, supplyPctl: NaN }), { breakAwayPct: 2, breakAwayBars: 2, volumeZ: 4, supplyPctl: 99, liqMult: 3, whaleMinUsd: 10_000_000 }));
+  ok("unknown keys dropped, no mutation of defaults", !("extra" in sanitizeThresholds({ extra: 1, __proto__: { breakAwayPct: 5 } })) && sanitizeThresholds({ __proto__: { breakAwayPct: 5 } }).breakAwayPct === 1 && eq(DEFAULT_THRESHOLDS, { breakAwayPct: 1, breakAwayBars: 2, volumeZ: 3, supplyPctl: 99, liqMult: 3, whaleMinUsd: 10_000_000 }));
 }
 
 console.log("codes are safe");
