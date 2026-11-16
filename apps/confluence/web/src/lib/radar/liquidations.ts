@@ -94,6 +94,7 @@ export class HourBook {
   private done: LiqHour[];
   private open = new Map<number, { long: number; short: number }>();
   private recent: LiqEvent[] = [];
+  private head = 0; // recent[head..] is live; the front is dropped by moving this index, compacted when half is dead
   private gaps: Gap[] = [{ start: -Infinity, end: null }]; // before the first connected(): disconnected
   private firstConnected: number | null = null;
   private rolledThrough = -Infinity; // end (ms) of the newest hour already reported
@@ -124,9 +125,8 @@ export class HourBook {
     this.bump(e.t);
     this.recent.push(e);
     // Amortised O(1): events arrive in time order, so only the head can be stale (an out-of-order straggler is pruned later).
-    let drop = 0;
-    while (drop < this.recent.length - 1 && this.recent[drop].t < e.t - 2 * LIQ_HOUR_MS) drop++;
-    if (drop) this.recent.splice(0, drop);
+    while (this.head < this.recent.length - 1 && this.recent[this.head].t < e.t - 2 * LIQ_HOUR_MS) this.head++;
+    if (this.head > this.recent.length / 2) { this.recent = this.recent.slice(this.head); this.head = 0; }
     const h = Math.floor(e.t / LIQ_HOUR_MS) * LIQ_HOUR_MS;
     if (h + LIQ_HOUR_MS <= this.rolledThrough) return; // that hour was already closed and reported
     const b = this.open.get(h) ?? { long: 0, short: 0 };
@@ -144,20 +144,24 @@ export class HourBook {
     const grace = Number.isFinite(graceMs) && graceMs > 0 ? graceMs : 0;
     const lastClosed = Math.floor((now - grace) / LIQ_HOUR_MS) * LIQ_HOUR_MS - LIQ_HOUR_MS;
     const out: LiqHour[] = [];
+    let decided = lastClosed + LIQ_HOUR_MS; // end of the newest hour whose fate is settled
     if (this.firstConnected !== null) {
       const firstWhole = Math.ceil(this.firstConnected / LIQ_HOUR_MS) * LIQ_HOUR_MS;
       let start = Math.max(firstWhole, this.rolledThrough === -Infinity ? firstWhole : this.rolledThrough, lastClosed - (LIQ_KEEP_HOURS - 1) * LIQ_HOUR_MS);
       start = Math.ceil(start / LIQ_HOUR_MS) * LIQ_HOUR_MS;
       const have = new Set(this.done.map((x) => x.h));
       for (let h = start; h <= lastClosed; h += LIQ_HOUR_MS) {
-        if (have.has(h) || !this.completeOver(h, h + LIQ_HOUR_MS)) continue;
+        if (have.has(h)) continue;
+        const state = this.judge(h, h + LIQ_HOUR_MS, now);
+        if (state === "pending") { decided = h; break; } // a short outage is still open: decide this hour (and later ones) at a later roll
+        if (state === "incomplete") continue;
         const b = this.open.get(h) ?? { long: 0, short: 0 };
         out.push({ h, long: b.long, short: b.short });
       }
     }
-    if (lastClosed + LIQ_HOUR_MS > this.rolledThrough) this.rolledThrough = lastClosed + LIQ_HOUR_MS;
-    for (const h of [...this.open.keys()]) if (h <= lastClosed) this.open.delete(h);
-    this.gaps = this.gaps.filter((g) => g.end === null || g.end >= lastClosed);
+    if (decided > this.rolledThrough) this.rolledThrough = decided;
+    for (const h of [...this.open.keys()]) if (h + LIQ_HOUR_MS <= this.rolledThrough) this.open.delete(h);
+    this.gaps = this.gaps.filter((g) => g.end === null || g.end >= this.rolledThrough - LIQ_HOUR_MS);
     if (out.length) this.done = tidy([...this.done, ...out]);
     return out;
   }
@@ -167,7 +171,8 @@ export class HourBook {
     const a = now - LIQ_HOUR_MS;
     let long = 0;
     let short = 0;
-    for (const e of this.recent) {
+    for (let i = this.head; i < this.recent.length; i++) {
+      const e = this.recent[i];
       if (e.t <= a || e.t > now) continue;
       if (e.side === "long") long += e.usd;
       else short += e.usd;
@@ -178,7 +183,7 @@ export class HourBook {
 
   /** Number of events kept for the rolling window (test hook for the pruning bound). */
   recentSize(): number {
-    return this.recent.length;
+    return this.recent.length - this.head;
   }
 
   /** Complete hours, oldest first, at most LIQ_KEEP_HOURS and none older than LIQ_KEEP_MS. */
@@ -210,8 +215,19 @@ export class HourBook {
     return { missing, complete };
   }
 
-  private completeOver(a: number, b: number): boolean {
-    return this.coverage(a, b).complete;
+  /**
+   * Fate of the closed hour [a, b] at roll time `now`: every disconnection touching it is judged on its FULL length, and one
+   * still open counts up to `now`. An open outage that has not yet passed LIQ_MAX_GAP_MS leaves the hour "pending".
+   */
+  private judge(a: number, b: number, now: number): "complete" | "incomplete" | "pending" {
+    let pending = false;
+    for (const g of this.gaps) {
+      const end = g.end ?? Math.max(b, now);
+      if (Math.min(end, b) - Math.max(g.start, a) <= 0) continue;
+      if (end - g.start > LIQ_MAX_GAP_MS) return "incomplete";
+      if (g.end === null) pending = true;
+    }
+    return pending ? "pending" : "complete";
   }
 }
 

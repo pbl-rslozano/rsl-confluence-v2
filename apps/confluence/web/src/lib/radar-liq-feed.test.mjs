@@ -13,9 +13,10 @@ const H0 = Date.UTC(2026, 10, 16, 12, 0, 0);
 
 class FakeWs {
   static all = [];
+  static autoPong = true; // a live Bybit socket answers {"op":"ping"}
   constructor(url) { this.url = url; this.readyState = 0; this.sent = []; this.closed = false; this.l = {}; FakeWs.all.push(this); }
   addEventListener(type, fn) { (this.l[type] ??= []).push(fn); }
-  send(d) { this.sent.push(d); }
+  send(d) { this.sent.push(d); if (FakeWs.autoPong && d === '{"op":"ping"}') this.say({ success: true, ret_msg: "pong", conn_id: "x", op: "ping" }); }
   close() { this.closed = true; this.readyState = 3; }
   emit(type, ev = {}) { for (const fn of this.l[type] ?? []) fn(ev); }
   open() { this.readyState = 1; this.emit("open"); }
@@ -39,8 +40,9 @@ function fakeTimers(clock) {
         for (const [id, it] of items) if (it.at <= target && (!best || it.at < best[1].at)) best = [id, it];
         if (!best) break;
         const [id, it] = best;
-        clock.t = it.at;
-        if (it.every) it.at += it.every; else items.delete(id);
+        const due = it.at;
+        clock.t = Math.max(clock.t, due); // an overdue timer fires once, late (a machine that slept)
+        if (it.every) it.at = (due < clock.t ? clock.t : due) + it.every; else items.delete(id);
         it.fn();
       }
       clock.t = target;
@@ -62,6 +64,7 @@ const flush = async () => { for (let i = 0; i < 20; i++) await new Promise((r) =
 
 function setup(t0 = H0, store = memStore()) {
   FakeWs.all = [];
+  FakeWs.autoPong = true;
   const clock = { t: t0 };
   const timers = fakeTimers(clock);
   const feed = createLiquidationFeed({ WebSocketCtor: FakeWs, now: () => clock.t, store, timers });
@@ -107,7 +110,6 @@ test("bybit counts as connected only after the subscribe success; binance on ope
   assert.equal(v.binance.sampled, true);
   assert.equal(v.bybit.sampled, false);
   by.say({ success: true, ret_msg: "pong", op: "ping" }); // a pong is not a subscribe reply
-  by.say({ success: false, ret_msg: "error", op: "subscribe" });
   assert.equal(feed.view(clock.t, DEFAULT_THRESHOLDS).bybit.connected, false);
   ackSub(by);
   v = feed.view(clock.t, DEFAULT_THRESHOLDS);
@@ -178,7 +180,7 @@ test("backoff resets after 5 minutes connected", () => {
 });
 
 test("stop closes both sockets, clears every timer and no reconnect fires after stop", () => {
-  const { feed, sock, timers } = setup();
+  const { feed, sock, timers, clock } = setup();
   feed.start();
   sock("bybit")[0].open(); ackSub(sock("bybit")[0]);
   sock("binance")[0].open();
@@ -189,9 +191,8 @@ test("stop closes both sockets, clears every timer and no reconnect fires after 
   assert.equal(timers.count(), 0, "no timer left");
   timers.advance(120_000);
   assert.equal(FakeWs.all.length, 2, "no new socket");
-  const sent = sock("bybit")[0].sent.length;
   sock("bybit")[0].say(bybitEv(H0, "Buy", 1, 1)); // late event on a closed socket is ignored
-  assert.equal(sock("bybit")[0].sent.length, sent);
+  assert.equal(feed.view(clock.t, DEFAULT_THRESHOLDS).bybit.long, 0);
 });
 
 test("stopping counts as a disconnection: the view says not connected", () => {
@@ -209,7 +210,7 @@ test("bybit pings every 20 s while open, and stops after a close", () => {
   const { feed, sock, timers } = setup();
   feed.start();
   const by = sock("bybit")[0];
-  by.open();
+  by.open(); ackSub(by);
   const pings = () => by.sent.filter((s) => JSON.parse(s).op === "ping").length;
   timers.advance(19_000);
   assert.equal(pings(), 0);
@@ -292,4 +293,108 @@ test("garbage in the stored doc is dropped on load", async () => {
   const v = feed.view(clock.t, DEFAULT_THRESHOLDS);
   assert.deepEqual(v.bybit.cascade, { status: "collecting", have: 1 });
   assert.deepEqual(v.binance.cascade, { status: "collecting", have: 0 });
+});
+
+test("I1: hours the machine slept through are not saved as complete zeros (sockets drop on waking)", async () => {
+  const store = memStore();
+  const { feed, sock, clock, timers } = setup(H0 - 2 * MIN, store);
+  feed.start();
+  for (const v of ["bybit", "binance"]) sock(v)[0].open();
+  ackSub(sock("bybit")[0]);
+  clock.t += 3 * H; // asleep: no timer runs, no close arrives
+  for (const v of ["bybit", "binance"]) sock(v)[0].drop();
+  timers.advance(5000);
+  for (const v of ["bybit", "binance"]) { sock(v).at(-1).open(); }
+  ackSub(sock("bybit").at(-1));
+  timers.advance(2 * H);
+  await flush();
+  const doc = store.docs.get(`${RADAR_COLLECTION}/${RADAR_LIQ_ID}`);
+  for (const v of ["bybit", "binance"]) assert.deepEqual((doc?.hours[v] ?? []).filter((x) => x.h < H0 + 3 * H), [], `${v}: no slept hour is stored`);
+  feed.stop();
+});
+
+test("I1: hours the machine slept through are not saved as complete zeros (a timer fires first, sockets stay up)", async () => {
+  const store = memStore();
+  const { feed, sock, clock, timers } = setup(H0 - 2 * MIN, store);
+  feed.start();
+  for (const v of ["bybit", "binance"]) sock(v)[0].open();
+  ackSub(sock("bybit")[0]);
+  clock.t += 3 * H;
+  timers.advance(60_000); // the roll timer wakes first
+  await flush();
+  timers.advance(2 * H);
+  await flush();
+  const doc = store.docs.get(`${RADAR_COLLECTION}/${RADAR_LIQ_ID}`);
+  for (const v of ["bybit", "binance"]) assert.deepEqual((doc?.hours[v] ?? []).filter((x) => x.h < H0 + 3 * H), [], `${v}: no slept hour is stored`);
+  assert.ok((doc?.hours.binance ?? []).some((x) => x.h >= H0 + 3 * H), "hours after waking are covered again");
+  feed.stop();
+});
+
+test("I1: a bybit socket that goes silent (no pong) is closed and reconnected through the backoff", () => {
+  const { feed, sock, timers } = setup();
+  feed.start();
+  FakeWs.autoPong = false;
+  const by = sock("bybit")[0];
+  by.open(); ackSub(by);
+  timers.advance(40_000);
+  assert.equal(sock("bybit").length, 1, "40 s of silence is tolerated");
+  timers.advance(20_000);
+  assert.ok(by.closed, "closed after about two ping intervals of silence");
+  assert.equal(feed.view(H0 + 60_000, DEFAULT_THRESHOLDS).bybit.connected, false);
+  timers.advance(2000);
+  assert.equal(sock("bybit").length, 2);
+  feed.stop();
+});
+
+test("I1: a bybit socket that keeps answering pings is never recycled", () => {
+  const { feed, sock, timers } = setup();
+  feed.start();
+  const by = sock("bybit")[0];
+  by.open(); ackSub(by);
+  timers.advance(10 * MIN);
+  assert.equal(sock("bybit").length, 1);
+  assert.equal(by.closed, false);
+  feed.stop();
+});
+
+test("I1: a bybit subscribe reply with success false reconnects through the backoff", () => {
+  const { feed, sock, timers } = setup();
+  feed.start();
+  const by = sock("bybit")[0];
+  by.open();
+  by.say({ success: false, ret_msg: "error:handler not found", op: "subscribe" });
+  assert.ok(by.closed);
+  timers.advance(2000);
+  assert.equal(sock("bybit").length, 2);
+  feed.stop();
+});
+
+test("I1: no subscribe reply within 10 s reconnects through the backoff", () => {
+  const { feed, sock, timers } = setup();
+  feed.start();
+  const by = sock("bybit")[0];
+  by.open();
+  timers.advance(9000);
+  assert.equal(by.closed, false);
+  timers.advance(1000);
+  assert.ok(by.closed);
+  timers.advance(2000);
+  assert.equal(sock("bybit").length, 2);
+  feed.stop();
+  assert.equal(timers.count(), 0);
+});
+
+test("I2 via the feed: a disconnect just before the hour end that stays down never saves that hour", async () => {
+  const store = memStore();
+  const { feed, sock, clock, timers } = setup(H0 - 2 * MIN, store);
+  feed.start();
+  for (const v of ["bybit", "binance"]) sock(v)[0].open();
+  ackSub(sock("bybit")[0]);
+  timers.advance(H + 2 * MIN - 8000); // 8 s before the end of hour H0
+  sock("binance")[0].drop();
+  timers.advance(120_000); // reconnect fires after 2 s; keep the new socket closed so the outage lasts
+  await flush();
+  const doc = store.docs.get(`${RADAR_COLLECTION}/${RADAR_LIQ_ID}`);
+  assert.equal((doc?.hours.binance ?? []).some((x) => x.h === H0), false);
+  feed.stop();
 });

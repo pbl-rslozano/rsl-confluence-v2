@@ -228,3 +228,48 @@ test("add prunes the recent list from the head (amortised) and the rolling windo
   const l = b.last60(NOW);
   assert.equal(l.short, 2);
 });
+
+test("I2: an outage still open at the roll is judged on its length so far (8 s before the hour end, still down)", () => {
+  const h = Math.floor(NOW / H) * H;
+  const b = new HourBook("bybit");
+  b.connected(h - MIN);
+  b.disconnected(h + H - 8000);
+  assert.deepEqual(b.roll(h + H + 5000, 5000), [], "13 s so far: the hour is not complete");
+  b.connected(h + H + 112_000);
+  assert.deepEqual(b.roll(h + 2 * H + 6000, 5000).filter((x) => x.h === h), [], "never complete afterwards either");
+});
+
+test("I2: an hour touched by a short open outage is not closed yet, then decided when the outage ends", () => {
+  const h = Math.floor(NOW / H) * H;
+  const b = new HourBook("bybit");
+  b.connected(h - MIN);
+  b.add({ venue: "bybit", symbol: "BTCUSDT", side: "long", usd: 5, t: h + 10 * MIN });
+  b.disconnected(h + H - 8000);
+  assert.deepEqual(b.roll(h + H + 1000), [], "9 s so far: pending, not reported");
+  b.connected(h + H + 1500); // 9.5 s in all
+  assert.deepEqual(b.roll(h + H + 2000).filter((x) => x.h === h), [{ h, long: 5, short: 0 }], "decided complete once the gap closed short");
+  const c = new HourBook("bybit");
+  c.connected(h - MIN);
+  c.disconnected(h + H - 8000);
+  assert.deepEqual(c.roll(h + H + 1000), []);
+  c.connected(h + H + 30_000); // 38 s in all
+  assert.deepEqual(c.roll(h + H + 31_000), [], "decided incomplete");
+  assert.deepEqual(c.roll(h + 2 * H + 31_000).filter((x) => x.h === h), []);
+});
+
+test("I3: add() does O(1) amortised work: elements copied by splice/slice/filter stay linear", () => {
+  const b = new HourBook("bybit");
+  b.connected(NOW - 10 * H);
+  const n = 30_000;
+  let copied = 0;
+  const { splice, slice, filter } = Array.prototype;
+  Array.prototype.splice = function (...a) { copied += this.length; return splice.apply(this, a); };
+  Array.prototype.slice = function (...a) { const r = slice.apply(this, a); copied += r.length; return r; };
+  Array.prototype.filter = function (...a) { const r = filter.apply(this, a); copied += this.length; return r; };
+  try {
+    for (let i = 0; i < n; i++) b.add({ venue: "bybit", symbol: "BTCUSDT", side: "long", usd: 1, t: NOW - 5 * H + i * 3000 });
+  } finally { Array.prototype.splice = splice; Array.prototype.slice = slice; Array.prototype.filter = filter; }
+  assert.ok(copied < 4 * n, `copied ${copied} elements for ${n} adds`);
+  assert.ok(b.recentSize() <= 2 * H / 3000 + 2, `kept ${b.recentSize()}`);
+  assert.equal(b.last60(NOW - 5 * H + (n - 1) * 3000).long, H / 3000, "the rolling hour still sums every event in it");
+});

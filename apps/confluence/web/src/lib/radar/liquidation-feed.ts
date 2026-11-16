@@ -11,6 +11,11 @@
  * and a reconnect after 2 s, 4 s ... capped at 60 s (reset after 5 minutes connected). `stop()` closes both sockets,
  * clears every timer and counts as a disconnection; nothing fires afterwards (each socket carries a generation number).
  *
+ * Liveness: a machine that sleeps (or a frozen tab) gets no `close`, so every roll-timer tick and message records a beat; a
+ * beat more than 90 s after the previous one means the time between is a disconnection for every live venue (the slept
+ * hours are never saved as complete zeros). Bybit must answer within about two ping intervals (any message, a pong
+ * included) and acknowledge the subscribe within 10 s, else the socket is closed and reconnected through the backoff.
+ *
  * Hours: `roll` runs on every message and every 60 s, and an hour closes only 5 s after it ends so late events still
  * count. Newly complete hours are saved (queued, merged with what is stored) into the "radar-liq" doc.
  * A read failure at load starts empty; a failed read at save time writes nothing (never overwrites what it could not read).
@@ -28,6 +33,11 @@ export const LIQ_GRACE_MS = 5_000;
 export const LIQ_BACKOFF_FIRST_MS = 2_000;
 export const LIQ_BACKOFF_MAX_MS = 60_000;
 export const LIQ_BACKOFF_RESET_MS = 5 * 60_000;
+/** Beats further apart than this mean the machine slept (roll interval 60 s plus slack for background-tab throttling). */
+export const LIQ_SLEEP_MS = 90_000;
+/** Bybit silence (no message, pong included) tolerated before the socket is recycled: about two ping intervals. */
+export const LIQ_SILENCE_MS = 45_000;
+export const LIQ_SUBSCRIBE_MS = 10_000;
 
 const WS_OPEN = 1;
 const VENUES: LiqVenue[] = ["bybit", "binance"];
@@ -91,6 +101,10 @@ interface Slot {
   attempt: number;
   reconnect: unknown;
   ping: unknown;
+  /** Pending "no subscribe reply" deadline (Bybit). */
+  sub: unknown;
+  /** Time of the last frame received on the current socket. */
+  lastRx: number;
 }
 
 /** Union by hour (first wins), oldest first, newest LIQ_KEEP_HOURS, none older than LIQ_KEEP_MS before `now`. */
@@ -107,11 +121,12 @@ export function createLiquidationFeed(deps: LiquidationFeedDeps): LiquidationFee
   /** Hours read back from the store (the books only know what this session saw). */
   let loaded: Record<LiqVenue, LiqHour[]> = { bybit: [], binance: [] };
   const slots: Record<LiqVenue, Slot> = {
-    bybit: { gen: 0, ws: null, connected: false, since: null, attempt: 0, reconnect: null, ping: null },
-    binance: { gen: 0, ws: null, connected: false, since: null, attempt: 0, reconnect: null, ping: null },
+    bybit: { gen: 0, ws: null, connected: false, since: null, attempt: 0, reconnect: null, ping: null, sub: null, lastRx: 0 },
+    binance: { gen: 0, ws: null, connected: false, since: null, attempt: 0, reconnect: null, ping: null, sub: null, lastRx: 0 },
   };
   let isRunning = false;
   let rollTimer: unknown = null;
+  let lastBeat: number | null = null;
 
   const clock = (): number => { const t = deps.now(); return Number.isFinite(t) ? t : 0; };
 
@@ -143,11 +158,26 @@ export function createLiquidationFeed(deps: LiquidationFeedDeps): LiquidationFee
   function clearSlotTimers(s: Slot): void {
     if (s.reconnect !== null) { timers.clearTimeout(s.reconnect); s.reconnect = null; }
     if (s.ping !== null) { timers.clearInterval(s.ping); s.ping = null; }
+    if (s.sub !== null) { timers.clearTimeout(s.sub); s.sub = null; }
+  }
+
+  /** Record a sign of life. A long silence of the whole feed means the machine slept: the time between is a disconnection. */
+  function beat(): void {
+    const now = clock();
+    if (lastBeat !== null && now - lastBeat > LIQ_SLEEP_MS) {
+      for (const v of VENUES) {
+        if (!slots[v].connected) continue;
+        books[v].disconnected(lastBeat);
+        books[v].connected(now);
+      }
+    }
+    if (lastBeat === null || now > lastBeat) lastBeat = now;
   }
 
   function markConnected(v: LiqVenue, s: Slot): void {
     if (s.connected) return;
     const t = clock();
+    if (s.sub !== null) { timers.clearTimeout(s.sub); s.sub = null; }
     s.connected = true;
     s.since = t;
     books[v].connected(t);
@@ -156,11 +186,13 @@ export function createLiquidationFeed(deps: LiquidationFeedDeps): LiquidationFee
   /** A socket went down (close or error): once per socket, the slot's generation says whether it is still the current one. */
   function down(v: LiqVenue, s: Slot, gen: number): void {
     if (!isRunning || s.gen !== gen) return;
+    beat(); // a wake-up first: the slept time is a gap that began at the last beat, not at this close
     s.gen++; // later events of this socket (an error, then its close) are ignored
     const t = clock();
     const wasUpFor = s.connected && s.since !== null ? t - s.since : 0;
     if (s.ws) { try { s.ws.close(); } catch { /* already closed */ } s.ws = null; }
     if (s.ping !== null) { timers.clearInterval(s.ping); s.ping = null; }
+    if (s.sub !== null) { timers.clearTimeout(s.sub); s.sub = null; }
     s.connected = false;
     s.since = null;
     books[v].disconnected(t);
@@ -170,13 +202,16 @@ export function createLiquidationFeed(deps: LiquidationFeedDeps): LiquidationFee
     s.reconnect = timers.setTimeout(() => { s.reconnect = null; if (isRunning) open(v); }, delay);
   }
 
-  function onMessage(v: LiqVenue, s: Slot, data: unknown): void {
+  function onMessage(v: LiqVenue, s: Slot, gen: number, data: unknown): void {
+    beat();
+    s.lastRx = clock();
     if (typeof data !== "string") return;
     let msg: unknown;
     try { msg = JSON.parse(data); } catch { return; }
     const now = clock();
     if (v === "bybit" && msg && typeof msg === "object" && (msg as { op?: unknown }).op === "subscribe") {
       if ((msg as { success?: unknown }).success === true) markConnected(v, s);
+      else down(v, s, gen); // the subscribe was refused: close and retry through the backoff
       return;
     }
     const events: LiqEvent[] = v === "bybit" ? parseBybitLiq(msg, now) : parseBinanceLiq(msg, now);
@@ -195,18 +230,24 @@ export function createLiquidationFeed(deps: LiquidationFeedDeps): LiquidationFee
       return;
     }
     s.ws = ws;
+    s.lastRx = clock();
     const live = () => isRunning && s.gen === gen;
     ws.addEventListener("open", () => {
       if (!live()) return;
       if (v === "binance") { markConnected(v, s); return; }
+      s.lastRx = clock();
       try { ws.send(BYBIT_SUBSCRIBE); } catch { /* the close handler reconnects */ }
+      if (s.sub !== null) timers.clearTimeout(s.sub);
+      s.sub = timers.setTimeout(() => { s.sub = null; if (live() && !s.connected) down(v, s, gen); }, LIQ_SUBSCRIBE_MS);
       if (s.ping !== null) timers.clearInterval(s.ping);
       s.ping = timers.setInterval(() => {
-        if (!live() || ws.readyState !== WS_OPEN) return;
+        if (!live()) return;
+        if (clock() - s.lastRx > LIQ_SILENCE_MS) { down(v, s, gen); return; } // no pong, no frame: the socket is dead
+        if (ws.readyState !== WS_OPEN) return;
         try { ws.send(BYBIT_PING); } catch { /* the close handler reconnects */ }
       }, LIQ_PING_MS);
     });
-    ws.addEventListener("message", (ev) => { if (live()) onMessage(v, s, ev?.data); });
+    ws.addEventListener("message", (ev) => { if (live()) onMessage(v, s, gen, ev?.data); });
     ws.addEventListener("close", () => down(v, s, gen));
     ws.addEventListener("error", () => down(v, s, gen));
   }
@@ -215,12 +256,14 @@ export function createLiquidationFeed(deps: LiquidationFeedDeps): LiquidationFee
     start() {
       if (isRunning) return;
       isRunning = true;
-      rollTimer = timers.setInterval(() => { if (isRunning) rollAll(); }, LIQ_ROLL_MS);
+      lastBeat = clock();
+      rollTimer = timers.setInterval(() => { if (isRunning) { beat(); rollAll(); } }, LIQ_ROLL_MS);
       for (const v of VENUES) open(v);
     },
     stop() {
       if (!isRunning) return;
       isRunning = false;
+      lastBeat = null;
       const t = clock();
       if (rollTimer !== null) { timers.clearInterval(rollTimer); rollTimer = null; }
       for (const v of VENUES) {

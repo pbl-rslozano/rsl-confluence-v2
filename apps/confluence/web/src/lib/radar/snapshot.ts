@@ -547,6 +547,7 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
   function tick() {
     if (timer === null) return; // stopped
     if (!permitted()) { feedStop(); return; } // the gate closed: no socket stays open
+    try { if (feed && !feed.running()) feed.start(); } catch { /* the feed never breaks the runner */ } // the gate reopened without a stop/start pair
     if (inflight) return; // still running (skip, no overlap)
     refresh().catch(() => { /* aborted or failed: lastError is set; the next tick tries again */ });
   }
