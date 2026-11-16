@@ -3,7 +3,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { scoreVisibleBars } from "./scan-jobs.ts";
 import { scoreSeries } from "./scan-pipeline.ts";
-import { resolvePanelScores, panelCacheKey, panelBarsNeeded, PANEL_MAX_BARS } from "./panel-scores.ts";
+import { resolvePanelScores, panelCacheKey, panelBarsNeeded, PANEL_MAX_BARS, loadOlderOnce } from "./panel-scores.ts";
+import { RateLimitError } from "./market-client.ts";
 import { createLatestWins } from "./latest-wins.ts";
 import { clearChartOptIn, setChartOptIn, getChartOptIn } from "./chart-optin-store.ts";
 
@@ -146,4 +147,32 @@ test("clearChartOptIn turns every opt-in off (Reset to defaults)", () => {
   assert.deepEqual([...getChartOptIn()], ["fund-ribbon", "fund-panel"]);
   clearChartOptIn();
   assert.deepEqual([...getChartOptIn()], []);
+});
+
+test("I-2: an older-bars request refused by a venue cooldown is not the one allowed attempt; a later open retries once", async () => {
+  const store = new Map();
+  const ac = () => new AbortController().signal;
+  const bars = [{ time: 1, open: 1, high: 1, low: 1, close: 1, volume: 1 }];
+  let calls = 0;
+  const refuse = async () => { calls++; throw new RateLimitError("cooldown", 30_000); };
+  assert.equal(await loadOlderOnce(store, "k", refuse, ac()), false, "refused: nothing stored");
+  assert.equal(store.has("k"), false, "a rate-limit refusal does not mark the series as attempted");
+  const good = async () => { calls++; return bars; };
+  assert.equal(await loadOlderOnce(store, "k", good, ac()), true, "the later open retries");
+  assert.deepEqual(store.get("k"), bars);
+  assert.equal(await loadOlderOnce(store, "k", good, ac()), false, "and once stored, the series is never requested again");
+  assert.equal(calls, 2);
+});
+
+test("I-2: a failure that did send a request (network, HTTP) counts as the attempt; an abort never does", async () => {
+  const store = new Map();
+  assert.equal(await loadOlderOnce(store, "n", async () => { throw new Error("HTTP 500"); }, new AbortController().signal), true);
+  assert.deepEqual(store.get("n"), [], "stored as [] so the line is drawn where a full window exists");
+  const ac = new AbortController();
+  const r = await loadOlderOnce(store, "a", async () => { ac.abort(); throw new DOMException("x", "AbortError"); }, ac.signal);
+  assert.equal(r, false);
+  assert.equal(store.has("a"), false);
+  const ac2 = new AbortController();
+  assert.equal(await loadOlderOnce(store, "b", async () => { ac2.abort(); return []; }, ac2.signal), false, "closed while loading: not an attempt");
+  assert.equal(store.has("b"), false);
 });

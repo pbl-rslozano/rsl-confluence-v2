@@ -2,6 +2,7 @@
 // No test touches the network: the fetcher and the store are stubs, the clock is injected.
 import { loadDailyBars, loadFundTrends, resetFundTrendFeedForTests, DAY_MS } from "./fund-trend-feed.ts";
 import { waitForFeed, writeLiveRows, createSerialQueue, FEED_WAIT_MS } from "./fund-feed-gate.ts";
+import { fundTrend } from "./fund-trend.ts";
 import { RateLimitError, rateLimitCooldown, resetRateLimitForTests, noteVenueRateLimit } from "./market-client.ts";
 
 let passed = 0, failed = 0;
@@ -177,10 +178,15 @@ async function main() {
       return { now: () => 0, setTimeout: (fn, ms) => { pending.set(++id, { fn, ms }); return id; }, clearTimeout: (i) => { pending.delete(i); },
         fire: () => { const [k, v] = [...pending][0] ?? []; if (k !== undefined) { pending.delete(k); v.fn(); } }, count: () => pending.size, lastMs: () => [...pending.values()].pop()?.ms };
     };
-    const mkRows = () => [{ ac: "crypto", pair: "AUSDT", ft: undefined }, { ac: "crypto", pair: "BUSDT", ft: undefined }, { ac: "stock", pair: "AAPL", ft: undefined }];
+    // I-1 (final review): live crypto rows take ft from daily bars closed at or before THEIR OWN bar close (the catch-up rule), never the value "now".
+    const dailyA = series(700, D0 - DAY_MS); // closes at D0
+    const dailyOf = (sym) => (sym === "AUSDT" ? dailyA : []);
+    const r1 = (v) => Math.round(v * 10) / 10;
+    const wkClose = D0 - 2 * DAY_MS; // a 1w bar that closed two days before the newest daily close
+    const mkRows = () => [{ ac: "crypto", pair: "AUSDT", t: wkClose - 7 * DAY_MS, tc: wkClose, ft: undefined }, { ac: "crypto", pair: "BUSDT", t: D0, tc: D0 + 3_600_000, ft: undefined }, { ac: "stock", pair: "AAPL", t: D0, tc: D0 + 3_600_000, ft: undefined }];
     const tick = () => new Promise((r) => setTimeout(r, 1));
-    const values = new Map([["AUSDT", 41.26], ["BUSDT", -8]]);
-    const fundOf = (sym) => values.get(sym) ?? null;
+    const asOfRow = r1(fundTrend(dailyA, wkClose).value);
+    const asOfNow = r1(fundTrend(dailyA, D0).value);
 
     ok("FEED_WAIT_MS is 90 s", FEED_WAIT_MS === 90_000);
     {
@@ -203,29 +209,37 @@ async function main() {
     {
       const writes = []; const tm = fakeTimers(); let res; const settled = new Promise((r) => { res = r; });
       const rows = mkRows();
-      const p = writeLiveRows(rows, { write: async (rs) => { writes.push(rs.map((r) => r.pair + ":" + r.ft)); return rs.length; }, settled, fundTrendOf: fundOf, timers: tm });
+      const p = writeLiveRows(rows, { write: async (rs) => { writes.push(rs.map((r) => r.pair + ":" + r.ft)); return rs.length; }, settled, dailyOf, timers: tm });
       await tick();
       ok("non-crypto rows write at once, crypto rows wait for the feed", writes.length === 1 && writes[0].join() === "AAPL:undefined", JSON.stringify(writes));
       res(); const n = await p;
-      ok("after the feed settles, crypto rows write with ft (1 decimal) from the feed", writes.length === 2 && writes[1].join() === "AUSDT:41.3,BUSDT:-8" && n === 3, JSON.stringify(writes));
+      ok("after the feed settles, crypto rows write with ft from the daily bars (1 decimal); a pair with no daily bars gets null", writes.length === 2 && writes[1].join() === "AUSDT:" + asOfRow + ",BUSDT:null" && n === 3, JSON.stringify(writes));
+      ok("I-1: a 1w row closing two days before the newest daily close gets ft as of ITS close, not the value now", rows[0].ft === asOfRow && asOfRow !== asOfNow, [rows[0].ft, asOfRow, asOfNow].join());
       ok("the non-crypto row never gets ft", rows[2].ft === undefined);
     }
     {
       const writes = []; const tm = fakeTimers(); const rows = mkRows();
-      const p = writeLiveRows(rows, { write: async (rs) => { writes.push(rs.map((r) => r.pair + ":" + r.ft)); return rs.length; }, settled: new Promise(() => {}), fundTrendOf: (s) => (s === "AUSDT" ? 5 : null), timers: tm });
+      rows[1] = { ac: "crypto", pair: "AUSDT", t: D0 + 5 * DAY_MS, tc: D0 + 5 * DAY_MS + 3_600_000, ft: undefined };
+      const p = writeLiveRows(rows, { write: async (rs) => { writes.push(rs.map((r) => r.pair + ":" + r.ft)); return rs.length; }, settled: new Promise(() => {}), dailyOf, timers: tm });
       await tick(); tm.fire(); await p;
-      ok("90 s timeout writes the crypto rows with what is available (nulls elsewhere)", writes.length === 2 && writes[1].join() === "AUSDT:5,BUSDT:null", JSON.stringify(writes));
+      ok("I-1: 90 s timeout still applies the 36 h rule: a stale cache (newest daily close days before the row) gives null", writes.length === 2 && writes[1].join() === "AUSDT:" + asOfRow + ",AUSDT:null", JSON.stringify(writes));
+    }
+    {
+      const writes = []; const rows = mkRows(); const none = [];
+      await writeLiveRows(rows, { write: async (rs) => { writes.push(rs.length); return rs.length; }, settled: Promise.resolve(), timers: fakeTimers() });
+      for (const r of rows) none.push(r.ft);
+      ok("M6: with no daily data source (hosted build) crypto rows get ft null, not undefined", none[0] === null && none[1] === null && none[2] === undefined, none.join());
     }
     {
       const writes = []; const ac = new AbortController(); const rows = mkRows();
-      const p = writeLiveRows(rows, { write: async (rs) => { writes.push(rs.length); return rs.length; }, settled: new Promise(() => {}), signal: ac.signal, fundTrendOf: fundOf, timers: fakeTimers() });
+      const p = writeLiveRows(rows, { write: async (rs) => { writes.push(rs.length); return rs.length; }, settled: new Promise(() => {}), signal: ac.signal, dailyOf, timers: fakeTimers() });
       await tick(); ac.abort(); const n = await p;
-      ok("abort writes the waiting rows immediately with what is available, never drops them", n === 3 && writes.length === 2 && rows[0].ft === 41.3 && rows[1].ft === -8);
+      ok("abort writes the waiting rows immediately with what is available, never drops them", n === 3 && writes.length === 2 && rows[0].ft === asOfRow && rows[1].ft === null);
     }
     {
       const writes = []; const rows = [{ ac: "stock", pair: "X", ft: undefined }];
       const tm = fakeTimers();
-      const n = await writeLiveRows(rows, { write: async (rs) => { writes.push(rs.length); return rs.length; }, settled: new Promise(() => {}), fundTrendOf: fundOf, timers: tm });
+      const n = await writeLiveRows(rows, { write: async (rs) => { writes.push(rs.length); return rs.length; }, settled: new Promise(() => {}), dailyOf, timers: tm });
       ok("a scan with no crypto rows never waits or arms a timer", n === 1 && writes.length === 1 && tm.count() === 0);
     }
     {

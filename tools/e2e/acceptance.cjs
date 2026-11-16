@@ -2020,7 +2020,7 @@ function dsCompare(base, now, prefix = "") {
     const hatch = p.locator('[data-fund="disagree"] [data-disagree]');
     await hatch.first().waitFor({ timeout: 40000 }).catch(() => null);
     const hatchN = await hatch.count();
-    const hatchInfo = hatchN ? await p.locator('[data-fund="disagree"]').first().evaluate((g) => ({ fill: g.querySelector("rect")?.getAttribute("fill"), diamond: !!g.querySelector("path"), title: g.querySelector("title")?.textContent })) : null;
+    const hatchInfo = hatchN ? await p.locator('[data-fund="disagree"]').first().evaluate((g) => ({ fill: g.querySelector("rect")?.getAttribute("fill"), pattern: !!g.querySelector("pattern[id^='ft-hatch-']") && g.querySelector("rect")?.getAttribute("fill") === `url(#${g.querySelector("pattern")?.id})`, diamond: !!g.querySelector("path"), title: g.querySelector("title")?.textContent })) : null;
     await p.waitForTimeout(3600);
     const done = await anim(btc).catch(() => null);
     // Ribbon off and on again does not replay the pulse.
@@ -2039,6 +2039,12 @@ function dsCompare(base, now, prefix = "") {
     await mark(pr, "BTC").waitFor({ timeout: 30000 }).catch(() => null);
     await pr.waitForTimeout(500);
     const reduced = { count: await mark(pr, "BTC").count(), anim: await anim(mark(pr, "BTC")).catch(() => null), out: await rowOutline(pr, "BTC") };
+    // I-3: in Keep pulsing mode under reduced motion nothing pulses, so there is no Stop pulsing button.
+    await pr.getByRole("button", { name: /^Scoring profile/ }).click();
+    await pr.locator('[data-testid="fund-pulse"]').selectOption("keep");
+    await pr.getByRole("button", { name: /^Scoring profile/ }).click();
+    await pr.waitForTimeout(600);
+    reduced.stopKeepReduced = await pr.locator('[data-testid="stop-pulse"]').count();
     await cr.close();
 
     // --- keep pulsing: infinite until the coin is opened or Stop pulsing is pressed ---
@@ -2067,17 +2073,39 @@ function dsCompare(base, now, prefix = "") {
     const afterStop = { eth: await anim(mark(pk, "ETH")).catch(() => null), stop: await stopBtn.count(), marks: await pk.locator('[data-testid="fund-disagree"]').count() };
     await ck.close();
 
+    // --- I-3: with keep pulses running, changing the mode to Off removes them and the Stop pulsing button ---
+    const cm = await newContext(browser);
+    const pm = await openPage(cm);
+    await pm.waitForTimeout(2500);
+    await pm.getByRole("button", { name: /^Scoring profile/ }).click();
+    await pm.locator('[data-testid="fund-pulse"]').selectOption("keep");
+    await pm.getByRole("button", { name: /^Scoring profile/ }).click();
+    await setRibbon(pm, true, "SOL");
+    await pm.keyboard.press("Escape");
+    await pm.keyboard.press("Escape");
+    await mark(pm, "BTC").waitFor({ timeout: 30000 }).catch(() => null);
+    await pm.waitForTimeout(600);
+    const modeChange = { before: await pm.locator('[data-testid="stop-pulse"]').count() };
+    await pm.getByRole("button", { name: /^Scoring profile/ }).click();
+    await pm.locator('[data-testid="fund-pulse"]').selectOption("off");
+    await pm.getByRole("button", { name: /^Scoring profile/ }).click();
+    await pm.waitForTimeout(400);
+    modeChange.after = await pm.locator('[data-testid="stop-pulse"]').count();
+    modeChange.marks = await pm.locator('[data-testid="fund-disagree"]').count();
+    await cm.close();
+
     record("FT-4", "Disagreement: no list marker with the ribbon off; on, the marker (labelled) and a row outline appear and pulse 3 times, then stay without replay; chart bars get hatching and a diamond; reduced motion shows no animation; Keep pulsing runs until the coin is opened or Stop pulsing is pressed",
       offCount === 0 && offOutline === 0
         && first.count === 1 && first.anim?.name === "ft-pulse" && first.anim?.iter === "3" && first.label === "Confluence and Fund trend disagree" && first.out.style === "solid" && first.out.cls
         && ethFirst.count === 1 && ethFirst.dir === "-1"
-        && hatchN > 0 && hatchInfo?.fill === "url(#ft-hatch)" && hatchInfo?.diamond && hatchInfo?.title === "Confluence and Fund trend disagree"
+        && hatchN > 0 && /^url\(#ft-hatch-[A-Za-z0-9_-]+\)$/.test(hatchInfo?.fill || "") && hatchInfo?.pattern && hatchInfo?.diamond && hatchInfo?.title === "Confluence and Fund trend disagree"
         && done?.name === "none" && replay?.name === "none"
         && reduced.count === 1 && reduced.anim?.name === "none" && reduced.out.style === "solid"
         && keepBefore.btc?.name === "ft-pulse" && keepBefore.btc?.iter === "infinite" && keepBefore.eth?.iter === "infinite" && keepBefore.stop === 1 && keepBefore.stopText === "Stop pulsing"
         && afterOpen.btc?.name === "none" && afterOpen.eth?.iter === "infinite" && afterOpen.stop === 1
-        && afterStop.eth?.name === "none" && afterStop.stop === 0 && afterStop.marks === 2,
-      { offCount, offOutline, first, ethFirst, hatchN, hatchInfo, done, replay, reduced, keepBefore, afterOpen, afterStop });
+        && afterStop.eth?.name === "none" && afterStop.stop === 0 && afterStop.marks === 2
+        && reduced.stopKeepReduced === 0 && modeChange.before === 1 && modeChange.after === 0 && modeChange.marks === 2,
+      { offCount, offOutline, first, ethFirst, hatchN, hatchInfo, done, replay, reduced, keepBefore, afterOpen, afterStop, modeChange });
 
     // --- Fund rank column: absent by default, present when enabled ---
     const c5 = await newContext(browser);

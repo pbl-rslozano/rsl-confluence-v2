@@ -72,7 +72,7 @@ import { createSerialQueue, writeLiveRows } from "@/lib/fund-feed-gate";
 import { disagreement, fundRanks, fundTrendSeriesFull, isFundTrendClass, type FundTrendState } from "@/lib/fund-trend";
 import { pulseLedger } from "@/lib/pulse-ledger";
 import { FundDisagreeMark, StopPulseButton } from "@/components/fund-disagree-mark";
-import { panelBarsNeeded, panelCacheFor, panelCacheKey, PANEL_MAX_BARS, resolvePanelScores, type PanelScoreMap } from "@/lib/panel-scores";
+import { loadOlderOnce, panelBarsNeeded, panelCacheFor, panelCacheKey, PANEL_MAX_BARS, resolvePanelScores, type PanelScoreMap } from "@/lib/panel-scores";
 import { deltaPlan, loadHistoricalSeries, MAX_STORED_BARS, mergeDelta, mergeKlines, saveHistoricalSeries } from "@/lib/history-store";
 import {
   createBatcher, initialRows, liveOnly, priorityOrder, PRIORITY_TOP, ProgressiveRows, recordable, rememberedTickers, rememberTickers,
@@ -91,6 +91,7 @@ import {
   fetchOrderBook,
   MAX_HISTORY_BARS,
   priceCurrencyOf,
+  RateLimitError,
   type ListMeta,
   slippageBps,
   usesDirectFetch,
@@ -647,8 +648,6 @@ export default function Home() {
   /** v2.8 (WP21): Fund trend per `source|symbol`, filled by the daily-bar feed that runs behind a finished scan (no display yet). */
   const [fundTrends, setFundTrends] = useState<Map<string, FundTrendState>>(new Map());
   const fundPendingRef = useRef<Map<string, FundTrendState>>(new Map());
-  /** v2.8 (WP21): the latest Fund trend state per `source|symbol`, readable from the scan (live ledger rows log `ft` from it). */
-  const fundStateRef = useRef<Map<string, FundTrendState>>(new Map());
   const fundAbortRef = useRef<AbortController | null>(null);
   /**
    * v2.8 (WP21): the detail sheet loads daily bars ONLY while the opt-in ribbon or panel is on (nothing at rest),
@@ -706,26 +705,18 @@ export default function Home() {
     const [src, tf, pair] = [detailAsset.src, detailAsset.tf, detailAsset.pair];
     const ac = new AbortController();
     void (async () => {
-      let older: Kline[] = [];
-      try {
+      const stored = await loadOlderOnce(panelOlderRef.current, panelSeriesKey, async () => {
         // One history page at most (1,000 bars) on both paths; fetchHistory itself never goes below 200.
         const limit = Math.min(1000, Math.max(200, panelBarsNeeded(PANEL_MAX_BARS) - held.count));
         const endTime = held.first - 1;
-        if (usesDirectFetch()) {
-          older = (await fetchHistory(src, pair, tf, limit, endTime, ac.signal)).klines; // asserts the venue cooldown
-        } else {
-          const qs = new URLSearchParams({ source: src, interval: tf, symbol: pair, limit: String(limit), endTime: String(endTime) });
-          const response = await fetch(`/api/market/history?${qs.toString()}`, { cache: "no-store", signal: ac.signal });
-          const payload = await response.json() as { klines?: Kline[] };
-          if (response.ok && payload.klines) older = payload.klines;
-        }
-      } catch {
-        if (ac.signal.aborted) return; // closed or switched: not an attempt
-        older = []; // failed (network, cooldown): the line is drawn where a full window exists, and the note says so
-      }
-      if (ac.signal.aborted) return;
-      panelOlderRef.current.set(panelSeriesKey, older);
-      setPanelOlderVer((n) => n + 1);
+        if (usesDirectFetch()) return (await fetchHistory(src, pair, tf, limit, endTime, ac.signal)).klines; // asserts the venue cooldown (RateLimitError, no request sent)
+        const qs = new URLSearchParams({ source: src, interval: tf, symbol: pair, limit: String(limit), endTime: String(endTime) });
+        const response = await fetch(`/api/market/history?${qs.toString()}`, { cache: "no-store", signal: ac.signal });
+        if (response.status === 429) throw new RateLimitError("Exchange rate limit", 0); // refused by the venue: not the one attempt
+        const payload = await response.json() as { klines?: Kline[] };
+        return response.ok && payload.klines ? payload.klines : [];
+      }, ac.signal);
+      if (stored) setPanelOlderVer((n) => n + 1);
     })();
     return () => ac.abort();
   }, [panelSeriesKey]);
@@ -1148,8 +1139,6 @@ export default function Home() {
         src: source, tf, intervalMs: data.intervalMs, appVersion: APP.version,
         universe: data.universe, basisBySymbol: data.basisBySymbol,
         ...(derivatives.length ? { derivatives } : {}),
-        // v2.8 (WP21): ft of a live row = the Fund trend already known for that pair (null while it is loading or unavailable).
-        fundTrendOf: (symbol) => { const st = fundStateRef.current.get(`${source}|${symbol}`); return st && !("na" in st) ? st.value : null; },
       };
       // Cross-sectional fields (RS percentile, BTC beta, universe rank) once the chosen list is complete, as in a full scan.
       const shared = scanShared(prepared.filter((p) => p.fresh && p.kl.length).map((p) => seriesOf(p.t, p.kl)), data.universe);
@@ -1183,7 +1172,8 @@ export default function Home() {
             write: (rs) => ledgerStore.record(rs, universeSnap).catch(() => 0),
             settled: feedSettled,
             signal: feed.signal,
-            fundTrendOf: (symbol) => { const st = fundStateRef.current.get(`${source}|${symbol}`); return st && !("na" in st) ? st.value : null; },
+            // ft as of each row's OWN bar close (the catch-up rule: daily bars closed at or before it, 36 h staleness), never the value now.
+            ...(usesDirectFetch() ? { dailyOf: (symbol: string) => cachedDailyBars(source, symbol) } : {}),
           }).catch(() => 0)
         : Promise.resolve(0);
 
@@ -1350,7 +1340,7 @@ export default function Home() {
           const fundBatcher = createBatcher(flushFund);
           void fundQueueRef.current.enqueue(() => loadFundTrends(source, feedRows, Date.now(), {
             signal: feed.signal,
-            onValue: (symbol, state) => { fundPendingRef.current.set(`${source}|${symbol}`, state); fundStateRef.current.set(`${source}|${symbol}`, state); fundBatcher.schedule(); },
+            onValue: (symbol, state) => { fundPendingRef.current.set(`${source}|${symbol}`, state); fundBatcher.schedule(); },
           }), feed.signal)
             .then(() => fundBatcher.flushNow(), () => fundBatcher.cancel()) // a rejection = aborted by a newer scan or a source switch
             .finally(resolveFeed);
@@ -2058,7 +2048,7 @@ export default function Home() {
                 {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               </Button>
             )}
-            {listRibbonOn && <StopPulseButton label={t("ft.stopPulse")} />}
+            {listRibbonOn && <StopPulseButton label={t("ft.stopPulse")} mode={fundPulse} />}
             <Button
               variant="outline"
               size="sm"

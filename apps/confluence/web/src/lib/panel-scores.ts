@@ -15,6 +15,26 @@ export const panelBarsNeeded = (visible: number) => ENGINE_BARS + Math.min(PANEL
 
 export const panelCacheKey = (src: string, tf: string, pair: string, lastBarTime: number, cfg: string) => `${src}|${tf}|${pair}|${lastBarTime}|${cfg}`;
 
+/**
+ * The one older-bars request per series (source|tf|pair) per session. `fetchOlder` runs the request; its result (or `[]` after a
+ * failed request) is stored under `key` so the series is never asked again. A refusal that sent no request (a venue cooldown or a
+ * 429, `reason` "RATE_LIMIT") or an abort is NOT the attempt: nothing is stored, so a later open retries. True when stored.
+ */
+export async function loadOlderOnce(store: Map<string, Kline[]>, key: string, fetchOlder: () => Promise<Kline[]>, signal: AbortSignal): Promise<boolean> {
+  if (store.has(key)) return false;
+  let older: Kline[];
+  try {
+    older = await fetchOlder();
+  } catch (error) {
+    if (signal.aborted) return false; // closed or switched: not an attempt
+    if ((error as { reason?: string } | null)?.reason === "RATE_LIMIT") return false; // refused before any request: retry on a later open
+    older = []; // a request was sent and failed: the line is drawn where a full window exists, and the note says so
+  }
+  if (signal.aborted) return false;
+  store.set(key, older);
+  return true;
+}
+
 /** bar open time -> score (null = no full window / unusable). Bounded: oldest series dropped first. */
 export type PanelScoreMap = Map<number, number | null>;
 const CACHE_SERIES = 24;

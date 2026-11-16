@@ -5,7 +5,7 @@ import {
   DEFAULT_COSTS, CLASS_EXTRA_SLIP_BPS, LEDGER_CSV_COLUMNS, ledgerRowValues, PRIMARY_WARM_BARS,
   parseLedgerImport, sanitizeLedgerRow, isSpotSellGroup, hasFundTrendBench,
 } from "./ledger-metrics.ts";
-import { liveRow, scanShared, applyFundTrend } from "./scan-record.ts";
+import { liveRow, scanShared, applyFundTrend, enrichCatchUp } from "./scan-record.ts";
 import { fundTrend } from "./fund-trend.ts";
 import { engineConfigId } from "./engine-config.ts";
 import { runCatchUp, packKlines } from "./scan-jobs.ts";
@@ -676,6 +676,12 @@ console.log("WP21 ft: ledger field, CSV, catch-up no-look-ahead, benchmark");
       const stale = mk("BTCUSDT", lastClose + 36 * H); // closes 40 h after
       applyFundTrend([fresh, edge, stale], () => daily);
       ok("a row closing more than 36 h after the newest daily close gets ft null; 36 h and fresh keep it", typeof fresh.ft === "number" && typeof edge.ft === "number" && stale.ft === null, [fresh.ft, edge.ft, stale.ft].join());
+    }
+    {
+      // M6: with no daily data source (hosted build) crypto catch-up rows carry ft null, like live rows; other classes carry none.
+      const hosted = [mk("BTCUSDT", dayN(500) + 4 * H), mk("AAPLUSDT", dayN(520), "stock")];
+      enrichCatchUp(hosted, [], { src: "binance", tf: "4h", intervalMs: 4 * H, appVersion: "x" }, { btc: undefined, rs: new Map(), universeRank: new Map() });
+      ok("M6: crypto catch-up rows get ft null (not undefined) when there is no daily data source", hosted[0].ft === null && hosted[1].ft === undefined, hosted.map((x) => x.ft).join());
     }
     ok("two bars of the same day share one ft (daily bar of that day is not closed yet)", same[0].ft === same[1].ft);
   }

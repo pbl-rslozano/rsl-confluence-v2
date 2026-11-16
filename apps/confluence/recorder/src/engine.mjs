@@ -28,7 +28,7 @@ export { engineConfigId, ENGINE_VERSION, ENGINE_BARS } from "../../web/src/lib/e
 export { classifySymbol, inClass, barWhileClosed, ASSET_CLASS_FILTERS } from "../../web/src/lib/asset-classes.ts";
 export { mergeKlines } from "../../web/src/lib/history-store.ts";
 export { enrich, percentiles, ret20 } from "../../web/src/lib/enrichment.ts";
-export { liveRow, catchUpContext, enrichCatchUp, scanShared } from "../../web/src/lib/scan-record.ts";
+export { liveRow, catchUpContext, enrichCatchUp, applyFundTrend, scanShared } from "../../web/src/lib/scan-record.ts";
 export { BUILD_INFO } from "../../web/src/lib/build-info.ts";
 export { normalizeScoringProfile } from "../../web/src/lib/scoring-profile.ts";
 // v2.8 (WP19): the Pattern output and the derivative context recorded on each row.

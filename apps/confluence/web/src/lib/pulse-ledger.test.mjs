@@ -20,6 +20,7 @@ test("keep pulses run until stopped; stopPair and stopAll end them and notify", 
   l.claim("a|X", 1, 1, true);
   l.claim("a|Y", 1, -1, true);
   l.claim("a|Z", 1, 1, false);
+  l.mount(pulseKey("a|X", 1, 1)); l.mount(pulseKey("a|Y", 1, -1)); l.mount(pulseKey("a|Z", 1, 1));
   assert.equal(l.isActive(pulseKey("a|X", 1, 1)), true);
   assert.equal(l.isActive(pulseKey("a|Z", 1, 1)), true);
   l.finish(pulseKey("a|Z", 1, 1));
@@ -35,6 +36,48 @@ test("keep pulses run until stopped; stopPair and stopAll end them and notify", 
   assert.equal(l.runningCount(), 0);
   assert.ok(n > before);
   assert.equal(l.claim("a|X", 1, 1, true), false, "a stopped pulse is not replayed");
+});
+
+test("I-3: only keep pulses whose marker is mounted count as running; unmount (scroll/filter/mode change) ends them", () => {
+  const l = createPulseLedger();
+  const k = pulseKey("a|X", 1, 1);
+  l.claim("a|X", 1, 1, true);
+  assert.equal(l.runningCount(), 0, "claimed but not mounted: nothing is pulsing on screen");
+  l.mount(k);
+  assert.equal(l.runningCount(), 1);
+  let n = 0; l.subscribe(() => { n++; });
+  l.unmount(k);
+  assert.equal(l.runningCount(), 0, "row scrolled or filtered away, ribbon off, mode changed: no keep pulse is left");
+  assert.equal(l.isActive(k), false);
+  assert.ok(n > 0, "subscribers are told, so the Stop button disappears");
+  assert.equal(l.claim("a|X", 1, 1, true), false, "an ended pulse is not replayed");
+});
+
+test("I-3: a new bar's keep pulse replaces the old bar's keep pulse of the same pair; other pairs are untouched", () => {
+  const l = createPulseLedger();
+  const old = pulseKey("a|X", 1, 1), other = pulseKey("a|Y", 1, 1);
+  l.claim("a|X", 1, 1, true); l.mount(old);
+  l.claim("a|Y", 1, 1, true); l.mount(other);
+  assert.equal(l.runningCount(), 2);
+  l.claim("a|X", 2, 1, true); l.mount(pulseKey("a|X", 2, 1));
+  assert.equal(l.isActive(old), false, "the old bar's entry is removed");
+  assert.equal(l.isActive(other), true);
+  assert.equal(l.runningCount(), 2);
+});
+
+test("I-3: a disagreement that ends (the mark unmounts) leaves no Stop button; a three-pulse mark is unaffected by mount counts", () => {
+  const l = createPulseLedger();
+  const k = pulseKey("a|X", 1, 1), z = pulseKey("a|Z", 1, 1);
+  l.claim("a|X", 1, 1, true); l.mount(k);
+  l.claim("a|Z", 1, 1, false); l.mount(z);
+  assert.equal(l.runningCount(), 1, "three-pulse marks never count");
+  l.unmount(z);
+  assert.equal(l.isActive(z), false);
+  l.unmount(k);
+  assert.equal(l.runningCount(), 0);
+  // a double mount (React development) needs two unmounts
+  l.claim("a|W", 1, 1, true); const w = pulseKey("a|W", 1, 1); l.mount(w); l.mount(w); l.unmount(w);
+  assert.equal(l.runningCount(), 1);
 });
 
 test("the record is bounded", () => {

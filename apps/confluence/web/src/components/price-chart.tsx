@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Kline } from "@/lib/indicators";
 import { ema, macdHistogram, sma, rollingStdDev } from "@/lib/indicators";
 import {
@@ -135,6 +135,8 @@ function canUseNativeFullscreen(el: HTMLElement | null): boolean {
 }
 
 export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatAxis, convertPrice, fundTrend, fundTrendNote, fundSize, panelScores, panelNote, fundRankLabel, onPanelRange }: Props) {
+  // M7: the hatch pattern id is unique per chart (two charts mounted at once, e.g. fullscreen plus sheet, must not share it).
+  const hatchId = `ft-hatch-${useId().replace(/[^A-Za-z0-9_-]/g, "")}`;
   const { t } = useRsl();
   const optIns = useChartOptIn();
   const showRibbon = optIns.has("fund-ribbon");
@@ -493,13 +495,13 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
           </g>}
           {marks && marks.some((m) => m !== 0) && <g data-fund="disagree">
             <defs>
-              <pattern id="ft-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <pattern id={hatchId} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
                 <line x1="0" y1="0" x2="0" y2="6" stroke="#fbbf24" strokeWidth="1.5" />
               </pattern>
             </defs>
             {marks.map((m, i) => m === 0 ? null : (
               <g key={`d${i}`} data-disagree={m}>
-                <rect x={x(i) - step / 2} y={PAD_T} width={step} height={priceH} fill="url(#ft-hatch)" opacity={0.3} pointerEvents="none" />
+                <rect x={x(i) - step / 2} y={PAD_T} width={step} height={priceH} fill={`url(#${hatchId})`} opacity={0.3} pointerEvents="none" />
                 <path d={`M${x(i)},${PAD_T + 1} l4,4.5 l-4,4.5 l-4,-4.5 z`} fill="#fbbf24" role="img" aria-label={t("ft.disagree")}>
                   <title>{t("ft.disagree")}</title>
                 </path>

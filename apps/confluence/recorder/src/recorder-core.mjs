@@ -31,8 +31,8 @@ import { evaluateWorkspaceAlerts } from "./workspace-alerts.mjs";
 import { join } from "node:path";
 import { appendFileSync, closeSync, existsSync, fstatSync, openSync, readSync, renameSync, statSync } from "node:fs";
 import {
-  cachedDailyBars, catchUpContext, classifySymbol, contiguousTail, DERIV_MAX_AGE_MS, detectHistoricalPattern, ENGINE_BARS, engineConfigId, enrichCatchUp, fetchMarketData, INTERVAL_MS,
-  fundTrend, liveRow, loadFundTrends, mergeKlines, packKlines, parseDerivativeSnapshots, rateLimitCooldown, RateLimitError, runScanJobSafe, scanShared, scoreSeries, venueTypeOf,
+  applyFundTrend, cachedDailyBars, catchUpContext, classifySymbol, contiguousTail, DERIV_MAX_AGE_MS, detectHistoricalPattern, ENGINE_BARS, engineConfigId, enrichCatchUp, fetchMarketData, INTERVAL_MS,
+  liveRow, loadFundTrends, mergeKlines, packKlines, parseDerivativeSnapshots, rateLimitCooldown, RateLimitError, runScanJobSafe, scanShared, scoreSeries, venueTypeOf,
 } from "./engine.mjs";
 import { createGuardedFetch, installGlobalFetch, loadRecorderManifest, makeRedactor } from "./net.mjs";
 import { createCandleCache, createJsonlAppender, createLedger, ensureDir, monthOf, readJson, writeJsonAtomic } from "./store.mjs";
@@ -350,12 +350,9 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
       if (freshList.length && !signal?.aborted) {
         try {
           const feed = await loadFundTrends(source, freshList.map(({ t }) => ({ symbol: t.symbol, ac: classOf(t.symbol) })), Date.now(), { signal });
-          for (const row of [...catchUp, ...live.map((x) => x.row)]) {
-            if (row.ac !== "crypto") continue;
-            const st = feed.get(row.pair);
-            const v = st && "na" in st ? null : fundTrend(cachedDailyBars(source, row.pair), row.tc)?.value;
-            row.ft = typeof v === "number" ? Math.round(v * 10) / 10 : null;
-          }
+          // The same function the app uses for catch-up and live rows (applyFundTrend: value at the row's close, 36 h staleness).
+          const ftRows = [...catchUp, ...live.map((x) => x.row)];
+          applyFundTrend(ftRows, (symbol) => { const st = feed.get(symbol); return st && "na" in st ? [] : cachedDailyBars(source, symbol); });
           const cooling = rateLimitCooldown(source);
           if ([...feed.values()].some((x) => "na" in x && x.na === "loading") && cooling > 0) {
             result.rateLimitedUntil = Math.max(result.rateLimitedUntil ?? 0, Date.now() + cooling);

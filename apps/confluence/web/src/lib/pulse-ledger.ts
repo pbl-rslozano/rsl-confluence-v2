@@ -14,6 +14,7 @@ export function pulseKey(pairKey: string, bar: number, dir: PulseDir): string {
 export function createPulseLedger(max = 5000) {
   const shown = new Set<string>(); // insertion-ordered: the oldest go first
   const active = new Map<string, boolean>(); // key -> keep? (pulses playing now)
+  const mounted = new Map<string, number>(); // key -> marks mounted now (a keep pulse only counts while its mark is on screen)
   const listeners = new Set<() => void>();
   let version = 0;
   const emit = () => { version++; for (const l of [...listeners]) l(); };
@@ -24,6 +25,8 @@ export function createPulseLedger(max = 5000) {
       if (shown.has(k)) return false;
       shown.add(k);
       if (shown.size > max) { const oldest = shown.values().next().value as string; shown.delete(oldest); active.delete(oldest); }
+      // A new bar (or direction) for the same pair replaces that pair's earlier keep pulse: one pulse per coin.
+      if (keep) for (const [other, wasKeep] of [...active]) if (wasKeep && other !== k && other.startsWith(`${pairKey}|`)) active.delete(other);
       active.set(k, keep);
       emit();
       return true;
@@ -32,8 +35,20 @@ export function createPulseLedger(max = 5000) {
     isActive(key: string): boolean { return active.has(key); },
     /** The three-pulse animation ended. */
     finish(key: string): void { if (active.get(key) === false) { active.delete(key); emit(); } },
-    /** Keep pulses currently running. */
-    runningCount(): number { let n = 0; for (const keep of active.values()) if (keep) n++; return n; },
+    /** A mark for this key is on screen. */
+    mount(key: string): void { mounted.set(key, (mounted.get(key) ?? 0) + 1); emit(); },
+    /** The mark left the screen (scrolled or filtered away, ribbon off, mode changed, disagreement ended): its keep pulse ends. */
+    unmount(key: string): void {
+      const n = (mounted.get(key) ?? 0) - 1;
+      if (n > 0) { mounted.set(key, n); return; }
+      mounted.delete(key);
+      active.delete(key);
+      emit();
+    },
+    /** Keep pulses currently running: only those whose mark is mounted. */
+    runningCount(): number { let n = 0; for (const [k, keep] of active) if (keep && mounted.has(k)) n++; return n; },
+    /** Ends this key's keep pulse (the mode is no longer "keep"); a three-pulse one is left to finish. */
+    stopKey(key: string): void { if (active.get(key) === true) { active.delete(key); emit(); } },
     stopPair(pairKey: string): number {
       let n = 0;
       for (const [k, keep] of [...active]) if (keep && k.startsWith(`${pairKey}|`) && active.delete(k)) n++;

@@ -44,8 +44,6 @@ export interface ScanRecordContext {
   recordedAt?: number;
   /** v2.8 (WP19): Bybit linear derivative snapshots (recorder log, or imported in the app) → fr / oiChg. */
   derivatives?: ReadonlyArray<DerivativeSnapshot>;
-  /** v2.8 (WP21): Fund trend value now, per pair (live rows). A FundTrend value only; anything else (loading, no history) → null. */
-  fundTrendOf?: (symbol: string) => number | null;
   /** v2.8 (WP21): closed daily bars per pair (catch-up rows). Each row uses only the daily bars closed at or before its own bar close. */
   dailyOf?: (symbol: string) => Kline[];
 }
@@ -91,7 +89,6 @@ export function liveRow(p: ScanSeries, score: SeriesScore, ctx: ScanRecordContex
     ...(deriv ? deriv : {}),
   });
   if (!row) return null;
-  if (ctx.fundTrendOf && p.ac === "crypto") { const v = ctx.fundTrendOf(p.symbol); row.ft = typeof v === "number" && Number.isFinite(v) ? roundFt(v) : null; }
   return Object.assign(row, enrich(row, p.kl, {
     intervalMs: ctx.intervalMs,
     btc: shared.btc,
@@ -121,6 +118,7 @@ export function enrichCatchUp(rows: LedgerRow[], kl: Kline[], ctx: ScanRecordCon
     if (ctx.derivatives?.length) Object.assign(row, derivativeFields(ctx.derivatives, row.pair, row.tc));
   }
   if (ctx.dailyOf) applyFundTrend(rows, ctx.dailyOf);
+  else for (const row of rows) if (row.ac === "crypto") row.ft = null; // no daily data source (hosted build): "not available", like live rows
   return rows;
 }
 

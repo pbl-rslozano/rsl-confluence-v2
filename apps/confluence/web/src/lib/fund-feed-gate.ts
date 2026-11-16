@@ -7,7 +7,9 @@
  * `createSerialQueue` keeps the post-scan feed and the catch-up daily loading from running together
  * (concurrency stays 2 in total).
  */
-import { roundFt } from "./ledger-metrics";
+import type { LedgerRow } from "./ledger-metrics";
+import type { Kline } from "./indicators";
+import { applyFundTrend } from "./scan-record";
 
 export const FEED_WAIT_MS = 90_000;
 
@@ -51,14 +53,18 @@ export interface LiveWriteOptions<R> {
   /** Settles when this scan's post-scan feed has finished (or was never started). */
   settled: Promise<unknown>;
   signal?: AbortSignal;
-  /** The Fund trend known now for a pair (null when loading, unavailable or not yet fetched). */
-  fundTrendOf: (symbol: string) => number | null;
+  /**
+   * Closed daily bars per pair (the feed's cache). Each crypto row takes ft with the catch-up rule (applyFundTrend): daily bars closed
+   * at or before ITS OWN bar close, and a cache whose newest close is more than 36 h older than the row gives null. Absent (no daily
+   * data source, e.g. the hosted build) -> ft null.
+   */
+  dailyOf?: (symbol: string) => Kline[];
   timeoutMs?: number;
   timers?: GateTimers;
 }
 
 /** Non-crypto rows write at once; crypto rows wait for the feed (≤ 90 s, or an abort), take ft from it, then write. Never drops a row. */
-export async function writeLiveRows<R extends { ac: string; pair: string; ft?: number | null }>(rows: R[], o: LiveWriteOptions<R>): Promise<number> {
+export async function writeLiveRows<R extends { ac: string; pair: string; t: number; tc: number; ft?: number | null }>(rows: R[], o: LiveWriteOptions<R>): Promise<number> {
   const crypto = rows.filter((r) => r.ac === "crypto");
   const others = rows.filter((r) => r.ac !== "crypto");
   const writes: Promise<number>[] = [];
@@ -66,7 +72,8 @@ export async function writeLiveRows<R extends { ac: string; pair: string; ft?: n
   if (crypto.length) {
     writes.push((async () => {
       await waitForFeed(o.settled, { signal: o.signal, timeoutMs: o.timeoutMs, timers: o.timers });
-      for (const r of crypto) { const v = o.fundTrendOf(r.pair); r.ft = typeof v === "number" && Number.isFinite(v) ? roundFt(v) : null; }
+      if (o.dailyOf) applyFundTrend(crypto as unknown as LedgerRow[], o.dailyOf);
+      else for (const r of crypto) r.ft = null;
       return o.write(crypto);
     })());
   }
