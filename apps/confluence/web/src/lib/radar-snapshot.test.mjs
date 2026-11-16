@@ -1,9 +1,10 @@
 // Radar snapshot runner, gating and context log — v2.8 Step 4a (WP25, Task 5).
 // Run: npm run test:radar-snap   (node scripts/run-engine-tests.mjs radar-snapshot.test.mjs)
 import {
-  createRadarRunner, radarAllowed, toRadarContext, radarFields, loadRadarLog, appendRadarContext, radarLogId, RADAR_INTERVAL_MS, RETRY_MS,
+  createRadarRunner, radarAllowed, toRadarContext, normalizeContext, radarFields, loadRadarLog, appendRadarContext, radarLogId, RADAR_INTERVAL_MS, RETRY_MS,
 } from "./radar/snapshot.ts";
 import { DEFAULT_THRESHOLDS } from "./radar/alerts.ts";
+import { sanitizeLedgerRow } from "./ledger-metrics.ts";
 import { RADAR_COLLECTION, RADAR_CACHE_ID } from "./radar/store.ts";
 
 let passed = 0;
@@ -284,7 +285,7 @@ console.log("fix round 1");
   fail = true; ba = "stale"; s.clock.t += 10 * H;
   const b = await s.runner.refresh();
   const c = toRadarContext(b);
-  ok("I-2: the UI snapshot still shows the kept values with their stale time", b.positioning.BTCUSDT.fundingPctl30d === 50 && b.stale["positioning:BTCUSDT"] === T0 && b.alerts.some((x) => x.code === "BREAKAWAY_COINBASE"));
+  ok("I-2: the UI snapshot still shows the kept values with their stale time", b.positioning.BTCUSDT.fundingPctl30d === 50 && b.stale["positioning:BTCUSDT"] === T0 && !b.alerts.some((x) => x.code === "BREAKAWAY_COINBASE") /* M2: 10 h without break-away data: dropped, not listed as current */);
   ok("I-2: the logged context nulls stale positioning, buyer and regional fields", c.frp === null && c.oi24 === null && c.ls === null && c.tk === null && c.usP === null && c.krP === null && c.phP === null, JSON.stringify(c));
   ok("I-2: stale break-away codes are dropped from al", !c.al.some((x) => x.startsWith("BREAKAWAY_")), c.al.join());
 }
@@ -429,6 +430,93 @@ console.log("threshold edit during a running refresh");
   release();
   const a = await p;
   ok("an edit made while fetches are pending is used by the published alerts", !a.alerts.some((x) => x.code === "BREAKAWAY_COINBASE"));
+}
+
+console.log("fix wave: I-1 producer ranges = sanitiser ranges");
+{
+  const snap = (p, rg, by) => ({ t: T0, positioning: { BTCUSDT: p, ETHUSDT: null }, regional: rg, buyer: by, cot: { BTC: null, ETH: null }, supply: null, alerts: [], stale: {}, unavailable: [] });
+  const bad = toRadarContext(snap(
+    { symbol: "BTCUSDT", fundingRate: 0, fundingPctl30d: 120, oi: 1, oiChg24hPct: 20000, longShortRatio: 150, takerBuySellRatio: 1, basisPct: 0, asOf: T0 },
+    { usPct: 61, krPct: 60, phPct: -80, asOf: T0, unavailable: [] },
+    { takerShare: [1.5], sessions: { asia: 1, europe: 1, us: 1 }, asOf: T0 }));
+  ok("I-1 out-of-range fields are null in the produced context", bad.krP === null && bad.usP === null && bad.phP === null && bad.ls === null && bad.oi24 === null && bad.frp === null && bad.tk === null, JSON.stringify(bad));
+  const row = { cfg: "c1", ev: "1", app: "t", src: "binance", tf: "4h", ac: "crypto", rec: 0, sc: 0, m: 0, st: 0, sup: 0, lv: 0, v: 18, bu: 0, be: 0, er: null, bl: [0, 0, 0, 0], rk: 1, qv: 1, rd: 0, rc: 0, wb: 1000, live: 1,
+    id: `c1|binance|4h|BTCUSDT|${T0}`, pair: "BTCUSDT", t: T0, tc: T0 + 4 * H, c: 61234.5, ft: null, rad: JSON.parse(JSON.stringify(bad)) };
+  ok("I-1 the row survives sanitizeLedgerRow with those fields null", sanitizeLedgerRow(row) !== null && sanitizeLedgerRow(row).rad.krP === null);
+  const edge = toRadarContext(snap({ symbol: "BTCUSDT", fundingRate: 0, fundingPctl30d: 100, oi: 1, oiChg24hPct: 10000, longShortRatio: 100, takerBuySellRatio: 1, basisPct: 0, asOf: T0 }, { usPct: 50, krPct: -50, phPct: 0.5, asOf: T0, unavailable: [] }, { takerShare: [1], sessions: { asia: 1, europe: 1, us: 1 }, asOf: T0 }));
+  ok("I-1 boundary values are kept", edge.frp === 100 && edge.oi24 === 10000 && edge.ls === 100 && edge.tk === 1 && edge.usP === 50 && edge.krP === -50 && edge.phP === 0.5);
+  const n = normalizeContext({ t: T0, frp: 120, oi24: -101, ls: -1, tk: 2, usP: 51, krP: 60, phP: -51, al: [] });
+  ok("I-1 normalizeContext (recorder + stored docs) nulls out-of-range fields", n && n.frp === null && n.oi24 === null && n.ls === null && n.tk === null && n.usP === null && n.krP === null && n.phP === null);
+  ok("I-1 normalizeContext keeps in-range fields", normalizeContext({ t: T0, krP: 12.5, al: [] }).krP === 12.5);
+}
+
+console.log("fix wave: M1 regional partial failure keeps the last good per-row value");
+{
+  let mode = "ok";
+  const s = setup({
+    async regional() {
+      if (mode === "ok") return { usPct: 0.1, krPct: 1.2, phPct: -0.3, asOf: s.clock.t, unavailable: [] };
+      if (mode === "kr") return { usPct: 0.2, krPct: null, phPct: -0.1, asOf: s.clock.t, unavailable: ["upbit"] };
+      return { usPct: null, krPct: null, phPct: null, asOf: s.clock.t, unavailable: ["binance"] };
+    },
+  });
+  const a = await s.runner.refresh();
+  const tGood = a.regional.asOf;
+  s.clock.t += 5 * MIN; mode = "kr";
+  const b = await s.runner.refresh();
+  ok("M1 Upbit down: kr keeps its last good value, us/ph are fresh", b.regional.krPct === 1.2 && b.regional.usPct === 0.2 && b.regional.phPct === -0.1);
+  ok("M1 Upbit down: only the kr row is stale, with its time", b.stale["regional:kr"] === tGood && b.stale["regional:us"] === undefined && b.stale["regional:ph"] === undefined && b.stale.regional === undefined, JSON.stringify(b.stale));
+  ok("M1 the logged context nulls the stale row only", toRadarContext(b).krP === null && toRadarContext(b).usP === 0.2);
+  s.clock.t += 5 * MIN; mode = "binance";
+  const c = await s.runner.refresh();
+  const tUs = b.regional.asOf;
+  ok("M1 Binance down (all null): treated as the section's failure, rows kept, stale marked", c.regional.usPct === 0.2 && c.regional.krPct === 1.2 && typeof c.stale.regional === "number" && c.stale["regional:kr"] === tGood && c.stale["regional:us"] === tUs, JSON.stringify(c.stale));
+  ok("M1 the context of an all-stale regional is all null", (() => { const x = toRadarContext(c); return x.usP === null && x.krP === null && x.phP === null; })());
+  const s2 = setup({ async regional() { return { usPct: null, krPct: null, phPct: null, asOf: T0, unavailable: ["binance"] }; } });
+  const d = await s2.runner.refresh();
+  ok("M1 all-null with no earlier value: the section is unavailable", d.unavailable.includes("regional") && d.regional === null);
+}
+
+console.log("fix wave: M2 stale break-away alerts are marked stale and dropped after 2 h");
+{
+  const lastHour = Math.floor(T0 / H) * H;
+  let fresh = true;
+  const s = setup({
+    async breakAway() {
+      return fresh ? { closes: { binance: [100, 100], bybit: [100, 100], bitget: [100, 100], okx: [100, 100], coinbase: [101.5, 101.5] }, standing: {}, unavailable: [], closeTimes: [lastHour - H, lastHour], stale: false }
+        : { closes: {}, standing: {}, unavailable: [], closeTimes: [], stale: true };
+    },
+  });
+  const a = await s.runner.refresh();
+  const t0 = s.clock.t;
+  ok("M2 fresh: the alert is listed, not stale", a.alerts.some((x) => x.code === "BREAKAWAY_COINBASE") && a.stale.breakaway === undefined);
+  fresh = false; s.clock.t = t0 + 90 * MIN;
+  const b = await s.runner.refresh();
+  ok("M2 90 min without data: alert still listed but marked stale with the time of the data", b.alerts.some((x) => x.code === "BREAKAWAY_COINBASE") && b.stale.breakaway === t0, JSON.stringify(b.stale));
+  s.clock.t = t0 + 2 * H + MIN;
+  const c = await s.runner.refresh();
+  ok("M2 past 2 h: the stale alert is dropped and break-away is unavailable", !c.alerts.some((x) => x.kind === "breakaway") && c.unavailable.includes("breakaway") && c.stale.breakaway === undefined, JSON.stringify([c.alerts.map((x) => x.code), c.unavailable, c.stale]));
+  fresh = true; s.clock.t += 5 * MIN;
+  const d = await s.runner.refresh();
+  ok("M2 fresh data again: the alert returns, not stale", d.alerts.some((x) => x.code === "BREAKAWAY_COINBASE") && d.stale.breakaway === undefined);
+}
+
+console.log("fix wave: M3 depeg since = the scan's reading time");
+{
+  const reading = [{ coin: "USDC", reference: "USDT", deviationPct: 1.2 }];
+  let at = T0 - H;
+  const s = setup({}, { depeg: () => reading, depegSource: () => "binance", depegAt: () => at });
+  const a = await s.runner.refresh();
+  ok("M3 since is the reading time, not the refresh time", a.alerts.find((x) => x.code === "DEPEG_USDC")?.since === T0 - H);
+  s.clock.t += 5 * MIN;
+  const b = await s.runner.refresh();
+  ok("M3 since does not move forward on the next refresh", b.alerts.find((x) => x.code === "DEPEG_USDC")?.since === T0 - H);
+  at = T0 - 3 * H; s.clock.t += 5 * MIN;
+  const c = await s.runner.refresh();
+  ok("M3 a reading older than 2 h is not an alert", !c.alerts.some((x) => x.code === "DEPEG_USDC"));
+  const s2 = setup({}, { depeg: () => reading });
+  const d = await s2.runner.refresh();
+  ok("M3 without depegAt the refresh time is used (unchanged)", d.alerts.find((x) => x.code === "DEPEG_USDC")?.since === T0);
 }
 
 console.log(`\nradar snapshot: ${passed} passed, ${failed} failed`);

@@ -217,3 +217,22 @@ test("M1: the daily inputs are cached per UTC day in radar/daily.json (a later r
   await persistDailyDeps(dir, base).daily("binance", "BTCUSDT", Date.now());
   assert.equal(calls, 2);
 });
+
+test("fix wave I-1: out-of-range radar values are logged as null, so the ledger row survives a re-import", async (t) => {
+  const { createRadarRecorder } = await import("../src/radar.mjs");
+  const dir = tempDir(t);
+  const f = fakeFetchers();
+  f.regional = async () => ({ usPct: 0.1, krPct: 60, phPct: -0.3, asOf: Date.now(), unavailable: [] });
+  f.positioning = async (symbol) => ({ symbol, fundingRate: 0.0001, fundingPctl30d: 61.5, oi: 1, oiChg24hPct: 20000, longShortRatio: 150, takerBuySellRatio: 1.1, basisPct: 0.02, asOf: Date.now() });
+  const lines = [];
+  const rr = createRadarRecorder({ guard: { fetch: async () => { throw new Error("no network"); } }, outDir: dir, appendJsonl: (_p, recs) => { lines.push(...recs); return recs.length; }, monthOf: () => "2026-10", fetchers: f });
+  const { ctx } = await rr.refresh();
+  assert.equal(ctx.krP, null);
+  assert.equal(ctx.oi24, null);
+  assert.equal(ctx.ls, null);
+  assert.equal(ctx.usP, 0.1);
+  assert.equal(lines[0].krP, null);
+  const row = { cfg: "c1", ev: "1", app: "t", src: "binance", tf: "4h", ac: "crypto", rec: 0, sc: 0, m: 0, st: 0, sup: 0, lv: 0, v: 18, bu: 0, be: 0, er: null, bl: [0, 0, 0, 0], rk: 1, qv: 1, rd: 0, rc: 0, wb: 1000, live: 1,
+    id: `c1|binance|4h|BTCUSDT|${T0}`, pair: "BTCUSDT", t: T0, tc: T0 + 4 * H, c: 1, ft: null, rad: JSON.parse(JSON.stringify(ctx)) };
+  assert.notEqual(sanitizeLedgerRow(row), null);
+});

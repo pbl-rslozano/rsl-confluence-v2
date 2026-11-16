@@ -12,7 +12,9 @@
  * `stop()` aborts every in-flight request and clears the timer; a refresh that was aborted never publishes or logs.
  *
  * A section that fails keeps its last good value, and `stale[section]` is the time that value was good.
- * Stale keys: positioning:BTCUSDT, positioning:ETHUSDT, regional, buyer, cot (oldest kept COT), supply, breakaway. `unavailable` lists
+ * Stale keys: positioning:BTCUSDT, positioning:ETHUSDT, regional (whole section), regional:us / regional:kr / regional:ph (one premium
+ * whose source failed while the others answered: its last good value is kept, with its time), buyer, cot:BTC, cot:ETH, supply, breakaway
+ * (kept break-away inputs; dropped after FIELDS_MAX_AGE_MS without fresh data). `unavailable` lists
  * what has no value at all: positioning:<symbol>, regional, buyer, cot:<asset>, supply, breakaway, volume (daily volumes could
  * not be had or do not end at yesterday), plus `breakaway:<venue>` (hourly bars failed) and `standing:<venue>` (under 20 days).
  * Every section has a deadline (45 s): a timeout is that section's failure, not a stop. `snapshot.t` is the END of the refresh.
@@ -29,6 +31,7 @@ import { fetchFuturesPositioning, type FuturesPositioning } from "./binance-futu
 import { fetchBreakAwayCloses, fetchDailyVolumesDetailed, type BreakAwayCloses, type DailyVolumes } from "./breakaway-feed";
 import { fetchCot, type CotAsset, type CotReport } from "./cftc";
 import { fetchBuyerPressure, fetchRegionalDemand, type BuyerPressure, type RegionalDemand } from "./regional";
+import { radRanged } from "./rad-bounds";
 import { fetchStablecoinSupply, type SupplyPoint } from "./stablecoins";
 import {
   CFTC_TTL_MS, RADAR_COLLECTION, isFresh, loadRadarCache, saveCotCache, saveSupplyCache, serialised, supplyFreshForDay,
@@ -111,6 +114,8 @@ export interface RadarRunnerDeps {
   depeg: () => DepegReading[];
   /** Id of the scan source the readings came from (default binance). */
   depegSource?: () => string;
+  /** When the scan took the readings (ms). The depeg alert's `since`; readings older than 2 h are not alerts. Default: the refresh time. */
+  depegAt?: () => number | null | undefined;
   /** Per-section deadline in ms (default 45 s); a section that exceeds it counts as failed (kept value, stale), not as a stop. */
   sectionTimeoutMs?: number;
   /** Optional gate (radarAllowed of the caller): while it returns false, start/tick/refresh make no request. */
@@ -144,6 +149,7 @@ export function toRadarContext(s: RadarSnapshot): RadarContext {
   const p = st["positioning:BTCUSDT"] !== undefined ? null : s.positioning?.BTCUSDT ?? null;
   const shares = st.buyer !== undefined ? [] : s.buyer?.takerShare ?? [];
   const regional = st.regional !== undefined ? null : s.regional;
+  const prem = (key: "usP" | "krP" | "phP", id: "us" | "kr" | "ph", v: number | null | undefined) => (st[`regional:${id}`] !== undefined ? null : radRanged(key, v));
   let tk: number | null = null;
   for (let i = shares.length - 1; i >= 0; i--) {
     const v = num(shares[i]);
@@ -152,13 +158,14 @@ export function toRadarContext(s: RadarSnapshot): RadarContext {
   const al = [...new Set((s.alerts ?? []).filter((a) => !(st.breakaway !== undefined && a.kind === "breakaway")).map((a) => a.code).filter((c) => ALERT_CODE.test(c)))].sort().slice(0, 16);
   return {
     t: s.t,
-    frp: num(p?.fundingPctl30d),
-    oi24: num(p?.oiChg24hPct),
-    ls: num(p?.longShortRatio),
-    tk,
-    usP: num(regional?.usPct),
-    krP: num(regional?.krPct),
-    phP: num(regional?.phPct),
+    // Out-of-range values (a glitched price, a kimchi premium above 50 %) are logged as null: the ledger would reject the row.
+    frp: radRanged("frp", p?.fundingPctl30d),
+    oi24: radRanged("oi24", p?.oiChg24hPct),
+    ls: radRanged("ls", p?.longShortRatio),
+    tk: radRanged("tk", tk),
+    usP: prem("usP", "us", regional?.usPct),
+    krP: prem("krP", "kr", regional?.krPct),
+    phP: prem("phP", "ph", regional?.phPct),
     al,
   };
 }
@@ -184,7 +191,7 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 export function normalizeContext(raw: unknown): RadarContext | null {
   if (!isObj(raw) || typeof raw.t !== "number" || !Number.isFinite(raw.t) || raw.t <= 0) return null;
   const al = Array.isArray(raw.al) ? [...new Set(raw.al.filter((c): c is string => typeof c === "string" && ALERT_CODE.test(c)))].sort().slice(0, 16) : [];
-  return { t: raw.t, frp: num(raw.frp), oi24: num(raw.oi24), ls: num(raw.ls), tk: num(raw.tk), usP: num(raw.usP), krP: num(raw.krP), phP: num(raw.phP), al };
+  return { t: raw.t, frp: radRanged("frp", raw.frp), oi24: radRanged("oi24", raw.oi24), ls: radRanged("ls", raw.ls), tk: radRanged("tk", raw.tk), usP: radRanged("usP", raw.usP), krP: radRanged("krP", raw.krP), phP: radRanged("phP", raw.phP), al };
 }
 function normalizeLogDoc(raw: unknown): RadarContext[] {
   if (!isObj(raw) || !Array.isArray(raw.entries)) return [];
@@ -279,7 +286,7 @@ async function attempt<T>(fn: (s: AbortSignal) => Promise<T>, signal: AbortSigna
 
 /** What the alert rules read: the last good break-away closes, the daily volumes, the stablecoin readings and the supply series. */
 interface BreakInputs { closes: Record<string, number[]>; standing: Record<string, number | null>; closeTimes: number[] }
-interface AlertInputs { breakaway: BreakInputs | null; vol: DailyVolumes | null; readings: DepegReading[]; source: string; now: number; supply: SupplyPoint[] | null }
+interface AlertInputs { breakaway: BreakInputs | null; vol: DailyVolumes | null; readings: DepegReading[]; source: string; now: number; readingAt: number; supply: SupplyPoint[] | null }
 
 /** The alert rules over kept inputs, in the order break-away, volume, depeg, supply. Pure: no request. */
 function composeAlerts(inp: AlertInputs, th: RadarThresholds): RadarAlert[] {
@@ -289,7 +296,7 @@ function composeAlerts(inp: AlertInputs, th: RadarThresholds): RadarAlert[] {
     const a = volumeSpike(inp.vol.volumes, th, inp.vol.days[inp.vol.days.length - 1]);
     if (a) out.push(a);
   }
-  out.push(...depegAlerts(inp.readings, inp.source, inp.now));
+  out.push(...depegAlerts(inp.readings, inp.source, inp.readingAt));
   if (inp.supply) { const a = supplyJump(inp.supply, th); if (a) out.push(a); }
   return out;
 }
@@ -313,10 +320,12 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
   const kept: {
     positioning: Record<"BTCUSDT" | "ETHUSDT", { v: FuturesPositioning; at: number } | null>;
     regional: { v: RegionalDemand; at: number } | null;
+    /** The last good value of each premium and the time it was good (a source can fail while the others answer). */
+    premiums: Record<"usPct" | "krPct" | "phPct", { v: number; at: number } | null>;
     buyer: { v: BuyerPressure; at: number } | null;
     /** The last good break-away inputs (not the alerts), so a changed threshold can be applied without a request. */
     breakaway: { v: BreakInputs; at: number } | null;
-  } = { positioning: { BTCUSDT: null, ETHUSDT: null }, regional: null, buyer: null, breakaway: null };
+  } = { positioning: { BTCUSDT: null, ETHUSDT: null }, regional: null, premiums: { usPct: null, krPct: null, phPct: null }, buyer: null, breakaway: null };
   let daily: { day: number; data: DailyVolumes } | null = null;
   const retryAfter: Record<string, number> = {};
   let prunedDay = -1;
@@ -357,11 +366,33 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
       const volOut = await refreshVolumes(now, signal);
       if (signal.aborted) throw abortError();
 
-      const take = <T extends { asOf: number }>(slot: "regional" | "buyer", r: Outcome<T>) => {
+      const take = <T extends { asOf: number }>(slot: "buyer", r: Outcome<T>) => {
         if (r.ok) (kept as Record<string, unknown>)[slot] = { v: r.value, at: goodAt(r.value.asOf) };
         const k = kept[slot] as { v: T; at: number } | null;
         if (!r.ok) { if (k) stale[slot] = k.at; else unavailable.push(slot); }
         return k ? k.v : null;
+      };
+      /**
+       * Regional demand keeps the last good value of each premium with its time. An answer with every premium null (Binance
+       * spot down) is the section's failure; with some null (one source down) only those rows are stale (`regional:us|kr|ph`).
+       */
+      const PREM_IDS = { usPct: "us", krPct: "kr", phPct: "ph" } as const;
+      const takeRegional = (r: Outcome<RegionalDemand>): RegionalDemand | null => {
+        const rows = kept.premiums;
+        const keys = Object.keys(PREM_IDS) as (keyof typeof PREM_IDS)[];
+        if (r.ok && keys.some((k) => num(r.value[k]) !== null)) {
+          const at = goodAt(r.value.asOf);
+          for (const k of keys) { const x = num(r.value[k]); if (x !== null) rows[k] = { v: x, at }; }
+          const merged: RegionalDemand = { ...r.value, usPct: rows.usPct?.v ?? null, krPct: rows.krPct?.v ?? null, phPct: rows.phPct?.v ?? null };
+          kept.regional = { v: merged, at };
+          for (const k of keys) if (num(r.value[k]) === null && rows[k]) stale[`regional:${PREM_IDS[k]}`] = rows[k]!.at;
+          return merged;
+        }
+        const k = kept.regional;
+        if (!k) { unavailable.push("regional"); return null; }
+        stale.regional = k.at;
+        for (const key of keys) if (rows[key]) stale[`regional:${PREM_IDS[key]}`] = rows[key]!.at;
+        return { ...k.v, usPct: rows.usPct?.v ?? null, krPct: rows.krPct?.v ?? null, phPct: rows.phPct?.v ?? null };
       };
       const pos = (sym: "BTCUSDT" | "ETHUSDT", r: Outcome<FuturesPositioning>) => {
         if (r.ok) kept.positioning[sym] = { v: r.value, at: goodAt(r.value.asOf) };
@@ -370,16 +401,17 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
         return k ? k.v : null;
       };
       const positioning = { BTCUSDT: pos("BTCUSDT", bt), ETHUSDT: pos("ETHUSDT", et) };
-      const regional = take("regional", rg);
+      const regional = takeRegional(rg);
       const buyer = take("buyer", by);
 
       /* alerts: the inputs are kept so rethreshold() can re-run the rules without a request */
       if (ba.ok && !ba.value.stale && Object.keys(ba.value.closes).length) {
         kept.breakaway = { v: { closes: ba.value.closes, standing: ba.value.standing, closeTimes: ba.value.closeTimes }, at: deps.now() };
-      } else if (kept.breakaway) {
+      } else if (kept.breakaway && now - kept.breakaway.at <= FIELDS_MAX_AGE_MS) {
         // No usable break-away data this cycle: keep the previous inputs, marked stale, and invent none.
         stale.breakaway = kept.breakaway.at;
       } else {
+        kept.breakaway = null; // older than 2 h without fresh data: dropped, never shown as current
         unavailable.push("breakaway");
       }
       if (ba.ok) {
@@ -391,7 +423,10 @@ export function createRadarRunner(deps: RadarRunnerDeps): RadarRunner {
       try { source = deps.depegSource?.() || "binance"; } catch { /* default */ }
       let readings: DepegReading[] = [];
       try { readings = deps.depeg() ?? []; } catch { /* no readings */ }
-      const inputs: AlertInputs = { breakaway: kept.breakaway?.v ?? null, vol: volOut.data, readings, source, now, supply: supplyOut.points };
+      let readingAt = now;
+      try { const x = deps.depegAt?.(); if (typeof x === "number" && Number.isFinite(x) && x > 0) readingAt = Math.min(x, now); } catch { /* the refresh time */ }
+      if (readingAt < now - FIELDS_MAX_AGE_MS) readings = []; // an old scan's reading is not a current alert
+      const inputs: AlertInputs = { breakaway: kept.breakaway?.v ?? null, vol: volOut.data, readings, source, now, readingAt, supply: supplyOut.points };
       const alerts = composeAlerts(inputs, sanitizeThresholds(deps.thresholds()));
 
       for (const k of Object.keys(cotOut.stale)) stale[k] = cotOut.stale[k];

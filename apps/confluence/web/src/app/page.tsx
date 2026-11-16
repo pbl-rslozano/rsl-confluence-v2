@@ -214,6 +214,8 @@ interface ScanMeta {
   quoteCounts?: Record<string, number>;
   approx?: string[];
   depeg?: DepegReading[];
+  /** v2.8 (WP25 fix wave): when the scan took the depeg readings (ms); the radar's depeg "since". */
+  depegAt?: number;
   usdPhp?: number | null;
 }
 
@@ -954,7 +956,7 @@ export default function Home() {
         metaStage = 2;
         setScanMeta({
           source, currency: lm.priceCurrency ?? "USD", premium: {}, thin: lm.thinSymbols ?? [], thinFloorUsd: lm.thinFloorUsd,
-          tf, quote: lm.quote, quoteBySymbol: lm.quoteBySymbol, quoteCounts: lm.quoteCounts, approx: lm.approxVolume, depeg: lm.depeg, usdPhp: lm.usdPhp,
+          tf, quote: lm.quote, quoteBySymbol: lm.quoteBySymbol, quoteCounts: lm.quoteCounts, approx: lm.approxVolume, depeg: lm.depeg, depegAt: Date.now(), usdPhp: lm.usdPhp,
           unknownVolume: lm.unknownVolumeSymbols,
         });
       } else if (newView && shown.length && !lm && metaStage < 1) {
@@ -1317,7 +1319,7 @@ export default function Home() {
       setScanMeta({
         source, currency: data.priceCurrency ?? "USD", premium: data.premiumBySymbol ?? {}, thin: data.thinSymbols ?? [], thinFloorUsd: data.thinFloorUsd,
         tf, quote: data.quote, quoteBySymbol: data.quoteBySymbol, quoteCounts: data.quoteCounts, approx: data.approxVolume,
-        depeg: data.depeg, usdPhp: data.usdPhp, unknownVolume: data.unknownVolumeSymbols,
+        depeg: data.depeg, depegAt: Date.now(), usdPhp: data.usdPhp, unknownVolume: data.unknownVolumeSymbols,
       });
       setDetailAsset((current) => current ? out.find((row) => row.pair === current.pair) ?? null : null);
       setScanStats({
@@ -2264,7 +2266,7 @@ export default function Home() {
       />
 
       {/* v2.8 (WP25): market radar. The tab portals to document.body (outside header, main and footer). It contacts no host until opened. */}
-      <RadarHost port={rsl.port} depeg={scanMeta.depeg} depegSource={scanMeta.source} recordRadar={recordRadar} />
+      <RadarHost port={rsl.port} depeg={scanMeta.depeg} depegSource={scanMeta.source} depegAt={scanMeta.depegAt} recordRadar={recordRadar} />
 
       {/* ---------- Detail modal ---------- */}
       <Dialog open={!!detailAsset} onOpenChange={(o) => { if (!o) { setChartReplay(false); setDetailAsset(null); } }}>

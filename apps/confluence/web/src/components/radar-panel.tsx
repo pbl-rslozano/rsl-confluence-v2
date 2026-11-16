@@ -41,6 +41,8 @@ export interface RadarHostProps {
   /** The scan's current stablecoin readings (no fetch) and the scan source they came from. */
   depeg: DepegReading[] | undefined;
   depegSource: string;
+  /** When the scan took those readings (ms): the depeg alert's "since". Without it the refresh time is used. */
+  depegAt?: number;
   /** Record radar context setting (Task 7). False until it exists. */
   recordRadar?: boolean;
 }
@@ -62,7 +64,7 @@ function useHeaderBottom(active: boolean): number {
   return useSyncExternalStore(subscribe, get, () => 0);
 }
 
-export function RadarHost({ port, depeg, depegSource, recordRadar = false }: RadarHostProps) {
+export function RadarHost({ port, depeg, depegSource, depegAt, recordRadar = false }: RadarHostProps) {
   const rsl = useRsl();
   const { t } = rsl;
   const ui = useRadarUi();
@@ -74,8 +76,8 @@ export function RadarHost({ port, depeg, depegSource, recordRadar = false }: Rad
   const userOpened = useRef(false);
 
   /* ---- runner: created once; its getters read the latest props through refs ---- */
-  const live = useRef({ open: ui.open, record: recordRadar, thresholds: ui.thresholds, depeg: depeg ?? [], source: depegSource });
-  useEffect(() => { live.current = { open: ui.open, record: recordRadar, thresholds: ui.thresholds, depeg: depeg ?? [], source: depegSource }; });
+  const live = useRef({ open: ui.open, record: recordRadar, thresholds: ui.thresholds, depeg: depeg ?? [], source: depegSource, depegAt });
+  useEffect(() => { live.current = { open: ui.open, record: recordRadar, thresholds: ui.thresholds, depeg: depeg ?? [], source: depegSource, depegAt }; });
   const runnerRef = useRef<RadarRunner | null>(null);
   const [snap, setSnap] = useState<RadarSnapshot | null>(null);
   const [failed, setFailed] = useState(false);
@@ -89,6 +91,7 @@ export function RadarHost({ port, depeg, depegSource, recordRadar = false }: Rad
       thresholds: () => live.current.thresholds,
       depeg: () => live.current.depeg,
       depegSource: () => live.current.source,
+      depegAt: () => live.current.depegAt,
       allowed: () => radarAllowed({ panelOpen: live.current.open, recordRadar: live.current.record }),
     });
     runnerRef.current = runner;
@@ -108,7 +111,8 @@ export function RadarHost({ port, depeg, depegSource, recordRadar = false }: Rad
   const thKey = JSON.stringify(ui.thresholds);
   useEffect(() => { runnerRef.current?.rethreshold(); }, [thKey]);
 
-  const toggle = useCallback(() => { userOpened.current = true; setRadarOpen(!live.current.open); }, []);
+  // Only an OPEN by the user moves focus into the panel; closing must not leave the flag set (a later cross-tab open would steal focus).
+  const toggle = useCallback(() => { userOpened.current = !live.current.open; setRadarOpen(!live.current.open); }, []);
 
   /* ---- the R key ---- */
   useEffect(() => {
@@ -215,12 +219,16 @@ function RadarBody({ snap, failed, ui, port, t, formatNumber, formatDate }: Body
   const usd = (n: number, signed = false) =>
     formatNumber(n, { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 2, signDisplay: signed ? "exceptZero" : "auto" });
   const whole = (n: number) => formatNumber(Math.round(n), { maximumFractionDigits: 0 });
+  // A signed whole number: the sign comes from the locale formatter (it carries its own direction mark), never a hand-built "+": right in RTL.
+  const sign = (n: number) => formatNumber(Math.round(n), { maximumFractionDigits: 0, signDisplay: "exceptZero" });
 
   const stale = snap?.stale ?? {};
   const gone = new Set(snap?.unavailable ?? []);
+  /** The time a premium row's shown value was last good, when that source did not answer this time (else undefined). */
+  const rowStale = (id: "us" | "kr" | "ph") => stale[`regional:${id}`] ?? stale.regional;
   /** The "Updated" line of a section: its data time (else the snapshot's time), or the unavailable line. */
-  const status = (id: string, keys: string[], dataTime?: number) => {
-    const staleAt = keys.map((k) => stale[k]).filter((x) => isNum(x));
+  const status = (id: string, keys: string[], dataTime?: number, alsoStale: string[] = []) => {
+    const staleAt = [...keys, ...alsoStale].map((k) => stale[k]).filter((x) => isNum(x));
     const allGone = keys.length > 0 && keys.every((k) => gone.has(k));
     if (!snap) return null;
     if (allGone) return <span data-testid={`radar-status-${id}`} className="text-amber-300">{t("radar.unavailable")}</span>;
@@ -265,7 +273,7 @@ function RadarBody({ snap, failed, ui, port, t, formatNumber, formatDate }: Body
       </Sec>
 
       {/* ---------- Regional demand ---------- */}
-      <Sec collapsed={ui.collapsed} id="regional" title={t("radar.sec.regional")} right={status("regional", ["regional"], snap?.regional?.asOf)}>
+      <Sec collapsed={ui.collapsed} id="regional" title={t("radar.sec.regional")} right={status("regional", ["regional"], snap?.regional?.asOf, ["regional:us", "regional:kr", "regional:ph"])}>
         <p className="text-zinc-400">{t("radar.reg.note")}</p>
         {([
           ["us", snap?.regional?.usPct, "radar.reg.usNote", "coinbase"],
@@ -279,6 +287,11 @@ function RadarBody({ snap, failed, ui, port, t, formatNumber, formatDate }: Body
                 {isNum(value) ? pct(value, 2, true) : <span className="text-amber-300">{snap ? t("radar.unavailable") : "—"}</span>}
               </span>
             </div>
+            {isNum(value) && isNum(rowStale(id)) && (
+              <p className="mt-0.5 text-[11px] text-amber-300" data-testid={`radar-prem-${id}-stale`}>
+                {usable(rowStale(id)) ? t("radar.unavailableLast", { time: clock(rowStale(id) as number) }) : t("radar.unavailable")}
+              </p>
+            )}
             <p className="mt-0.5 text-[11px] text-zinc-400" data-testid={`radar-prem-${id}-note`} data-source={src}>{t(noteKey)}</p>
           </div>
         ))}
@@ -290,7 +303,7 @@ function RadarBody({ snap, failed, ui, port, t, formatNumber, formatDate }: Body
         <p className="text-zinc-400">{t("radar.inst.note")}</p>
         {(["BTC", "ETH"] as const).map((a) => (
           <CotBlock key={a} asset={a} r={snap?.cot[a] ?? null} staleAt={stale[`cot:${a}`]} loaded={!!snap}
-            t={t} whole={whole} day={day} clock={clock} />
+            t={t} whole={whole} sign={sign} day={day} clock={clock} />
         ))}
         <p>
           <a className="text-cyan-300 underline-offset-2 hover:underline" data-testid="radar-cot-source" href={PROVIDERS.find((p) => p.id === "cftc")?.apiDocs} target="_blank" rel="noopener noreferrer">
@@ -307,7 +320,7 @@ function RadarBody({ snap, failed, ui, port, t, formatNumber, formatDate }: Body
         <p className="text-zinc-400">{t("radar.alerts.note")}</p>
         {snap && snap.alerts.length === 0 && <p data-testid="radar-alerts-none">{t("radar.alerts.none")}</p>}
         <ul className="space-y-1.5" data-testid="radar-alerts">
-          {(snap?.alerts ?? []).map((a) => <AlertItem key={a.code} a={a} th={ui.thresholds} t={t} num={num} pct={pct} usd={usd} clock={clock} />)}
+          {(snap?.alerts ?? []).map((a) => <AlertItem key={a.code} a={a} th={ui.thresholds} t={t} num={num} pct={pct} usd={usd} clock={clock} staleAt={a.kind === "breakaway" ? stale.breakaway : undefined} />)}
         </ul>
         <LeftOut snap={snap} t={t} />
         <Thresholds value={ui.thresholds} t={t} />
@@ -412,11 +425,10 @@ function SessionShares({ s, t, whole }: { s: { asia: number; europe: number; us:
   return <p data-testid="radar-sessions" dir="auto">{t("radar.buyer.sessions", { asia: share(s.asia), europe: share(s.europe), us: share(s.us) })}</p>;
 }
 
-function CotBlock({ asset, r, staleAt, loaded, t, whole, day, clock }: {
+function CotBlock({ asset, r, staleAt, loaded, t, whole, sign, day, clock }: {
   asset: "BTC" | "ETH"; r: CotReport | null; staleAt: number | undefined; loaded: boolean; t: T;
-  whole: (n: number) => number | string; day: (iso: string) => string; clock: (ms: number) => string;
+  whole: (n: number) => number | string; sign: (n: number) => string; day: (iso: string) => string; clock: (ms: number) => string;
 }) {
-  const sign = (n: number) => `${n > 0 ? "+" : ""}${whole(n)}`;
   const group = (label: string, g: CotGroup | null, id: string) => (
     <div className="flex flex-wrap items-baseline justify-between gap-x-2" data-testid={`radar-cot-${asset}-${id}`}>
       <span className="text-zinc-400">{label}</span>
@@ -493,8 +505,8 @@ function EtfBlock({ port, t, usd, day }: { port: RadarPort; t: T; usd: (n: numbe
   );
 }
 
-function AlertItem({ a, th, t, num, pct, usd, clock }: {
-  a: RadarAlert; th: RadarThresholds; t: T; num: (n: number, dp: number, signed?: boolean) => string; pct: (n: number | null | undefined, dp?: number, signed?: boolean) => string;
+function AlertItem({ a, th, t, num, pct, usd, clock, staleAt }: {
+  a: RadarAlert; staleAt?: number; th: RadarThresholds; t: T; num: (n: number, dp: number, signed?: boolean) => string; pct: (n: number | null | undefined, dp?: number, signed?: boolean) => string;
   usd: (n: number, signed?: boolean) => string; clock: (ms: number) => string;
 }) {
   const v = a.trigger.vars;
@@ -513,12 +525,13 @@ function AlertItem({ a, th, t, num, pct, usd, clock }: {
   }
   const known = ["radar.alert.breakaway", "radar.alert.volume", "radar.alert.depeg", "radar.alert.supplyUp", "radar.alert.supplyDown"].includes(key);
   return (
-    <li data-testid="radar-alert" data-code={a.code} className="rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1.5">
+    <li data-testid="radar-alert" data-code={a.code} data-stale={staleAt !== undefined ? "true" : undefined} className="rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1.5">
       <p dir="auto">{known ? t(key, vars) : a.code}</p>
       {a.kind === "breakaway" && <p className="text-[11px] text-zinc-400" data-testid="radar-alert-threshold">{t("radar.alerts.thBreakaway", { pct: pct(th.breakAwayPct, 1, false), bars: th.breakAwayBars })}</p>}
       {a.kind === "volume" && <p className="text-[11px] text-zinc-400" data-testid="radar-alert-threshold">{t("radar.alerts.thVolume", { z: num(th.volumeZ, 1) })}</p>}
       <p className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-zinc-400">
         {usable(a.since) && <span>{t("radar.alerts.since", { time: clock(a.since) })}</span>}
+        {staleAt !== undefined && <span className="text-amber-300" data-testid="radar-alert-stale">{usable(staleAt) ? t("radar.unavailableLast", { time: clock(staleAt) }) : t("radar.unavailable")}</span>}
         <a className="text-cyan-300 underline-offset-2 hover:underline" data-testid="radar-alert-source" href={a.sourceUrl} target="_blank" rel="noopener noreferrer">{t("radar.alerts.source")}</a>
       </p>
     </li>

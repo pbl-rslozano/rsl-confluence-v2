@@ -28,6 +28,7 @@ import { detectSplit } from "./splits";
 import { ENGINE_BARS } from "./engine-window";
 import { FR_MAX, OI_CHG_MAX, OI_CHG_MIN } from "./derivatives-context";
 import type { RadarContext } from "./radar/snapshot";
+import { RAD_BOUNDS } from "./radar/rad-bounds";
 
 export type AssetClass = "crypto" | "rwa" | "stock" | "fx" | "commodity";
 
@@ -1114,8 +1115,10 @@ function strictRad(v: unknown): RadarContext | null | typeof INVALID {
     if (x === null || x === undefined) return null;
     return finite(x) && x >= lo && x <= hi ? x : INVALID;
   };
-  const frp = field("frp", 0, 100), oi24 = field("oi24", OI_CHG_MIN, OI_CHG_MAX), ls = field("ls", 0, 100), tk = field("tk", 0, 1);
-  const usP = field("usP", -50, 50), krP = field("krP", -50, 50), phP = field("phP", -50, 50);
+  // The ranges are shared with the producers (radar/rad-bounds.ts), so a value the app writes is never rejected here.
+  const b = RAD_BOUNDS;
+  const frp = field("frp", ...b.frp), oi24 = field("oi24", ...b.oi24), ls = field("ls", ...b.ls), tk = field("tk", ...b.tk);
+  const usP = field("usP", ...b.usP), krP = field("krP", ...b.krP), phP = field("phP", ...b.phP);
   if ([frp, oi24, ls, tk, usP, krP, phP].some((x) => x === INVALID)) return INVALID;
   let al: string[] = [];
   if (o.al !== null && o.al !== undefined) {
