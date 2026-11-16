@@ -103,7 +103,8 @@ export function standingPremiumMedian(dailyPremiums: (number | null)[]): number 
 
 /* ---------------- fetchers ---------------- */
 
-const isAbort = (e: unknown, signal?: AbortSignal) => (e instanceof DOMException && e.name === "AbortError") || !!signal?.aborted;
+/** An abort (the signal fired, or an AbortError): the only error the radar fetchers rethrow. */
+export const isAbort = (e: unknown, signal?: AbortSignal) => (e instanceof DOMException && e.name === "AbortError") || !!signal?.aborted;
 
 function cooling(venue: "binance"): RateLimitError {
   const wait = venueCooldown(venue);

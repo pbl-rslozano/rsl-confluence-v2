@@ -10,7 +10,7 @@
  *   radar.alert.breakaway  { venue, pct, bars }   pct = signed deviation of the newest bar after the standing premium, %
  *   radar.alert.volume     { z, pct }             z = z-score, pct = the day's volume vs the 30-day mean, %
  *   radar.alert.depeg      { coin, reference, dev, level }   dev = signed % from 1:1, level = watch | warning | severe
- *   radar.alert.supply     { pct, pctl }          pct = |daily change| as % of the previous day's supply
+ *   radar.alert.supply     { pct, usd, pctl }     pct / usd = SIGNED daily change (% of the previous day's supply / US$): + mint, - redemption
  */
 import type { DepegReading } from "../quotes";
 import { depegLevel } from "../quotes";
@@ -64,14 +64,26 @@ export function setAlertsClockForTests(fn: (() => number) | null): void {
 
 /** Public pages for ids that lib/providers.ts has no row for yet (Task 6 adds the radar providers; its row then wins). */
 const EXTRA_PAGES: Record<string, string> = { defillama: "https://defillama.com/docs/api" };
-function pageOf(id: string): string {
-  return PROVIDERS.find((p) => p.id === id)?.apiDocs ?? EXTRA_PAGES[id] ?? "";
+/**
+ * Provider id of a venue or scan source id: an exact PROVIDERS id, else the part before the first "-"
+ * (bybit-spot, bybit-perp, okx-perp, bitget-perp, binance-fut -> bybit, okx, bitget, binance). "" when unknown.
+ */
+function providerIdOf(id: string): string {
+  const key = String(id ?? "").toLowerCase();
+  if (PROVIDERS.some((p) => p.id === key) || key in EXTRA_PAGES) return key;
+  const head = key.split("-")[0];
+  return PROVIDERS.some((p) => p.id === head) ? head : "";
 }
-const nameOf = (id: string): string => PROVIDERS.find((p) => p.id === id)?.name ?? id;
+function pageOf(id: string): string {
+  const pid = providerIdOf(id);
+  return PROVIDERS.find((p) => p.id === pid)?.apiDocs ?? EXTRA_PAGES[pid] ?? "";
+}
+const nameOf = (id: string): string => PROVIDERS.find((p) => p.id === providerIdOf(id))?.name ?? id;
 
 const isNum = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 const round = (n: number, dp: number) => Math.round(n * 10 ** dp) / 10 ** dp;
-const upper = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+/** Code part: upper case, every run of other characters one "_", none leading or trailing. Same for every alert kind. */
+const upper = (s: string) => String(s ?? "").toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 
 function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b);
@@ -84,7 +96,8 @@ function median(xs: number[]): number {
 /**
  * A venue alerts when, for each of the last `breakAwayBars` bars, its BTC close (in USD terms, after removing its
  * standing premium) is at least `breakAwayPct` % away from the median of the other venues' adjusted closes. At least
- * two other venues must have data on every one of those bars. A venue whose key is in `standing` with a null value
+ * two other venues must have data on every one of those bars, and the deviation must keep the same sign on every bar
+ * (+1.2 % then -1.2 % is not a break-away). A venue whose key is in `standing` with a null value
  * (fewer than 20 days of history) is left out altogether, as candidate and as comparison.
  *
  * `venueCloses`: venue id → closes, oldest first, aligned from the newest bar backwards (NaN = the venue lacks the
@@ -121,8 +134,10 @@ export function breakAway(
 
   const alerts: RadarAlert[] = [];
   for (const [id, mine] of adj) {
-    const code = `BREAKAWAY_${upper(id)}`;
-    if (!ALERT_CODE.test(code)) continue;
+    const name = upper(id);
+    const code = `BREAKAWAY_${name}`;
+    const sourceUrl = pageOf(id);
+    if (!name || !ALERT_CODE.test(code) || !sourceUrl) continue; // no code or no source page: no alert
     let run = 0;
     let newestDev = 0;
     for (let k = 0; k < depth; k++) {
@@ -134,6 +149,7 @@ export function breakAway(
       const dev = (own / median(others) - 1) * 100;
       if (Math.abs(dev) + EPS < th.breakAwayPct) break;
       if (run === 0) newestDev = dev;
+      else if (Math.sign(dev) !== Math.sign(newestDev)) break; // a break-away keeps its side on every bar
       run++;
     }
     if (run < th.breakAwayBars) continue;
@@ -141,7 +157,7 @@ export function breakAway(
       code,
       kind: "breakaway",
       trigger: { key: "radar.alert.breakaway", vars: { venue: nameOf(id), pct: round(newestDev, 2), bars: run } },
-      sourceUrl: pageOf(id),
+      sourceUrl,
       since: closeAt(run - 1),
     });
   }
@@ -151,7 +167,7 @@ export function breakAway(
 /* ---------------- volume spike ---------------- */
 
 /**
- * z of the last day's summed BTC volume against the previous 30 (population standard deviation). Null with fewer than
+ * z of the last day's summed BTC volume against the previous 30 (sample standard deviation, n - 1). Null with fewer than
  * 31 days, a non-finite value or zero spread; an alert when z >= volumeZ (a spike up only). Code VOL_SPIKE.
  * `lastDayOpen`: open time of the last day (default: the day before today, UTC). Since = that day's close.
  */
@@ -163,7 +179,7 @@ export function volumeSpike(dailyVolumes: number[], thresholds: RadarThresholds,
   const last = window[30];
   const prev = window.slice(0, 30);
   const mean = prev.reduce((a, b) => a + b, 0) / 30;
-  const sd = Math.sqrt(prev.reduce((a, b) => a + (b - mean) ** 2, 0) / 30);
+  const sd = Math.sqrt(prev.reduce((a, b) => a + (b - mean) ** 2, 0) / 29); // sample sd, the usual z-score convention
   if (!(sd > 0) || !Number.isFinite(sd)) return null;
   const z = (last - mean) / sd;
   if (z + EPS < th.volumeZ) return null;
@@ -182,13 +198,14 @@ export function volumeSpike(dailyVolumes: number[], thresholds: RadarThresholds,
 /**
  * One alert per stablecoin whose reading is at tier "watch" or worse (the existing DEPEG_TIERS: 0.5 / 1 / 2 %), the
  * largest deviation when a coin appears twice. No fetch: the readings come from the scan. Code DEPEG_<COIN>.
- * `providerId` names the exchange the readings came from (default binance); `asOf` is the reading time (default now).
+ * `providerId` names the exchange the readings came from: a provider id or a scan source id (bybit-spot, okx-perp, ...;
+ * default binance, also the fallback for an unknown id, so the link is never empty); `asOf` is the reading time (default now).
  */
 export function depegAlerts(readings: DepegReading[], providerId = "binance", asOf?: number): RadarAlert[] {
   const best = new Map<string, DepegReading>();
   for (const r of Array.isArray(readings) ? readings : []) {
     if (!r || typeof r.coin !== "string" || !isNum(r.deviationPct) || depegLevel(r.deviationPct) === null) continue;
-    const name = upper(r.coin).replace(/^_+|_+$/g, "");
+    const name = upper(r.coin);
     const code = `DEPEG_${name}`;
     if (!name || !ALERT_CODE.test(code)) continue;
     const cur = best.get(code);
@@ -202,7 +219,7 @@ export function depegAlerts(readings: DepegReading[], providerId = "binance", as
       key: "radar.alert.depeg",
       vars: { coin: r.coin, reference: String(r.reference ?? ""), dev: round(r.deviationPct, 2), level: depegLevel(r.deviationPct) as string },
     },
-    sourceUrl: pageOf(providerId),
+    sourceUrl: pageOf(providerId) || pageOf("binance"),
     since,
   }));
 }
@@ -220,24 +237,29 @@ function percentile(xs: number[], p: number): number {
 
 /**
  * Today's |daily change| of the total stablecoin supply against the `supplyPctl` percentile of |change| over the
- * prior 90 days (89 with the minimum 91 points); an alert when it is strictly above. Null with fewer than 91 points. Code SUPPLY_JUMP.
- * Since = the timestamp of today's point.
+ * prior 90 days (89 at the minimum); an alert when it is strictly above. Points are sorted by day and only changes
+ * between consecutive UTC days count: the newest run of consecutive daily points is used, and with fewer than 91 in
+ * that run (a gap, or too little history) the result is null. Code SUPPLY_JUMP. Vars carry the SIGNED change
+ * (`usd`, `pct`: + mint, - redemption). Since = the timestamp of today's point.
  */
 export function supplyJump(points: SupplyPoint[], thresholds: RadarThresholds): RadarAlert | null {
   const th = sanitizeThresholds(thresholds);
-  if (!Array.isArray(points) || points.length < 91) return null;
-  const tail = points.slice(-92); // today + up to 90 prior daily changes
-  if (!tail.every((p) => p && isNum(p.usd) && isNum(p.day))) return null;
-  const deltas = tail.slice(1).map((p, i) => Math.abs(p.usd - tail[i].usd)); // prior changes, then today's
+  if (!Array.isArray(points)) return null;
+  const sorted = points.filter((p) => p && isNum(p.usd) && isNum(p.day)).sort((a, b) => a.day - b.day);
+  let start = sorted.length - 1;
+  while (start > 0 && sorted[start].day - sorted[start - 1].day === DAY) start--;
+  const run = sorted.slice(Math.max(start, sorted.length - 92)); // today + up to 90 prior daily changes
+  if (sorted.length - start < 91) return null;
+  const deltas = run.slice(1).map((p, i) => p.usd - run[i].usd); // signed; the last one is today's
   const today = deltas[deltas.length - 1];
-  const limit = percentile(deltas.slice(0, -1), th.supplyPctl);
-  if (!(today > limit)) return null;
-  const base = tail[tail.length - 2].usd;
+  const limit = percentile(deltas.slice(0, -1).map(Math.abs), th.supplyPctl);
+  if (!(Math.abs(today) > limit)) return null;
+  const base = run[run.length - 2].usd;
   return {
     code: "SUPPLY_JUMP",
     kind: "supply",
-    trigger: { key: "radar.alert.supply", vars: { pct: base > 0 ? round((today / base) * 100, 2) : 0, pctl: th.supplyPctl } },
+    trigger: { key: "radar.alert.supply", vars: { pct: base > 0 ? round((today / base) * 100, 2) : 0, usd: Math.round(today), pctl: th.supplyPctl } },
     sourceUrl: pageOf("defillama"),
-    since: tail[tail.length - 1].day,
+    since: run[run.length - 1].day,
   };
 }

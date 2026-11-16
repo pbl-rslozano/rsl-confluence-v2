@@ -4,10 +4,11 @@ import {
   DEFAULT_THRESHOLDS, sanitizeThresholds, breakAway, volumeSpike, depegAlerts, supplyJump, setAlertsClockForTests, ALERT_CODE,
 } from "./radar/alerts.ts";
 import {
-  fetchBreakAwayCloses, fetchDailyVolumes, fetchDailyVolumesDetailed, setFeedClockForTests, BREAKAWAY_BARS,
+  fetchBreakAwayCloses, fetchDailyVolumes, fetchDailyVolumesDetailed, setFeedClockForTests, resetFeedBackoffForTests, BREAKAWAY_BARS, DAILY_BACKOFF_MS,
 } from "./radar/breakaway-feed.ts";
 import { standingPremiumMedian } from "./radar/regional.ts";
 import { RateLimitError } from "./market-client.ts";
+import { isAbort } from "./radar/regional.ts";
 
 let passed = 0;
 let failed = 0;
@@ -45,6 +46,12 @@ const four = { binance: flat(100), bybit: flat(100), bitget: flat(100), okx: fla
   ok("since from closeTimes", g[0].since === 1000);
   const run3 = breakAway({ ...four, coinbase: flat(101.2, 3), binance: flat(100, 3), bybit: flat(100, 3), bitget: flat(100, 3), okx: flat(100, 3) }, {}, th, [10, 20, 30]);
   ok("run of 3 bars: since = first bar of the run", run3.length === 1 && run3[0].since === 10 && run3[0].trigger.vars.bars === 3);
+  const flip = breakAway({ ...four, coinbase: [98.8, 101.2] }, {}, th);
+  ok("M4: +1.2 % then -1.2 % is not a break-away (same side on every bar)", flip.length === 0, JSON.stringify(flip));
+  const flip2 = breakAway({ ...four, coinbase: [101.2, 98.8] }, {}, th);
+  ok("M4: -1.2 % newest after +1.2 % is not one either", flip2.length === 0);
+  const sameDown = breakAway({ ...four, coinbase: [98.8, 98.6] }, {}, th);
+  ok("M4: two bars on the low side alert", sameDown.length === 1 && sameDown[0].trigger.vars.pct < 0);
   const bars3 = breakAway({ ...four, coinbase: flat(101.2) }, {}, { ...th, breakAwayBars: 3 });
   ok("needs breakAwayBars bars (3 asked, 2 held)", bars3.length === 0);
   const bars1 = breakAway({ ...four, coinbase: [100, 101.2] }, {}, { ...th, breakAwayBars: 1 });
@@ -84,10 +91,12 @@ const four = { binance: flat(100), bybit: flat(100), bitget: flat(100), okx: fla
 }
 
 console.log("volume spike");
-const vols = (last, n = 30) => [...Array.from({ length: n }, (_, i) => (i % 2 ? 90 : 110)), last];
+// 30 days with mean 100 and SAMPLE sd (n-1) exactly 10.
+const D = 10 * Math.sqrt(29 / 30);
+const vols = (last, n = 30) => [...Array.from({ length: n }, (_, i) => (i % 2 ? 100 - D : 100 + D)), last];
 {
   const a = volumeSpike(vols(140), th);
-  ok("30 days mean 100 sd 10 then 140: VOL_SPIKE (z 4)", a?.code === "VOL_SPIKE" && a.kind === "volume" && a.trigger.vars.z === 4 && a.trigger.vars.pct === 40, JSON.stringify(a));
+  ok("M10: 30 days mean 100, sample sd 10, then 140: VOL_SPIKE (z 4)", a?.code === "VOL_SPIKE" && a.kind === "volume" && a.trigger.vars.z === 4 && a.trigger.vars.pct === 40, JSON.stringify(a));
   ok("since = close of the latest closed day (default)", a.since === Math.floor(NOW / DAY) * DAY);
   ok("lastDayOpen sets since", volumeSpike(vols(140), th, 5 * DAY).since === 6 * DAY);
   ok("125 (z 2.5): none", volumeSpike(vols(125), th) === null);
@@ -95,6 +104,7 @@ const vols = (last, n = 30) => [...Array.from({ length: n }, (_, i) => (i % 2 ? 
   ok("zero spread: null", volumeSpike([...Array(30).fill(100), 200], th) === null);
   ok("a drop is not a spike", volumeSpike(vols(40), th) === null);
   ok("non-finite value: null", volumeSpike([...vols(140).slice(0, 30), NaN], th) === null);
+  ok("M10: sample sd differs from population sd (z of 140 over +-10 data is 3.93, not 4)", volumeSpike([...Array.from({ length: 30 }, (_, i) => (i % 2 ? 90 : 110)), 140], th).trigger.vars.z === 3.9);
   ok("lower volumeZ threshold (2.5) alerts at 125", volumeSpike(vols(125), { ...th, volumeZ: 2.5 })?.code === "VOL_SPIKE");
   ok("uses only the last 31 days", volumeSpike([1e9, 5, ...vols(140)], th)?.code === "VOL_SPIKE");
 }
@@ -106,6 +116,10 @@ console.log("depeg");
   ok("DEPEG_<COIN> for tier watch or worse, none inside 0.5 %", a.length === 2 && a[0].code === "DEPEG_USDC" && a[1].code === "DEPEG_USDE", JSON.stringify(a));
   ok("depeg vars and kind", a[1].kind === "depeg" && a[1].trigger.key === "radar.alert.depeg" && a[1].trigger.vars.level === "severe" && a[1].trigger.vars.dev === 2.4 && a[1].trigger.vars.coin === "USDE");
   ok("depeg source url from providers", /^https:\/\//.test(a[0].sourceUrl) && a[0].since === NOW);
+  for (const [src, host] of [["bybit-spot", "bybit"], ["bybit-perp", "bybit"], ["okx-perp", "okx"], ["bitget-perp", "bitget"], ["coinsph", "coins"], ["upbit", "upbit"], ["coinbase", "coinbase"], ["binance-fut", "binance"], ["binance-vision", "binance.vision"], ["unknown-source", "binance"]]) {
+    const u = depegAlerts([r("USDC", 1, "warning")], src)[0].sourceUrl;
+    ok(`M6: scan source ${src} maps to a provider page`, /^https:\/\//.test(u) && u.includes(host), u);
+  }
   ok("asOf and providerId", depegAlerts([r("USDC", 1, "warning")], "okx", 5)[0].since === 5 && depegAlerts([r("USDC", 1, "warning")], "okx")[0].sourceUrl.includes("okx.com"));
   ok("exactly 0.5 % counts", depegAlerts([r("USDC", 0.5, "watch")]).length === 1);
   ok("duplicate coin: the larger deviation", depegAlerts([r("USDC", 0.6, "watch"), r("USDC", -1.5, "warning")])[0].trigger.vars.dev === -1.5);
@@ -126,6 +140,7 @@ console.log("supply jump");
   // |prior deltas| = 1..89, p99 (linear) = 1 + 0.99*88 = 88.12
   const a = supplyJump(make(100), th);
   ok("today's change above the 99th percentile: SUPPLY_JUMP", a?.code === "SUPPLY_JUMP" && a.kind === "supply" && a.trigger.key === "radar.alert.supply" && a.trigger.vars.pctl === 99, JSON.stringify(a));
+  ok("supply vars: pctl, signed usd and pct", a.trigger.vars.pctl === 99 && typeof a.trigger.vars.usd === "number" && typeof a.trigger.vars.pct === "number");
   ok("supply since = today's point; source is DefiLlama", a.since === 90 * DAY && a.sourceUrl.includes("defillama"));
   ok("negative jump counts (|change|)", supplyJump(make(-100), th)?.code === "SUPPLY_JUMP");
   ok("below the percentile: none", supplyJump(make(80), th) === null);
@@ -134,6 +149,19 @@ console.log("supply jump");
   ok("lower percentile (90) alerts at 85, the 99th does not", supplyJump(make(85), { ...th, supplyPctl: 90 })?.code === "SUPPLY_JUMP" && supplyJump(make(85), th) === null);
   ok("older days than 90 prior are ignored", supplyJump([{ day: -4 * DAY, usd: 0 }, { day: -3 * DAY, usd: 5e9 }, { day: -2 * DAY, usd: 5e9 }, { day: -DAY, usd: 1_000_000 }, ...make(100)], th)?.code === "SUPPLY_JUMP");
   ok("bad point: null", supplyJump(make(100).map((p, i) => (i === 40 ? { ...p, usd: NaN } : p)), th) === null);
+}
+
+{
+  const pts = (n, gapAt = -1, start = 0) => {
+    const out = [{ day: start, usd: 1_000_000 }];
+    for (let i = 1; i < n; i++) out.push({ day: start + (i + (gapAt >= 0 && i >= gapAt ? 1 : 0)) * DAY, usd: out[i - 1].usd + (i === n - 1 ? 500 : i % 2 ? i : -i) });
+    return out;
+  };
+  ok("M12: unsorted input gives the same answer as sorted", supplyJump([...pts(100)].reverse(), th)?.code === "SUPPLY_JUMP" && supplyJump(pts(100), th)?.code === "SUPPLY_JUMP");
+  ok("M12: a gap far back is fine when >= 91 consecutive days follow it", supplyJump(pts(130, 20), th)?.code === "SUPPLY_JUMP");
+  ok("M12: a gap inside the window leaves < 91 consecutive points: null", supplyJump(pts(100, 50), th) === null);
+  const s = supplyJump(pts(100), th);
+  ok("M5/M12: supply vars carry the signed change (mint +, redemption -)", s.trigger.vars.usd === 500 && s.trigger.vars.pct > 0 && supplyJump(pts(100).map((p, i, a) => (i === 99 ? { ...p, usd: a[98].usd - 500 } : p)), th).trigger.vars.usd === -500 && supplyJump(pts(100).map((p, i, a) => (i === 99 ? { ...p, usd: a[98].usd - 500 } : p)), th).trigger.vars.pct < 0);
 }
 
 console.log("thresholds sanitize");
@@ -158,8 +186,10 @@ console.log("codes are safe");
     ...depegAlerts([{ coin: "USDC", reference: "USDT", price: 0.99, deviationPct: -1, level: "warning" }]),
   ].filter(Boolean);
   ok("every produced code matches /^[A-Z0-9_]{1,32}$/", all.length >= 4 && all.every((a) => /^[A-Z0-9_]{1,32}$/.test(a.code)), all.map((a) => a.code).join());
-  ok("venue ids are normalised into the code", all.some((a) => a.code === "BREAKAWAY_WEIRD_VENUE_"));
-  ok("no sourceUrl is empty (known venues)", all.filter((a) => a.code !== "BREAKAWAY_WEIRD_VENUE_").every((a) => /^https:\/\/\S+$/.test(a.sourceUrl)), all.map((a) => a.sourceUrl).join());
+  ok("M7: venue ids are normalised (no leading/trailing/double underscores)", all.every((a) => !/^_|_$|__/.test(a.code.replace(/^[A-Z]+_/, ""))) && breakAway({ ...four, "bybit-spot_": flat(101.2) }, {}, th).map((a) => a.code).join() === "BREAKAWAY_BYBIT_SPOT");
+  ok("M7: depeg coin names are normalised the same way", depegAlerts([{ coin: "weird coin_", reference: "USDT", price: 0.99, deviationPct: -1, level: "warning" }])[0]?.code === "DEPEG_WEIRD_COIN");
+  ok("M6: a venue with no provider page produces no alert (never an empty sourceUrl)", breakAway({ ...four, "weird venue_": flat(101.2) }, {}, th).length === 0);
+  ok("no sourceUrl is empty", all.every((a) => /^https:\/\/\S+$/.test(a.sourceUrl)), all.map((a) => a.sourceUrl).join());
 }
 
 /* ---------------- feeds ---------------- */
@@ -170,6 +200,7 @@ const withForming = (bars, close) => [...bars, bar(lastHour, close)];           
 const days = (n, f, vol = () => 10) => Array.from({ length: n }, (_, i) => ({ ...bar(Math.floor(NOW / DAY) * DAY - (n - i) * DAY, f(i), vol(i)) }));
 
 function makeDeps(spec) {
+  resetFeedBackoffForTests();
   const calls = [];
   return {
     calls,
@@ -332,6 +363,83 @@ console.log("fetchDailyVolumes");
   let threw = null;
   try { await fetchDailyVolumes(ac.signal, { ...makeDeps(spec()).deps, daily: async () => { ac.abort(); throw new DOMException("x", "AbortError"); } }); } catch (e) { threw = e; }
   ok("an abort rejects", threw instanceof DOMException);
+}
+
+console.log("fix round 1: feeds");
+{
+  // M3: the run must end at the latest closed hour.
+  const s = baseSpec();
+  for (const k of Object.keys(s.hourly)) s.hourly[k] = s.hourly[k].filter((b) => b.time !== lastHour - H);
+  const r = await fetchBreakAwayCloses(undefined, makeDeps(s).deps);
+  ok("M3: newest closed hour missing everywhere: stale, no closes, no alerts", r.stale === true && Object.keys(r.closes).length === 0 && r.closeTimes.length === 0 && breakAway(r.closes, r.standing, th, r.closeTimes).length === 0, JSON.stringify(r.closeTimes));
+  const fresh = await fetchBreakAwayCloses(undefined, makeDeps(baseSpec()).deps);
+  ok("M3: a current run is not stale", fresh.stale === false && fresh.closeTimes.at(-1) === lastHour);
+  const s2 = baseSpec();
+  for (const k of ["binance:BTCUSDT", "bybit-spot:BTCUSDT"]) s2.hourly[k] = s2.hourly[k].filter((b) => b.time !== lastHour - H);
+  const r2 = await fetchBreakAwayCloses(undefined, makeDeps(s2).deps);
+  ok("M3: two venues lacking the newest hour is still current (5 others have it)", r2.stale === false && Number.isNaN(r2.closes.binance.at(-1)));
+}
+{
+  // M1: a failed daily load is not retried for 45 minutes (injected clock).
+  ok("M1: back-off is 45 minutes", DAILY_BACKOFF_MS === 45 * 60_000);
+  let t = NOW;
+  setFeedClockForTests(() => t);
+  const s = baseSpec();
+  s.daily["upbit:USDTKRW"] = new Error("relay down");
+  const { deps, calls } = makeDeps(s);
+  const dailyCalls = () => calls.filter((c) => c === "d:upbit:USDTKRW").length;
+  await fetchBreakAwayCloses(undefined, deps);
+  ok("M1: first cycle asks once", dailyCalls() === 1);
+  t = NOW + 5 * 60_000; // same hour: the hourly fixtures are still current
+  const r = await fetchBreakAwayCloses(undefined, deps);
+  ok("M1: 5 minutes later no new daily request; standing null", dailyCalls() === 1 && r.standing.upbit === null && r.stale === false);
+  ok("M1: the other series are not backed off", calls.filter((c) => c === "d:coinsph:BTCPHP").length === 2);
+  // Past the hour the hourly fixtures are stale, so use the volume path (daily only) for the longer timings.
+  const dayOf = (i, n) => Math.floor(NOW / DAY) * DAY - (n - i) * DAY;
+  const vol = (n) => Array.from({ length: n }, (_, i) => ({ time: dayOf(i, n), open: 1, high: 1, low: 1, close: 1, volume: 1 }));
+  const vs = { hourly: {}, daily: { "binance:BTCUSDT": new Error("x"), "bybit-spot:BTCUSDT": vol(40), "bitget:BTCUSDT": vol(40), "okx:BTCUSDT": vol(40), "coinbase:BTCUSD": vol(40), "upbit:BTCKRW": vol(40) } };
+  const vd = makeDeps(vs);
+  const bin = () => vd.calls.filter((c) => c === "d:binance:BTCUSDT").length;
+  t = NOW;
+  await fetchDailyVolumesDetailed(undefined, vd.deps);
+  t = NOW + 44 * 60_000;
+  await fetchDailyVolumesDetailed(undefined, vd.deps);
+  ok("M1: at 44 minutes still backed off", bin() === 1);
+  t = NOW + 46 * 60_000;
+  await fetchDailyVolumesDetailed(undefined, vd.deps);
+  ok("M1: after 45 minutes it is retried", bin() === 2);
+  vs.daily["binance:BTCUSDT"] = vol(40);
+  t = NOW + 100 * 60_000;
+  const ok2 = await fetchDailyVolumesDetailed(undefined, vd.deps);
+  ok("M1: a success clears the back-off", bin() === 3 && !ok2.unavailable.includes("binance"));
+  t = NOW + 101 * 60_000;
+  await fetchDailyVolumesDetailed(undefined, vd.deps);
+  ok("M1: and a healthy series is asked each time (the loader's own cache does the once-a-day work)", bin() === 4);
+  // An abort is not a failure to remember.
+  const ac = new AbortController();
+  const ad = makeDeps(baseSpec());
+  let n = 0;
+  try { await fetchDailyVolumesDetailed(ac.signal, { ...ad.deps, daily: async () => { n++; ac.abort(); throw new DOMException("x", "AbortError"); } }); } catch { /* abort */ }
+  const n0 = n;
+  await fetchDailyVolumesDetailed(undefined, { ...ad.deps, daily: async () => { n++; return []; } });
+  ok("M1: an abort leaves no back-off", n - n0 === 6);
+  setFeedClockForTests(() => NOW);
+}
+{
+  // M2: the last day of the intersection must be yesterday (UTC).
+  const dayOf = (i, n) => Math.floor(NOW / DAY) * DAY - (n - i) * DAY;
+  const vol = (n, v) => Array.from({ length: n }, (_, i) => ({ time: dayOf(i, n), open: 1, high: 1, low: 1, close: 1, volume: v }));
+  const spec = () => ({ hourly: {}, daily: { "binance:BTCUSDT": vol(40, 10), "bybit-spot:BTCUSDT": vol(40, 5), "bitget:BTCUSDT": vol(40, 3), "okx:BTCUSDT": vol(40, 4), "coinbase:BTCUSD": vol(40, 2), "upbit:BTCKRW": vol(40, 1) } });
+  const s = spec();
+  s.daily["okx:BTCUSDT"] = vol(40, 4).slice(0, 39); // OKX lacks yesterday
+  const d = await fetchDailyVolumesDetailed(undefined, makeDeps(s).deps);
+  ok("M2: detailed still exposes days (the older last day)", d.days.length === 39 && d.days.at(-1) === Math.floor(NOW / DAY) * DAY - 2 * DAY && d.latest === false);
+  ok("M2: fetchDailyVolumes returns [] when the last day is not yesterday", (await fetchDailyVolumes(undefined, makeDeps(s).deps)).length === 0);
+  const ok1 = await fetchDailyVolumesDetailed(undefined, makeDeps(spec()).deps);
+  ok("M2: yesterday present: latest true and volumes returned", ok1.latest === true && (await fetchDailyVolumes(undefined, makeDeps(spec()).deps)).length === 40);
+}
+{
+  ok("M8: isAbort is exported once and works", isAbort(new DOMException("x", "AbortError")) === true && isAbort(new Error("x")) === false && isAbort(new Error("x"), AbortSignal.abort()) === true);
 }
 
 console.log("shared pieces");

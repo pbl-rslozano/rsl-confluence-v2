@@ -17,7 +17,7 @@
 import type { Kline } from "../indicators";
 import { assertNotCoolingDown, dropUnclosed, fetchSymbolKlines, type DataSource } from "../market-client";
 import { loadDailyBars } from "../fund-trend-feed";
-import { standingPremiumMedian } from "./regional";
+import { isAbort, standingPremiumMedian } from "./regional";
 
 const H = 3_600_000;
 const DAY = 86_400_000;
@@ -26,6 +26,8 @@ export const BREAKAWAY_BARS = 6;
 /** Requested per call: the kept bars, the bar still forming and one spare. */
 const HOURLY_REQUEST = BREAKAWAY_BARS + 2;
 const STANDING_DAYS = 30;
+/** A daily series that failed is not asked for again for this long, so "daily inputs once per UTC day" holds. */
+export const DAILY_BACKOFF_MS = 45 * 60_000;
 const VOLUME_DAYS_KEPT = 61;
 /** A volume run needs at least this many of the six venues (the same venues on every day of the run). */
 const VOLUME_MIN_VENUES = 4;
@@ -69,12 +71,35 @@ const realDeps: FeedDeps = {
 };
 
 let nowFn: () => number = () => Date.now();
+const failedDaily = new Map<string, { at: number; error: unknown }>();
+/** Test hook: forget every remembered daily failure. */
+export function resetFeedBackoffForTests(): void {
+  failedDaily.clear();
+}
+/** `deps.daily` with a per-series failure back-off (an abort is never remembered). */
+function withBackoff(deps: FeedDeps): FeedDeps {
+  return {
+    ...deps,
+    daily: async (source, symbol, now, signal) => {
+      const key = `${source}:${symbol}`;
+      const failed = failedDaily.get(key);
+      if (failed && nowFn() - failed.at < DAILY_BACKOFF_MS) throw failed.error;
+      try {
+        const bars = await deps.daily(source, symbol, now, signal);
+        failedDaily.delete(key);
+        return bars;
+      } catch (e) {
+        if (!isAbort(e, signal)) failedDaily.set(key, { at: nowFn(), error: e });
+        throw e;
+      }
+    },
+  };
+}
 /** Test hook: use `fn` (null = the real clock). */
 export function setFeedClockForTests(fn: (() => number) | null): void {
   nowFn = fn ?? (() => Date.now());
 }
 
-const isAbort = (e: unknown, signal?: AbortSignal) => (e instanceof DOMException && e.name === "AbortError") || !!signal?.aborted;
 const isPos = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n > 0;
 
 /** open time → close for closed, positive bars. */
@@ -102,6 +127,8 @@ export interface BreakAwayCloses {
   unavailable: string[];
   /** Close time (ms) of each aligned bar, oldest first: a run of consecutive hours ending at the newest bar that at least 3 venues have. */
   closeTimes: number[];
+  /** True when the newest run does not end at the latest closed hour (fewer than 3 venues have it): no closes are returned. */
+  stale: boolean;
 }
 
 /**
@@ -109,7 +136,8 @@ export interface BreakAwayCloses {
  * for that venue. Standing premiums for the local-currency venues come from the last 30 closed daily bars of the same
  * ratio against Binance BTCUSDT (standingPremiumMedian: fewer than 20 days gives null). Never throws except on abort.
  */
-export async function fetchBreakAwayCloses(signal?: AbortSignal, deps: FeedDeps = realDeps): Promise<BreakAwayCloses> {
+export async function fetchBreakAwayCloses(signal?: AbortSignal, rawDeps: FeedDeps = realDeps): Promise<BreakAwayCloses> {
+  const deps = withBackoff(rawDeps);
   const now = nowFn();
   const hourly = async (v: Venue): Promise<Map<number, number>> => {
     const num = closeMap(await deps.klines(v.num.source, "1h", v.num.symbol, HOURLY_REQUEST, signal), H, now);
@@ -139,14 +167,24 @@ export async function fetchBreakAwayCloses(signal?: AbortSignal, deps: FeedDeps 
     if (run.length >= BREAKAWAY_BARS) break;
   }
   run.reverse();
+  // The run must end at the latest closed hour, or the alert would describe an older market without saying so.
+  if (!run.length || run[run.length - 1] + H !== Math.floor(now / H) * H) {
+    return { closes: {}, standing: await standingPremiums(new Map(), now, signal, deps), unavailable, closeTimes: [], stale: true };
+  }
   const closes: Record<string, number[]> = {};
   for (const [id, m] of byVenue) closes[id] = run.map((t) => m.get(t) ?? NaN);
 
   const standing = await standingPremiums(byVenue, now, signal, deps);
-  return { closes, standing, unavailable, closeTimes: run.map((t) => t + H) };
+  return { closes, standing, unavailable, closeTimes: run.map((t) => t + H), stale: false };
 }
 
-/** Standing premium per local-currency venue; null whenever it cannot be had (venue down, history short or unavailable). */
+/**
+ * Standing premium per local-currency venue. Basis note: it is measured against Binance's DAILY close, while the
+ * hourly comparison is against the median of the other venues, so a small Binance-vs-median basis (typically a few
+ * hundredths of a percent) stays in the figure: negligible against a 1 % threshold. Alignment note: every venue's
+ * daily bars open at 00:00 UTC (Upbit candle_date_time_utc; OKX/Bitget "1Dutc"; Bybit D; Coinbase 86400; Coins.ph
+ * probed 16 Nov 2026: USDTPHP 1d open 2026-11-14T00:00Z), so the ratio and Binance bars match by open time.
+ * Null whenever it cannot be had; null whenever it cannot be had (venue down, history short or unavailable). */
 async function standingPremiums(
   hourlyOk: Map<string, unknown>,
   now: number,
@@ -189,6 +227,8 @@ export interface DailyVolumes {
   volumes: number[];
   /** Open time (UTC midnight, ms) of each day. */
   days: number[];
+  /** True when the last day is yesterday (UTC); fetchDailyVolumes returns [] otherwise. */
+  latest: boolean;
   /** Venues whose daily bars could not be had; they are left out of every day of this run. */
   unavailable: string[];
 }
@@ -198,7 +238,8 @@ export interface DailyVolumes {
  * UTC day). A day a venue lacks is left out; a venue that cannot be loaded is left out of every day (so each run
  * compares like with like), and with fewer than 4 venues loaded the run is empty. Never throws except on abort.
  */
-export async function fetchDailyVolumesDetailed(signal?: AbortSignal, deps: FeedDeps = realDeps): Promise<DailyVolumes> {
+export async function fetchDailyVolumesDetailed(signal?: AbortSignal, rawDeps: FeedDeps = realDeps): Promise<DailyVolumes> {
+  const deps = withBackoff(rawDeps);
   const now = nowFn();
   const settled = await Promise.allSettled(VOLUME_VENUES.map(async (v) => {
     const m = new Map<number, number>();
@@ -215,12 +256,14 @@ export async function fetchDailyVolumesDetailed(signal?: AbortSignal, deps: Feed
     if (r.status === "fulfilled" && r.value.size) loaded.push(r.value);
     else unavailable.push(v.id);
   });
-  if (loaded.length < VOLUME_MIN_VENUES) return { volumes: [], days: [], unavailable };
+  if (loaded.length < VOLUME_MIN_VENUES) return { volumes: [], days: [], latest: false, unavailable };
   const days = [...loaded[0].keys()].filter((t) => loaded.every((m) => m.has(t))).sort((a, b) => a - b).slice(-VOLUME_DAYS_KEPT);
-  return { volumes: days.map((t) => loaded.reduce((s, m) => s + (m.get(t) as number), 0)), days, unavailable };
+  const latest = days.length > 0 && days[days.length - 1] === Math.floor(now / DAY) * DAY - DAY;
+  return { volumes: days.map((t) => loaded.reduce((s, m) => s + (m.get(t) as number), 0)), days, latest, unavailable };
 }
 
-/** The summed daily volumes of fetchDailyVolumesDetailed, ascending. */
+/** The summed daily volumes of fetchDailyVolumesDetailed, ascending; [] when the last day is not yesterday (a venue lacks it). */
 export async function fetchDailyVolumes(signal?: AbortSignal, deps: FeedDeps = realDeps): Promise<number[]> {
-  return (await fetchDailyVolumesDetailed(signal, deps)).volumes;
+  const d = await fetchDailyVolumesDetailed(signal, deps);
+  return d.latest ? d.volumes : [];
 }
