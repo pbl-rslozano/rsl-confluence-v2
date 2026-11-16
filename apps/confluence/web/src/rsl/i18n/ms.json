@@ -678,5 +678,20 @@
   "radar.alert.whale": "{amount} {symbol} ({usd}) dipindahkan dari {from} ke {to} di {chain}.",
   "radar.prov.gatewayLost": "Gateway tidak menerima token. Sambung semula dengan butang API di pengepala.",
   "radar.whale.rejected": "Whale Alert menolak kunci ini. Semak langganan, kemudian tambah kunci sekali lagi.",
-  "about.uses.fng": "Crypto Fear & Greed Index (optional widget)"
+  "about.uses.fng": "Crypto Fear & Greed Index (optional widget)",
+  "fng.toggle": "Fear & Greed",
+  "fng.title": "Crypto Fear & Greed",
+  "fng.updated": "Updated {date}",
+  "fng.stale": "Showing the last value from {date}",
+  "fng.loading": "Loading the index…",
+  "fng.unavailable": "The index is unavailable right now.",
+  "fng.history": "Last {n} days, oldest to newest",
+  "fng.gaugeLabel": "Fear & Greed {value}, {label}, {date}",
+  "fng.attribution": "Data: Alternative.me Crypto Fear & Greed Index",
+  "fng.note": "Context only. It never changes a signal or blocks a trade.",
+  "fng.band.extremeFear": "Extreme Fear",
+  "fng.band.fear": "Fear",
+  "fng.band.neutral": "Neutral",
+  "fng.band.greed": "Greed",
+  "fng.band.extremeGreed": "Extreme Greed"
 }

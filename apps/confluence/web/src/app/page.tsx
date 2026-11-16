@@ -39,6 +39,7 @@ import { useMediaQuery, PHONE_QUERY } from "@/lib/use-media-query";
 import { applyTheme, cssSupportsColorMix, migrateThemePref, resolveTheme, toStoredBackground, THEME_PREF_KEY, type ThemePref } from "@/lib/theme";
 import { useRsl } from "@/rsl/RslContext";
 import { RadarHost } from "@/components/radar-panel";
+import { FearGreedPanel, FearGreedToggle, useFngOpen } from "@/components/fear-greed";
 import { loadRadarLog, type RadarContext } from "@/lib/radar/snapshot";
 import { APP } from "@/rsl/app-info";
 import { BrandBlock } from "@/rsl/components/BrandBlock";
@@ -549,6 +550,7 @@ export default function Home() {
   const [privateApiProfile, setPrivateApiProfile] = useState<PrivateApiProfile | null>(null);
   // Gateway session and data-provider profiles (v2.8 Step 4b): memory only, never persisted.
   const [providerLink, setProviderLink] = useState<ProviderLink | null>(null);
+  const [fngOpen, setFngOpen] = useFngOpen(); // v2.8 (WP29): Fear & Greed panel, remembered per device
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [scanStats, setScanStats] = useState({ durationMs: 0, errors: 0, stale: 0, newestBarTime: 0 });
   const [monitorDraft, setMonitorDraft] = useState("");
@@ -1921,7 +1923,11 @@ export default function Home() {
             {monitorAssets.length > 0 && (
               <span className="text-emerald-400/80">{t("scan.watching", { list: monitorAssets.join(", ") })}</span>
             )}
+            {/* v2.8 (WP29): collapsed Fear & Greed chip, spec §3 item 8. No request while collapsed. */}
+            <FearGreedToggle open={fngOpen} onToggle={() => setFngOpen(!fngOpen)} />
           </div>
+          {/* The header is not sticky (a shrink-0 block above the list), so the open panel pushes the list down and never covers it; it scrolls inside 55 vh. */}
+          {fngOpen && <FearGreedPanel port={rsl.port} />}
 
           {loading && progress.total > 0 && (
             <div className="h-0.5 w-full overflow-hidden rounded bg-zinc-800">

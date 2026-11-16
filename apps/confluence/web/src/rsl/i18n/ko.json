@@ -678,5 +678,20 @@
   "radar.alert.whale": "{amount} {symbol}({usd})이(가) {chain}에서 {from}에서 {to}(으)로 이동했습니다.",
   "radar.prov.gatewayLost": "게이트웨이가 토큰을 받아들이지 않았습니다. 헤더의 API 버튼으로 다시 연결하세요.",
   "radar.whale.rejected": "Whale Alert가 이 키를 거부했습니다. 구독을 확인한 다음 키를 다시 추가하세요.",
-  "about.uses.fng": "Crypto Fear & Greed Index (optional widget)"
+  "about.uses.fng": "Crypto Fear & Greed Index (optional widget)",
+  "fng.toggle": "Fear & Greed",
+  "fng.title": "Crypto Fear & Greed",
+  "fng.updated": "Updated {date}",
+  "fng.stale": "Showing the last value from {date}",
+  "fng.loading": "Loading the index…",
+  "fng.unavailable": "The index is unavailable right now.",
+  "fng.history": "Last {n} days, oldest to newest",
+  "fng.gaugeLabel": "Fear & Greed {value}, {label}, {date}",
+  "fng.attribution": "Data: Alternative.me Crypto Fear & Greed Index",
+  "fng.note": "Context only. It never changes a signal or blocks a trade.",
+  "fng.band.extremeFear": "Extreme Fear",
+  "fng.band.fear": "Fear",
+  "fng.band.neutral": "Neutral",
+  "fng.band.greed": "Greed",
+  "fng.band.extremeGreed": "Extreme Greed"
 }

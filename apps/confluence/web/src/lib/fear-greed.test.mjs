@@ -81,6 +81,34 @@ try {
       ok("the fallback still honours the caller's signal", (await p)?.message === "fng:unavailable");
     } finally { AbortSignal.any = realAny; } }
 
+  /* ---------- timeout (10 s) ---------- */
+  { // The timer is faked: setTimeout/clearTimeout are swapped only around the call, so nothing waits 10 s.
+    const realSet = globalThis.setTimeout, realClear = globalThis.clearTimeout;
+    const timers = new Map();
+    let nextId = 1;
+    globalThis.setTimeout = (fn, ms) => { const id = nextId++; timers.set(id, { fn, ms }); return id; };
+    globalThis.clearTimeout = (id) => { timers.delete(id); };
+    try {
+      let seenSignal = null;
+      const hang = (u, init) => new Promise((_, reject) => { seenSignal = init.signal; init.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true }); });
+      const p = rejects(() => fetchFng(undefined, hang));
+      const pending = [...timers.values()];
+      ok("one 10 s timer is armed for the request", pending.length === 1 && pending[0].ms === 10_000);
+      ok("not aborted before the timer fires", seenSignal !== null && seenSignal.aborted === false);
+      pending[0].fn(); // the 10 s elapse
+      const e = await p;
+      ok("a request that hangs past 10 s aborts and rejects with fng:unavailable", e instanceof Error && e.message === "fng:unavailable" && seenSignal.aborted === true);
+      ok("the timer is cleared after the timeout path", timers.size === 0);
+      const d = await fetchFng(undefined, async () => response(body([row("40", "1794787200")])));
+      ok("a normal fetch clears its timer", d.points.length === 1 && timers.size === 0);
+      // The timer also covers a body that never arrives.
+      const slowBody = async (u, init) => ({ ok: true, json: () => new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true })) });
+      const p2 = rejects(() => fetchFng(undefined, slowBody));
+      await new Promise((r) => realSet(r, 0)); // let fetchFng reach the body read before the 10 s elapse
+      [...timers.values()][0].fn();
+      ok("the timeout covers the body read", (await p2)?.message === "fng:unavailable");
+    } finally { globalThis.setTimeout = realSet; globalThis.clearTimeout = realClear; } }
+
   /* ---------- cache ---------- */
   { const store = new Map();
     const port = { get: async (c, id) => store.get(`${c}/${id}`), put: async (c, id, doc) => { store.set(`${c}/${id}`, JSON.parse(JSON.stringify(doc))); } };
