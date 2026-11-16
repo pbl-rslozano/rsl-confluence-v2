@@ -322,3 +322,10 @@ body { background-color: var(--color-zinc-950); color: var(--color-zinc-100); }
 
 /* v2.8 (WP25): the Radar sheet slides in only when motion is allowed. */
 @media (prefers-reduced-motion: reduce) { .radar-sheet { animation: none !important; transition: none !important; } }
+
+/* v2.8 (WP29): Fear & Greed band colours. --fng-c is the dark-theme colour (FNG_COLORS); on the light theme --fng-l (FNG_COLORS_LIGHT,
+   precomputed hex, at least 4.5:1 on #f5f7fa, distinct hues) is used. No colour functions, so nothing falls back to pastel on white. */
+.fng-fill { fill: var(--fng-c); }
+.fng-stroke { stroke: var(--fng-c); }
+:root[data-theme="light"] .fng-fill { fill: var(--fng-l); }
+:root[data-theme="light"] .fng-stroke { stroke: var(--fng-l); }

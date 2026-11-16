@@ -677,5 +677,22 @@
   "radar.th.whaleMinUsd": "大额转账（最低金额，US$）",
   "radar.alert.whale": "{amount} {symbol}（{usd}）已在 {chain} 上从 {from} 转至 {to}。",
   "radar.prov.gatewayLost": "网关未接受该令牌。请通过页眉中的 API 按钮重新连接。",
-  "radar.whale.rejected": "Whale Alert 拒绝了此密钥。请检查订阅，然后重新添加密钥。"
+  "radar.whale.rejected": "Whale Alert 拒绝了此密钥。请检查订阅，然后重新添加密钥。",
+  "about.uses.fng": "Crypto Fear & Greed Index (optional widget)",
+  "fng.toggle": "Fear & Greed",
+  "fng.title": "Crypto Fear & Greed",
+  "fng.updated": "Updated {date}",
+  "fng.stale": "Showing the last value from {date}",
+  "fng.loading": "Loading the index…",
+  "fng.unavailable": "The index is unavailable right now.",
+  "fng.history": "Last {n} days, oldest to newest",
+  "fng.gaugeLabel": "Fear & Greed {value}, {label}, {date}",
+  "fng.attribution": "Data: Alternative.me Crypto Fear & Greed Index",
+  "fng.note": "Context only. It never changes a signal or blocks a trade.",
+  "fng.band.extremeFear": "Extreme Fear",
+  "fng.band.fear": "Fear",
+  "fng.band.neutral": "Neutral",
+  "fng.band.greed": "Greed",
+  "fng.band.extremeGreed": "Extreme Greed",
+  "fng.historySummary": "Last {n} days, oldest to newest: from {first} to {last}, low {min}, high {max}"
 }

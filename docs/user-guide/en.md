@@ -123,6 +123,15 @@ Under the header: number of assets scanned, the share that are **Bull**, **Bear*
 When the liquidity floor left crypto pairs out (section 9), the strip also says *n thin pairs under $1M/day are not
 scored*; point at it to see which pairs.
 
+<!-- wp:WP29 -->
+### Fear & Greed (v2.8)
+The **Fear & Greed** chip at the end of the counts line (the line under the header with **Assets**, **Bull**, **Bear**, **Neutral** and **Rev**) opens a small panel with the **Crypto Fear & Greed Index**: a gauge from 0 (extreme fear) to 100 (extreme greed) and the index of the last 31 days. It is **context only**: it never changes a score, a signal, an alert or a paper-trading rule, and it never blocks a trade. The engine code stays `5c30b5c39f5ba3f2`.
+
+- **What it is.** An index of crypto market mood published **once a day** by Alternative.me. The gauge shows today's value, its band (**Extreme Fear** 0–24, **Fear** 25–44, **Neutral** 45–55, **Greed** 56–75, **Extreme Greed** 76–100) and the day it was published (**Updated** and the date, as a UTC calendar day). The bars show the last 31 days, oldest to newest (in Arabic and Urdu, which run right to left, the oldest day is on the right). The gauge itself always has 0 on the left, as on the source's own page.
+- **Open and close.** Click the chip to open the panel and click it again to close it. It opens directly below the counts line and moves the list down; closing it puts the list back. It is **closed by default**, and whether it is open is remembered **on this device** (browser storage, not in a backup): leave it open and the next start fetches it again, which is your choice.
+- **When it contacts the internet.** Only while the panel is **open**. With the chip collapsed the app makes **no request** to Alternative.me, not even when you point at it. When you open it the last value shows at once from this device; the app asks again only if there is none or it is **older than an hour**, and while the panel stays open it checks every 15 minutes and fetches only when the value has become that old. Closing the panel cancels a request in flight. If the source cannot be reached the panel says **The index is unavailable right now.**, or, when it has an earlier value, keeps showing it with **Showing the last value from** its date.
+- **Source.** **Data: Alternative.me Crypto Fear & Greed Index** sits right under the gauge and opens Alternative.me's page in your browser. The same source is listed in **About → Data sources & thanks**. The app is not made by or affiliated with Alternative.me.
+
 ### The table
 | Column | Meaning |
 |---|---|

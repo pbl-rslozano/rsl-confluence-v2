@@ -151,6 +151,29 @@ gate as every radar request); the default build at rest opens no socket (accepta
   its error names only protocol and host. `tools/check-egress.mjs` checks the source; the guard checks at runtime.
 - **Not verified:** each venue's terms for the streams and any connection or message rate limit beyond what the probe saw.
 
+## Amendment — v2.8 (16 Nov 2026, WP29: Fear & Greed widget)
+Evidence: probe FNG-PROBE-1, `docs/research/evidence/wp29-fng-probe-2026-11-16.json` (from the deployed app's own origin
+`https://effervescent-bubblegum-1e5c03.netlify.app`, 16 Nov 2026): `GET https://api.alternative.me/fng/?limit=31&format=json`
+returned HTTP 200, `application/json`, 31 rows in about 820 ms, keys `name`, `data`, `metadata: { error: null }`, newest row
+first. The host is public data only: GET, no key, no credentials, no account and no order endpoint (paper trading only; release
+checks R12 and R20). The index never reaches scoring, the ledger, alerts or any paper-trading rule.
+- **App, `connect-src` (+1):** `https://api.alternative.me`. It is in `CSP_HOSTS`
+  (`apps/confluence/web/src/lib/public-hosts.ts`), the desktop CSP and `tools/egress-manifest.json` `web.hosts`
+  (`api.alternative.me`) and `web.csp` (R8, R11). CORS is allowed from the app origin, so no same-origin rewrite is needed.
+  R8 now lists 20 hosts.
+- **Gate:** the widget contacts the host only while its panel is open (on open, then at most once per hour); collapsed
+  at rest (the default), no request is made (acceptance BLD-9.4-3a is unchanged). The recorder, the gateway and the MCP
+  never call it.
+- **Terms**, from https://alternative.me/crypto/fear-and-greed-index/ (16 Nov 2026):
+  - "You must properly acknowledge the source of the data and prominently reference it accordingly."
+  - "Commercial use is allowed as long as the attribution is given right next to the display of the data."
+  - The page applies these rules "to all of our fear and greed data, not just the API".
+  - It prohibits using the data to impersonate Alternative.me or to make a service that could be confused with it.
+
+  So the panel shows "Data: Alternative.me Crypto Fear & Greed Index", linked, right next to the gauge, and the source is
+  listed in About, Data sources and thanks. The widget is labelled as the app's own panel and never as Alternative.me's.
+- **Not verified:** no rate limit is documented (the index is updated daily); response headers beyond `content-type`.
+
 ## Amendment — v2.8 part 2 (gateway) (16 Nov 2026, WP25: data-provider keys)
 Two optional, paid providers are reachable only from the local gateway (`apps/confluence/gateway`, on the user's own
 computer, loopback only). Neither is reachable from the web app, the desktop CSP or the recorder, and no web bundle

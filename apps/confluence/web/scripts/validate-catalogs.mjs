@@ -48,7 +48,7 @@ const argNames = (src) => {
   return names;
 };
 const VARS = { version: "2.5.2", build: "20261108", size: "19.4 MB", event: "FOMC", hours: 5, id: "a1b2c3d4e5f60718", fee: 10, slip: 5, funding: 1, bars: 300, n: 3, count: 2, s: "1.2", time: "10:00", list: "BTC, ETH", customer: "Personal", theme: "light",
-  kind: "sqlite", days: 5, k: 4, name: "Ronald", total: 3, language: "English", reason: "test", date: "2027-01-29", h: 6,
+  kind: "sqlite", days: 5, value: "42", first: 10, last: 40, k: 4, name: "Ronald", total: 3, language: "English", reason: "test", date: "2027-01-29", h: 6,
   source: "Coins.ph (PH)", floor: "$250k", sha: "0123456789ab…", // v2.6
   code: "SAR", rate: "3.75", authority: "SAMA", band: "7.75–7.85", native: "USD", price: "$0.9987", coin: "FDUSD", dev: "−1.50 %", ref: "USDT", fallback: "built-in official pegs", // v2.7
   rank: 2, m: 300, pct: 10, series: "binance|4h", move: "+0.42 %", sim: 81, remaining: 2, exchange: "Binance Spot",

@@ -45,6 +45,7 @@ export const CSP_HOSTS = [
   { origin: "https://fapi.binance.com", purpose: "Binance USD-M futures public market data, REST only, market radar (ADR-0003 v2.8, WP25)" },
   { origin: "https://publicreporting.cftc.gov", purpose: "CFTC Commitments of Traders, public reporting (ADR-0003 v2.8, WP25)" },
   { origin: "https://stablecoins.llama.fi", purpose: "DefiLlama stablecoin supply, public (ADR-0003 v2.8, WP25)" },
+  { origin: "https://api.alternative.me", purpose: "Crypto Fear & Greed Index, GET /fng/ (ADR-0003 v2.8, WP29)" },
   { origin: "wss://fstream.binance.com", purpose: "Binance USD-M liquidation stream, market radar (ADR-0003 v2.8, WP25)" },
   { origin: "wss://stream.bybit.com", purpose: "Bybit public liquidation stream, market radar (ADR-0003 v2.8, WP25)" },
 ] as const;
