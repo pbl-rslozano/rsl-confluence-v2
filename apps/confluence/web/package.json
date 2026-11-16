@@ -13,7 +13,7 @@
     "build:capacitor": "node scripts/build-html.mjs --target=capacitor",
     "start": "next start",
     "gen:icons": "node scripts/gen-icons.mjs",
-    "test": "npm run test:engine && npm run test:fundtrend && npm run test:fundtrend-feed && npm run test:panel && npm run test:routeerr && npm run test:pulse && npm run test:noise && npm run test:coinsph && npm run test:relay && npm run test:venues && npm run test:okx && npm run test:coinbase && npm run test:upbit && npm run test:radar-fut && npm run test:radar-reg && npm run test:radar-inst && npm run test:radar-alerts && npm run test:radar-liq && npm run test:radar-liq-feed && npm run test:radar-snap && npm run test:radar-ui && npm run test:links && npm run test:quotes && npm run test:fx && npm run test:chart && npm run test:measure && npm run test:measure23 && npm run test:paper && npm run test:fvg && npm run test:i18n && npm run test:theme && npm run test:update && npm run test:coffee && node --test src/lib/derivatives-context.test.mjs src/lib/order-flow.test.mjs && node --experimental-strip-types --no-warnings --test src/lib/progressive-scan.test.mjs",
+    "test": "npm run test:engine && npm run test:fundtrend && npm run test:fundtrend-feed && npm run test:panel && npm run test:routeerr && npm run test:pulse && npm run test:noise && npm run test:coinsph && npm run test:relay && npm run test:venues && npm run test:okx && npm run test:coinbase && npm run test:upbit && npm run test:radar-fut && npm run test:radar-reg && npm run test:radar-inst && npm run test:radar-alerts && npm run test:radar-liq && npm run test:radar-liq-feed && npm run test:radar-snap && npm run test:radar-providers && npm run test:radar-ui && npm run test:links && npm run test:quotes && npm run test:fx && npm run test:chart && npm run test:measure && npm run test:measure23 && npm run test:paper && npm run test:fvg && npm run test:i18n && npm run test:theme && npm run test:update && npm run test:coffee && node --test src/lib/derivatives-context.test.mjs src/lib/order-flow.test.mjs && node --experimental-strip-types --no-warnings --test src/lib/progressive-scan.test.mjs",
     "test:engine": "node scripts/run-engine-tests.mjs",
     "test:noise": "node scripts/run-engine-tests.mjs noise.test.mjs",
     "test:fvg": "node --experimental-strip-types --no-warnings src/lib/fvg.test.mjs",
@@ -49,6 +49,7 @@
     "test:radar-liq": "node scripts/run-engine-tests.mjs radar-liq.test.mjs",
     "test:radar-liq-feed": "node scripts/run-engine-tests.mjs radar-liq-feed.test.mjs",
     "test:radar-snap": "node scripts/run-engine-tests.mjs radar-snapshot.test.mjs",
+    "test:radar-providers": "node scripts/run-engine-tests.mjs radar-providers.test.mjs",
     "test:radar-ui": "node scripts/run-engine-tests.mjs radar-ui.test.mjs",
     "test:links": "node scripts/run-engine-tests.mjs exchange-links.test.mjs"
   },

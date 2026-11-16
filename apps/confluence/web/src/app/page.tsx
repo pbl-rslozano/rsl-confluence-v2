@@ -125,7 +125,7 @@ import { formatMoney, formatMoneyCompact } from "@/lib/money";
 import { FxSourcesDialog } from "@/components/fx-sources-dialog";
 import { fxCredit, fxSourceInfo, type FxChoice } from "@/lib/fx-rates";
 import { PrivateApiDialog } from "@/components/private-api-dialog";
-import type { PrivateApiProfile } from "@/lib/private-api";
+import type { PrivateApiProfile, ProviderLink } from "@/lib/private-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -547,6 +547,8 @@ export default function Home() {
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [privateApiOpen, setPrivateApiOpen] = useState(false);
   const [privateApiProfile, setPrivateApiProfile] = useState<PrivateApiProfile | null>(null);
+  // Gateway session and data-provider profiles (v2.8 Step 4b): memory only, never persisted.
+  const [providerLink, setProviderLink] = useState<ProviderLink | null>(null);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [scanStats, setScanStats] = useState({ durationMs: 0, errors: 0, stale: 0, newestBarTime: 0 });
   const [monitorDraft, setMonitorDraft] = useState("");
@@ -2266,7 +2268,7 @@ export default function Home() {
       />
 
       {/* v2.8 (WP25): market radar. The tab portals to document.body (outside header, main and footer). It contacts no host until opened. */}
-      <RadarHost port={rsl.port} depeg={scanMeta.depeg} depegSource={scanMeta.source} depegAt={scanMeta.depegAt} recordRadar={recordRadar} />
+      <RadarHost port={rsl.port} depeg={scanMeta.depeg} depegSource={scanMeta.source} depegAt={scanMeta.depegAt} recordRadar={recordRadar} providerLink={providerLink} />
 
       {/* ---------- Detail modal ---------- */}
       <Dialog open={!!detailAsset} onOpenChange={(o) => { if (!o) { setChartReplay(false); setDetailAsset(null); } }}>
@@ -2470,7 +2472,7 @@ export default function Home() {
           </div>
         </DialogContent>
       </Dialog>
-      <PrivateApiDialog open={privateApiOpen} onOpenChange={setPrivateApiOpen} profile={privateApiProfile} onProfileChange={setPrivateApiProfile} />
+      <PrivateApiDialog open={privateApiOpen} onOpenChange={setPrivateApiOpen} profile={privateApiProfile} onProfileChange={setPrivateApiProfile} providerLink={providerLink} onProviderLinkChange={setProviderLink} />
       {/* custom scrollbar styles */}
       <style jsx global>{`
         body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }

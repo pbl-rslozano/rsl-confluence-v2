@@ -30,6 +30,7 @@ import { etfDailyTotals, parseEtfCsv, type EtfFlow } from "@/lib/radar/etf-csv";
 import { loadEtfRows, saveEtfRows, type RadarPort } from "@/lib/radar/store";
 import type { CotReport, CotGroup } from "@/lib/radar/cftc";
 import type { FuturesPositioning } from "@/lib/radar/binance-futures";
+import type { ProviderLink } from "@/lib/private-api";
 import { THRESHOLD_FIELDS, radarUiSnapshot, setRadarOpen, setRadarSectionCollapsed, setRadarThresholds, useRadarUi, type RadarSection } from "@/lib/radar/radar-ui";
 
 type T = (key: string, vars?: Record<string, string | number>) => string;
@@ -47,6 +48,8 @@ export interface RadarHostProps {
   depegAt?: number;
   /** Record radar context setting (Task 7). False until it exists. */
   recordRadar?: boolean;
+  /** Gateway session and connected data-provider profiles (memory only). Unused until Task 8. */
+  providerLink?: ProviderLink | null;
 }
 
 const TAB_SELECTOR = '[data-testid="radar-tab"]';

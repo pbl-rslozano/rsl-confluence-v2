@@ -24,11 +24,17 @@ import {
   DEFAULT_GATEWAY_URL,
   checkGateway,
   connectPrivateApi,
+  connectProvider,
   disconnectPrivateApi,
+  disconnectProvider,
   isLoopbackGateway,
+  listProviders,
+  type DataProvider,
+  type GatewaySession,
   type PrivateApiEnvironment,
   type PrivateApiProfile,
   type PrivateApiProvider,
+  type ProviderLink,
 } from "@/lib/private-api";
 
 interface PrivateApiDialogProps {
@@ -36,7 +42,15 @@ interface PrivateApiDialogProps {
   onOpenChange: (open: boolean) => void;
   profile: PrivateApiProfile | null;
   onProfileChange: (profile: PrivateApiProfile | null) => void;
+  /** Gateway session and data-provider profiles. Page state only: never persisted. */
+  providerLink: ProviderLink | null;
+  onProviderLinkChange: (link: ProviderLink | null) => void;
 }
+
+const DATA_PROVIDER_LABELS: Record<DataProvider, string> = {
+  "whale-alert": "Whale Alert — large transfers",
+  coinglass: "CoinGlass — US spot ETF flows",
+};
 
 const PROVIDER_LABELS: Record<PrivateApiProvider, string> = {
   binance: "Binance",
@@ -53,6 +67,8 @@ export function PrivateApiDialog({
   onOpenChange,
   profile,
   onProfileChange,
+  providerLink,
+  onProviderLinkChange,
 }: PrivateApiDialogProps) {
   const [provider, setProvider] = useState<PrivateApiProvider>("bybit");
   const [environment, setEnvironment] = useState<PrivateApiEnvironment>("testnet");
@@ -64,6 +80,11 @@ export function PrivateApiDialog({
   const [busy, setBusy] = useState(false);
   const [gatewayStatus, setGatewayStatus] = useState<"idle" | "checking" | "online" | "offline">("idle");
   const [error, setError] = useState<string | null>(null);
+  const [dataProvider, setDataProvider] = useState<DataProvider>("whale-alert");
+  const [providerLabel, setProviderLabel] = useState("");
+  const [providerKey, setProviderKey] = useState("");
+  const [providerBusy, setProviderBusy] = useState(false);
+  const [providerError, setProviderError] = useState<string | null>(null);
 
   const gatewayValid = useMemo(() => isLoopbackGateway(gatewayUrl), [gatewayUrl]);
   const formValid =
@@ -114,6 +135,114 @@ export function PrivateApiDialog({
     }
   };
 
+  // The session for provider calls: an existing link or exchange profile has already passed a gateway check; otherwise
+  // the fields above must have passed one (Check -> "online").
+  const providerSession: GatewaySession | null = providerLink
+    ? providerLink.session
+    : profile
+      ? { url: profile.gatewayUrl, token: profile.gatewayToken }
+      : gatewayStatus === "online" && gatewayValid && gatewayToken.trim()
+        ? { url: gatewayUrl, token: gatewayToken }
+        : null;
+  const providerFormValid = providerSession !== null && providerKey.trim().length > 0;
+
+  const handleProviderConnect = async () => {
+    if (!providerSession || !providerFormValid) return;
+    const apiKey = providerKey.trim();
+    setProviderKey(""); // cleared at submit, success or failure: no other copy of the key is kept
+    setProviderBusy(true);
+    setProviderError(null);
+    try {
+      await connectProvider(providerSession, {
+        provider: dataProvider,
+        label: providerLabel.trim() || DATA_PROVIDER_LABELS[dataProvider].split(" — ")[0],
+        apiKey,
+      });
+      const providers = await listProviders(providerSession);
+      onProviderLinkChange({ session: providerSession, providers });
+    } catch (reason) {
+      setProviderError(reason instanceof Error ? reason.message : "Could not connect the provider.");
+    } finally {
+      setProviderBusy(false);
+    }
+  };
+
+  const handleProviderDisconnect = async (id: string) => {
+    if (!providerLink) return;
+    setProviderBusy(true);
+    setProviderError(null);
+    try {
+      await disconnectProvider(providerLink.session, id);
+      const providers = await listProviders(providerLink.session);
+      onProviderLinkChange(providers.length > 0 ? { session: providerLink.session, providers } : null);
+    } catch (reason) {
+      setProviderError(reason instanceof Error ? reason.message : "Could not disconnect the provider.");
+    } finally {
+      setProviderBusy(false);
+    }
+  };
+
+  const providersSection = (
+    <section className="space-y-3 rounded-lg border border-zinc-700 p-3" aria-labelledby="data-providers-title" data-testid="data-providers">
+      <h3 id="data-providers-title" className="text-sm font-semibold text-zinc-200">Data providers (optional, paid)</h3>
+      {providerLink && providerLink.providers.length > 0 && (
+        <ul className="space-y-2" aria-label="Connected data providers">
+          {providerLink.providers.map((p) => (
+            <li key={p.id} className="flex items-center justify-between gap-3 rounded border border-zinc-700 bg-zinc-950 p-2">
+              <div className="min-w-0">
+                <div className="truncate text-sm text-zinc-200">{p.label}</div>
+                <div className="font-mono text-xs text-zinc-500">{DATA_PROVIDER_LABELS[p.provider]} · {p.maskedKey}</div>
+              </div>
+              <Button type="button" variant="outline" size="sm" className="shrink-0 border-rose-500/40 text-rose-300" disabled={providerBusy} onClick={() => handleProviderDisconnect(p.id)}>
+                Disconnect
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="data-provider">Provider</Label>
+          <Select value={dataProvider} onValueChange={(value) => setDataProvider(value as DataProvider)}>
+            <SelectTrigger id="data-provider" aria-label="Data provider" className="border-zinc-700 bg-zinc-950">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="border-zinc-700 bg-zinc-900">
+              <SelectItem value="whale-alert">{DATA_PROVIDER_LABELS["whale-alert"]}</SelectItem>
+              <SelectItem value="coinglass">{DATA_PROVIDER_LABELS.coinglass}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="data-provider-label">Label</Label>
+          <Input id="data-provider-label" value={providerLabel} onChange={(event) => setProviderLabel(event.target.value)} maxLength={80} className="border-zinc-700 bg-zinc-950" />
+        </div>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="data-provider-key"><KeyRound className="h-3.5 w-3.5" /> Provider API key</Label>
+        <div className="flex gap-2">
+          <Input
+            id="data-provider-key"
+            type="password"
+            value={providerKey}
+            onChange={(event) => setProviderKey(event.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            className="border-zinc-700 bg-zinc-950 font-mono"
+          />
+          <Button type="button" variant="outline" className="shrink-0 border-zinc-700" disabled={!providerFormValid || providerBusy} onClick={handleProviderConnect}>
+            {providerBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Connect"}
+          </Button>
+        </div>
+        {!providerSession && <p className="text-[11px] text-zinc-500">Check the local gateway first.</p>}
+      </div>
+      <p className="text-[11px] text-zinc-500">
+        Keys stay in the gateway&apos;s memory on this PC and are cleared when it stops. Both are paid plans for personal use.
+      </p>
+      {providerError && <div role="alert" className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-300">{providerError}</div>}
+    </section>
+  );
+
   const handleDisconnect = async () => {
     if (!profile) return;
     setBusy(true);
@@ -133,6 +262,8 @@ export function PrivateApiDialog({
       if (!nextOpen) {
         setSecrets(emptySecretState());
         setShowSecret(false);
+        setProviderKey("");
+        setProviderError(null);
         setError(null);
         setGatewayStatus("idle");
       }
@@ -175,6 +306,7 @@ export function PrivateApiDialog({
               This build tests account access only. It exposes no order-placement endpoint, even when the exchange key has trading permission.
             </div>
             {error && <div role="alert" className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-300">{error}</div>}
+            {providersSection}
             <DialogFooter>
               <Button variant="outline" className="border-rose-500/40 text-rose-300" disabled={busy} onClick={handleDisconnect}>
                 {busy && <Loader2 className="h-4 w-4 animate-spin" />} Disconnect and clear
@@ -310,6 +442,8 @@ export function PrivateApiDialog({
             </div>
 
             {error && <div role="alert" className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-300">{error}</div>}
+
+            {providersSection}
 
             <DialogFooter>
               <Button variant="outline" className="border-zinc-700" onClick={() => onOpenChange(false)}>Cancel</Button>
