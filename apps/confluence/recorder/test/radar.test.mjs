@@ -1,9 +1,9 @@
 // v2.8 (WP25, Task 7): the recorder's market-radar context (--radar on|off) — offline, on a mocked clock.
 import test, { beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { resetRateLimitForTests } from "../src/engine.mjs";
+import { rateLimitCooldown, resetRateLimitForTests } from "../src/engine.mjs";
 import { parseConfig } from "../src/config.mjs";
 import { createRecorder, interruptibleSleep } from "../src/recorder-core.mjs";
 import { loadRecorderManifest } from "../src/net.mjs";
@@ -140,4 +140,80 @@ test("the real radar fetchers only reach manifest hosts (unreachable radar hosts
   const log = readJsonl(join(dir, "radar", "2026-10.jsonl"));
   assert.equal(log.length, 1);
   assert.ok(log[0].frp === null && log[0].oi24 === null && log[0].ls === null, "fapi.binance.com was down: positioning fields null");
+});
+
+test("I-1: a radar venue's rate limit (binance-fut 418) does not stop the next scoring cycle", async (t) => {
+  const dir = tempDir(t);
+  const ex = mockExchange({ override: (url) => (url.host === "fapi.binance.com" ? new Response("{}", { status: 418, headers: { "retry-after": "600" } }) : undefined) });
+  const before = globalThis.fetch;
+  globalThis.fetch = ex.fetch;
+  t.after(() => { globalThis.fetch = before; });
+  const rec = createRecorder(baseConfig(dir, { radar: true }), { ...quiet, baseFetch: ex.fetch, env: {} });
+  const r1 = await rec.cycle();
+  assert.equal(r1.ok, true);
+  assert.ok(ex.calls.some((c) => c.host === "fapi.binance.com"), "the radar did hit fapi");
+  assert.ok(rateLimitCooldown() > 0, "binance-fut is cooling down (global view)");
+  assert.equal(rateLimitCooldown("binance"), 0, "the scan source is not");
+  mock.timers.setTime(T0 + 60_000);
+  const r2 = await rec.cycle();
+  assert.equal(r2.ok, true, "scoring cycle not blocked by the radar venue's cooldown");
+  assert.equal(r2.error, null);
+});
+
+test("I-2: a cycle skips the radar while the newest entry is younger than 5 min; the pre-close wake always refreshes", async (t) => {
+  const dir = tempDir(t);
+  const ex = mockExchange();
+  const before = globalThis.fetch;
+  globalThis.fetch = ex.fetch;
+  t.after(() => { globalThis.fetch = before; });
+  const seen = [];
+  const rec = createRecorder(baseConfig(dir, { radar: true, tf: "1m", intervalSeconds: 60 }), { ...quiet, baseFetch: ex.fetch, env: {}, radarFetchers: fakeFetchers(seen) });
+  const logLen = () => readJsonl(join(dir, "radar", "2026-10.jsonl")).length;
+  await rec.cycle();
+  assert.equal(logLen(), 1);
+  mock.timers.setTime(T0 + 60_000); await rec.cycle();
+  mock.timers.setTime(T0 + 240_000); await rec.cycle();
+  assert.equal(logLen(), 1, "cycles at +1 and +4 min skip the radar");
+  assert.equal(seen.filter(([k]) => k === "regional").length, 1);
+  mock.timers.setTime(T0 + 300_000); await rec.cycle();
+  assert.equal(logLen(), 2, "at +5 min the next cycle refreshes");
+});
+
+test("M6: a restart reads the radar log back and catch-up rows get rad from it", async (t) => {
+  const dir = tempDir(t);
+  const ex = mockExchange();
+  const before = globalThis.fetch;
+  globalThis.fetch = ex.fetch;
+  t.after(() => { globalThis.fetch = before; });
+  const recA = createRecorder(baseConfig(dir, { radar: true }), { ...quiet, baseFetch: ex.fetch, env: {}, radarFetchers: fakeFetchers() });
+  assert.equal((await recA.cycle()).ok, true);
+  // an entry 1 h before the 16:00 close, as a pre-close wake would have logged it
+  const entry = { t: Date.UTC(2026, 9, 31, 15), frp: 42, oi24: 1, ls: 1, tk: 0.5, usP: 0, krP: 0, phP: 0, al: ["SEEDED_CODE"] };
+  appendFileSync(join(dir, "radar", "2026-10.jsonl"), JSON.stringify(entry) + "\n");
+  mock.timers.setTime(Date.UTC(2026, 9, 31, 20, 0, 30));
+  const recB = createRecorder(baseConfig(dir, { radar: true }), { ...quiet, baseFetch: ex.fetch, env: {}, radarFetchers: fakeFetchers() });
+  const r = await recB.cycle();
+  assert.equal(r.ok, true);
+  assert.ok(r.catchUpRows >= 3, "the 12:00-open bar is caught up for each pair");
+  const rows = ledger(dir).filter((x) => x.t === Date.UTC(2026, 9, 31, 12));
+  assert.ok(rows.length >= 3 && rows.every((x) => x.rad && x.rad.t === entry.t && x.rad.frp === 42 && x.rad.al[0] === "SEEDED_CODE"), "catch-up rows carry the reloaded entry");
+  assert.ok(ledger(dir).filter((x) => x.t === Date.UTC(2026, 9, 31, 16)).every((x) => x.rad === null), "the 20:00 live rows are older than 2 h from every entry");
+});
+
+test("M1: the daily inputs are cached per UTC day in radar/daily.json (a later run does not refetch)", async () => {
+  const { persistDailyDeps } = await import("../src/radar.mjs");
+  const dir = tempDir();
+  let calls = 0;
+  const bar = (i) => ({ time: i * 86_400_000, open: 1, high: 2, low: 1, close: 1.5, volume: 3 });
+  const base = { klines: async () => [], daily: async () => { calls++; return [bar(1), bar(2)]; } };
+  const a = persistDailyDeps(dir, base);
+  await a.daily("binance", "BTCUSDT", Date.now());
+  await a.daily("binance", "BTCUSDT", Date.now());
+  const b = persistDailyDeps(dir, base); // a new process
+  const got = await b.daily("binance", "BTCUSDT", Date.now());
+  assert.equal(calls, 1);
+  assert.equal(got.length, 2);
+  mock.timers.setTime(T0 + 86_400_000); // next UTC day
+  await persistDailyDeps(dir, base).daily("binance", "BTCUSDT", Date.now());
+  assert.equal(calls, 2);
 });

@@ -62,7 +62,8 @@ export interface FeedDeps {
   /** Closed daily bars, newest last, cached per UTC day. */
   daily: (source: DataSource, symbol: string, now: number, signal?: AbortSignal) => Promise<Kline[]>;
 }
-const realDeps: FeedDeps = {
+/** The real feeds (the recorder wraps `daily` with its own per-UTC-day file cache). */
+export const realDeps: FeedDeps = {
   klines: (source, interval, symbol, bars, signal) => {
     try { assertNotCoolingDown(source); } catch (e) { return Promise.reject(e); }
     return fetchSymbolKlines(source, interval, symbol, bars, signal, true);

@@ -113,7 +113,7 @@ export function retentionFor(kind: string): number {
   if (kind === "localstorage") return 14;
   return 2;
 }
-/** Row cap per storage kind (~380 B per row). */
+/** Row cap per storage kind (~380 B per row before v2.8 WP25; a populated `rad` adds ~110 B, `rad: null` ~10 B, so a radar-recording ledger is ~30 % heavier per row). */
 export function maxRowsFor(kind: string): number {
   if (kind === "sqlite") return 1_000_000;
   if (kind === "indexeddb") return 400_000;

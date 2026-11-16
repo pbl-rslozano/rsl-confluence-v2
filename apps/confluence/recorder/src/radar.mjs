@@ -19,19 +19,57 @@
  * The stablecoin readings (depeg alerts) come from a scan, which the recorder does not keep: no DEPEG_* codes here.
  */
 import { join } from "node:path";
-import { createRadarRunner, DEFAULT_RADAR_THRESHOLDS, normalizeRadarContext, realRadarFetchers, toRadarContext } from "./engine.mjs";
+import { createRadarRunner, DEFAULT_RADAR_THRESHOLDS, fetchBreakAwayCloses, fetchDailyVolumesDetailed, normalizeRadarContext, realRadarFeedDeps, realRadarFetchers, toRadarContext } from "./engine.mjs";
 import { installGlobalFetch } from "./net.mjs";
 import { readJson, writeJsonAtomic } from "./store.mjs";
 
 /** Entries kept in memory (and read back from the log at start-up): catch-up rows after a gap need older ones. */
 export const RADAR_KEEP_MS = 14 * 86_400_000;
 const CACHE_ID = "radar-cache";
+const DAY_MS = 86_400_000;
+const DAILY_KEEP_BARS = 400;
+const isBar = (b) => b && [b.time, b.open, b.high, b.low, b.close, b.volume].every((v) => typeof v === "number" && Number.isFinite(v));
+
+/**
+ * The radar's daily inputs (the 30-day standing premiums and the daily volumes) are closed daily bars per series, read through
+ * `deps.daily`. This wraps it with <out>/radar/daily.json: bars fetched on the current UTC day are reused by later runs, so a
+ * scheduler's `--once` runs do not refetch ~30 requests each time (daily inputs: once per UTC day). Anything unreadable is a miss.
+ */
+export function persistDailyDeps(outDir, base = realRadarFeedDeps, now = Date.now) {
+  const path = join(outDir, "radar", "daily.json");
+  let doc = null;
+  const load = () => {
+    if (doc) return doc;
+    const raw = readJson(path, null);
+    doc = raw && raw.schema === 1 && raw.series && typeof raw.series === "object" ? raw : { schema: 1, series: {} };
+    return doc;
+  };
+  return {
+    ...base,
+    daily: async (source, symbol, at, signal) => {
+      const key = `${source}|${symbol}`;
+      const day = Math.floor(now() / DAY_MS);
+      const hit = load().series[key];
+      if (hit && hit.day === day && Array.isArray(hit.bars) && hit.bars.length && hit.bars.every(isBar)) return hit.bars;
+      const bars = await base.daily(source, symbol, at, signal);
+      if (Array.isArray(bars) && bars.length && bars.every(isBar)) {
+        load().series[key] = { day, bars: bars.slice(-DAILY_KEEP_BARS).map((b) => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume })) };
+        try { writeJsonAtomic(path, doc); } catch { /* the cache is best effort */ }
+      }
+      return bars;
+    },
+  };
+}
 
 /**
  * @param {{ guard: { fetch: typeof fetch }, outDir: string, appendJsonl: (path: string, records: object[]) => number, monthOf: (ms: number) => string,
  *   seed?: string, fetchers?: object, now?: () => number }} deps  `seed` = JSONL text of the recent logs.
  */
-export function createRadarRecorder({ guard, outDir, appendJsonl, monthOf, seed = "", fetchers = realRadarFetchers, now = Date.now }) {
+export function createRadarRecorder({ guard, outDir, appendJsonl, monthOf, seed = "", fetchers, now = Date.now }) {
+  if (!fetchers) {
+    const deps = persistDailyDeps(outDir, realRadarFeedDeps, now);
+    fetchers = { ...realRadarFetchers, breakAway: (signal) => fetchBreakAwayCloses(signal, deps), dailyVolumes: (signal) => fetchDailyVolumesDetailed(signal, deps) };
+  }
   // The runner's per-device store, in Node: only its slow-input cache (CFTC, stablecoin supply) is kept on disk, so a
   // scheduler's `--once` runs do not refetch it every time; the runner's own context log stays in memory (ours is the JSONL).
   const mem = new Map();
