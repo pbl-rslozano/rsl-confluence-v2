@@ -150,3 +150,25 @@ gate as every radar request); the default build at rest opens no socket (accepta
   through a WebSocket constructor that refuses, before connecting, any URL that is not `wss:` or whose host is not listed, and
   its error names only protocol and host. `tools/check-egress.mjs` checks the source; the guard checks at runtime.
 - **Not verified:** each venue's terms for the streams and any connection or message rate limit beyond what the probe saw.
+
+## Amendment — v2.8 part 2 (gateway) (16 Nov 2026, WP25: data-provider keys)
+Two optional, paid providers are reachable only from the local gateway (`apps/confluence/gateway`, on the user's own
+computer, loopback only). Neither is reachable from the web app, the desktop CSP or the recorder, and no web bundle
+carries a provider key. Both are on personal-use plans: Whale Alert Alerts API (US$29.95 per month) and CoinGlass
+Hobbyist. Both are optional: without a connected provider profile the radar rows say "Available with a key on the
+desktop gateway" and the gateway contacts neither host.
+- **Gateway `hosts` +1:** `open-api-v4.coinglass.com` (https, header `CG-API-KEY`). Test call at connect:
+  `GET https://open-api-v4.coinglass.com/api/bitcoin/etf/list`; the key passes only when the HTTP status is OK and the
+  response `code` is `"0"`.
+- **Gateway `websocketHosts` +1:** `leviathan.whale-alert.io` (wss, `wss://leviathan.whale-alert.io/ws?api_key=<key>`).
+  Test at connect: the gateway opens the socket, sends one `subscribe_alerts` message and waits for the
+  `subscribed_alerts` confirmation, then closes the socket. Whale Alert allows at most 2 concurrent connections per key.
+- **Keys:** held in the gateway's memory only, as a provider profile kept separate from exchange profiles. They are
+  cleared at exit and on a crash (`clearSecrets`). They are never in the web app's storage, the repository, a backup, a
+  log line, an error message or a gateway response (only a masked key is returned). The Whale Alert key is part of the
+  socket URL, so the gateway replaces every failure with a fixed message that carries no URL, key or upstream text.
+- **Manifest and check:** `tools/egress-manifest.json` gateway `roots` gain `provider-auth.mjs` and `provider-data.mjs`,
+  `hosts` gains the CoinGlass host and `websocketHosts` gains the Whale Alert host. `tools/check-egress.mjs` checks both
+  files' URL literals; both URLs are written in full in the source.
+- **Not verified:** the response CoinGlass gives for an invalid key is undocumented, so any non-OK status or any
+  `code` other than `"0"` is treated as rejected. No Whale Alert ping or keepalive is documented.

@@ -67,16 +67,22 @@
       "loopbackListen": true
     },
     "gateway": {
-      "description": "Optional local read-only API gateway (apps/confluence/gateway, ADR-0009 / ADR-0003): runs on the user's own computer, listens on loopback, and calls an exchange's account endpoint only when the user connects an API key and asks it to check the key's permissions (read-only; keys with trading or withdrawal permission are refused). Never bundled into the app.",
+      "description": "Optional local read-only API gateway (apps/confluence/gateway, ADR-0009 / ADR-0003): runs on the user's own computer, listens on loopback, and calls an exchange's account endpoint only when the user connects an API key and asks it to check the key's permissions (read-only; keys with trading or withdrawal permission are refused). v2.8 (WP25 part 2): it also holds optional, paid data-provider keys in memory only (CoinGlass over https, Whale Alert over wss), each checked with one test call at connect; both hosts are contacted only for a connected provider profile. Never bundled into the app.",
       "roots": [
-        "apps/confluence/gateway/exchange-auth.mjs"
+        "apps/confluence/gateway/exchange-auth.mjs",
+        "apps/confluence/gateway/provider-auth.mjs",
+        "apps/confluence/gateway/provider-data.mjs"
       ],
       "hosts": [
         "api.binance.com",
         "testnet.binance.vision",
         "api.bybit.com",
         "api-testnet.bybit.com",
-        "api.bitget.com"
+        "api.bitget.com",
+        "open-api-v4.coinglass.com"
+      ],
+      "websocketHosts": [
+        "leviathan.whale-alert.io"
       ],
       "loopbackListen": true
     },
