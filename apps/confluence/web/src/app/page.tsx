@@ -1604,7 +1604,8 @@ export default function Home() {
       <HeaderTip label={t("fx.sources")}>
       <button type="button" data-testid="fx-sources-open" onClick={() => setFxDialog(true)} title={t("fx.sources")}
         className={`rsl-touch inline-flex h-8 items-center gap-1 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-xs text-zinc-300 hover:bg-zinc-800 xl:w-8 xl:justify-center xl:px-0 ${cls}`}>
-        ⇄ <span className="xl:sr-only">{t("fx.sources")}</span>
+        {/* Below 1280 px one text run "⇄ Rate sources", exactly as before (review M1); ≥ 1280 px only the ⇄ shows. */}
+        <span className="xl:sr-only">⇄ {t("fx.sources")}</span><span aria-hidden="true" className="hidden xl:inline">⇄</span>
       </button>
       </HeaderTip>
   );
@@ -1625,7 +1626,6 @@ export default function Home() {
         size="sm"
         onClick={() => setPrivateApiOpen(true)}
         aria-label={`${privateApiProfile ? privateApiProfile.provider : "API"} — ${t("ctl.api")}`}
-        title={`${privateApiProfile ? privateApiProfile.provider : "API"} — ${t("ctl.api")}`}
         className={`h-8 border-zinc-800 px-2 text-xs xl:w-8 xl:px-0! ${privateApiProfile ? "text-emerald-400" : "text-zinc-300"} ${cls}`}
       >
         <KeyRound className="h-3.5 w-3.5" />
@@ -1845,7 +1845,6 @@ export default function Home() {
                 onClick={() => setAlertsOpen(true)}
                 className="relative h-8 border-zinc-800 px-2 text-xs text-zinc-300 xl:w-8 xl:px-0!"
                 aria-label={t("ctl.alerts", { count: reversalAlert.length })}
-                title={t("ctl.alerts", { count: reversalAlert.length })}
               >
                 <Bell className="h-3.5 w-3.5" />
                 {reversalAlert.length > 0 && (

@@ -75,9 +75,9 @@ export function SavedScans({ port, current, onApply }: { port: Port; current: Sc
 
   return (
     <div className="relative">
-      {/* v2.8 header (owner decision 16 Nov 2026): icon-only at ≥ 1280 px; same accessible name, tooltip on hover and focus. */}
+      {/* v2.8 header (owner decision 16 Nov 2026): icon-only at ≥ 1280 px; same accessible name; HeaderTip adds the hover title and the focus tooltip there only. */}
       <HeaderTip label="Saved scans">
-        <button type="button" aria-expanded={open} aria-label="Saved scans" title="Saved scans" onClick={() => setOpen(!open)}
+        <button type="button" aria-expanded={open} aria-label="Saved scans" onClick={() => setOpen(!open)}
           className="h-8 rounded border border-zinc-700 px-2 text-xs text-zinc-200 xl:inline-flex xl:w-8 xl:items-center xl:justify-center xl:px-0">
           <FolderOpen aria-hidden="true" className="hidden h-3.5 w-3.5 xl:block" /><span className="xl:sr-only">Saved scans</span>
         </button>

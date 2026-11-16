@@ -11,6 +11,11 @@ ledger rows of engine 2.3.0 stay and are reported separately.
   Dark (`theme.cycle` in all 18 catalogs; Arabic draft pending review); all other labels keep their text. Below 1280 px
   the header is unchanged. New acceptance check **HD-1**; the
   DS-1 baseline is re-captured from this build; theme checks choose a theme through the visible control.
+  Review fixes: the workspace chip is capped at 7rem at ≥ 1280 px (ellipsis; full name kept for screen readers), so the
+  24-character short names the wizard allows stay on two lines (HD-1 now also runs ru, and ru/de/fr with a 24-character
+  name); below 1280 px every header control keeps its box (±1 px) and gets no new `title` (HD-1 compares them at 1024 px);
+  focus tooltips are no longer announced twice. The PWA zip is now `rsL-Confluence-<SemVer>-pwa.zip`
+  (e.g. `rsL-Confluence-2.7.0-pwa.zip`, KIT-003) and the kit's brand helper types accept a missing version or build.
 - **Version stamp (KIT-003, owner decision 16 Nov 2026):** the version and build metadata format
   is SemVer plus the build date everywhere: `2.7.0 (build 20261111)` in the header brand block, `Powered by rsL Confluence
   Terminal · 2.7.0 · build 20261111` in the footer and About, no leading "v" and no year (was `v2.7 2026 · build 20261111`).

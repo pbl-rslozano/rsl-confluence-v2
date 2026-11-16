@@ -105,7 +105,7 @@ export function LanguageMenu({ inline = false, onPicked }: { inline?: boolean; o
 
   if (inline) return panel;
   // v2.8 header (owner decision 16 Nov 2026): at ≥ 1280 px the trigger shows the flag only (it showed the flag and the
-  // native name); same accessible name, tooltip on hover (title) and on keyboard focus. Below 1280 px unchanged.
+  // native name); same accessible name, tooltip on hover (title, added by HeaderTip) and on keyboard focus. Below 1280 px unchanged.
   const triggerLabel = `${t("ctl.language")}: ${current.native}`;
   return (
     <div ref={boxRef} className="relative">
@@ -116,7 +116,6 @@ export function LanguageMenu({ inline = false, onPicked }: { inline?: boolean; o
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={triggerLabel}
-        title={triggerLabel}
         onClick={() => setOpen((o) => !o)}
         className="inline-flex h-8 items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-xs text-zinc-300 hover:bg-zinc-800 xl:w-8 xl:justify-center xl:px-0"
       >

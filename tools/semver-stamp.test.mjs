@@ -71,3 +71,17 @@ test("the SBOM file name is rsL-Confluence-<SemVer>-sbom.cdx.json in the writer 
   assert.ok(r9.includes("`rsL-Confluence-${ver}-sbom.cdx.json`") && /const ver = [^\n]*\.version;/.test(r9), "R9 reads the same name from the root package version");
   for (const [name, text] of [["sbom.mjs", writer], ["release-check.mjs", r9]]) assert.ok(!/-(2026|\$\{YEAR\})-sbom|Confluence-v\$\{/.test(text), `${name}: no v<ver>-<year> SBOM name`);
 });
+
+test("the PWA zip is rsL-Confluence-<SemVer>-pwa.zip (+ .sha256) in the packager and every live reference (no v, no year)", () => {
+  const packager = readFileSync(join(ROOT, "tools/package-pwa.mjs"), "utf8");
+  assert.ok(packager.includes("`rsL-Confluence-${pkg.version}-pwa.zip`"), "package-pwa.mjs writes rsL-Confluence-${pkg.version}-pwa.zip");
+  assert.ok(/const pkg = JSON\.parse\(readFileSync\(join\(ROOT, "package\.json"\)/.test(packager), "the version comes from the root package.json, unchanged (no .0 stripped)");
+  assert.ok(packager.includes("`${zip}.sha256`"), "the checksum file sits next to the zip");
+  const version = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
+  assert.match(`rsL-Confluence-${version}-pwa.zip`, /^rsL-Confluence-\d+\.\d+\.\d+-pwa\.zip$/);
+  const old = /Confluence-v(?:\d+(?:\.\d+)*|<ver>|\$\{[^}]*\})-(?:2026|\$\{YEAR\})-pwa\.zip/;
+  for (const rel of ["tools/package-pwa.mjs", "tools/release-check.mjs", ".github/workflows/release.yml", "docs/runbooks/release-and-sign.md", "README.md", "docs/user-guide/en.md", "docs/user-guide/ar.md"]) {
+    assert.ok(!old.test(readFileSync(join(ROOT, rel), "utf8")), `${rel}: no rsL-Confluence-v<ver>-2026-pwa.zip`);
+  }
+  assert.match(readFileSync(join(ROOT, "docs/runbooks/release-and-sign.md"), "utf8"), /rsL-Confluence-<ver>-pwa\.zip/);
+});

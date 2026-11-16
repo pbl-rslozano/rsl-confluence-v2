@@ -85,9 +85,10 @@ declare module "@rsl/core-kit/core/rsl-i18n.js" {
 declare module "@rsl/core-kit/core/rsl-brand.js" {
   export const BRAND: { owner: string; byline: string; contactEmail: string; colors: Record<string, string> };
   export function monogramSVG(o?: { className?: string; label?: string; background?: string | null; width?: number; height?: number }): string;
-  export function semver(version: string | number): string;
-  export function buildStamp(app: { version: string; year?: number; build: string }): string;
-  export function poweredBy(app: { name: string; version: string; year?: number; build: string }): string;
+  // KIT-003: version and build may be missing, null or undefined (blank parts are left out, never "undefined").
+  export function semver(version?: string | number | null): string;
+  export function buildStamp(app: { version?: string | number | null; year?: number; build?: string | number | null }): string;
+  export function poweredBy(app: { name: string; version?: string | number | null; year?: number; build?: string | number | null }): string;
   export function contactMailto(app: { name: string }, subject?: string): string;
   export function brandBlockHTML(app: { name: string; version: string; year?: number; build: string }): string;
 }

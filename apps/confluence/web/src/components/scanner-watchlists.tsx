@@ -69,9 +69,9 @@ export function ScannerWatchlists({ port, source, results, monitored, active, on
 
   return (
     <div className="relative flex flex-wrap items-center gap-1">
-      {/* v2.8 header (owner decision 16 Nov 2026): icon-only at ≥ 1280 px; same accessible name, tooltip on hover and focus. */}
+      {/* v2.8 header (owner decision 16 Nov 2026): icon-only at ≥ 1280 px; same accessible name; HeaderTip adds the hover title and the focus tooltip there only. */}
       <HeaderTip label="Watchlists">
-        <button type="button" aria-expanded={open} aria-label="Watchlists" title="Watchlists" onClick={() => setOpen(!open)}
+        <button type="button" aria-expanded={open} aria-label="Watchlists" onClick={() => setOpen(!open)}
           className="h-8 rounded border border-zinc-700 px-2 text-xs xl:inline-flex xl:w-8 xl:items-center xl:justify-center xl:px-0">
           <Star aria-hidden="true" className="hidden h-3.5 w-3.5 xl:block" /><span className="xl:sr-only">Watchlists</span>
         </button>

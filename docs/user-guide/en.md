@@ -134,7 +134,8 @@ these buttons show only an icon; **point at one, or move to it with Tab, to see 
 | ⓘ | **About** |
 | Screen, sun or moon | **Theme** — one button: each click goes **System → Light → Dark** and back to System; its name says the current theme and the next one |
 
-The selects are narrower; every other button keeps its text. Screen readers announce the same names as before. Below 1280 px (tablets, small laptops, phones) the header is unchanged.
+The selects are narrower and a long workspace name in the chip is shortened with "…"; every other button keeps its text.
+Screen readers announce the same names as before. Below 1280 px (tablets, small laptops, phones) the header is unchanged.
 
 ### The summary strip
 Under the header: number of assets scanned, the share that are **Bull**, **Bear** and **Neutral**, reversal counts (**Rev ↑/↓**), your workspace, the source, how long the scan took, errors, when it was updated, and **bar** — the time of the closed bar the signals were computed on. Signals never use the candle that is still forming.
