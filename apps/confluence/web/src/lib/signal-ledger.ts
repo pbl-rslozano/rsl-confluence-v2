@@ -91,6 +91,44 @@ export const PREREG_MIN_DAYS = 90;
 export interface TrialEntry { id: string; cfg: string; variant: string; at: number; note?: string }
 export interface GapSpan { from: number; to: number }
 
+const SAFE_TOKEN_RE = /^[A-Za-z0-9._-]{1,40}$/;
+const CFG_RE = /^[0-9a-z]{1,40}$/;
+const finiteNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const safeTok = (v: unknown): v is string => typeof v === "string" && SAFE_TOKEN_RE.test(v);
+
+/** v2.8 (WP28): validate one untrusted pre-registration; a clean copy with only known fields, or null. */
+export function sanitizePreregistration(x: unknown): PreRegistration | null {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return null;
+  const r = x as Record<string, unknown>;
+  if (typeof r.cfg !== "string" || !CFG_RE.test(r.cfg)) return null;
+  if (!safeTok(r.source) || !safeTok(r.tf) || !safeTok(r.assetClass) || !safeTok(r.windowMode)) return null;
+  if (typeof r.hypothesis !== "string" || r.hypothesis.length > 500) return null;
+  if (![1, 3, 6, 12, 24].includes(r.horizon as number)) return null;
+  if (!finiteNum(r.startedAt) || !finiteNum(r.decisionDate) || !finiteNum(r.minDays)) return null;
+  if (r.minDays < PREREG_MIN_DAYS || r.decisionDate !== r.startedAt + r.minDays * 86_400_000) return null;
+  return {
+    cfg: r.cfg, source: r.source, tf: r.tf, assetClass: r.assetClass, windowMode: r.windowMode, hypothesis: r.hypothesis,
+    horizon: r.horizon as number, startedAt: r.startedAt, decisionDate: r.decisionDate, minDays: r.minDays,
+  };
+}
+
+/** v2.8 (WP28): validate one untrusted trial entry. */
+export function sanitizeTrial(x: unknown): TrialEntry | null {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return null;
+  const r = x as Record<string, unknown>;
+  if (typeof r.id !== "string" || !/^app-[0-9a-f]{8}$/.test(r.id)) return null;
+  if (typeof r.cfg !== "string" || !CFG_RE.test(r.cfg)) return null;
+  if (typeof r.variant !== "string" || r.variant.length > 200 || !finiteNum(r.at)) return null;
+  const out: TrialEntry = { id: r.id, cfg: r.cfg, variant: r.variant, at: r.at };
+  if (r.note !== undefined && r.note !== null) {
+    if (typeof r.note !== "string" || r.note.length > 500) return null;
+    out.note = r.note;
+  }
+  return out;
+}
+
+export interface RestoreRowsResult { added: number; duplicates: number; tooOld: number; capDropped: number }
+
 interface LedgerIndex {
   schema: 2;
   days: Record<string, number>; // day → rows
@@ -455,6 +493,93 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
       return doc;
     });
   }
+  /* ---- v2.8 (WP28): restore from an encrypted backup. Rows are already sanitised by the caller. ---- */
+  /**
+   * Merge rows by id (an existing row is never overwritten). Rows older than the retention window are not written and are
+   * counted as tooOld. capDropped = rows the row cap removed (real run: measured from the index; dry run: the estimate
+   * rowsBefore + added - cap, which is a lower bound because the cap removes whole days).
+   */
+  function restoreRows(rows: LedgerRow[], o: { dryRun?: boolean } = {}): Promise<RestoreRowsResult> {
+    return enqueue(async (port) => {
+      const cutoff = dayOf(Date.now() - retentionFor(port.kind) * 86_400_000);
+      const index0 = await readIndex(port);
+      const rowsBefore = Object.values(index0.days).reduce((a, n) => a + n, 0);
+      let tooOld = 0;
+      let duplicates = 0;
+      const groups = new Map<string, LedgerRow[]>();
+      const inFile = new Set<string>();
+      for (const r of rows) {
+        if (dayOf(r.t) < cutoff) { tooOld++; continue; }
+        if (inFile.has(r.id)) { duplicates++; continue; }
+        inFile.add(r.id);
+        const id = barDocId(r);
+        const l = groups.get(id);
+        if (l) l.push(r); else groups.set(id, [r]);
+      }
+      const fresh: LedgerRow[] = [];
+      for (const [id, list] of groups) {
+        const doc = (await port.get(LEDGER_COLLECTION, id)) as BarDoc | null;
+        const have = new Set((doc?.rows ?? []).map((r) => r.id));
+        for (const r of list) { if (have.has(r.id)) duplicates++; else fresh.push(r); }
+      }
+      fresh.sort((a, b) => a.t - b.t || a.pair.localeCompare(b.pair));
+      if (o.dryRun) {
+        return { added: fresh.length, duplicates, tooOld, capDropped: Math.max(0, rowsBefore + fresh.length - maxRowsFor(port.kind)) };
+      }
+      let added = 0;
+      for (let i = 0; i < fresh.length; i += 5000) added += await write(port, fresh.slice(i, i + 5000));
+      const after = Object.values((await readIndex(port)).days).reduce((a, n) => a + n, 0);
+      return { added, duplicates, tooOld, capDropped: Math.max(0, rowsBefore + added - after) };
+    });
+  }
+  /** Merge pre-registrations: a key that exists is kept and its decision date never moves. */
+  function restorePreregistrations(list: PreRegistration[], o: { dryRun?: boolean } = {}): Promise<{ added: number; kept: number }> {
+    return enqueue(async (port) => {
+      let added = 0;
+      let kept = 0;
+      const seenKeys = new Set<string>();
+      for (const p of list) {
+        const id = preregKey(p);
+        if (seenKeys.has(id) || (await port.get(LEDGER_META, id))) { kept++; continue; }
+        seenKeys.add(id);
+        if (!o.dryRun) await port.put(LEDGER_META, id, p);
+        added++;
+      }
+      return { added, kept };
+    });
+  }
+  /** Add trials whose `trial|cfg|variant` key is absent; returns how many were added. */
+  function restoreTrials(list: TrialEntry[], o: { dryRun?: boolean } = {}): Promise<number> {
+    return enqueue(async (port) => {
+      let added = 0;
+      const seenKeys = new Set<string>();
+      for (const t of list) {
+        const id = `trial|${t.cfg}|${t.variant}`.slice(0, 240);
+        if (seenKeys.has(id) || (await port.get(LEDGER_META, id))) continue;
+        seenKeys.add(id);
+        if (!o.dryRun) await port.put(LEDGER_META, id, t);
+        added++;
+      }
+      return added;
+    });
+  }
+  /** Newest bar open time stored (0 when empty). Reads only the newest day's bar documents, never the whole ledger. */
+  function newestBarTime(): Promise<number> {
+    return enqueue(async (port) => {
+      const index = await readIndex(port);
+      for (const day of Object.keys(index.days).sort().reverse()) {
+        const dayDoc = (await port.get(LEDGER_META, `day|${day}`)) as DayDoc | null;
+        let newest = 0;
+        for (const id of dayDoc?.ids ?? []) {
+          const t = ((await port.get(LEDGER_COLLECTION, id)) as BarDoc | null)?.t;
+          if (typeof t === "number" && t > newest) newest = t;
+        }
+        if (newest) return newest;
+      }
+      return 0;
+    });
+  }
+
   /** v2.3 (review S12): holes longer than the catch-up limit are recorded, not silently lost. */
   function addGap(src: string, tf: string, pair: string, span: GapSpan): Promise<void> {
     return enqueue(async (port) => {
@@ -497,7 +622,7 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
     record, all, seriesScores, stats, clear, cursor, setCursor,
     seriesCursors, setSeriesCursors, outcomes, saveOutcomes, universes,
     registerTrial, trials, preregistration, preregistrations, preregister, lastExport, markExported, slippage, setSlippage,
-    addGap, gaps,
+    addGap, gaps, restoreRows, restorePreregistrations, restoreTrials, newestBarTime,
     /** True after a storage-full error that pruning could not resolve (writes are being dropped). */
     isFull: () => full,
     get kind() { return kind; },

@@ -15,7 +15,7 @@
  * ----------------------------------------------------------------------------
  */
 import type { LedgerPort } from "./signal-ledger";
-import { bookEquity, newBook, PAPER_SCHEMA, type JournalEntry, type PaperAccount, type PaperBook, type PaperPosition } from "./paper-broker";
+import { bookEquity, cleanTag, newBook, PAPER_SCHEMA, type ExitReason, type JournalEntry, type PaperAccount, type PaperBook, type PaperPosition } from "./paper-broker";
 import { normaliseSettings } from "./risk-engine";
 
 export type PaperPort = LedgerPort;
@@ -110,7 +110,67 @@ export function createPaperStore(portOrPromise: PaperPort | Promise<PaperPort>) 
     });
   }
 
-  return { load, save, clear };
+  /**
+   * v2.8 (WP28): add journal entries whose id is absent. Never touches paper_state or paper_positions, so a restore cannot
+   * change the account, an open position or a drawdown lock.
+   */
+  function importJournal(entries: JournalEntry[], o: { dryRun?: boolean } = {}): Promise<{ added: number; duplicates: number }> {
+    return enqueue(async (port) => {
+      const stored = new Set((await port.list(PAPER_JOURNAL)).map(({ id }) => id));
+      let added = 0;
+      let duplicates = 0;
+      for (const j of entries) {
+        if (stored.has(j.id)) { duplicates++; continue; }
+        stored.add(j.id);
+        if (!o.dryRun) await port.put(PAPER_JOURNAL, j.id, j);
+        added++;
+      }
+      return { added, duplicates };
+    });
+  }
+
+  return { load, save, clear, importJournal };
+}
+
+const EXIT_REASONS: readonly string[] = ["stop", "target", "manual", "drawdown lock", "time"] satisfies ExitReason[];
+const fin = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+/** v2.8 (WP28): validate one untrusted journal entry; a clean copy with only known fields, or null. */
+export function sanitizeJournalEntry(x: unknown): JournalEntry | null {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return null;
+  const r = x as Record<string, unknown>;
+  const tok = (v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-9._-]{1,40}$/.test(v);
+  if (typeof r.id !== "string" || !/^[\w:|.-]{1,160}$/.test(r.id)) return null;
+  if (typeof r.proposalId !== "string" || !/^[\w:|.-]{1,160}$/.test(r.proposalId)) return null;
+  if (typeof r.pair !== "string" || !/^[A-Z0-9]{2,30}$/.test(r.pair)) return null;
+  if (typeof r.tf !== "string" || !/^[0-9]{1,2}[mhdwM]$/.test(r.tf)) return null;
+  if (!tok(r.src) || !tok(r.configId)) return null;
+  if (r.side !== "long" && r.side !== "short") return null;
+  if (typeof r.reason !== "string" || !EXIT_REASONS.includes(r.reason)) return null;
+  if (r.approvedBy !== "owner") return null;
+  const nums = ["openedAt", "closedAt", "size", "entry", "exit", "stop", "target", "fees", "funding", "pnl", "r", "approvedAt"] as const;
+  for (const k of nums) if (!fin(r[k])) return null;
+  const out = {
+    id: r.id, openedAt: r.openedAt, closedAt: r.closedAt, pair: r.pair, src: r.src, tf: r.tf, side: r.side, size: r.size,
+    entry: r.entry, exit: r.exit, stop: r.stop, target: r.target, fees: r.fees, funding: r.funding, pnl: r.pnl, r: r.r,
+    reason: r.reason, configId: r.configId, proposalId: r.proposalId, approvedAt: r.approvedAt, approvedBy: "owner",
+  } as JournalEntry;
+  for (const k of ["mae", "mfe"] as const) {
+    if (r[k] === undefined || r[k] === null) continue;
+    if (!fin(r[k])) return null;
+    out[k] = r[k] as number;
+  }
+  if (r.preReason !== undefined && r.preReason !== null) {
+    if (typeof r.preReason !== "string" || r.preReason.length > 280) return null;
+    out.preReason = r.preReason;
+  }
+  if (r.notes !== undefined && r.notes !== null) {
+    if (typeof r.notes !== "string" || r.notes.length > 2000) return null;
+    out.notes = r.notes;
+  }
+  const tag = cleanTag(r.tag);
+  if (tag) out.tag = tag;
+  return out;
 }
 
 export type PaperStore = ReturnType<typeof createPaperStore>;
