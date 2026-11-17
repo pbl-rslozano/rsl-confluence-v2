@@ -101,3 +101,60 @@ test("the gateway process lists the exchanges' account-key hosts and its sources
   assert.equal(r.ok, true, formatEgressFindings(r));
   assert.ok(r.scanned >= 1);
 });
+
+// v2.8 WP28 Task 8: `hostTemplates` lets a process name exactly its listed per-account host literals (B2 and R2 buckets).
+function templateFixture(source, { templates = ["s3.${region}.backblazeb2.com", "${accountId}.r2.cloudflarestorage.com"] } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "egress-"));
+  mkdirSync(join(dir, "tools"));
+  mkdirSync(join(dir, "gw"));
+  writeFileSync(join(dir, "gw", "store.mjs"), source);
+  const proc = { roots: ["gw"], hosts: [], ...(templates ? { hostTemplates: templates } : {}) };
+  writeFileSync(join(dir, "tools", "egress-manifest.json"), JSON.stringify({ schema: 1, processes: { gateway: proc } }));
+  return dir;
+}
+
+test("v2.8 WP28 hostTemplates: exactly the two B2/R2 literals pass; any other dynamic host is still a finding", () => {
+  const cases = [
+    ["const o = `https://s3.${region}.backblazeb2.com`;", true],
+    ["const o = `https://${accountId}.r2.cloudflarestorage.com`;", true],
+    ["const o = `https://s3.${region}.backblazeb2.com/${bucket}`;", true],
+    ["const o = `https://${host}/x`;", false],
+    ["const o = `https://${accountId}.evil.example/x`;", false],
+    ["const o = `https://s3.${other}.backblazeb2.com`;", false],
+    ["const o = `https://s3.${region}.backblazeb2.com.evil.example`;", false],
+    ["const o = `https://evil.${accountId}.r2.cloudflarestorage.com`;", false],
+    ["const o = `https://${region}.backblazeb2.com`;", false],
+    ["const o = `wss://s3.${region}.backblazeb2.com`;", false],
+  ];
+  for (const [source, passes] of cases) {
+    const dir = templateFixture(source);
+    try {
+      const r = checkEgress({ root: dir, processes: ["gateway"] });
+      assert.equal(r.ok, passes, `${source} -> ${formatEgressFindings(r)}`);
+      if (!passes) assert.equal(r.findings[0].reason.length > 0, true);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }
+});
+
+test("v2.8 WP28 hostTemplates: a process without the list gets no exemption, and a literal host still needs `hosts`", () => {
+  const dir = templateFixture("const o = `https://s3.${region}.backblazeb2.com`;", { templates: null });
+  try {
+    const r = checkEgress({ root: dir, processes: ["gateway"] });
+    assert.equal(r.ok, false);
+    assert.match(r.findings[0].reason, /built at runtime/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+  const dir2 = templateFixture("const o = 'https://s3.us-west-004.backblazeb2.com';");
+  try {
+    assert.equal(checkEgress({ root: dir2, processes: ["gateway"] }).ok, false, "a template does not allow a concrete host");
+  } finally { rmSync(dir2, { recursive: true, force: true }); }
+});
+
+test("v2.8 WP28: the real gateway lists exactly the two templates, scans the two new files, and passes", () => {
+  const gateway = manifest.processes.gateway;
+  assert.deepEqual(gateway.hostTemplates, ["s3.${region}.backblazeb2.com", "${accountId}.r2.cloudflarestorage.com"]);
+  for (const f of ["apps/confluence/gateway/s3-sign.mjs", "apps/confluence/gateway/backup-store.mjs"]) assert.ok(gateway.roots.includes(f), f);
+  assert.ok(!gateway.hosts.some((h) => /backblazeb2|r2\.cloudflarestorage/.test(h)), "templates are not concrete hosts");
+  const r = checkEgress({ processes: ["gateway"] });
+  assert.equal(r.ok, true, formatEgressFindings(r));
+  for (const h of [...manifest.processes.web.hosts, ...manifest.processes.web.csp]) assert.ok(!/backblazeb2|r2\.cloudflarestorage/.test(h), `${h} must not be a web host`);
+});

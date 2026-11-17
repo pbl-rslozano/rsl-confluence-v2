@@ -8,7 +8,10 @@
  * in a source file must name a host listed for that process (`hosts` or
  * `conditionalHosts`). A literal whose host is an interpolation
  * (`https://${host}/…`) cannot be verified and is a finding too — write the
- * host literally.
+ * host literally. One exception (v2.8 WP28): a process may list `hostTemplates`,
+ * e.g. "s3.${region}.backblazeb2.com". A dynamic http(s) literal whose authority
+ * equals a listed template exactly is allowed (a per-account bucket host that
+ * cannot be written out); any other dynamic host, and any near-miss, is a finding.
  *
  * Reserved names never reach a third party and are allowed anywhere: the
  * RFC 6761 special-use TLDs (.test, .invalid, .example, .localhost) and the
@@ -76,6 +79,7 @@ export function checkEgress({ root = ROOT, manifestPath = join(root, "tools", "e
       continue;
     }
     const allowed = new Set([...(proc.hosts ?? []), ...Object.keys(proc.conditionalHosts ?? {})].map((h) => h.toLowerCase()));
+    const templates = new Set(proc.hostTemplates ?? []);
     const websocketAllowed = new Set((proc.websocketHosts ?? []).map((h) => h.toLowerCase()));
     for (const r of roots[name] ?? proc.roots ?? []) {
       const dir = resolve(root, r);
@@ -95,7 +99,7 @@ export function checkEgress({ root = ROOT, manifestPath = join(root, "tools", "e
             let reason = null;
             // v2.6: a local server's own listen address (loopback, any port) is not egress.
             if (proc.loopbackListen && /^127\.0\.0\.1(:|$)/.test(m[1])) reason = null;
-            else if (dynamic) reason = "host is built at runtime; write it literally";
+            else if (dynamic) reason = templates.has(m[1]) && !m[0].toLowerCase().startsWith("wss:") ? null : "host is built at runtime; write it literally";
             else if (RESERVED_HOST.test(host) || (testFile && SINGLE_LABEL.test(host))) reason = null;
             else if (!(m[0].toLowerCase().startsWith("wss:") ? websocketAllowed : allowed).has(host)) reason = `host not allowed for process "${name}"`;
             if (reason) findings.push({ process: name, file: relative(root, file).split(sep).join("/"), line: i + 1, url: m[0], host, reason });

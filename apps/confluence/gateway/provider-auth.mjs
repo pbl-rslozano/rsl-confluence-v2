@@ -10,8 +10,12 @@
  */
 import { randomUUID } from "node:crypto";
 import { maskApiKey } from "./exchange-auth.mjs";
+import { verifyBucketKey } from "./backup-store.mjs";
 
-export const PROVIDER_IDS = Object.freeze(["whale-alert", "coinglass"]);
+export const PROVIDER_IDS = Object.freeze(["whale-alert", "coinglass", "b2", "r2"]);
+/** v2.8 WP28: backup-bucket keys (Backblaze B2, Cloudflare R2). They hold a key id and a secret, not one apiKey. */
+export const BUCKET_PROVIDER_IDS = Object.freeze(["b2", "r2"]);
+export const isBucketProvider = (provider) => BUCKET_PROVIDER_IDS.includes(provider);
 
 const REJECTED = "The provider rejected the key test.";
 const TIMED_OUT = "The provider did not answer the key test in time.";
@@ -19,12 +23,34 @@ const TIMED_OUT = "The provider did not answer the key test in time.";
 export function validateProviderCredentials(value) {
   if (!value || typeof value !== "object") throw new Error("Invalid provider payload.");
   if (!PROVIDER_IDS.includes(value.provider)) throw new Error("Unsupported data provider.");
+  if (isBucketProvider(value.provider)) return validateBucketCredentials(value);
   const apiKey = typeof value.apiKey === "string" ? value.apiKey.trim() : "";
   if (apiKey.length < 8 || apiKey.length > 256 || !/^[\x21-\x7e]+$/.test(apiKey)) throw new Error("Invalid apiKey.");
   return {
     provider: value.provider,
     label: typeof value.label === "string" && value.label.trim() ? value.label.trim().slice(0, 80) : `${value.provider} key`,
     apiKey,
+  };
+}
+
+const BUCKET_RULES = {
+  b2: { bucket: /^[A-Za-z0-9-]{6,63}$/, field: "region", pattern: /^[a-z]{2}-[a-z]+-\d{3}$/ },
+  r2: { bucket: /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/, field: "accountId", pattern: /^[0-9a-f]{32}$/ },
+};
+
+function validateBucketCredentials(value) {
+  const rules = BUCKET_RULES[value.provider];
+  const text = (field) => (typeof value[field] === "string" ? value[field] : "");
+  const ok = /^[\x21-\x7e]{8,128}$/.test(text("accessKeyId")) && /^[\x21-\x7e]{16,128}$/.test(text("secretAccessKey")) &&
+    rules.bucket.test(text("bucket")) && rules.pattern.test(text(rules.field));
+  if (!ok) throw new Error("Invalid bucket key payload."); // never says which field: nothing about a key is echoed
+  return {
+    provider: value.provider,
+    label: typeof value.label === "string" && value.label.trim() ? value.label.trim().slice(0, 80) : `${value.provider} key`,
+    accessKeyId: value.accessKeyId,
+    secretAccessKey: value.secretAccessKey,
+    bucket: value.bucket,
+    [rules.field]: value[rules.field],
   };
 }
 
@@ -100,16 +126,19 @@ function verifyWhaleAlert({ apiKey }, WebSocketCtor, timeoutMs) {
 export function verifyProvider(creds, { fetcher = fetch, WebSocketCtor = globalThis.WebSocket, timeoutMs = 10_000 } = {}) {
   if (creds?.provider === "coinglass") return verifyCoinglass(creds, fetcher, timeoutMs);
   if (creds?.provider === "whale-alert") return verifyWhaleAlert(creds, WebSocketCtor, timeoutMs);
+  if (isBucketProvider(creds?.provider)) return verifyBucketKey(creds, { fetcher, timeoutMs });
   return Promise.reject(new Error("Unsupported data provider."));
 }
 
 export function createProviderProfile(creds) {
+  const bucket = isBucketProvider(creds.provider);
   return {
     id: randomUUID(),
     kind: "provider",
     provider: creds.provider,
     label: creds.label,
-    maskedKey: maskApiKey(creds.apiKey),
+    ...(bucket ? { bucket: creds.bucket } : {}), // the bucket name is not secret; the key id is shown masked, the secret never
+    maskedKey: maskApiKey(bucket ? creds.accessKeyId : creds.apiKey),
     connectedAt: new Date().toISOString(),
   };
 }

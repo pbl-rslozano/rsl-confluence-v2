@@ -228,10 +228,27 @@ path. Nothing here reaches scoring, the ledger, alerts or any paper-trading rule
   Which host (if any) is needed is not verified, so `ONEDRIVE_DOWNLOAD_ORIGINS` is empty and no file host is allowed.
   An origin is added only by an amendment to this ADR after the manual check, and then to `CSP_HOSTS` and
   `BACKUP_NATIVE_URLS` too (R16 checks both).
-- **Gateway only, never in any CSP:** Backblaze B2 and Cloudflare R2 are reached only from the local desktop gateway, with
-  the user's own bucket-restricted keys held in gateway memory. Their per-account hosts (a region and an account id in the
-  name) are added to the gateway process in `tools/egress-manifest.json` by the gateway amendment of this work package;
-  R16 refuses either family as a CSP host.
+- **Gateway only, never in any CSP:** Backblaze B2 and Cloudflare R2 are reached only from the local desktop gateway
+  (`apps/confluence/gateway`, new files `s3-sign.mjs` and `backup-store.mjs`), with the user's own bucket-restricted keys
+  held in gateway memory only (the WP25 rule: cleared at exit and on a crash, never logged, never in an error or a
+  response). Their hosts carry a region or an account id, so they cannot be written out one by one. The gateway process in
+  `tools/egress-manifest.json` therefore gains `hostTemplates`: `s3.${region}.backblazeb2.com` (region must match
+  `^[a-z]{2}-[a-z]+-\d{3}$`) and `${accountId}.r2.cloudflarestorage.com` (account id must match `^[0-9a-f]{32}$`).
+  `tools/check-egress.mjs` (R11) lets a dynamic URL literal pass only when its authority equals one of those two strings
+  exactly, in the gateway process; any other dynamic host, a near miss and a `wss` literal stay findings, and no
+  `hostTemplates` entry exists for any other process. B2 and R2 are not in `web.hosts`, `web.csp` or `CSP_HOSTS`, and R16
+  refuses either family there.
+  - **What the gateway sends:** SigV4-signed (`node:crypto`, no new dependency), path-style S3 requests, redirects never
+    followed, and only: `HEAD /<bucket>` and `GET /` (the key test), `PUT`/`GET /<bucket>/rsl-confluence/<name>` and
+    `GET /<bucket>?list-type=2&prefix=rsl-confluence/`. `<name>` must match `^confluence-backup-\d{8}T\d{6}Z\.json$`; it is
+    checked before anything is signed, so there is no other object key and no path traversal.
+  - **Key test at connect:** the bucket must answer `HEAD` 200, and the key must not be able to list other buckets
+    (ListBuckets 403, or 200 naming only this bucket); otherwise the key is refused. This is separate from the WP19
+    read-only refusal, which still applies to exchange keys only.
+  - **Local routes:** `POST /backup/upload` (own 20 MB body limit; every other gateway route keeps 32 KB),
+    `GET /backup/list`, `GET /backup/download`, behind the same token, origin and host checks.
+  - **Not verified:** B2 and R2 behaviour with real keys (the S3 `ListBuckets` answer for a scoped key in particular) is part
+    of the deferred manual checks below; the code is proven against AWS's published SigV4 examples and a fake S3.
 - **Loopback listener (not egress):** the desktop app listens on `127.0.0.1:48787` for the OAuth redirect while a sign-in
   is open. It is a listen address on the user's own computer; nothing leaves the computer through it.
 - **Tokens and keys:** access tokens live in memory only, are never stored or logged and are never in a backup; no refresh

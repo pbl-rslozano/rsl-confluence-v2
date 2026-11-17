@@ -21,12 +21,14 @@ import { writeJsonAtomic } from "../recorder/src/store.mjs";
 import { createServer } from "node:http";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { REFUSAL_MESSAGE, createProfile, profileAllowed, verifyCredentials } from "./exchange-auth.mjs";
-import { createProviderProfile, validateProviderCredentials, verifyProvider } from "./provider-auth.mjs";
+import { createProviderProfile, isBucketProvider, validateProviderCredentials, verifyProvider } from "./provider-auth.mjs";
+import { BACKUP_FILE_RE, BACKUP_MAX_BYTES, BUCKET_FAILED, getBackup, listBackups, putBackup } from "./backup-store.mjs";
 import { createEtfFlowCache, createWhaleStream } from "./provider-data.mjs";
 
 const HOST = "127.0.0.1";
 const PORT = Number.parseInt(process.env.CONFLUENCE_GATEWAY_PORT || "8787", 10);
-const MAX_BODY_BYTES = 32 * 1024;
+const MAX_BODY_BYTES = 32 * 1024; // every route but the backup upload
+const DRAIN_LIMIT_BYTES = BACKUP_MAX_BYTES + 64 * 1024 * 1024;
 const TAURI_ORIGINS = new Set(["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"]);
 const ALLOWED_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 
@@ -34,7 +36,7 @@ const ALLOWED_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 const SESSION_TOKEN = process.env.CONFLUENCE_GATEWAY_TOKEN || randomUUID();
 
 const profiles = new Map();
-/** Data-provider keys (Whale Alert, CoinGlass): a separate kind from exchange keys, held in memory only. */
+/** Data-provider keys (Whale Alert, CoinGlass) and backup-bucket keys (B2, R2): a separate kind from exchange keys, held in memory only. */
 const providerProfiles = new Map();
 /** One Whale Alert stream per distinct key (the provider allows 2 connections per key), and the 1 h ETF-flow cache. */
 const whaleStreams = new Map();
@@ -121,6 +123,65 @@ function corsHeaders(origin) {
 function sendJson(response, status, payload, origin) {
   response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", ...corsHeaders(origin) });
   response.end(JSON.stringify(payload));
+}
+
+function sendText(response, status, text, origin) {
+  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", ...corsHeaders(origin) });
+  response.end(text);
+}
+
+/**
+ * Reads a raw body of at most `limit` bytes, or returns null when it is larger. An oversize body is read and thrown away
+ * (up to DRAIN_LIMIT_BYTES) instead of destroying the socket, so the client still receives the 413 answer.
+ */
+async function readBytes(request, limit) {
+  let size = 0;
+  let chunks = [];
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > DRAIN_LIMIT_BYTES) { request.destroy(); return null; }
+    if (size > limit) chunks = []; else chunks.push(chunk);
+  }
+  return size > limit ? null : Buffer.concat(chunks);
+}
+
+/** The credentials of a connected bucket key by profile id; null for an unknown id or a non-bucket profile. */
+function bucketCredentials(id) {
+  const entry = typeof id === "string" ? providerProfiles.get(id) : null;
+  return entry && isBucketProvider(entry.provider) && entry.credentials?.secretAccessKey ? entry.credentials : null;
+}
+
+/** /backup/*: every failure becomes a fixed message, never upstream text, a URL or a key. */
+async function handleBackup(request, response, url, origin) {
+  const route = `${request.method} ${url.pathname}`;
+  if (route === "POST /backup/upload") {
+    const body = await readBytes(request, BACKUP_MAX_BYTES);
+    if (!body) { sendJson(response, 413, { error: "Backup is larger than 20 MB." }, origin); return true; }
+    const creds = bucketCredentials(url.searchParams.get("profile"));
+    if (!creds) { sendJson(response, 409, { error: "No backup bucket key is connected." }, origin); return true; }
+    const name = url.searchParams.get("name");
+    if (!BACKUP_FILE_RE.test(name ?? "")) { sendJson(response, 400, { error: "Invalid backup name." }, origin); return true; }
+    try {
+      sendJson(response, 200, await putBackup(creds, name, body), origin);
+    } catch {
+      sendJson(response, 502, { error: BUCKET_FAILED }, origin);
+    }
+    return true;
+  }
+  if (route === "GET /backup/list" || route === "GET /backup/download") {
+    const creds = bucketCredentials(url.searchParams.get("profile"));
+    if (!creds) { sendJson(response, 409, { error: "No backup bucket key is connected." }, origin); return true; }
+    const name = url.searchParams.get("name");
+    if (url.pathname === "/backup/download" && !BACKUP_FILE_RE.test(name ?? "")) { sendJson(response, 400, { error: "Invalid backup name." }, origin); return true; }
+    try {
+      if (url.pathname === "/backup/list") sendJson(response, 200, { files: await listBackups(creds) }, origin);
+      else sendText(response, 200, await getBackup(creds, name), origin);
+    } catch {
+      sendJson(response, 502, { error: BUCKET_FAILED }, origin);
+    }
+    return true;
+  }
+  return false;
 }
 
 async function readJson(request) {
@@ -231,6 +292,8 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (url.pathname.startsWith("/backup/") && await handleBackup(request, response, url, origin)) return;
+
     if (request.method === "GET" && url.pathname === "/health") {
       sendJson(response, 200, { ok: true, service: "confluence-private-api-gateway", profiles: profiles.size, providers: providerProfiles.size }, origin);
       return;
@@ -308,7 +371,7 @@ const server = createServer(async (request, response) => {
     if (request.method === "DELETE" && providerMatch) {
       const entry = providerMatch[1] && providerProfiles.get(providerMatch[1]);
       const apiKey = entry?.provider === "whale-alert" ? entry.credentials?.apiKey : "";
-      if (entry?.credentials) entry.credentials.apiKey = "";
+      if (entry?.credentials) { entry.credentials.apiKey = ""; entry.credentials.accessKeyId = ""; entry.credentials.secretAccessKey = ""; }
       const removed = providerProfiles.delete(providerMatch[1]);
       etfFlowCache.delete(providerMatch[1]);
       closeWhaleStreamIfUnused(apiKey);
@@ -351,7 +414,7 @@ function closeAllProviderStreams() {
 
 function clearSecrets() {
   for (const entry of providerProfiles.values()) {
-    if (entry.credentials) entry.credentials.apiKey = "";
+    if (entry.credentials) { entry.credentials.apiKey = ""; entry.credentials.accessKeyId = ""; entry.credentials.secretAccessKey = ""; }
   }
   providerProfiles.clear();
   closeAllProviderStreams();
