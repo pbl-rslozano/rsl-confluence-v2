@@ -14,6 +14,7 @@ import {
   scenarioOdds, pickPaths, scenarioKey, runScenarios, scenarioFields, volRegime,
 } from "./scenarios.ts";
 import { FT_MAX_STALE_MS } from "./fund-trend.ts";
+import { applyFundTrend } from "./scan-record.ts";
 
 let passed = 0;
 let failed = 0;
@@ -267,6 +268,38 @@ test("late daily series: bars without a state are left out of matches", () => {
   // base uses every candidate
   const all = scenarioOdds(bars, flatFt(1000, 20), 6, H);
   for (const b of BUCKETS) assert.equal(o.base[b], all.base[b]);
+});
+
+test("mixed Fund trend states: matches are only the bars in today's state", () => {
+  const n = 1000;
+  const bars = series(n, { seed: 14 });
+  const cyc = [20, -20, 0]; // i % 3: up, down, flat; the last bar (999) is up
+  const ft = Array.from({ length: n }, (_, i) => cyc[i % 3]);
+  const o = scenarioOdds(bars, ft, 6, H);
+  const first = firstAtr(bars);
+  let sampled = 0, inState = 0;
+  for (let i = 999 - 6; i >= first; i -= 2) { sampled++; if (i % 3 === 0) inState++; }
+  assert.equal(o.state, "up");
+  assert.equal(o.sampled, sampled);
+  assert.equal(o.withState, sampled);
+  assert.equal(o.matches, inState);
+  assert.ok(o.matches < o.withState);
+  assert.equal(o.nEff, (inState * 2) / 6);
+  assert.equal(o.fallback, null);
+  assert.equal(BUCKETS.reduce((a, b) => a + o.odds[b].cases, 0), o.matches);
+  assert.notDeepEqual(BUCKETS.map((b) => o.odds[b].p), BUCKETS.map((b) => o.base[b]));
+});
+
+test("ftAtBars[last] equals the ledger row ft (applyFundTrend), fresh and stale", () => {
+  for (const gapH of [1, 24, 36, 37, 72]) {
+    const { daily, bars } = ftFixture(600, gapH);
+    const last = bars[bars.length - 1];
+    const row = { ac: "crypto", pair: "BTCUSDT", t: last.time, tc: last.time + H, ft: undefined };
+    applyFundTrend([row], () => daily);
+    const got = ftAtBars(daily, bars, H)[bars.length - 1];
+    assert.equal(got, row.ft, `gap ${gapH}h`);
+    if (gapH <= 36) assert.notEqual(got, null); else assert.equal(got, null);
+  }
 });
 
 test("odds, cases and base shares", () => {

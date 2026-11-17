@@ -8,7 +8,7 @@
  */
 import { atr as atrSeries, type Kline } from "./indicators";
 import { rng, roundFt, wilson } from "./ledger-metrics";
-import { fundTrendSeries, FT_MAX_STALE_MS } from "./fund-trend";
+import { fundTrendSeries, freshFt } from "./fund-trend";
 
 export const SC_PATHS = 200;
 export const SC_BLOCK = 6;
@@ -213,24 +213,14 @@ export function barClose(openTime: number, intervalMs: number): number {
   return openTime + intervalMs;
 }
 
-function newestClosedDaily(daily: Kline[], closeTime: number): Kline | null {
-  let lo = 0;
-  let hi = daily.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (daily[mid].time + DAY <= closeTime) lo = mid + 1; else hi = mid;
-  }
-  return lo > 0 ? daily[lo - 1] : null;
-}
-
 /** Fund trend as of each bar's own close (no look-ahead), rounded like the ledger; null when absent or stale (same rule as applyFundTrend). */
 export function ftAtBars(daily: Kline[] | null, bars: Kline[], intervalMs: number): (number | null)[] {
   if (!daily || daily.length === 0) return bars.map(() => null);
   const closes = bars.map((b) => barClose(b.time, intervalMs));
   const values = fundTrendSeries(daily, bars.map((b, i) => ({ time: b.time, closeTime: closes[i] })));
   return values.map((v, i) => {
-    const newest = newestClosedDaily(daily, closes[i]);
-    return typeof v === "number" && newest !== null && closes[i] - (newest.time + DAY) <= FT_MAX_STALE_MS ? roundFt(v) : null;
+    const fresh = freshFt(v, daily, closes[i]);
+    return fresh === null ? null : roundFt(fresh);
   });
 }
 

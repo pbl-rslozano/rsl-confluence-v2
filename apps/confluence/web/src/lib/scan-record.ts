@@ -13,7 +13,7 @@ import { baseOf } from "./quotes";
 import type { Kline } from "./indicators";
 import type { AssetClass, LedgerRow } from "./ledger-metrics";
 import { roundFt } from "./ledger-metrics";
-import { fundTrendSeries, FT_MAX_STALE_MS } from "./fund-trend";
+import { fundTrendSeries, freshFt, FT_MAX_STALE_MS } from "./fund-trend";
 import type { SeriesScore, RowContext } from "./scan-pipeline";
 import { toLedgerRow } from "./scan-pipeline";
 import { barWhileClosed } from "./asset-classes";
@@ -129,14 +129,7 @@ export function enrichCatchUp(rows: LedgerRow[], kl: Kline[], ctx: ScanRecordCon
   return rows;
 }
 
-const DAY_MS = 86_400_000;
 export { FT_MAX_STALE_MS };
-
-function newestClosedDaily(daily: Kline[], closeTime: number): Kline | null {
-  let lo = 0, hi = daily.length; // first index whose close is after closeTime
-  while (lo < hi) { const mid = (lo + hi) >> 1; if (daily[mid].time + DAY_MS <= closeTime) lo = mid + 1; else hi = mid; }
-  return lo > 0 ? daily[lo - 1] : null;
-}
 
 /**
  * v2.8 (WP21): ft of catch-up rows (crypto only) from daily bars closed at or before each row's own bar close
@@ -155,8 +148,8 @@ export function applyFundTrend(rows: LedgerRow[], dailyOf: (symbol: string) => K
     list.forEach((row, i) => {
       const v = values[i];
       // A stale cache (the feed halted days ago) must not give old values to newer rows.
-      const newest = newestClosedDaily(daily, row.tc);
-      row.ft = typeof v === "number" && newest !== null && row.tc - (newest.time + DAY_MS) <= FT_MAX_STALE_MS ? roundFt(v) : null;
+      const fresh = freshFt(v, daily, row.tc);
+      row.ft = fresh === null ? null : roundFt(fresh);
     });
   }
   return rows;
