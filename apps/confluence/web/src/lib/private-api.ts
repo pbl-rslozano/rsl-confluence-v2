@@ -112,7 +112,14 @@ export async function disconnectPrivateApi(profile: PrivateApiProfile): Promise<
 
 // ---- Data providers (v2.8 Step 4b): paid market-context keys held only by the gateway ----
 
-export type DataProvider = "whale-alert" | "coinglass";
+export type DataProvider = "whale-alert" | "coinglass" | "b2" | "r2";
+export type BucketProvider = "b2" | "r2";
+
+export function isBucketProvider(provider: DataProvider): provider is BucketProvider {
+  return provider === "b2" || provider === "r2";
+}
+
+const BUCKET_NAME_RE = /^[A-Za-z0-9-]{3,63}$/;
 
 export interface ProviderProfile {
   id: string;
@@ -121,6 +128,8 @@ export interface ProviderProfile {
   label: string;
   maskedKey: string;
   connectedAt: string;
+  /** B2 and R2 profiles only: the bucket name (not secret). */
+  bucket?: string;
 }
 
 /** Gateway session plus the connected provider profiles. Lives in page state only; never persisted. */
@@ -142,7 +151,9 @@ function toProviderProfile(value: unknown): ProviderProfile | null {
   const p = value as Record<string, unknown>;
   if (typeof p.id !== "string" || p.id.length === 0 || p.id.length > 100) return null;
   if (p.kind !== "provider") return null;
-  if (p.provider !== "whale-alert" && p.provider !== "coinglass") return null;
+  if (p.provider !== "whale-alert" && p.provider !== "coinglass" && p.provider !== "b2" && p.provider !== "r2") return null;
+  const bucket = p.provider === "b2" || p.provider === "r2";
+  if (bucket && (typeof p.bucket !== "string" || !BUCKET_NAME_RE.test(p.bucket))) return null;
   if (typeof p.label !== "string" || typeof p.maskedKey !== "string" || typeof p.connectedAt !== "string") return null;
   return {
     id: p.id,
@@ -151,6 +162,7 @@ function toProviderProfile(value: unknown): ProviderProfile | null {
     label: p.label.slice(0, 80),
     maskedKey: p.maskedKey.slice(0, 40),
     connectedAt: p.connectedAt.slice(0, 40),
+    ...(bucket ? { bucket: p.bucket as string } : {}),
   };
 }
 
@@ -208,15 +220,32 @@ export function nextProviderLink(link: ProviderLink | null, event: ProviderLinkE
   }
 }
 
+/** A key-only provider, or a bucket-restricted key pair for B2 (region) or R2 (account id). */
+export type ProviderConnectInput =
+  | { provider: "whale-alert" | "coinglass"; label: string; apiKey: string }
+  | { provider: "b2"; label: string; accessKeyId: string; secretAccessKey: string; bucket: string; region: string }
+  | { provider: "r2"; label: string; accessKeyId: string; secretAccessKey: string; bucket: string; accountId: string };
+
+/** Exactly the fields the gateway reads, in a fixed order; nothing else the caller holds is sent. */
+function providerConnectBody(input: ProviderConnectInput): Record<string, string> {
+  if (input.provider === "b2") {
+    return { provider: "b2", label: input.label, accessKeyId: input.accessKeyId, secretAccessKey: input.secretAccessKey, bucket: input.bucket, region: input.region };
+  }
+  if (input.provider === "r2") {
+    return { provider: "r2", label: input.label, accessKeyId: input.accessKeyId, secretAccessKey: input.secretAccessKey, bucket: input.bucket, accountId: input.accountId };
+  }
+  return { provider: input.provider, label: input.label, apiKey: input.apiKey };
+}
+
 export async function connectProvider(
   session: GatewaySession,
-  input: { provider: DataProvider; label: string; apiKey: string },
+  input: ProviderConnectInput,
 ): Promise<ProviderProfile> {
   const base = requireLoopbackSession(session);
   const payload = await providerRequest<{ profile?: unknown }>(`${base}/providers/connect`, {
     method: "POST",
     headers: authHeaders(session.token, true),
-    body: JSON.stringify({ provider: input.provider, label: input.label, apiKey: input.apiKey }),
+    body: JSON.stringify(providerConnectBody(input)),
     signal: AbortSignal.timeout(15_000),
   });
   const profile = toProviderProfile(payload.profile);
