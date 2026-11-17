@@ -8,7 +8,15 @@
  * re-derives, bar by bar, the same measures Classic reads at the last bar only.
  *
  * Causality: raw[j] and z[j] use bars <= j only. Warm-up and invalid bars are NaN, never zero.
- * Determinism: only + - * / Math.sqrt Math.abs Math.min Math.max (no exp/log/pow, no `**`).
+ * Determinism: only + - * / % Math.sqrt Math.abs Math.min Math.max (no floor/exp/log/pow, no `**`).
+ *
+ * Divisor floor (fix round 1). A divisor that is mathematically zero but arrives as rounding noise
+ * (1e-16 .. 1e-13: a constant RSI, a flat market's ATR) would turn into a saturated +-1 vote. Every
+ * divisor (ATR, band half-width, rolling sigma) must therefore exceed V2_DIVISOR_FLOOR (1e-9) times
+ * the natural scale of its input, else z is NaN: the price for price-unit inputs, 100 for the
+ * 0..100 oscillators and the DI difference (and CCI), 1 for CMF, and the cumulative traded volume
+ * for OBV. 1e-9 is ~7 orders above double rounding noise (1e-16) and ~3 orders below the quietest
+ * real market (a stablecoin pair moves ~1e-6 of price per bar), so it only removes dead windows.
  *
  * Classic helpers that are not exported (trueRange, the per-bar forms of Ichimoku, Williams,
  * CMF, VWAP, CCI, RSI, MFI, Stochastic, PSAR, Supertrend, ADX) are re-implemented here with the
@@ -22,6 +30,8 @@ export const V2_ATR = 14;
 export const V2_CLIP = 1;
 /** Contrarian oscillators are dropped from this interval up (>= 4h). */
 export const V2_DROP_FROM_MS = 4 * 3_600_000;
+/** A divisor at or below this fraction of its input's natural scale is rounding noise, not volatility. */
+export const V2_DIVISOR_FLOOR = 1e-9;
 export const V2_CONTRARIAN = ["rsi", "stochastic", "williams", "mfi"] as const;
 
 export type V2Bloc = Exclude<BlocName, "volatility">;
@@ -74,14 +84,19 @@ const DAY_MS = 86_400_000;
 const fin = (v: number): boolean => Number.isFinite(v);
 const clamp = (x: number): number => Math.min(V2_CLIP, Math.max(-V2_CLIP, x)) + 0; // + 0: no -0
 
-/** Population sigma of values[j-n+1 .. j] (two-pass). NaN unless all n values are finite. */
+/**
+ * Population sigma of values[j-n+1 .. j] (two-pass). NaN unless all n values are finite.
+ * Returns exactly 0 when sigma is rounding noise on a constant window: sigma <= 1e-9 x mean|value|
+ * (e.g. 100 x 0.1 gives 0, not 1.9e-16).
+ */
 export function rollingSigmaAt(values: ArrayLike<number>, j: number, n = V2_SIGMA_BARS): number {
   if (j < n - 1 || j >= values.length) return NaN;
-  let sum = 0;
+  let sum = 0, sumAbs = 0;
   for (let i = j - n + 1; i <= j; i++) {
     const v = values[i];
     if (!fin(v)) return NaN;
     sum += v;
+    sumAbs += Math.abs(v);
   }
   const mean = sum / n;
   let variance = 0;
@@ -89,8 +104,16 @@ export function rollingSigmaAt(values: ArrayLike<number>, j: number, n = V2_SIGM
     const d = values[i] - mean;
     variance += d * d;
   }
-  return Math.sqrt(variance / n);
+  const sigma = Math.sqrt(variance / n);
+  return sigma <= V2_DIVISOR_FLOOR * (sumAbs / n) ? 0 : sigma;
 }
+
+/** Natural scale of each input, for the divisor floor. */
+const SCALE_KIND: Record<VotingIndicatorId, "price" | "osc" | "unit" | "volume"> = {
+  sma: "price", ema: "price", macd: "price", adx: "osc", psar: "price", ichimoku: "price", supertrend: "price",
+  rsi: "osc", stochastic: "osc", cci: "osc", williams: "osc", ao: "price", mfi: "osc", bollinger: "price",
+  keltner: "price", vwap: "price", obv: "volume", cmf: "unit",
+};
 
 const nan = (n: number): Float64Array => new Float64Array(n).fill(NaN);
 
@@ -275,7 +298,7 @@ function rawVwap(k: Kline[], intervalMs: number): Float64Array {
   for (let j = 0; j < n; j++) {
     const c = k[j], tp = (c.high + c.low + c.close) / 3;
     if (intervalMs < DAY_MS) {
-      const day = Math.floor(c.time / DAY_MS) * DAY_MS;
+      const day = c.time - (c.time % DAY_MS); // = Classic's Math.floor(t / DAY) * DAY for t >= 0
       if (day !== sessDay) { sessDay = day; sessStart = j; cumPV = 0; cumV = 0; }
       cumPV += tp * c.volume;
       cumV += c.volume;
@@ -338,6 +361,8 @@ export function v2InputSeries(k: Kline[], o: { intervalMs: number; volumeAvailab
   };
   const bands: Partial<Record<VotingIndicatorId, Float64Array>> = { bollinger: boll.band, keltner: kelt.band };
   const dropAll = contrarianDropped(o.intervalMs);
+  const cumVol = new Float64Array(n);
+  for (let j = 0; j < n; j++) cumVol[j] = (j > 0 ? cumVol[j - 1] : 0) + (fin(k[j].volume) ? Math.abs(k[j].volume) : 0);
 
   return V2_INPUTS.map((spec): V2InputSeries => {
     const raw = raws[spec.id];
@@ -346,10 +371,23 @@ export function v2InputSeries(k: Kline[], o: { intervalMs: number; volumeAvailab
     if (!dropped && !(spec.volume && !o.volumeAvailable)) {
       for (let j = Math.max(0, from); j < n; j++) {
         const divisor = spec.divisor === "atr14" ? atr14[j] : spec.divisor === "band" ? bands[spec.id]![j] : rollingSigmaAt(raw, j);
-        if (!fin(raw[j]) || !fin(divisor) || divisor <= 0) continue;
+        const kind = SCALE_KIND[spec.id];
+        const scale = kind === "price" ? Math.abs(closes[j]) : kind === "osc" ? 100 : kind === "unit" ? 1 : cumVol[j];
+        if (!fin(raw[j]) || !fin(divisor) || divisor <= 0 || divisor <= V2_DIVISOR_FLOOR * scale) continue;
         z[j] = clamp((spec.sign * raw[j]) / divisor);
       }
     }
     return { id: spec.id, bloc: spec.bloc, raw, z, dropped };
   });
+}
+
+/**
+ * z of every input at bar `j` of a series computed once by `v2InputSeries`, in V2_INPUTS order
+ * (NaN for an out-of-range bar). Because raw[j] and z[j] are causal, this equals recomputing on
+ * `k.slice(0, j + 1)`, at a few microseconds per row: compute the series once, then slice per row.
+ */
+export function v2RowAt(series: readonly V2InputSeries[], j: number): Float64Array {
+  const out = new Float64Array(series.length).fill(NaN);
+  for (let i = 0; i < series.length; i++) if (j >= 0 && j < series[i].z.length) out[i] = series[i].z[j];
+  return out;
 }

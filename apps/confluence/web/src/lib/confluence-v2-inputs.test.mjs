@@ -1,12 +1,12 @@
 // Confluence v2 inputs — v2.8 (WP23 Task 2). Run: npm run test:v2-inputs
 // Volatility-standardised, clipped inputs (ADR-0017 table). Pure code: no network, no ledger.
-import { sma, ema, atr, rollingStdDev, macdHistogram } from "./indicators.ts";
-import { runConfluence } from "./indicators.ts";
+import { sma, ema, atr, rollingStdDev, macdHistogram, runConfluence } from "./indicators.ts";
+import * as IND from "./indicators.ts";
 import { fingerprintSeries } from "./engine-config.ts";
 import { VOTE_ORDER } from "./scan-pipeline.ts";
 import {
   V2_SIGMA_BARS, V2_ATR, V2_CLIP, V2_DROP_FROM_MS, V2_CONTRARIAN, V2_INPUTS,
-  contrarianDropped, rollingSigmaAt, v2InputSeries,
+  contrarianDropped, rollingSigmaAt, v2InputSeries, v2RowAt,
 } from "./confluence-v2-inputs.ts";
 import { measureWalks } from "./noise-fixtures.mjs";
 
@@ -139,7 +139,29 @@ ok("series are returned in table order, one per input", series.map((s) => s.id).
   const dividedIds = ["sma", "ema", "macd", "adx", "psar", "ichimoku", "supertrend", "rsi", "stochastic", "cci", "williams", "ao", "mfi", "bollinger", "keltner", "vwap", "obv", "cmf"];
   const bad = r.filter((s) => dividedIds.includes(s.id) && s.z.some((z) => Number.isFinite(z) && Math.abs(z) === 1)).map((s) => s.id);
   ok("flat series: no divisor-zero input is reported as +-1", bad.length === 0, bad.join());
-  ok("flat series: ATR- and sigma-divided inputs are NaN", ["sma", "ema", "macd", "adx", "psar", "ichimoku", "supertrend", "rsi", "cci", "ao", "bollinger", "keltner", "vwap", "obv", "cmf"].every((id) => r.find((s) => s.id === id).z.every(Number.isNaN)));
+  ok("flat series: every ATR-, band- and sigma-divided input is NaN (all 18)", r.every((s) => s.z.every(Number.isNaN)),
+    r.filter((s) => !s.z.every(Number.isNaN)).map((s) => s.id).join());
+}
+
+// 7b. flat-after-movement ("dead pair"): rounding noise must not become a +-1 vote
+{
+  const k = [];
+  let px = 100;
+  for (let i = 0; i < 400; i++) {
+    if (i < 150) {
+      const o = px; px = o * (1 + 0.012 * Math.sin(i * 0.37) + 0.001 * i % 3 * 0.01);
+      k.push({ time: Date.UTC(2025, 0, 1) + i * H, open: o, high: Math.max(o, px) * 1.003, low: Math.min(o, px) * 0.997, close: px, volume: 1000 + (i % 11) * 37 });
+    } else {
+      k.push({ time: Date.UTC(2025, 0, 1) + i * H, open: px, high: px, low: px, close: px, volume: 500 + (i % 7) * 91 });
+    }
+  }
+  const r = v2InputSeries(k, O1H, 399);
+  const sigmaDivided = ["macd", "adx", "rsi", "stochastic", "cci", "williams", "mfi", "obv", "cmf"];
+  const loud = r.filter((s) => sigmaDivided.includes(s.id) && !Number.isNaN(s.z[399])).map((s) => `${s.id}=${s.z[399]}`);
+  ok("dead pair: every sigma-divided input is NaN at the last bar", loud.length === 0, loud.join(" "));
+  const loud2 = r.filter((s) => !Number.isNaN(s.z[399])).map((s) => `${s.id}=${s.z[399]}`);
+  ok("dead pair: ATR- and band-divided inputs are NaN too (all 18)", loud2.length === 0, loud2.join(" "));
+  ok("rollingSigmaAt(100 x 0.1) is 0, not rounding noise", rollingSigmaAt(new Array(100).fill(0.1), 99) === 0);
 }
 
 // 8. causal
@@ -167,6 +189,16 @@ ok("series are returned in table order, one per input", series.map((s) => s.id).
   const early = r.filter((s) => Number.isFinite(s.z[5]) && s.z[5] === 0).map((s) => s.id);
   ok("warm-up bars are NaN, never zero-filled", early.length === 0, early.join());
   ok("sigma100 inputs need 100 finite raws: macd z is NaN before bar ~134", Number.isNaN(r.find((s) => s.id === "macd").z[120]));
+  // First bar at which each raw measure is defined (period - 1, or the seed bar of its smoothing).
+  const FIRST = { sma: 49, ema: 20, macd: 33, adx: 14, psar: 4, ichimoku: 77, supertrend: 10, rsi: 14, stochastic: 13, cci: 19,
+    williams: 13, ao: 33, mfi: 14, bollinger: 19, keltner: 19, vwap: 0, obv: 20, cmf: 19 };
+  const bad = [];
+  for (const s of r) {
+    const f = FIRST[s.id];
+    for (let j = 0; j < f; j++) if (!Number.isNaN(s.raw[j])) { bad.push(`${s.id}@${j}=${s.raw[j]}`); break; }
+    if (!Number.isFinite(s.raw[f])) bad.push(`${s.id} not finite at its first bar ${f}`);
+  }
+  ok("raw is NaN (never 0) below each input's first valid bar, finite at it", bad.length === 0, bad.join(" "));
 }
 
 // 10. rollingSigmaAt
@@ -176,6 +208,89 @@ ok("series are returned in table order, one per input", series.map((s) => s.id).
   ok("window not yet full gives NaN", Number.isNaN(rollingSigmaAt([1, 2, 3, 4], 2, 4)));
   const xs = measureWalks(1, 300, 5)[0].map((c) => c.close);
   ok("matches Classic rollingStdDev", near(rollingSigmaAt(xs, 250, 20), rollingStdDev(xs, 20)[250], 1e-12));
+}
+
+// 11. sampled prefix pin (M1/M2/M5): raw[j] vs Classic's ind* on k.slice(0, j+1)
+{
+  const k = fingerprintSeries().slice(0, 1000);
+  const ser = Object.fromEntries(v2InputSeries(k, O1H, 0).map((s) => [s.id, s]));
+  // Independent +DI - -DI (Wilder), recomputed here from the brief's definition.
+  const diDiff = (p) => {
+    const n = p.length, per = 14, a = atr(p, per);
+    const pdm = [0], mdm = [0];
+    for (let i = 1; i < n; i++) {
+      const up = p[i].high - p[i - 1].high, dn = p[i - 1].low - p[i].low;
+      pdm.push(up > dn && up > 0 ? up : 0); mdm.push(dn > up && dn > 0 ? dn : 0);
+    }
+    let ps = 0, ms = 0;
+    for (let i = 1; i <= per; i++) { ps += pdm[i]; ms += mdm[i]; }
+    for (let i = per + 1; i < n; i++) { ps = ps - ps / per + pdm[i]; ms = ms - ms / per + mdm[i]; }
+    return 100 * (ps / per) / a[n - 1] - 100 * (ms / per) / a[n - 1];
+  };
+  const bad = [];
+  for (const j of [20, 40, 80, 150, 400, 999]) {
+    const p = k.slice(0, j + 1);
+    const cl = p.map((c) => c.close);
+    const val = (fn) => fn(p).value;
+    const exp = {
+      sma: val(IND.indSMA), ema: val(IND.indEMA), macd: val(IND.indMACD), psar: val(IND.indPSAR), ichimoku: val(IND.indIchimoku),
+      supertrend: val(IND.indSupertrend), cci: val(IND.indCCI), ao: val(IND.indAO), cmf: val(IND.indCMF), obv: val(IND.indOBV),
+      rsi: val(IND.indRSI) == null ? null : val(IND.indRSI) - 50,
+      stochastic: val(IND.indStoch) == null ? null : val(IND.indStoch) - 50,
+      williams: val(IND.indWilliamsR) == null ? null : val(IND.indWilliamsR) + 50,
+      mfi: val(IND.indMFI) == null ? null : val(IND.indMFI) - 50,
+      bollinger: val(IND.indBollinger) == null ? null : val(IND.indBollinger) * rollingStdDev(cl, 20)[j],
+      keltner: val(IND.indKeltner) == null ? null : val(IND.indKeltner) * atr(p, 10)[j],
+      adx: j >= 28 ? diDiff(p) : null,
+    };
+    const vw = IND.indVWAP(p, { intervalMs: H });
+    if (vw.value != null) { const vwap = cl[j] / (1 + vw.value); exp.vwap = vw.value * vwap; }
+    for (const [id, e] of Object.entries(exp)) {
+      if (e == null) continue; // Classic is unavailable at this prefix
+      if (!near(ser[id].raw[j], e, 1e-12)) bad.push(`${id}@${j}: ${ser[id].raw[j]} vs ${e}`);
+    }
+  }
+  ok("prefix pin: raw[j] equals Classic on slice(0, j+1) for j in {20,40,80,150,400,999}, all inputs incl. ADX and VWAP", bad.length === 0, bad.join(" | "));
+  // VWAP spans many UTC days at 1h: pin session bucketing at every 7th bar against Classic.
+  let vbad = "";
+  for (let j = 30; j < 1000 && !vbad; j += 7) {
+    const vw = IND.indVWAP(k.slice(0, j + 1), { intervalMs: H });
+    const vwap = k[j].close / (1 + vw.value);
+    if (!near(ser.vwap.raw[j], vw.value * vwap, 1e-12)) vbad = `vwap@${j}`;
+  }
+  ok("vwap session bucketing equals Classic's at every 7th bar of 1000 (41 UTC days)", vbad === "", vbad);
+  // 1d interval uses the 20-bar form
+  const d = v2InputSeries(measureWalks(1, 200, 3, 24 * H)[0], { intervalMs: 24 * H, volumeAvailable: true }, 0).find((s) => s.id === "vwap");
+  const kd = measureWalks(1, 200, 3, 24 * H)[0];
+  const vd = IND.indVWAP(kd, { intervalMs: 24 * H });
+  ok("vwap at 1d (20-bar) equals Classic", near(d.raw[199], vd.value * (kd[199].close / (1 + vd.value)), 1e-12));
+}
+
+// 12. per-row cost of slicing from a precomputed series (M6 / Task 6 budget: <= 5 ms per row, <= 2 x Classic)
+{
+  const k = fingerprintSeries().slice(0, 1000);
+  const T = () => Number(process.hrtime.bigint()) / 1e6;
+  v2InputSeries(k, O1H, 0); runConfluence(k, { intervalMs: H }); // warm
+  let t0 = T(); for (let i = 0; i < 20; i++) runConfluence(k, { intervalMs: H }); const classicMs = (T() - t0) / 20;
+  t0 = T(); let pre; for (let i = 0; i < 20; i++) pre = v2InputSeries(k, O1H, 0); const wholeMs = (T() - t0) / 20;
+  const rows = 400;
+  t0 = T(); let sink = 0;
+  for (let rep = 0; rep < 20; rep++) for (let j = 600; j < 600 + rows; j++) { const z = v2RowAt(pre, j); sink += z[0] || 0; }
+  const perRowMs = (T() - t0) / (20 * rows);
+  console.log(`  bench: classic ${classicMs.toFixed(3)} ms/window; v2 whole series (1000 bars, from 0) ${wholeMs.toFixed(3)} ms; v2RowAt ${(perRowMs * 1000).toFixed(2)} us/row`);
+  ok("v2RowAt per-row cost from a precomputed series is far under the 5 ms / 2 x Classic budget", perRowMs < 0.05 && perRowMs < 2 * classicMs, `${perRowMs} ms`);
+  const row = v2RowAt(pre, 700), cut = v2InputSeries(k.slice(0, 701), O1H, 700);
+  ok("v2RowAt(precomputed, j) equals the prefix recomputation (bit-identical)", row.length === 18 && cut.every((s, i) => Object.is(s.z[700], row[i])));
+  ok("v2RowAt rejects out-of-range rows with NaN", v2RowAt(pre, 5000).every(Number.isNaN) && v2RowAt(pre, -1).every(Number.isNaN));
+}
+
+// 13. the divisor floor does not suppress a real low-priced market (scale invariance)
+{
+  const k = fingerprintSeries().slice(0, 600);
+  const tiny = k.map((c) => ({ ...c, open: c.open * 1e-6, high: c.high * 1e-6, low: c.low * 1e-6, close: c.close * 1e-6 }));
+  const a = v2InputSeries(k, O1H, 599), b = v2InputSeries(tiny, O1H, 599);
+  ok("prices x 1e-6 give the same z (floor is relative, not absolute)", a.every((s, i) => near(s.z[599], b[i].z[599], 1e-6)),
+    a.map((s, i) => `${s.id}:${s.z[599]}/${b[i].z[599]}`).join(" "));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
