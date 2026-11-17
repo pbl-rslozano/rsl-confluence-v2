@@ -617,6 +617,17 @@ console.log("v2.8 4b Task 8: provider data");
     const r2 = await s2.runner.refresh();
     ok("P3 only a coinglass profile: no whale call, whale null", s2.c.whale.length === 0 && r2.whale === null && r2.etfLive !== null);
   }
+  // 2b. a bucket profile (backup B2/R2) satisfies neither lookup: the real runner makes no provider call
+  {
+    const ref = { link: mkLink("b2", "r2") };
+    const s = mk(ref);
+    const r = await s.runner.refresh();
+    ok("P3b only b2/r2 profiles: no etf call, no whale call, both null and not unavailable", s.c.etf === 0 && s.c.whale.length === 0 && r.etfLive === null && r.whale === null && !r.unavailable.includes("etfLive") && !r.unavailable.includes("whale"));
+    const ref2 = { link: mkLink("b2", "whale-alert") };
+    const s2 = mk(ref2);
+    const r2 = await s2.runner.refresh();
+    ok("P3b a b2 profile beside whale-alert changes nothing: whale called, no etf call", s2.c.etf === 0 && s2.c.whale.length === 1 && r2.etfLive === null && r2.whale !== null);
+  }
   // 3. no link / gate closed: no provider call at all
   {
     const ref = { link: null };

@@ -33,7 +33,10 @@ import {
   nextProviderLink,
   PROVIDER_LINK_STALE_MESSAGE,
   type DataProvider,
+  type ProviderFormState,
+  bucketFormError,
   isBucketProvider,
+  prepareProviderSubmit,
   type GatewaySession,
   type PrivateApiEnvironment,
   type PrivateApiProfile,
@@ -186,26 +189,25 @@ export function PrivateApiDialog({
 
   const handleProviderConnect = async () => {
     if (!providerSession || !providerFormValid) return;
-    const apiKey = providerKey.trim();
-    const keyId = bucketKeyId.trim();
-    const secretKey = bucketSecret.trim();
+    const form: ProviderFormState = { apiKey: providerKey, keyId: bucketKeyId, secret: bucketSecret, bucket: bucketName, region: bucketRegion, accountId: bucketAccountId };
+    if (isBucketProvider(dataProvider)) {
+      const problem = bucketFormError(dataProvider, form);
+      if (problem) { // nothing was sent: the entered secrets stay so a typo can be fixed
+        setProviderError(problem);
+        return;
+      }
+    }
+    const label = providerLabel.trim() || shortProviderName(dataProvider);
+    const { input, cleared } = prepareProviderSubmit(dataProvider, label, form);
     // cleared at submit, success or failure: no other copy of a key is kept
-    setProviderKey("");
-    setBucketKeyId("");
-    setBucketSecret("");
+    setProviderKey(cleared.apiKey);
+    setBucketKeyId(cleared.keyId);
+    setBucketSecret(cleared.secret);
     setProviderBusy(true);
     setProviderError(null);
     let link = providerLink;
     try {
-      const label = providerLabel.trim() || shortProviderName(dataProvider);
-      const added = await connectProvider(
-        providerSession,
-        dataProvider === "b2"
-          ? { provider: "b2", label, accessKeyId: keyId, secretAccessKey: secretKey, bucket: bucketName.trim(), region: bucketRegion.trim() }
-          : dataProvider === "r2"
-            ? { provider: "r2", label, accessKeyId: keyId, secretAccessKey: secretKey, bucket: bucketName.trim(), accountId: bucketAccountId.trim() }
-            : { provider: dataProvider, label, apiKey },
-      );
+      const added = await connectProvider(providerSession, input);
       link = nextProviderLink(link, { type: "connected", session: providerSession, profile: added });
       onProviderLinkChange(link);
       try {

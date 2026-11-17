@@ -13,9 +13,10 @@ const TRANSFER_TIMEOUT_MS = 5 * 60_000;
 type Fetcher = typeof fetch;
 
 /** The caller's signal and a deadline, as one signal (AbortSignal.any where the runtime has it). */
-function withDeadline(signal: AbortSignal | undefined, ms: number): { signal: AbortSignal; done: () => void } {
+function withDeadline(signal: AbortSignal | undefined, ms: number): { signal: AbortSignal; timedOut: () => boolean; done: () => void } {
   const timer = new AbortController();
-  const id = setTimeout(() => timer.abort(), ms);
+  let fired = false;
+  const id = setTimeout(() => { fired = true; timer.abort(); }, ms);
   const parts = signal ? [signal, timer.signal] : [timer.signal];
   let combined: AbortSignal;
   if (typeof AbortSignal.any === "function") combined = AbortSignal.any(parts);
@@ -27,7 +28,7 @@ function withDeadline(signal: AbortSignal | undefined, ms: number): { signal: Ab
     }
     combined = c.signal;
   }
-  return { signal: combined, done: () => clearTimeout(id) };
+  return { signal: combined, timedOut: () => fired, done: () => clearTimeout(id) };
 }
 
 function mapStatus(status: number): BackupError {
@@ -76,7 +77,7 @@ async function readCappedText(response: Response): Promise<string> {
   return new TextDecoder().decode(all);
 }
 
-export function gatewayBackupTarget(link: ProviderLink, profile: ProviderProfile, fetcher: Fetcher = fetch): BackupTarget {
+export function gatewayBackupTarget(link: ProviderLink, profile: ProviderProfile, fetcher: Fetcher = fetch, opts: { timeoutMs?: number } = {}): BackupTarget {
   const base = normalizeGatewayUrl(link.session.url);
   const token = link.session.token.trim();
   if (!isLoopbackGateway(base) || !token) throw new BackupError("gateway");
@@ -84,18 +85,35 @@ export function gatewayBackupTarget(link: ProviderLink, profile: ProviderProfile
   const provider = profile.provider;
   const query = (name?: string): string => `?profile=${encodeURIComponent(profile.id)}${name ? `&name=${encodeURIComponent(name)}` : ""}`;
 
-  async function call(path: string, init: RequestInit, ms: number, signal?: AbortSignal): Promise<Response> {
-    const deadline = withDeadline(signal, ms);
-    let response: Response;
+  /**
+   * One request, headers and body. The deadline runs until `read` has finished, and every failure is a BackupError:
+   * a caller abort is `cancelled`, the deadline `timeout`, anything else thrown (network, a body read) `network`.
+   * The original error is dropped on purpose.
+   */
+  async function run<T>(path: string, init: RequestInit, ms: number, signal: AbortSignal | undefined, read: (response: Response) => Promise<T>): Promise<T> {
+    const deadline = withDeadline(signal, opts.timeoutMs ?? ms);
+    let onAbort: (() => void) | undefined;
+    const aborted = new Promise<never>((_, reject) => {
+      onAbort = () => reject(new Error("aborted"));
+      if (deadline.signal.aborted) onAbort();
+      else deadline.signal.addEventListener("abort", onAbort, { once: true });
+    });
+    aborted.catch(() => undefined); // never an unhandled rejection when the work wins the race
     try {
-      response = await fetcher(`${base}${path}`, { ...init, cache: "no-store", headers: { Authorization: `Bearer ${token}`, ...(init.headers as Record<string, string> | undefined) }, signal: deadline.signal });
-    } catch {
+      const work = (async () => {
+          const response = await fetcher(`${base}${path}`, { ...init, cache: "no-store", headers: { Authorization: `Bearer ${token}`, ...(init.headers as Record<string, string> | undefined) }, signal: deadline.signal });
+          if (!response.ok) throw mapStatus(response.status);
+          return read(response);
+        })();
+      work.catch(() => undefined); // a failure after the race was lost is already reported as the abort
+      return await Promise.race([work, aborted]);
+    } catch (e) {
+      if (e instanceof BackupError) throw e;
+      throw new BackupError(signal?.aborted ? "cancelled" : deadline.timedOut() ? "timeout" : "network");
+    } finally {
       deadline.done();
-      throw new BackupError(signal?.aborted ? "cancelled" : deadline.signal.aborted ? "timeout" : "network"); // the original message is dropped on purpose
+      if (onAbort) deadline.signal.removeEventListener("abort", onAbort);
     }
-    deadline.done();
-    if (!response.ok) throw mapStatus(response.status);
-    return response;
   }
 
   return {
@@ -103,28 +121,29 @@ export function gatewayBackupTarget(link: ProviderLink, profile: ProviderProfile
     async upload(name, text, signal) {
       if (typeof name !== "string" || !BACKUP_FILE_RE.test(name) || typeof text !== "string") throw new BackupError("format");
       if (text.length > BACKUP_MAX_FILE_BYTES || utf8Bytes(text) > BACKUP_MAX_FILE_BYTES) throw new BackupError("too-large-file");
-      const response = await call(`/backup/upload${query(name)}`, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: text }, TRANSFER_TIMEOUT_MS, signal);
-      const info = toInfo(await response.json().catch(() => null));
-      if (!info || info.name !== name) throw new BackupError("http", { status: response.status });
-      return info;
+      return run(`/backup/upload${query(name)}`, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: text }, TRANSFER_TIMEOUT_MS, signal, async (response) => {
+        const info = toInfo(await response.json().catch(() => null));
+        if (!info || info.name !== name) throw new BackupError("http", { status: response.status });
+        return info;
+      });
     },
     async list(signal) {
-      const response = await call(`/backup/list${query()}`, {}, LIST_TIMEOUT_MS, signal);
-      const payload = (await response.json().catch(() => null)) as { files?: unknown } | null;
-      if (!payload || !Array.isArray(payload.files)) throw new BackupError("http", { status: response.status });
-      const out: BackupFileInfo[] = [];
-      for (const f of payload.files) {
-        const info = toInfo(f);
-        if (info) out.push(info);
-      }
-      return out.sort((a, b) => b.modifiedAt - a.modifiedAt || (a.name < b.name ? 1 : a.name > b.name ? -1 : 0)).slice(0, MAX_LIST);
+      return run(`/backup/list${query()}`, {}, LIST_TIMEOUT_MS, signal, async (response) => {
+        const payload = (await response.json().catch(() => null)) as { files?: unknown } | null;
+        if (!payload || !Array.isArray(payload.files)) throw new BackupError("http", { status: response.status });
+        const out: BackupFileInfo[] = [];
+        for (const f of payload.files) {
+          const info = toInfo(f);
+          if (info) out.push(info);
+        }
+        return out.sort((a, b) => b.modifiedAt - a.modifiedAt || (a.name < b.name ? 1 : a.name > b.name ? -1 : 0)).slice(0, MAX_LIST);
+      });
     },
     async download(f, signal) {
       if (!f || typeof f.name !== "string" || !BACKUP_FILE_RE.test(f.name)) throw new BackupError("format");
       if (typeof f.size !== "number" || !Number.isFinite(f.size) || f.size < 0) throw new BackupError("format");
       if (f.size > BACKUP_MAX_FILE_BYTES) throw new BackupError("too-large-file");
-      const response = await call(`/backup/download${query(f.name)}`, {}, TRANSFER_TIMEOUT_MS, signal);
-      return readCappedText(response);
+      return run(`/backup/download${query(f.name)}`, {}, TRANSFER_TIMEOUT_MS, signal, readCappedText);
     },
   };
 }

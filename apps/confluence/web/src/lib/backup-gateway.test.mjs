@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { BackupError, BACKUP_MAX_FILE_BYTES, sealBackup, openBackup } from "./backup-crypto.ts";
-import { connectProvider, nextProviderLink } from "./private-api.ts";
+import { bucketFormError, connectProvider, EMPTY_PROVIDER_FORM, nextProviderLink, prepareProviderSubmit } from "./private-api.ts";
 import { gatewayBackupTarget } from "./backup-gateway-client.ts";
 import { fetchEtfLive, fetchWhaleAlerts } from "./provider-data-client.ts";
 
@@ -171,20 +171,11 @@ test("a profile that is not a bucket profile is refused", () => {
   assert.throws(() => gatewayBackupTarget(LINK, { ...B2_PROFILE, provider: "coinglass" }), (e) => e instanceof BackupError);
 });
 
-test("radar ignores bucket profiles", async () => {
-  const bucketOnly = { session: SESSION, providers: [B2_PROFILE, { ...B2_PROFILE, id: "22222222-2222-4222-8222-222222222222", provider: "r2" }] };
-  // the radar decides with `providers.some(p => p.provider === ...)` (snapshot.ts, radar-panel.tsx)
-  assert.equal(bucketOnly.providers.some((p) => p.provider === "coinglass"), false);
-  assert.equal(bucketOnly.providers.some((p) => p.provider === "whale-alert"), false);
-  // and the link transitions keep a bucket profile without turning it into anything else
+test("a bucket profile keeps its provider through the link transitions", () => {
+  // the radar side (a b2/r2 profile satisfies no CoinGlass or Whale Alert lookup) is tested against the real runner in
+  // radar-snapshot.test.mjs ("P3b")
   const next = nextProviderLink(null, { type: "connected", session: SESSION, profile: B2_PROFILE });
   assert.equal(next.providers[0].provider, "b2");
-  // the data client, handed such a link, still asks the gateway (which answers 409) and surfaces a fixed code
-  globalThis.fetch = async () => reply(409, { error: "No ETF-flow provider key is connected." });
-  try {
-    await assert.rejects(() => fetchEtfLive(bucketOnly, new AbortController().signal), (e) => e.message === "gateway:409");
-    await assert.rejects(() => fetchWhaleAlerts(bucketOnly, 1_000_000, new AbortController().signal), (e) => e.message === "gateway:409");
-  } finally { cleanup(); }
 });
 
 test("secrets are never written to storage", async () => {
@@ -200,4 +191,80 @@ test("secrets are never written to storage", async () => {
     assert.ok(!all.includes(SECRET) && !all.includes(KEY_ID));
     assert.equal(store.size, 0);
   } finally { cleanup(); }
+});
+
+// ---- the body phase: deadline, abort and failures are all BackupError codes ----
+const FILE = { id: NAME, name: NAME, size: 5, modifiedAt: 1 };
+const neverSettles = () => new Promise(() => {});
+const stalledBody = () => ({ ...reply(200, ""), text: neverSettles, json: neverSettles, body: { getReader: () => ({ read: neverSettles, cancel: async () => undefined }) } });
+
+test("a stalled download body gives timeout, not a hang", async () => {
+  globalThis.fetch = async () => stalledBody();
+  try {
+    const t = gatewayBackupTarget(LINK, B2_PROFILE, fetch, { timeoutMs: 30 });
+    await assert.rejects(() => t.download(FILE), (e) => e instanceof BackupError && e.code === "timeout");
+    globalThis.fetch = async () => ({ ...stalledBody(), body: null });
+    await assert.rejects(() => t.download(FILE), (e) => e instanceof BackupError && e.code === "timeout");
+    await assert.rejects(() => t.list(), (e) => e instanceof BackupError && e.code === "timeout");
+    await assert.rejects(() => t.upload(NAME, "x"), (e) => e instanceof BackupError && e.code === "timeout");
+  } finally { cleanup(); }
+});
+
+test("an abort in the middle of the body gives cancelled", async () => {
+  globalThis.fetch = async () => stalledBody();
+  try {
+    const ctl = new AbortController();
+    const t = gatewayBackupTarget(LINK, B2_PROFILE);
+    const pending = t.download(FILE, ctl.signal);
+    setTimeout(() => ctl.abort(), 10);
+    await assert.rejects(() => pending, (e) => e instanceof BackupError && e.code === "cancelled");
+  } finally { cleanup(); }
+});
+
+test("a body reader that throws gives network, with nothing from the error", async () => {
+  try {
+    const boom = new TypeError(`terminated ${TOKEN} ${SECRET}`);
+    globalThis.fetch = async () => ({ ...reply(200, ""), body: { getReader: () => ({ read: async () => { throw boom; }, cancel: async () => undefined }) } });
+    const t = gatewayBackupTarget(LINK, B2_PROFILE);
+    await assert.rejects(() => t.download(FILE), (e) => {
+      assert.ok(e instanceof BackupError);
+      assert.equal(e.code, "network");
+      assert.ok(!(e.message + JSON.stringify(e.detail)).includes(TOKEN));
+      return true;
+    });
+    globalThis.fetch = async () => ({ ...reply(200, ""), body: null, text: async () => { throw boom; } });
+    await assert.rejects(() => t.download(FILE), (e) => e instanceof BackupError && e.code === "network");
+  } finally { cleanup(); }
+});
+
+// ---- the dialog's pure helpers ----
+const GOOD_B2 = { ...EMPTY_PROVIDER_FORM, keyId: KEY_ID, secret: SECRET, bucket: "my-backups-1", region: "eu-central-003" };
+const GOOD_R2 = { ...EMPTY_PROVIDER_FORM, keyId: KEY_ID, secret: SECRET, bucket: "my-backups-2", accountId: "0123456789abcdef0123456789abcdef" };
+
+test("prepareProviderSubmit builds the body and returns a state with every secret empty", () => {
+  for (const [provider, form] of [["b2", GOOD_B2], ["r2", GOOD_R2], ["coinglass", { ...EMPTY_PROVIDER_FORM, apiKey: SECRET }], ["whale-alert", { ...EMPTY_PROVIDER_FORM, apiKey: SECRET, keyId: KEY_ID, secret: SECRET }]]) {
+    const { input, cleared } = prepareProviderSubmit(provider, "L", form);
+    assert.equal(input.provider, provider);
+    assert.equal(cleared.apiKey, "");
+    assert.equal(cleared.keyId, "");
+    assert.equal(cleared.secret, "");
+    assert.ok(!JSON.stringify(cleared).includes(SECRET) && !JSON.stringify(cleared).includes(KEY_ID));
+  }
+  assert.deepEqual(Object.keys(prepareProviderSubmit("b2", "L", GOOD_B2).input), ["provider", "label", "accessKeyId", "secretAccessKey", "bucket", "region"]);
+  assert.deepEqual(Object.keys(prepareProviderSubmit("r2", "L", GOOD_R2).input), ["provider", "label", "accessKeyId", "secretAccessKey", "bucket", "accountId"]);
+  assert.deepEqual(Object.keys(prepareProviderSubmit("coinglass", "L", { ...EMPTY_PROVIDER_FORM, apiKey: SECRET }).input), ["provider", "label", "apiKey"]);
+  // the non-secret fields survive so a retry needs only the keys again
+  assert.equal(prepareProviderSubmit("b2", "L", GOOD_B2).cleared.bucket, "my-backups-1");
+});
+
+test("bucketFormError uses the gateway's patterns and never echoes a value", () => {
+  assert.equal(bucketFormError("b2", GOOD_B2), null);
+  assert.equal(bucketFormError("r2", GOOD_R2), null);
+  const bad = (provider, patch) => bucketFormError(provider, { ...(provider === "b2" ? GOOD_B2 : GOOD_R2), ...patch });
+  for (const [provider, patch] of [["b2", { bucket: "short" }], ["b2", { bucket: "has_underscore" }], ["b2", { region: "EU-central-003" }], ["b2", { region: "eu-central-3" }],
+    ["r2", { bucket: "UPPER-case" }], ["r2", { bucket: "-lead" }], ["r2", { bucket: "ab" }], ["r2", { accountId: "0123456789ABCDEF0123456789ABCDEF" }], ["r2", { accountId: "abc" }]]) {
+    const msg = bad(provider, patch);
+    assert.equal(typeof msg, "string", JSON.stringify(patch));
+    assert.ok(!msg.includes(Object.values(patch)[0]));
+  }
 });
