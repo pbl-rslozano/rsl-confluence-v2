@@ -5,7 +5,10 @@ credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (St
 ledger rows of engine 2.3.0 stay and are reported separately.
 
 - **Encrypted cloud backup (WP28, ADR-0019):** About → Cloud backup (collapsed, off by default): an AES-256-GCM backup of
-  your records in your own cloud storage; restore merges. Acceptance BK-1…BK-4.
+  your records (ledger rows with their outcome snapshots, universe snapshots and recorded gaps; pre-registrations and
+  trials; the paper journal with its trade notes; settings) in your own cloud storage; restore merges and never removes a
+  row to make room, and stops cleanly when the device's storage is full. B2 and R2 use the local gateway started by hand.
+  Acceptance BK-1…BK-4.
 - **Two-line header (owner decision 16 Nov 2026, spec §3 item 9):** at 1280 px and wider the header's control ribbon
   takes exactly two lines (it took three at 1280–1366 px). Rate sources, Watchlists, Alert inbox, Saved scans, API,
   Contact, About and Language (flag only) are icon buttons with their unchanged accessible names and a tooltip on hover

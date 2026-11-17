@@ -198,7 +198,7 @@ desktop gateway" and the gateway contacts neither host.
 
 ## Amendment — v2.8 (17 Nov 2026, WP28: encrypted cloud backup)
 The user may keep an encrypted backup file in their own cloud storage (Google Drive, Microsoft OneDrive, pCloud; Backblaze B2
-and Cloudflare R2 through the desktop gateway). The file is encrypted on the device before any upload. No host below is
+and Cloudflare R2 through the local gateway, a separate Node process started by hand). The file is encrypted on the device before any upload. No host below is
 contacted until the user opens the collapsed "Encrypted cloud backup" section in About, picks a provider whose build-time
 client ID is set and signs in. A provider without a client ID shows "Not set up yet" and is excluded from every network
 path. Nothing here reaches scoring, the ledger, alerts or any paper-trading rule, and no host serves an order endpoint.
@@ -228,7 +228,7 @@ path. Nothing here reaches scoring, the ledger, alerts or any paper-trading rule
   Which host (if any) is needed is not verified, so `ONEDRIVE_DOWNLOAD_ORIGINS` is empty and no file host is allowed.
   An origin is added only by an amendment to this ADR after the manual check, and then to `CSP_HOSTS` and
   `BACKUP_NATIVE_URLS` too (R16 checks both).
-- **Gateway only, never in any CSP:** Backblaze B2 and Cloudflare R2 are reached only from the local desktop gateway
+- **Gateway only, never in any CSP:** Backblaze B2 and Cloudflare R2 are reached only from the local gateway
   (`apps/confluence/gateway`, new files `s3-sign.mjs` and `backup-store.mjs`), with the user's own keys, which the user
   is told to limit to one bucket, held in gateway memory only (the WP25 rule: cleared at exit and on a crash, never logged, never in an error or a
   response). Their hosts carry a region or an account id, so they cannot be written out one by one. The gateway process in

@@ -110,8 +110,8 @@ by default.
 
 ## 7. Backblaze B2 and Cloudflare R2
 
-These go through the desktop gateway, not the browser, with a key that you create for one bucket only. The key stays in
-the gateway's memory.
+These go through the local gateway (a separate Node process you start by hand; the apps never bundle or start it), not
+the browser, with a key that you create for one bucket only. The key stays in the gateway's memory until the gateway stops.
 
 1. **B2:** create a private bucket. App Keys, Add a New Application Key, "Allow access to Bucket(s)" set to that one
    bucket, type Read and Write. Note the key ID, the application key (shown once), the bucket name and the region from the
@@ -122,8 +122,9 @@ the gateway's memory.
 3. **R2 token check.** A token with Object Read & Write on all buckets typically gets 403 on ListBuckets and is accepted
    by the key test, because a 403 only proves the key cannot list buckets. The gateway only ever addresses the one named
    bucket, but create a token scoped to one bucket anyway.
-4. Start the desktop app (it runs the gateway), open Settings, API, and enter the key and the bucket there. The key test
-   refuses a key that can reach other buckets.
+4. Start the gateway by hand (`pnpm gateway` from the project folder; it prints a gateway token), then in the app open
+   **Private API** (the key button in the header), paste the token and enter the key and the bucket. The key test refuses a
+   key that can reach other buckets. The key is gone when the gateway stops.
 
 ## 8. Manual checks before release (deferred, ADR-0003 amendment and ADR-0019)
 

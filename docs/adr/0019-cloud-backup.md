@@ -14,7 +14,7 @@ of the user's own records to the user's own cloud storage. The existing `.rslbak
 - OAuth client IDs are build-time configuration, empty by default; a provider without one shows "Not set up yet" and is excluded
   from every network path;
 - every provider flow is tested against mocks, so no live sign-in is needed for any gate;
-- B2 and R2 go through the desktop gateway with the user's own bucket-restricted keys, held in memory, on a route with its own
+- B2 and R2 go through the local gateway (a separate Node process started by hand, never bundled into the apps) with the user's own bucket-restricted keys, held in memory, on a route with its own
   20 MB body limit;
 - Google on the web is "desktop only" (reasons below);
 - the §6 host checks are documented manual checks, deferred.
@@ -57,9 +57,22 @@ stream is aborted the moment the cap is passed. A single large write would let C
 before any check, so this is a security property, not a tuning detail.
 
 **Payload.** Plain JSON, `{"format":"rsl-confluence-backup-payload","schema":1,"createdAt","app","settings":{"preferences",
-"scoringProfile"},"ledger":{"rows"},"research":{"preregistrations","trials"},"paper":{"journal"}}`. `createdAt` must equal the
-header's. List limits: 1,000,000 rows, 500 pre-registrations, 20,000 trials, 100,000 journal entries. Every item goes through
-the sanitiser of its own store; an item that fails is counted, never silently dropped.
+"scoringProfile"},"ledger":{"rows","outcomes","universes","gaps"},"research":{"preregistrations","trials"},"paper":{"journal","notes"}}`.
+`createdAt` must equal the header's. List limits: 1,000,000 rows, 500 pre-registrations, 20,000 trials, 100,000 journal entries,
+1,000,000 outcome documents, 100,000 universes, 100,000 gap series, 100,000 notes. Every item goes through a strict sanitiser
+(final review I-1 added `sanitizeOutcomeDoc`, `sanitizeUniverseDoc`, `sanitizeGapDoc` and `sanitizeTradeNote`: known fields only,
+ids checked against each other, sizes bounded, nothing thrown); an item that fails is counted, never silently dropped.
+Schema 1 was not released before these sections were added, so its number did not change.
+
+**Responsiveness (final review M-1).** The payload is built and sanitised one record at a time, the text is encoded and decoded in
+1 MiB steps, (de)compression and the ciphertext's base64url run in steps, and each loop yields to the event loop after about 40 ms.
+Key derivation and AES-GCM run in WebCrypto. One step cannot be split: the single plain `JSON.parse` of the payload (about 0.9 s
+for 100,000 realistic rows, 68 MB, in Node 22), kept because restore must use plain `JSON.parse` only.
+
+**Realistic size (final review M-2).** Measured on rows with every field filled and varied values (about 710 bytes of JSON each,
+gzip about 4×, base64 4/3): 20 MB holds about 120,000 live rows; with measured outcomes at all five horizons for every row and a
+universe snapshot per bar, about 45,000. A refusal over 20 MB reports the file's own size; one over the 160 MB unpacked cap reports
+the estimated file size (from a compressed 8 MiB sample) and the unpacked size.
 
 ### 2. Crypto parameters
 - AES-256-GCM through WebCrypto, 96-bit IV, 128-bit tag.
@@ -73,10 +86,17 @@ the sanitiser of its own store; an item that fails is counted, never silently dr
 
 ### 3. What is backed up, and what is not
 - **In:** signal-ledger rows (**live rows only**: replay rows, `live: 0`, are left out on purpose and reported separately as
-  `bk.skippedReplay`, while `bk.skipped` is kept for records that are genuinely unreadable); pre-registrations and registered trials (the multiple-testing count); the paper journal;
-  preferences (`preferences/current`); the scoring profile (`preferences/scoring-profile-v1`).
+  `bk.skippedReplay`, while `bk.skipped` is kept for records that are genuinely unreadable) with their **outcome snapshots**
+  (`o|<bar doc>`, only the entries of the backed-up rows), the **universe snapshots** (`u|<src>|<t>`) and the **recorded gaps**
+  (`gap|<src>|<tf>|<pair>`) (final review I-1: these are the user's scored records; without them a new device rebuilds outcomes
+  only from history still served, at most 10 pairs and 5,000 bars per open, and loses delisted pairs); pre-registrations and
+  registered trials (the multiple-testing count); the paper journal with its **trade notes** (`paper-note:*` annotations, keyed by
+  proposal id, open and close time, so they re-attach to the restored trades); preferences (`preferences/current`); the scoring
+  profile (`preferences/scoring-profile-v1`).
 - **Out:** market history (re-downloadable); the paper account, open positions and risk settings (a restore must never
-  loosen a drawdown lock); tokens, keys and the passphrase; radar caches.
+  loosen a drawdown lock); tokens, keys and the passphrase; radar caches; replay rows; and the ledger's device bookkeeping:
+  recording cursors (`cursor|`, `cursors|`: each device records from its own position), measured slippage (`slip|`, measured
+  again from order books) and the time of the last ledger export (`export|last`).
 
 ### 4. Restore rules
 - Plain `JSON.parse` only: no `eval`, `Function`, HTML or `innerHTML`. Nothing is executed. Schema version, field types and
@@ -91,21 +111,34 @@ the sanitiser of its own store; an item that fails is counted, never silently dr
   backup.
 - **Settings.** "Also restore settings" starts ticked, and starts **unticked** when the local settings changed after the
   backup or the local preferences or scoring profile differ from the backup's; the plan says so in that case.
+- **Outcome snapshots, universes, gaps and notes (final review I-1).** Merged by key; a local value is never overwritten. A
+  row's snapshots gain only the horizons it lacks; a gap span merges by its start (at most 50 per series, local spans never
+  dropped); a note merges by `paperNoteId`. Outcome snapshots and universes are kept only for rows the device holds after the
+  rows step, inside its age window, and only while they fit under the row cap (0.5 and 40 units): they never cause a row to be
+  removed. Newest days first. The dry run and the real run share the planner, so the plan's counts are the report's.
 - **Partial failure.** If a restore throws part-way, the audit trail records `backup.cloud.restore.partial` with the counts,
-  and the UI shows `bk.err.partial`. A re-run is safe. **Known limitation:** a ledger chunk that failed in the middle of a
-  write is not re-indexed by the re-run (rows already present are skipped, so they are never indexed): the row-cap count can be
-  off by the rows of that chunk (chunks close at 5,000 rows or more and never split a day), and an orphaned bar document is not pruned, until the rows age out.
+  and the UI shows `bk.err.partial`. A re-run is safe. **A full store (final review I-2):** ledger rows are written in chunks of
+  at most 1,000 rows (or one whole day), and every chunk saves the index with its units **before** any of its documents, then
+  the day documents, then the bar documents; a failure takes back the units of what was not written and saves the index again.
+  Outcome snapshots and universes follow the same order. So every stored document stays reachable by pruning, a quota error
+  stops the restore with a consistent index (the store is marked full), and a re-run stops at the same point or finishes once
+  there is room. No aggressive pruning happens during a restore: it would delete this device's rows to make room for older ones.
 
 ### 5. Transport, per shell
 - **Web:** `fetch` under the CSP; only the four hosts `login.microsoftonline.com`, `graph.microsoft.com`, `api.pcloud.com`
   and `eapi.pcloud.com`. The full host lists (native allowlist, sign-in pages, gateway templates) are in the ADR-0003
   amendment "v2.8 (17 Nov 2026, WP28)".
-- **Backup transfer** has no Sign in step for B2 and R2: they use the gateway key from Settings → API.
+- **Backup transfer** has no Sign in step for B2 and R2: they use the bucket key added with the **Private API** header button
+  (the key icon; `ctl.api`).
 - **Desktop:** the Tauri HTTP plugin under the `BACKUP_NATIVE_URLS` scope (equal to the allowlist, R16). Sign-in pages open in
   the system browser through the opener scope.
 - **Phone:** native HTTP under the same allowlist; sign-in in the system browser; return by a verified app link.
-- Every request passes `isAllowedBackupUrl` before it is sent. Redirects are never followed.
-- **Timeouts.** The web client's deadline covers reading the body, not only the headers. In the gateway a PUT has 10 s plus
+- Every request passes `isAllowedBackupUrl` before it is sent. Redirects are never followed: the web path uses
+  `redirect: "manual"`, and a 3xx (or the opaque redirect) is `BackupError("http", { status: "3xx" })` on web and native
+  alike (final review M-3).
+- **Timeouts.** The web path of the provider HTTP port has the native deadline (final review M-3): 15 s to the headers (the
+  native connect timeout) plus the request body at 64 KiB/s, then the response body by its Content-Length (or 20 MB) at
+  64 KiB/s plus 15 s. The gateway client's deadline covers reading the body, not only the headers. In the gateway a PUT has 10 s plus
   the bytes at 128 KiB/s, capped at 5 minutes; a GET has 10 s to the headers, then an idle timer of 30 s between chunks.
 
 ### 6. Provider matrix
@@ -115,8 +148,8 @@ the sanitiser of its own store; an item that fails is counted, never silently dr
 | Google Drive | no | yes | no | loopback redirect + PKCE, `drive.appdata` only, no client secret |
 | Microsoft OneDrive | yes | yes | with the app link | code + PKCE, `Files.ReadWrite.AppFolder`, no `offline_access`; restore blocked (section 10) |
 | pCloud | yes | yes | with the app link | token flow; backups in `/rsL Confluence Backup`; codes 1000, 2000 and 2094 mean "sign in again" |
-| Backblaze B2 | gateway | gateway | no | SigV4 through the desktop gateway, own bucket-restricted key |
-| Cloudflare R2 | gateway | gateway | no | SigV4 through the desktop gateway, own bucket-restricted key |
+| Backblaze B2 | gateway | gateway | no | SigV4 through the local gateway, own bucket-restricted key |
+| Cloudflare R2 | gateway | gateway | no | SigV4 through the local gateway, own bucket-restricted key |
 
 The web needs the build's client ID and the official origin; otherwise the provider is "Not set up yet" or "Not set up for this
 web address". "Web" for B2/R2 means the page talks to the gateway on the same computer.
@@ -128,7 +161,11 @@ entry, URL or backup. No refresh token (no `offline_access`). The web PKCE verif
 mount, with `history.replaceState` in a `finally` (even when it throws).
 
 ### 8. Gateway keys for B2 and R2
-Held in gateway memory only (the WP25 rule): cleared at exit and on a crash, never logged, never in an error or a response.
+The gateway is a separate Node process started by hand (`pnpm gateway`); it is never bundled into or started by the apps, so a
+key lives until that process stops, not until the app closes. Keys are held in gateway memory only (the WP25 rule): cleared at
+exit and on a crash, never logged, never in an error or a response. A request refused before its body is read (Host, Origin,
+token, and the early `/backup/upload` refusals) is answered once its body has arrived and been discarded (at most 21 MB), so an
+upload sees its 401/403/409 and not a reset, also with `Connection: close` (final review M-8).
 Requests are SigV4-signed with `node:crypto` to `s3.<region>.backblazeb2.com` or `<accountId>.r2.cloudflarestorage.com`, and
 only to the object keys `rsl-confluence/<name>` with `<name>` matching `BACKUP_FILE_RE`. The **restriction test** at connect:
 `HEAD /<bucket>` must answer 200 and the key must not enumerate other buckets (ListBuckets 403, or 200 naming only this
@@ -144,6 +181,9 @@ The upload route has its own 20 MB limit; every other gateway route keeps 32 KB.
   The final page scrubs the address with `history.replaceState(null, "", "/callback")`.
   **Residual risk:** the browser may still record the visit in its history, and a pCloud token does not expire. Mitigation: the
   user revokes the app's access in pCloud (`docs/backup-provider-setup.md` section 4).
+- **pCloud web sign-in (final review M-4).** The same applies on the web: the token arrives in the fragment of the hosted page's
+  address, the Home effect consumes and scrubs it, but the browser history keeps the visit with the token. The guide tells the
+  user to delete that history entry and to revoke the app's access in pCloud if that is a concern.
 - **Web callback.** The code or token stays in the address bar from the return until the Home effect runs, which consumes it and
   scrubs it. The only way the page could leak it is the `Referer` header on an outgoing request in that short window, and the
   build already sends `Referrer-Policy: no-referrer` (`apps/confluence/web/public/_headers` line 24 and `next.config.ts`
@@ -185,6 +225,10 @@ The upload route has its own 20 MB limit; every other gateway route keeps 32 KB.
 | Owner check: Google token exchange without a secret (Task 4) | forum reports say Google may refuse it | if refused, Google stays unavailable until the owner allows Google's public installed-app secret, which needs a spec exception |
 | Entra loopback redirect added through the manifest `replyUrlsWithType` (Task 11) | the portal box cannot add an `http` `127.0.0.1` URI | if Entra refuses, desktop OneDrive sign-in fails until the developer changes the port or flow |
 | R2 all-bucket token gets 403 on ListBuckets and is accepted (Task 8, 11) | 403 proves only "cannot list buckets" | a wider key than needed; the gateway still addresses one bucket |
+| Outcome snapshots, universes, gaps and trade notes join payload schema 1 (final review I-1) | they are the user's scored records; schema 1 was unreleased | larger backups (the 20 MB limit still holds) |
+| Snapshots and universes are restored only while they fit under the row cap, never evicting a row (final review I-1) | rows are the primary record; the plan stays exact | on a small device some snapshots are not kept (counted) |
+| Restore writes ≤ 1,000-row chunks, index first, and stops on a full store (final review I-2) | every stored document stays prunable; no hidden eviction | a slower restore |
+| Early gateway refusals answer after draining the body (final review M-8) | Node closes a `Connection: close` socket at once, resetting an upload | the client sends the whole body before it learns of a refusal |
 
 ### Google Drive is desktop-only
 These are the owner's documented assumptions, not verified facts; the manual check in `docs/backup-provider-setup.md`
@@ -215,6 +259,8 @@ raising past it needs a code change to that constant first.
 
 ### Other costs
 - A forgotten passphrase is final; the guide says so.
-- A user-visible known limitation: a ledger chunk that failed mid-write is not re-indexed by a re-run (section 4).
+- A restore onto a full store stops part-way and says so; the user frees space and runs it again (section 4).
+- Old backups pile up (each up to 20 MB); the guide tells the user to delete them, and every listing shows the newest first
+  (OneDrive asks Graph for `$orderby=lastModifiedDateTime desc`, final review M-7).
 - Two more hosts families to keep in step: ADR-0003, `public-hosts.ts`, the CSP, the Tauri scopes and the egress manifest
   (R8, R11, R16).

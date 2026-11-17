@@ -82,6 +82,7 @@ Routes (same token, origin and host checks as the rest; `profile` is the id retu
 - `GET /backup/list?profile=<id>` answers `{ files: [{ name, size, modifiedAt }] }`: the newest 20 valid backups under `rsl-confluence/`.
 - `GET /backup/download?profile=<id>&name=<file>` answers the file's text (`application/json; charset=utf-8`); a file over 20 MB is refused.
 - No bucket key connected for that profile: 409 "No backup bucket key is connected."; a bad name: 400; the bucket refuses or does not answer: 502 "The bucket did not accept the request."
+- A request refused before its body is read (a bad Host, Origin or token, and the 409/400/413 answers above) is answered once its body has arrived, read and discarded (at most 21 MB, never kept), so an upload receives its answer and not a connection reset, also on a `Connection: close` request.
 
 Backblaze and Cloudflare terms and CORS are not involved (the gateway, not the browser, makes these calls). Their hosts (`s3.<region>.backblazeb2.com`, `<accountId>.r2.cloudflarestorage.com`) are contacted only for a connected bucket profile.
 
