@@ -726,5 +726,12 @@
   "sc.fallback.noState": "Walang Fund trend state para sa coin na ito — ipinapakita ang pangkalahatang tsansa nito.",
   "sc.stateCoverage": "{n} sa {m} nakaraang bar ang may Fund trend state.",
   "sc.recorded": "Ang naitalang pagsusuri ay gumagamit ng huling 1,000 bar.",
-  "sc.noPath": "Walang simulated na landas ang nagtapos sa isa sa mga senaryo; makikita pa rin ang tsansa nito."
+  "sc.noPath": "Walang simulated na landas ang nagtapos sa isa sa mga senaryo; makikita pa rin ang tsansa nito.",
+  "chart.heikinAshi": "Heikin-Ashi (pang-display lamang)",
+  "sc.simulated": "SIMULATED",
+  "sc.now": "ngayon",
+  "sc.play": "▶ I-play",
+  "sc.pausePlay": "I-pause",
+  "sc.replay": "I-replay",
+  "sc.tabs": "Landas ng senaryo"
 }

@@ -726,5 +726,12 @@
   "sc.fallback.noState": "该币种没有 Fund trend 状态，显示其整体概率。",
   "sc.stateCoverage": "{m} 根历史K线中有 {n} 根具有 Fund trend 状态。",
   "sc.recorded": "记录的检查使用最近 1,000 根K线。",
-  "sc.noPath": "没有模拟路径落在其中一种情景；其概率仍会显示。"
+  "sc.noPath": "没有模拟路径落在其中一种情景；其概率仍会显示。",
+  "chart.heikinAshi": "平均K线（仅显示）",
+  "sc.simulated": "模拟",
+  "sc.now": "现在",
+  "sc.play": "▶ 播放",
+  "sc.pausePlay": "暂停",
+  "sc.replay": "重播",
+  "sc.tabs": "情景路径"
 }

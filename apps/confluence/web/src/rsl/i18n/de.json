@@ -726,5 +726,12 @@
   "sc.fallback.noState": "Kein Fund-trend-Zustand für diese Münze – es werden die Gesamtwahrscheinlichkeiten gezeigt.",
   "sc.stateCoverage": "{n} von {m} früheren Kerzen haben einen Fund-trend-Zustand.",
   "sc.recorded": "Die aufgezeichnete Prüfung verwendet die letzten 1.000 Kerzen.",
-  "sc.noPath": "Kein simulierter Pfad endete in einem der Szenarien; seine Wahrscheinlichkeit wird trotzdem angezeigt."
+  "sc.noPath": "Kein simulierter Pfad endete in einem der Szenarien; seine Wahrscheinlichkeit wird trotzdem angezeigt.",
+  "chart.heikinAshi": "Heikin-Ashi (nur Anzeige)",
+  "sc.simulated": "SIMULIERT",
+  "sc.now": "jetzt",
+  "sc.play": "▶ Abspielen",
+  "sc.pausePlay": "Pause",
+  "sc.replay": "Wiederholen",
+  "sc.tabs": "Szenariopfad"
 }

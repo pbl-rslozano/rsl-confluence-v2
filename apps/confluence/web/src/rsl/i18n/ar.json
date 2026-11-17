@@ -270,7 +270,14 @@
     "sc.fallback.noState",
     "sc.stateCoverage",
     "sc.recorded",
-    "sc.noPath"
+    "sc.noPath",
+    "chart.heikinAshi",
+    "sc.simulated",
+    "sc.now",
+    "sc.play",
+    "sc.pausePlay",
+    "sc.replay",
+    "sc.tabs"
   ],
   "app.subtitle": "ماسح توافق مؤشرات العملات المشفّرة",
   "ctx.page": "الماسح",
@@ -997,5 +1004,12 @@
   "sc.fallback.noState": "لا توجد حالة لاتجاه الصندوق لهذه العملة — تُعرض احتمالاتها العامة.",
   "sc.stateCoverage": "{n} من أصل {m} شمعة سابقة لها حالة لاتجاه الصندوق.",
   "sc.recorded": "يستخدم الفحص المسجَّل آخر 1,000 شمعة.",
-  "sc.noPath": "لم ينتهِ أي مسار محاكى في أحد السيناريوهات؛ وما زالت احتمالاته معروضة."
+  "sc.noPath": "لم ينتهِ أي مسار محاكى في أحد السيناريوهات؛ وما زالت احتمالاته معروضة.",
+  "chart.heikinAshi": "هايكين آشي (للعرض فقط)",
+  "sc.simulated": "محاكاة",
+  "sc.now": "الآن",
+  "sc.play": "▶ تشغيل",
+  "sc.pausePlay": "إيقاف مؤقت",
+  "sc.replay": "إعادة التشغيل",
+  "sc.tabs": "مسار السيناريو"
 }

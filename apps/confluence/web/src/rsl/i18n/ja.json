@@ -726,5 +726,12 @@
   "sc.fallback.noState": "このコインには Fund trend の状態がないため、全体の確率を表示しています。",
   "sc.stateCoverage": "過去 {m} 本の足のうち {n} 本に Fund trend の状態があります。",
   "sc.recorded": "記録されるチェックは直近 1,000 本の足を使います。",
-  "sc.noPath": "いずれかのシナリオで終わったシミュレーション経路がありませんでした。確率は引き続き表示されます。"
+  "sc.noPath": "いずれかのシナリオで終わったシミュレーション経路がありませんでした。確率は引き続き表示されます。",
+  "chart.heikinAshi": "平均足（表示のみ）",
+  "sc.simulated": "シミュレーション",
+  "sc.now": "現在",
+  "sc.play": "▶ 再生",
+  "sc.pausePlay": "一時停止",
+  "sc.replay": "もう一度再生",
+  "sc.tabs": "シナリオの経路"
 }

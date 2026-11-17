@@ -726,5 +726,12 @@
   "sc.fallback.noState": "Pas d’état Fund trend pour cette crypto : affichage de ses probabilités globales.",
   "sc.stateCoverage": "{n} bougies passées sur {m} ont un état Fund trend.",
   "sc.recorded": "La vérification enregistrée utilise les 1 000 dernières bougies.",
-  "sc.noPath": "Aucun chemin simulé n’a fini dans l’un des scénarios ; ses probabilités restent affichées."
+  "sc.noPath": "Aucun chemin simulé n’a fini dans l’un des scénarios ; ses probabilités restent affichées.",
+  "chart.heikinAshi": "Heikin-Ashi (affichage seulement)",
+  "sc.simulated": "SIMULÉ",
+  "sc.now": "maintenant",
+  "sc.play": "▶ Lecture",
+  "sc.pausePlay": "Pause",
+  "sc.replay": "Rejouer",
+  "sc.tabs": "Trajectoire du scénario"
 }

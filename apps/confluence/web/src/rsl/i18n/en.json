@@ -726,5 +726,12 @@
   "sc.fallback.noState": "No Fund trend state for this coin — showing its overall odds.",
   "sc.stateCoverage": "{n} of {m} past bars have a Fund trend state.",
   "sc.recorded": "The recorded check uses the last 1,000 bars.",
-  "sc.noPath": "No simulated path ended in one of the scenarios; its odds still show."
+  "sc.noPath": "No simulated path ended in one of the scenarios; its odds still show.",
+  "chart.heikinAshi": "Heikin-Ashi (display only)",
+  "sc.simulated": "SIMULATED",
+  "sc.now": "now",
+  "sc.play": "▶ Play",
+  "sc.pausePlay": "Pause",
+  "sc.replay": "Replay",
+  "sc.tabs": "Scenario path"
 }

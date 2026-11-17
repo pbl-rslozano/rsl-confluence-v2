@@ -726,5 +726,12 @@
   "sc.fallback.noState": "No hay estado de Fund trend para esta moneda: se muestran sus probabilidades generales.",
   "sc.stateCoverage": "{n} de {m} velas pasadas tienen un estado de Fund trend.",
   "sc.recorded": "La comprobación registrada usa las últimas 1000 velas.",
-  "sc.noPath": "Ninguna trayectoria simulada terminó en uno de los escenarios; sus probabilidades se siguen mostrando."
+  "sc.noPath": "Ninguna trayectoria simulada terminó en uno de los escenarios; sus probabilidades se siguen mostrando.",
+  "chart.heikinAshi": "Heikin-Ashi (solo visualización)",
+  "sc.simulated": "SIMULADO",
+  "sc.now": "ahora",
+  "sc.play": "▶ Reproducir",
+  "sc.pausePlay": "Pausa",
+  "sc.replay": "Repetir",
+  "sc.tabs": "Trayectoria del escenario"
 }

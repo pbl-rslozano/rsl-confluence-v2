@@ -726,5 +726,12 @@
   "sc.fallback.noState": "Tidak ada status Fund trend untuk koin ini — menampilkan peluang keseluruhannya.",
   "sc.stateCoverage": "{n} dari {m} bar lampau memiliki status Fund trend.",
   "sc.recorded": "Pemeriksaan yang dicatat memakai 1.000 bar terakhir.",
-  "sc.noPath": "Tidak ada jalur simulasi yang berakhir di salah satu skenario; peluangnya tetap ditampilkan."
+  "sc.noPath": "Tidak ada jalur simulasi yang berakhir di salah satu skenario; peluangnya tetap ditampilkan.",
+  "chart.heikinAshi": "Heikin-Ashi (hanya tampilan)",
+  "sc.simulated": "SIMULASI",
+  "sc.now": "sekarang",
+  "sc.play": "▶ Putar",
+  "sc.pausePlay": "Jeda",
+  "sc.replay": "Putar ulang",
+  "sc.tabs": "Jalur skenario"
 }

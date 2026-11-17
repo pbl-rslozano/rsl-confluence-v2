@@ -726,5 +726,12 @@
   "sc.fallback.noState": "Bu coin için Fund trend durumu yok — genel olasılıkları gösteriliyor.",
   "sc.stateCoverage": "Geçmiş {m} mumun {n} tanesinde Fund trend durumu var.",
   "sc.recorded": "Kaydedilen kontrol son 1.000 mumu kullanır.",
-  "sc.noPath": "Hiçbir simüle yol senaryolardan birinde bitmedi; olasılıkları yine de gösterilir."
+  "sc.noPath": "Hiçbir simüle yol senaryolardan birinde bitmedi; olasılıkları yine de gösterilir.",
+  "chart.heikinAshi": "Heikin-Ashi (yalnızca görünüm)",
+  "sc.simulated": "SİMÜLASYON",
+  "sc.now": "şimdi",
+  "sc.play": "▶ Oynat",
+  "sc.pausePlay": "Duraklat",
+  "sc.replay": "Yeniden oynat",
+  "sc.tabs": "Senaryo yolu"
 }

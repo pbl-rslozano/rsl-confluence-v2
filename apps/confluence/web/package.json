@@ -39,7 +39,7 @@
     "test:venues": "node scripts/run-engine-tests.mjs venue-ids.test.mjs",
     "test:relay": "node scripts/run-engine-tests.mjs native-relay.test.mjs",
     "test:quotes": "node scripts/run-engine-tests.mjs quotes.test.mjs",
-    "test:chart": "node --experimental-strip-types --no-warnings --test src/lib/chart-view.test.mjs",
+    "test:chart": "node --experimental-strip-types --no-warnings --test src/lib/chart-view.test.mjs src/lib/chart-geometry.test.mjs",
     "test:fx": "node scripts/run-engine-tests.mjs fx-rates.test.mjs",
     "test:okx": "node scripts/run-engine-tests.mjs okx.test.mjs",
     "test:coinbase": "node scripts/run-engine-tests.mjs coinbase.test.mjs",

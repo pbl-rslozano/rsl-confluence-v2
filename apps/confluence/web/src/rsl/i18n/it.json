@@ -726,5 +726,12 @@
   "sc.fallback.noState": "Nessuno stato Fund trend per questa moneta: vengono mostrate le sue probabilità complessive.",
   "sc.stateCoverage": "{n} candele passate su {m} hanno uno stato Fund trend.",
   "sc.recorded": "Il controllo registrato usa le ultime 1.000 candele.",
-  "sc.noPath": "Nessun percorso simulato è finito in uno degli scenari; le sue probabilità restano visibili."
+  "sc.noPath": "Nessun percorso simulato è finito in uno degli scenari; le sue probabilità restano visibili.",
+  "chart.heikinAshi": "Heikin-Ashi (solo visualizzazione)",
+  "sc.simulated": "SIMULATO",
+  "sc.now": "ora",
+  "sc.play": "▶ Riproduci",
+  "sc.pausePlay": "Pausa",
+  "sc.replay": "Riproduci di nuovo",
+  "sc.tabs": "Percorso dello scenario"
 }

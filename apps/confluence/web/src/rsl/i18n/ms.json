@@ -726,5 +726,12 @@
   "sc.fallback.noState": "Tiada status Fund trend untuk syiling ini — memaparkan kebarangkalian keseluruhannya.",
   "sc.stateCoverage": "{n} daripada {m} bar lalu mempunyai status Fund trend.",
   "sc.recorded": "Semakan yang direkodkan menggunakan 1,000 bar terakhir.",
-  "sc.noPath": "Tiada laluan simulasi yang berakhir dalam salah satu senario; kebarangkaliannya masih dipaparkan."
+  "sc.noPath": "Tiada laluan simulasi yang berakhir dalam salah satu senario; kebarangkaliannya masih dipaparkan.",
+  "chart.heikinAshi": "Heikin-Ashi (paparan sahaja)",
+  "sc.simulated": "SIMULASI",
+  "sc.now": "sekarang",
+  "sc.play": "▶ Main",
+  "sc.pausePlay": "Jeda",
+  "sc.replay": "Main semula",
+  "sc.tabs": "Laluan senario"
 }
