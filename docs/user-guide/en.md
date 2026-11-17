@@ -273,10 +273,21 @@ The chart toolbar has **+** (zoom in), **−** (zoom out), **Reset**, **Full scr
 - **Full screen** (or **F**): on a PC browser and Android Chrome the chart takes the whole screen; on iPhone, iPad and in the Android and iPhone apps it fills the app window and hides the status bar; in the desktop app the window also goes full screen. **Esc**, **Exit full screen** or Android **Back** returns to the detail sheet — the sheet stays open. Turn a phone sideways for a wider chart.
 - Page zoom (pinch outside the chart, or the browser's zoom) keeps working for reading text.
 
+<!-- wp:WP24 -->
+### Reflect view (v2.8)
+A falling market is harder to read than a rising one for many people, and traders check a chart's symmetry by flipping it. **Reflect view** mirrors the price pane vertically: the price axis runs high to low, so a fall is drawn as a rise. It is display only.
+- Turn it on with **Reflect view (mirror the price axis)** in **Indicators** (off by default), or press **I** while the chart has focus. The state is remembered per device; **Reset to defaults** in the same menu turns it off.
+- A **Reflected** badge sits on the price pane, also in full screen and in screenshots, so a mirrored chart is never mistaken for a normal one.
+- Axis labels and the readout still show real prices. Every layer of the price pane (candles, averages, Bollinger bands, VWAP, levels, gaps, the Fund trend ribbon, the scenario fan) uses the same mirrored axis.
+- Candles keep their **real colours and real prices**: a rising candle is still green. The crosshair stays on the hovered candle's close and the readout keeps the real open, high, low and close.
+- **MACD and volume are not flipped.** The **Fund trend panel is flipped** together with price.
+- Turning it off restores the normal drawing exactly. It never reaches a score, an alert, the paper rules or the Radar.
+
 ![Analysis sections: trend and reversal, historical pattern, bloc scores and context.](images/detail-analysis.webp)
 
 - **Trend & reversal**: the current trend and any reversal clues.
 - **Historical analogues (descriptive)**: the analogues behind the Pattern column — how many, how often they moved in the signal's direction with its 95% lower bound against the base rate, the average 6-bar move and how similar they were. With 1–19 analogues it says *Too few analogues*.
+- **Scenarios (simulation)**: a collapsed section right after the Pattern panel; see *Scenarios (simulation) and Heikin-Ashi (v2.8)* below.
 - **Bloc scores**: the four bloc scores, the efficiency ratio and the contrarian weight.
 - **Context (logged, not scored)**: extra information that is recorded with the signal but does not change it:
   - **Relative strength**: where this asset's 20-bar return ranks in the scan, 0–100.
@@ -296,6 +307,37 @@ The chart toolbar has **+** (zoom in), **−** (zoom out), **Reset**, **Full scr
 ![The indicator panel lists every vote with its value.](images/detail-indicators.webp)
 
 - **Indicator panel · n voting** (n = the votes that could be calculated): every indicator with its value and vote, grouped by Trend, Momentum, Volatility, Volume and Structure, plus warnings — for example when the blocs disagree.
+
+<!-- wp:WP22 -->
+### Scenarios (simulation) and Heikin-Ashi (v2.8)
+**Scenarios (simulation)** is a collapsed section on the detail sheet, right after the Pattern panel. It always starts with the line **"Possible scenarios from past data — not a forecast."** It shows how far price might move, never which way. **Not a forecast; not financial advice.** It never changes a score, a signal, an alert, a paper-trading rule or the Radar, and the engine code stays `5c30b5c39f5ba3f2`. At rest nothing is computed and nothing is requested.
+
+**The fan (how far, never which way).**
+- **200 paths** are simulated. Each path is built from **blocks of 6 candles** copied from this coin's own past: every past candle becomes a relative candle (open, high, low and close divided by the previous close), and a new block is drawn after every 6 candles.
+- Blocks come only from bars whose volatility (ATR(14) ÷ close, as a percentile) is **within ±15 points** of today's. When too few blocks qualify the band widens to **±30**, then to **all bars**, and the explanation says so.
+- The simulation is **direction-neutral**: the mean log return of the sample is removed, so the fan is centred on today's close.
+- One simulation runs for 24 bars; the **6-bar** horizon uses its first 6 steps. **Horizon** switches between **6 bars** and **24 bars**.
+- It is **seeded** from the pair, the timeframe and the last closed bar's time: the same view gives the same picture, and a refresh does not reshuffle it.
+- The **range bands** at each step are **2.5–97.5 %** (light) and **16–84 %** (darker) of the simulated closes; the **median is dotted**.
+- **Minimum 300 bars.** With fewer closed bars the section says **"Scenarios: not enough history (needs at least 300 closed bars)."** If today's volatility percentile cannot be worked out, the volatility sentence is left out and the section shows *not enough history*.
+
+**The odds.**
+- **State** is the Fund trend direction only: **down ≤ −15 · flat · up ≥ 15**. A coin without a Fund trend (stocks, forex, commodities, a new listing, or a build that cannot fetch daily bars) has no state and shows its overall odds: **"No Fund trend state for this coin — showing its overall odds."**
+- **Matches** are past bars in the same state, **sampled every 2 bars**. The **effective sample** is n_eff = matches × 2 ÷ horizon, and it must be **at least 20**. Otherwise the section uses all sampled bars and says **"Not enough similar moments — showing this coin's overall odds."** The sample line then reads *{cases} past moments (all bars) · effective sample {neff}*; with enough matches it reads *{cases} similar past moments · effective sample {neff}*.
+- **Outcome** is the move after the horizon in units of σ_H = ATR(14) ÷ close × √H at the signal bar (log-return units). With an up or down trend, **Continue** is more than +0.5 σ_H in the trend's direction, **Reverse** is less than −0.5 σ_H, and **Pause** is anything in between. With a flat trend the three are **Up / Range / Down**.
+- Each scenario shows its **Odds**, a **95 % range** (Wilson, computed on n_eff), the **Cases**, and the coin's all-bars **Base rate**. The odds are descriptions of the past, not probabilities of what comes next.
+- The **scenario path** of a scenario is, among the 200 paths that end in that bucket, the one nearest the bucket's median. If no path ended there, no candles are drawn (*No simulated path ended in one of the scenarios; its odds still show.*), and the odds still show.
+- The daily bars for the Fund trend state come from the existing daily-bar feed (same hosts, at most one request per pair per UTC day) and **only while the Scenarios section is open**. Nothing is fetched until you open it.
+- The sheet works on the history it holds, including **Load 5K older**. The official recorded check always uses the last 1,000 bars; when the sheet holds more, it says **"The recorded check uses the last 1,000 bars."**
+
+**On the chart.** The graphic appears only after the section is opened and **Show on chart** is pressed (**Hide from chart** turns it off, and the chart is then exactly the v2.7 chart).
+- The time axis gains empty slots for the horizon, and the bands fill them. Candles are **hollow with a dashed outline**, a **SIMULATED** label sits on the area and the axis marks **now**. The projection shows only while the view includes the newest bar.
+- The tabs **Continue / Pause / Reverse** (**Up / Range / Down** on a flat trend) switch the path.
+- **▶ Play** draws the candles one at a time (about 250 ms each) and stops at the horizon. **Pause** holds the count and the button reads **▶ Play** again; pressing it resumes. **Replay** appears only at the end. With *reduce motion* set on your device, Play shows all candles at once.
+- It works with zoom, pan (the projection uses the real bars' span), **Full screen** and Heikin-Ashi. **Chart replay** is not changed.
+- At most 2 band polygons and 24 simulated candles are drawn.
+
+**Heikin-Ashi (display only).** In **Indicators** tick **Heikin-Ashi (display only)**; it is off by default. Real candles and simulated candles are both converted. Scores, levels and every calculation keep real prices, and the readout shows the real open, high, low and close and, beside them, the Heikin-Ashi values (**HA O** …).
 
 ### Chart replay
 **Open chart replay** steps through the saved history one bar at a time. Use **Play replay** / **Pause replay**, **Next bar** and **Speed** (1×, 2×, 4×). The replay chart zooms and goes full screen like the main chart. To practise, choose side (long or short), size, stop % and target %, then **Queue replay trade**; it fills at the next bar's open. When a bar touches both the stop and the target, the stop counts first.
@@ -317,7 +359,7 @@ On **Bybit Perpetual** the sheet adds two research panels:
 - **Where the data comes from.** Daily bars are fetched from the same exchange and hosts as the row, **at most once per coin per UTC day**, after the scan has finished and behind its usual pacing and rate-limit pause. Only builds that fetch directly do this: the installable web app, the desktop app and the phone app. The **hosted web version** cannot, so it shows no Fund trend values at all (the panel's Confluence line still works). If the exchange asks the app to wait, the feed stops: the list rows still waiting stay empty, and the detail sheet says **Fund trend: data unavailable, try again later**, until you open the coin again after the pause.
 - **It never votes.** Fund trend is not one of the 18 voting indicators. It does not change any score, signal, alert or paper-trading rule, and the engine code stays `5c30b5c39f5ba3f2`.
 
-**Everything is off by default.** Open a coin, press **Indicators** under the chart and tick **Fund trend ribbon** or **Fund trend panel** (the last two entries). **Reset to defaults** in the same menu turns both off.
+**Everything is off by default.** Open a coin, press **Indicators** under the chart and tick **Fund trend ribbon** or **Fund trend panel**. **Reset to defaults** in the same menu turns both off.
 - **Ribbon.** A thin band at the bottom of the price pane, one cell per bar: green for positive, red for negative, grey when the value is between −15 and +15; the stronger the value, the more solid the colour. For intraday bars it uses the value from the daily bars that **closed before that bar's day**, so it never looks ahead.
 - **Panel.** A pane below the volume: the **Confluence score** and **Fund trend** as two lines on one −100…+100 axis, and **Fund size** as a shaded area (0–200 %). The header shows **Fund rank** (below). The Confluence line works for **every** asset class; Fund trend and Fund size show n/a for non-crypto coins.
   - A bar is scored only when its full 1,000-bar window exists (the bar and the 999 closed bars before it), exactly as the list scores it. The note under the panel says **Score shown for N of M bars**. If fewer than about 1,300 bars are on hand, the app fetches the missing older bars once (one history page from the same exchange); otherwise the line starts where a full window begins.
@@ -603,6 +645,22 @@ Every scored closed bar is recorded with the engine version. The ledger shows ho
 - **What each row records** (v2.8, engine 2.4.0): the 18 individual votes, the Pattern output, and the funding rate and
   open-interest change when a recorder snapshot of at most 2 hours is available (otherwise empty). They are logged and
   exported, never scored. Rows of engine 2.3.0 stay and are reported separately.
+- **Scenario check** (v2.8, collapsed at the end of the ledger, after the report): each recorded row also keeps what the
+  Scenarios section computed at that bar, logged and never scored. **`scb`** holds the 6-bar band edges (2.5, 16, 84 and 97.5 %
+  of the simulated closes, as the log of the band divided by the signal close); **`scp`** holds the Fund trend state, the
+  three scenario odds, the coin's base-rate odds, σ_6 and a flag saying the overall odds were used. The check scores
+  them at the official horizon of **6 bars** on the **last 1,000 bars** (the same computation in the scan, the catch-up and
+  the recorder), with non-overlapping 6-bar windows per series:
+  - **Band coverage**: how often the realised 6-bar return fell inside each band, against the targets **68 %** (16–84 %)
+    and **95 %** (2.5–97.5 %), with a Wilson range. A fan that is too narrow covers less than its target.
+  - **Brier score** (three outcomes, lower is better): the scenario odds against the base-rate odds. Rows that fell back to
+    the overall odds are skipped, because they carry no odds of their own. If scenarios score no better than the base rate,
+    they add nothing.
+  - Only rows that also pass the ledger's own usable-row filter are checked; closed-market rows and rows under the
+    bar-count minimum are not. Rows whose bars are no longer stored are counted as not measured.
+  - The CSV export has **13 scenario columns** after the Radar columns: `scenario_band_lo95`, `scenario_band_lo68`,
+    `scenario_band_hi68`, `scenario_band_hi95`, `scenario_state`, `scenario_p_up`, `scenario_p_range`, `scenario_p_down`,
+    `scenario_base_up`, `scenario_base_range`, `scenario_base_down`, `scenario_width`, `scenario_fallback`.
 
 | Source | Fee per side | Slippage per side | Funding per 8 h |
 |---|---|---|---|
@@ -830,6 +888,7 @@ Without a connection the last scan stays on screen and the footer shows **Offlin
 | Shift + ← → | Chart | Pan |
 | + / − / 0 | Chart | Zoom in / zoom out / reset view |
 | F | Chart | Full screen on or off |
+| I | Chart | Reflect view (mirror the price axis) on or off |
 | Esc | Chart full screen | Leave full screen (the sheet stays open) |
 | Ctrl/⌘ + wheel | Chart | Zoom at the cursor |
 | ↑ ↓ Enter Esc | Language menu | Choose a language |
