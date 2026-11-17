@@ -4198,8 +4198,18 @@ async function hdPinnedBoxes(w, h, lang) {
     shared.c = c;
     const consoleErrors = [];
     p.on("pageerror", (e) => consoleErrors.push(String(e).slice(0, 160)));
+    // Final review M-1: every long task (>= 50 ms) on the page while a backup, an open or a restore runs. Key derivation and
+    // AES-GCM run in WebCrypto off the main thread, so nothing is exempted: no task may reach 200 ms.
+    const bkLongTasks = { probe: [], backup: [], open: [], restore: [] };
+    let bkPhase = null;
+    await p.exposeFunction("__bkLongTask", (ms) => { if (bkPhase) bkLongTasks[bkPhase].push(ms); });
+    const watchLongTasks = () => p.evaluate(() => {
+      if (window.__bkLtOn) return;
+      window.__bkLtOn = true;
+      try { new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__bkLongTask(Math.round(e.duration)); }).observe({ type: "longtask" }); } catch { /* no long-task API */ }
+    });
     {
-      // 1. connect B2 in Settings → API
+      // 1. connect B2 with the Private API header button
       await p.getByRole("button", { name: /Private API/ }).first().click();
       const dlg = p.getByRole("dialog");
       await dlg.waitFor({ timeout: 10000 });
@@ -4230,8 +4240,16 @@ async function hdPinnedBoxes(w, h, lang) {
       const b2State = await p.getByTestId("bk-provider-b2").getAttribute("data-state");
       await p.getByTestId("bk-pass").fill(BK_PASS);
       await p.getByTestId("bk-pass2").fill(BK_PASS);
+      await watchLongTasks();
+      // Positive control: an 80 ms busy loop must be seen, so "no long task" cannot pass because the observer is deaf.
+      bkPhase = "probe";
+      await p.evaluate(() => { setTimeout(() => { const t = performance.now(); while (performance.now() - t < 80) { /* busy */ } }, 0); }); // a page task (a CDP evaluate is not one)
+      await p.waitForTimeout(300);
+      bkPhase = "backup";
       await p.getByTestId("bk-backup-b2").click();
       const doneText = await settled(p, /Backed up|could|refused|not/);
+      await p.waitForTimeout(300); // long-task entries are delivered after the task
+      bkPhase = null;
       const passCleared = (await p.getByTestId("bk-pass").inputValue()) === "" && (await p.getByTestId("bk-pass2").inputValue()) === "";
       const [name, file] = [...gw.files][0] || [];
       let envelope = null;
@@ -4264,8 +4282,12 @@ async function hdPinnedBoxes(w, h, lang) {
       await p.getByTestId("bk-list").waitFor({ timeout: 15000 });
       const listText = flat(await p.getByTestId("bk-list").textContent());
       await p.getByTestId("bk-pass").fill(BK_PASS);
+      await watchLongTasks();
+      bkPhase = "open";
       await p.getByTestId("bk-open").click();
       await p.getByTestId("bk-plan").waitFor({ timeout: 60000 }).catch(() => null);
+      await p.waitForTimeout(300);
+      bkPhase = null;
       const planText = flat(await p.getByTestId("bk-plan").textContent().catch(() => ""));
       const settingsUnchecked = (await p.getByTestId("bk-settings").isChecked().catch(() => true)) === false;
       // Review I-2: focus moves into the plan (alertdialog) and it is described by the time and counts lines.
@@ -4278,7 +4300,10 @@ async function hdPinnedBoxes(w, h, lang) {
       await p.getByTestId("bk-settings").check();
       const ledgerBeforeConfirm = (await ledgerIds(p)).length;
       const prefsBeforeConfirm = await prefsNow(p); // review M-9: opening the plan and ticking the box write nothing
+      bkPhase = "restore"; // until the page reloads (the observer goes with the old page)
       const [, ] = await Promise.all([p.waitForEvent("load", { timeout: 20000 }).catch(() => null), p.getByTestId("bk-confirm").click()]);
+      bkPhase = null;
+      const worstLongTask = Math.max(0, ...bkLongTasks.backup, ...bkLongTasks.open, ...bkLongTasks.restore);
       // 6. after the reload: the ledger and the timeframe are back
       await p.waitForSelector(".rsl-brand-host .rsl-brand", { timeout: 20000 });
       await waitRows(p);
@@ -4295,17 +4320,20 @@ async function hdPinnedBoxes(w, h, lang) {
       const stored = await storageText(p);
       const secretsStored = [BK_PASS, BK_SECRET, BK_KEY_ID].filter((s) => stored.includes(s));
       const cloudHits = hits.filter((h) => !h.startsWith("127.0.0.1:8787"));
-      record("BK-2", "Backup round trip through a mocked B2 gateway: encrypted upload without plaintext, restore shows the backup time and asks before replacing newer settings, ledger and settings come back, no secret stored",
+      record("BK-2", "Backup round trip through a mocked B2 gateway: encrypted upload without plaintext, restore shows the backup time, the record counts and asks before replacing newer settings, ledger and settings come back, no secret stored, no long task of 200 ms or more while it runs",
         secretsCleared && keySent && b2State === "ready" && /^Backed up confluence-backup-\d{8}T\d{6}Z\.json \(/.test(doneText) && passCleared && gw.files.size === 1 && envelopeOk && noPlain
           && tfChanged !== tfBefore && clearedTo === 0 && listText.includes(name)
           && /Backup made /.test(planText) && /Ledger: \d+ rows, \d+ new\. Paper journal: \d+ trades, \d+ new\. Pre-registrations: \d+, \d+ new\./.test(planText)
+          && /Measured outcomes: \d+ rows, \d+ new\. Universe snapshots: \d+, \d+ new\. Recorded gaps: \d+, \d+ new\. Trade notes: \d+, \d+ new\./.test(planText)
+          && worstLongTask < 200 && bkLongTasks.probe.length === 1 && bkLongTasks.probe[0] >= 80
           && /Your settings were changed after this backup \(.+\)\. Restoring them replaces your newer settings\./.test(planText) && settingsUnchecked
           && ledgerBeforeConfirm === 0 && prefsBeforeConfirm === prefsBeforeRestore && ledgerBack && tfAfter === tfBefore && btcAtBackup
           && planFocus.inside && planFocus.described
           && grew("backup.cloud.upload") === 1 && grew("backup.cloud.restore") === 1 && auditShown === auditAfter.length && secretsStored.length === 0 && gw.bad.length === 0 && cloudHits.length === 0,
         { secretsCleared, keySent, b2State, doneText, passCleared, files: gw.files.size, envelopeOk, noPlain, tfBefore, tfChanged, tfAfter, clearedTo, listText: listText.slice(0, 90),
           planText: planText.slice(0, 400), settingsUnchecked, planFocus, ledgerBeforeConfirm, prefsUnchangedBeforeConfirm: prefsBeforeConfirm === prefsBeforeRestore, btcAtBackup, ledger: `${ledgerAtBackup.length} → ${idsAfter.length}`, ledgerBack,
-          audit: { upload: grew("backup.cloud.upload"), restore: grew("backup.cloud.restore"), shown: auditShown, stored: auditAfter.length }, secretsStored: secretsStored.length, gatewayAuthFailures: gw.bad.length, cloudHits });
+          audit: { upload: grew("backup.cloud.upload"), restore: grew("backup.cloud.restore"), shown: auditShown, stored: auditAfter.length }, secretsStored: secretsStored.length, gatewayAuthFailures: gw.bad.length, cloudHits,
+          longTasks: { worst: worstLongTask, ...bkLongTasks } });
     }
 
     /* BK-3: a wrong passphrase, then a file with one character of its ciphertext changed: the same refusal, nothing changed. */
