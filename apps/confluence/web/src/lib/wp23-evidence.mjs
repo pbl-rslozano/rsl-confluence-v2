@@ -3,9 +3,9 @@
 //
 // Everything here is read-only on the engine: it scores the shared noise grid and two fixed
 // series with Classic exactly as the app does, and writes the numbers as JSON.
-import { writeFileSync } from "node:fs";
+import { writeFileSync, realpathSync } from "node:fs";
 import { execSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { engineConfigId, behaviourFingerprint, fingerprintSeries, ENGINE_VERSION } from "./engine-config.ts";
 import { scoreSeries, toLedgerRow } from "./scan-pipeline.ts";
 import { measureOutcome, buildReport, costsFor, DEFAULT_HORIZONS } from "./ledger-metrics.ts";
@@ -122,4 +122,8 @@ function main() {
   console.log(`wrote ${out}`);
 }
 // Only the entry point runs the CLI, so Task 10 and the tests can import classicMetrics.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
+// Real paths, so a symlinked entry (macOS tmpdir is under /var -> /private/var) still counts; any failure = not the entry.
+function isEntryPoint() {
+  try { return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]); } catch { return false; }
+}
+if (isEntryPoint()) main();
