@@ -1,9 +1,11 @@
-# v2.8.0 — in progress, Steps 1 to 5 (not released; app still reports v2.7.0)
+# v2.8.0 — in progress, Steps 1 to 5 and WP28 (not released; app still reports v2.7.0)
 
 Steps 1 to 5 of the v2.8 plan (`docs/superpowers/specs/2026-11-15-v2.8-architecture-design.md`): safety fixes, licence
 credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (Step 2); Fund trend (Step 3); Market radar part 1 (Step 4a) and part 2 (Step 4b); Scenarios and Reflect view (Step 5); Fear & Greed widget (WP29); two-line header at ≥ 1280 px (owner decision, 16 Nov 2026). Engine 2.4.0 (`5c30b5c39f5ba3f2`);
 ledger rows of engine 2.3.0 stay and are reported separately.
 
+- **Encrypted cloud backup (WP28, ADR-0019):** About → Cloud backup (collapsed, off by default): an AES-256-GCM backup of
+  your records in your own cloud storage; restore merges. Acceptance BK-1…BK-4.
 - **Two-line header (owner decision 16 Nov 2026, spec §3 item 9):** at 1280 px and wider the header's control ribbon
   takes exactly two lines (it took three at 1280–1366 px). Rate sources, Watchlists, Alert inbox, Saved scans, API,
   Contact, About and Language (flag only) are icon buttons with their unchanged accessible names and a tooltip on hover
@@ -137,7 +139,7 @@ ledger rows of engine 2.3.0 stay and are reported separately.
   closing cancels a request in flight. New host in the CSP, the egress manifest and an ADR-0003 amendment (R8); no new
   dependency. Acceptance **FG-1**, **FG-2**; DS-1 hides the chip (spec §3 item 8). The strings are Arabic drafts awaiting
   review and English in the other 16 languages.
-- **Docs:** user guide chapters for WP19, WP20, WP21, WP25 (part 1), WP26, WP27 and WP29; ADR-0018 (new venues); R19 accepts this "in progress" entry above the released v2.7.0.
+- **Docs:** user guide chapters for WP19, WP20, WP21, WP25 (part 1), WP26, WP27, WP28 and WP29; ADR-0018 (new venues); R19 accepts this "in progress" entry above the released v2.7.0.
 - **Before going back to v2.7, export the paper journal** (Paper → Export CSV) and note your open positions: v2.7 cannot
   read the v2.8 paper account format and starts a fresh 10,000 USDT account over it on its first scan.
 
