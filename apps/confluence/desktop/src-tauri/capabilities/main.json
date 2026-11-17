@@ -99,6 +99,9 @@
           "url": "https://api.pcloud.com/uploadfile*"
         },
         {
+          "url": "https://api.pcloud.com/createfolderifnotexists*"
+        },
+        {
           "url": "https://api.pcloud.com/listfolder*"
         },
         {
@@ -106,6 +109,9 @@
         },
         {
           "url": "https://eapi.pcloud.com/uploadfile*"
+        },
+        {
+          "url": "https://eapi.pcloud.com/createfolderifnotexists*"
         },
         {
           "url": "https://eapi.pcloud.com/listfolder*"

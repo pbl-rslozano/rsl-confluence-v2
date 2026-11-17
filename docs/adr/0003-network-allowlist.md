@@ -215,7 +215,7 @@ path. Nothing here reaches scoring, the ledger, alerts or any paper-trading rule
   - `https://www.googleapis.com/drive/v3/files*`, `https://www.googleapis.com/upload/drive/v3/files*`
   - `https://login.microsoftonline.com/common/oauth2/v2.0/token`
   - `https://graph.microsoft.com/v1.0/me/drive/special/approot*`, `https://graph.microsoft.com/v1.0/me/drive/items/*`
-  - `https://api.pcloud.com/` and `https://eapi.pcloud.com/` with `uploadfile*`, `listfolder*` and `gettextfile*`
+  - `https://api.pcloud.com/` and `https://eapi.pcloud.com/` with `uploadfile*`, `createfolderifnotexists*`, `listfolder*` and `gettextfile*` (pCloud backups live in the dedicated folder `/rsL Confluence Backup`, created on first upload; the folder path travels only in the query)
   A trailing `*` is a prefix and any other entry is exact. `isAllowedBackupUrl` refuses anything else: not https, userinfo,
   a hash, `..`, `%2e`, `%2f`, `%5c` or `%25` in the raw path, another origin (a trailing dot or another port included).
   The Tauri `http:default` scope equals this list plus the Coins.ph and Upbit paths (R16).

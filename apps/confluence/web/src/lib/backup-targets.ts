@@ -29,48 +29,9 @@ const GDRIVE_ID_RE = /^[A-Za-z0-9_-]{10,200}$/;
 const ONEDRIVE_ID_RE = /^[A-Za-z0-9!_-]{1,200}$/;
 const PCLOUD_ID_RE = /^[0-9]{1,20}$/;
 
-let oneDriveDownloadOrigins: readonly string[] = ONEDRIVE_DOWNLOAD_ORIGINS;
-
-/**
- * Test hook: swaps the OneDrive download origins for the duration of `fn`. Only plain https origins are accepted, so
- * it cannot widen the gate to anything but a host the test names. Production code never calls it.
- */
-export function withOneDriveDownloadOriginsForTests<T>(list: readonly string[], fn: () => T): T {
-  for (const o of list) {
-    let ok = false;
-    try {
-      ok = new URL(o).origin === o && o.startsWith("https://");
-    } catch {
-      ok = false;
-    }
-    if (!ok) throw new Error("test origin must be an https origin");
-  }
-  const prev = oneDriveDownloadOrigins;
-  oneDriveDownloadOrigins = Object.freeze([...list]);
-  let restored = false;
-  const restore = () => {
-    if (!restored) {
-      restored = true;
-      oneDriveDownloadOrigins = prev;
-    }
-  };
-  let out: T;
-  try {
-    out = fn();
-  } catch (e) {
-    restore();
-    throw e;
-  }
-  if (out && typeof (out as { then?: unknown }).then === "function") {
-    return (out as unknown as Promise<unknown>).finally(restore) as unknown as T;
-  }
-  restore();
-  return out;
-}
-
-/** Same gate as `isAllowedBackupUrl`, over the (test-swappable) OneDrive download origins. */
-function gated(url: string): boolean {
-  return urlAllowed(url, BACKUP_NATIVE_URLS, oneDriveDownloadOrigins);
+/** Same gate as `isAllowedBackupUrl`, plus any extra origins this target was explicitly given (OneDrive downloads). */
+function gated(url: string, extra: readonly string[] = []): boolean {
+  return urlAllowed(url, BACKUP_NATIVE_URLS, [...ONEDRIVE_DOWNLOAD_ORIGINS, ...extra]);
 }
 
 /** multipart/form-data body, CRLF line ends (RFC 2046). A header with a line break, or a body holding the boundary, is refused. */
@@ -110,9 +71,9 @@ function authHeaders(c: Ctx, extra: Record<string, string> = {}): Record<string,
 }
 
 /** Gate, send, map the status. 401/403 clears the session. Nothing from the response body reaches an error. */
-async function send(c: Ctx, r: BackupRequest, okStatuses: readonly number[] = [200]): Promise<BackupResponse> {
+async function send(c: Ctx, r: BackupRequest, okStatuses: readonly number[] = [200], extraOrigins: readonly string[] = []): Promise<BackupResponse> {
   if (!c.s.token) throw new BackupError("session");
-  if (!gated(r.url)) throw new BackupError("unavailable");
+  if (!gated(r.url, extraOrigins)) throw new BackupError("unavailable");
   const res = await c.http(r);
   if (res.status === 401 || res.status === 403) {
     clearSession(c.provider);
@@ -211,7 +172,7 @@ export function gdriveTarget(s: ProviderSession, http: BackupHttp): BackupTarget
     async list(signal) {
       const res = await send(c, {
         method: "GET",
-        url: GOOGLE_ORIGIN + "/drive/v3/files?spaces=appDataFolder&fields=files(id,name,size,modifiedTime)&orderBy=modifiedTime desc&pageSize=100",
+        url: GOOGLE_ORIGIN + "/drive/v3/files?spaces=appDataFolder&fields=files(id,name,size,modifiedTime)&orderBy=modifiedTime%20desc&pageSize=100",
         headers: authHeaders(c),
         signal,
       });
@@ -237,8 +198,20 @@ export function gdriveTarget(s: ProviderSession, http: BackupHttp): BackupTarget
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 
-export function onedriveTarget(s: ProviderSession, http: BackupHttp): BackupTarget {
+/** `deps.downloadOrigins`: extra pre-authenticated download origins (tests only; empty by default, like the frozen list). */
+export function onedriveTarget(s: ProviderSession, http: BackupHttp, deps: { downloadOrigins?: readonly string[] } = {}): BackupTarget {
   const c: Ctx = { provider: "onedrive", s, http };
+  const extra = [...(deps.downloadOrigins ?? [])];
+  for (const o of extra) {
+    let ok = false;
+    try {
+      ok = o.startsWith("https://") && new URL(o).origin === o;
+    } catch {
+      ok = false;
+    }
+    if (!ok) throw new BackupError("unavailable");
+  }
+  const origins = [...ONEDRIVE_DOWNLOAD_ORIGINS, ...extra];
   return {
     provider: "onedrive",
     async upload(name, text, signal) {
@@ -295,9 +268,9 @@ export function onedriveTarget(s: ProviderSession, http: BackupHttp): BackupTarg
         throw new BackupError("download-host");
       }
       // Owner ruling: the download host is unverified until the manual check, so an unlisted origin is refused, never followed.
-      if (!oneDriveDownloadOrigins.includes(origin)) throw new BackupError("download-host", { origin });
+      if (!origins.includes(origin)) throw new BackupError("download-host", { origin });
       // The pre-authenticated URL carries its own grant: the bearer token is NOT sent to that host.
-      const res = await send(c, { method: "GET", url: dl, signal });
+      const res = await send(c, { method: "GET", url: dl, signal }, [200], extra);
       return checkBody(res.text);
     },
   };
@@ -308,6 +281,7 @@ export function onedriveTarget(s: ProviderSession, http: BackupHttp): BackupTarg
 export function pcloudTarget(s: ProviderSession, http: BackupHttp): BackupTarget {
   const c: Ctx = { provider: "pcloud", s, http };
   const host = (PCLOUD_API_HOSTS as readonly string[]).includes(s.apiHost ?? "") ? s.apiHost : undefined;
+  const FOLDER = "%2FrsL%20Confluence%20Backup"; // "/rsL Confluence Backup", in the query only (the gate ignores it)
   const base = (): string => {
     if (!host) throw new BackupError("unavailable");
     return "https://" + host;
@@ -315,7 +289,7 @@ export function pcloudTarget(s: ProviderSession, http: BackupHttp): BackupTarget
   /** pCloud answers 200 with a JSON `result`. 2000 is "log in required". */
   const checkResult = (o: Record<string, unknown>, status: number): void => {
     if (typeof o.result !== "number" || !Number.isFinite(o.result)) throw new BackupError("http", { status });
-    if (o.result === 2000) {
+    if (o.result === 1000 || o.result === 2000 || o.result === 2094) { // login required, login failed, invalid access_token
       clearSession("pcloud");
       throw new BackupError("session");
     }
@@ -335,9 +309,11 @@ export function pcloudTarget(s: ProviderSession, http: BackupHttp): BackupTarget
         [{ headers: { "Content-Disposition": `form-data; name="file"; filename="${name}"`, "Content-Type": "application/json" }, body: text }],
         boundary,
       );
+      const made = await send(c, { method: "GET", url: base() + "/createfolderifnotexists?path=" + FOLDER, headers: authHeaders(c), signal });
+      checkResult(parseJson(made), made.status);
       const res = await send(c, {
         method: "POST",
-        url: base() + "/uploadfile?path=/&filename=" + name + "&nopartial=1",
+        url: base() + "/uploadfile?path=" + FOLDER + "&filename=" + name + "&nopartial=1",
         headers: authHeaders(c, { "Content-Type": "multipart/form-data; boundary=" + boundary }),
         body,
         signal,
@@ -350,8 +326,9 @@ export function pcloudTarget(s: ProviderSession, http: BackupHttp): BackupTarget
       return { id, name, size: utf8Bytes(text), modifiedAt: Date.now() };
     },
     async list(signal) {
-      const res = await send(c, { method: "GET", url: base() + "/listfolder?path=/", headers: authHeaders(c), signal });
+      const res = await send(c, { method: "GET", url: base() + "/listfolder?path=" + FOLDER, headers: authHeaders(c), signal });
       const o = parseJson(res);
+      if (o.result === 2005) return []; // the folder does not exist yet: nothing has been backed up
       checkResult(o, res.status);
       const contents = isRecord(o.metadata) ? o.metadata.contents : undefined;
       if (!Array.isArray(contents)) throw new BackupError("http", { status: res.status });

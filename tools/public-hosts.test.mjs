@@ -55,8 +55,8 @@ test("the current tree passes R16 for every native host", () => {
   assert.equal(r.ok, true, r.findings.join("; "));
   assert.match(r.summary, /api\.pro\.coins\.ph: 3 read paths, 3 rewrites/);
   assert.match(r.summary, /api\.upbit\.com: 5 read paths, 5 rewrites/);
-  assert.match(r.summary, /20 Tauri URLs/);
-  assert.match(r.summary, /12 backup URLs, 3 sign-in pages/);
+  assert.match(r.summary, /22 Tauri URLs/);
+  assert.match(r.summary, /14 backup URLs, 3 sign-in pages/);
 });
 
 test("_redirects lacking an Upbit path fails R16, naming it", () => {
@@ -206,7 +206,7 @@ const capEdit = (fn) => (rw) => rw(CAP, (s) => { const j = JSON.parse(s); fn(j, 
 test("R16 accepts the backup scope: the real tree is ok and reports the backup URLs", () => {
   const r = checkPublicHosts();
   assert.equal(r.ok, true, r.findings.join("; "));
-  assert.match(r.summary, /12 backup URLs, 3 sign-in pages/);
+  assert.match(r.summary, /14 backup URLs, 3 sign-in pages/);
 });
 
 test("R16: an extra http URL in the capability is a finding", () => {

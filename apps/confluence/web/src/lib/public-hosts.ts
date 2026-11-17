@@ -134,9 +134,11 @@ export const BACKUP_NATIVE_URLS = Object.freeze([
   "https://graph.microsoft.com/v1.0/me/drive/special/approot*",
   "https://graph.microsoft.com/v1.0/me/drive/items/*",
   "https://api.pcloud.com/uploadfile*",
+  "https://api.pcloud.com/createfolderifnotexists*",
   "https://api.pcloud.com/listfolder*",
   "https://api.pcloud.com/gettextfile*",
   "https://eapi.pcloud.com/uploadfile*",
+  "https://eapi.pcloud.com/createfolderifnotexists*",
   "https://eapi.pcloud.com/listfolder*",
   "https://eapi.pcloud.com/gettextfile*",
 ] as const);

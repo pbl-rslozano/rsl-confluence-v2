@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { BackupError, BACKUP_MAX_FILE_BYTES, sealBackup, openBackup } from "./backup-crypto.ts";
 import { setSession, getSession, clearAllSessions } from "./backup-session.ts";
 import { isAllowedBackupUrl } from "./public-hosts.ts";
-import { gdriveTarget, onedriveTarget, pcloudTarget, multipartBody, withOneDriveDownloadOriginsForTests } from "./backup-targets.ts";
+import { gdriveTarget, onedriveTarget, pcloudTarget, multipartBody } from "./backup-targets.ts";
 
 const TOKEN = "FAKE-TOKEN-NOT-REAL-0001";
 const PASS = "correct horse battery staple";
@@ -87,6 +87,7 @@ function fakeOnedrive(o = {}) {
 }
 
 function fakePcloud(o = {}) {
+  let folder = false;
   const files = new Map();
   const reqs = [];
   const http = async (r) => {
@@ -94,7 +95,13 @@ function fakePcloud(o = {}) {
     if (o.status) return { status: o.status, headers: {}, text: "upstream secret text" };
     if (o.result !== undefined) return json(200, { result: o.result, error: "Log in required. secret" });
     const u = new URL(r.url);
+    if (u.pathname === "/createfolderifnotexists") {
+      if (u.searchParams.get("path") !== "/rsL Confluence Backup") return json(200, { result: 2001 });
+      folder = true;
+      return json(200, { result: 0, metadata: { folderid: 77, name: "rsL Confluence Backup", isfolder: true } });
+    }
     if (r.method === "POST" && u.pathname === "/uploadfile") {
+      if (!folder || u.searchParams.get("path") !== "/rsL Confluence Backup") return json(200, { result: 2005 });
       const m = /filename="([^"]+)"/.exec(r.body);
       const text = r.body.split("\r\n\r\n")[1].split("\r\n--")[0];
       const fileid = 5000 + files.size;
@@ -102,6 +109,7 @@ function fakePcloud(o = {}) {
       return json(200, { result: 0, metadata: [{ fileid, name: m[1] }] });
     }
     if (u.pathname === "/listfolder") {
+      if (u.searchParams.get("path") !== "/rsL Confluence Backup" || (!folder && !o.contents)) return json(200, { result: 2005, error: "Directory does not exist." });
       if (o.contents) return json(200, { result: 0, metadata: { contents: o.contents } });
       return json(200, {
         result: 0,
@@ -119,7 +127,7 @@ function fakePcloud(o = {}) {
 
 const PROVIDERS = {
   gdrive: { make: (s, h) => gdriveTarget(s, h), fake: fakeGdrive, wrap: (fn) => fn() },
-  onedrive: { make: (s, h) => onedriveTarget(s, h), fake: fakeOnedrive, wrap: (fn) => withOneDriveDownloadOriginsForTests([DL_ORIGIN], fn) },
+  onedrive: { make: (s, h) => onedriveTarget(s, h, { downloadOrigins: [DL_ORIGIN] }), fake: fakeOnedrive, wrap: (fn) => fn() },
   pcloud: { make: (s, h) => pcloudTarget(s, h), fake: fakePcloud, wrap: (fn) => fn(), session: { apiHost: "eapi.pcloud.com" } },
 };
 
@@ -244,19 +252,40 @@ test("OneDrive download needs a listed origin", async () => {
   assert.ok(!f.reqs.some((r) => r.url.startsWith(DL_ORIGIN)), "no request to the unlisted host");
 
   const f2 = fakeOnedrive();
-  const t2 = onedriveTarget(sess(), f2.http);
-  await withOneDriveDownloadOriginsForTests([DL_ORIGIN], async () => {
-    await t2.upload(NAME, TEXT);
-    assert.equal(await t2.download((await t2.list())[0]), TEXT);
-  });
+  const t2 = onedriveTarget(sess(), f2.http, { downloadOrigins: [DL_ORIGIN] });
+  await t2.upload(NAME, TEXT);
+  assert.equal(await t2.download((await t2.list())[0]), TEXT);
   const dl = f2.reqs.find((r) => r.url.startsWith(DL_ORIGIN));
   assert.ok(dl, "the listed host was fetched");
   assert.equal(Object.keys(dl.headers ?? {}).filter((k) => k.toLowerCase() === "authorization").length, 0);
-  // the hook restores the empty list
+  // the deps of one target do not leak into another
   const f3 = fakeOnedrive();
   const t3 = onedriveTarget(sess(), f3.http);
   await t3.upload(NAME, TEXT);
   await assert.rejects(t3.download((await t3.list())[0]), (e) => e.code === "download-host");
+});
+
+test("OneDrive: the target's own gate refuses a download URL the gate rejects, even on a listed origin", async () => {
+  for (const downloadUrl of [DL_ORIGIN + "/a/../b", DL_ORIGIN + "/a%2e%2e/b", "https://user@dl.example.test/x", DL_ORIGIN + "/a\\b"]) {
+    const f = fakeOnedrive({ downloadUrl });
+    const t = onedriveTarget(sess(), f.http, { downloadOrigins: [DL_ORIGIN] });
+    await t.upload(NAME, TEXT);
+    await assert.rejects(t.download((await t.list())[0]), (e) => e instanceof BackupError && e.code === "unavailable", downloadUrl);
+    assert.ok(!f.reqs.some((r) => !r.url.startsWith("https://graph.microsoft.com")), "nothing sent to the host: " + downloadUrl);
+  }
+  // and any request to a URL outside the table never reaches the port
+  const seen = [];
+  const t = gdriveTarget(sess(), async (r) => { seen.push(r.url); return { status: 200, headers: { location: "https://www.googleapis.com/upload/drive/v3/files/../x" }, text: "" }; });
+  await assert.rejects(t.upload(NAME, TEXT), (e) => e.code === "http");
+  assert.equal(seen.length, 1, "only the first POST was sent");
+});
+
+test("onedriveTarget refuses a malformed extra origin and nothing exported widens the gate", async () => {
+  for (const bad of ["http://x.example.test", "https://x.example.test/path", "x"]) {
+    assert.throws(() => onedriveTarget(sess(), fakeOnedrive().http, { downloadOrigins: [bad] }), (e) => e.code === "unavailable");
+  }
+  const mod = await import("./backup-targets.ts");
+  assert.ok(!Object.keys(mod).some((k) => /Test/.test(k)), "no test hook is exported");
 });
 
 test("OneDrive: a download URL that is not a URL, or a plain http one, is refused", async () => {
@@ -305,7 +334,7 @@ test("Google requests match the brief", async () => {
   await t.list();
   assert.equal(
     f.reqs[2].url,
-    "https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&fields=files(id,name,size,modifiedTime)&orderBy=modifiedTime desc&pageSize=100",
+    "https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&fields=files(id,name,size,modifiedTime)&orderBy=modifiedTime%20desc&pageSize=100",
   );
   await assert.rejects(t.download({ id: "../x", name: NAME, size: 1, modifiedAt: 1 }), (e) => e.code === "format");
   await assert.rejects(t.download({ id: "short", name: NAME, size: 1, modifiedAt: 1 }), (e) => e.code === "format");
@@ -319,20 +348,21 @@ test("pCloud uses the region host and the multipart body", async () => {
   await t.list();
   await t.download((await t.list())[0]);
   for (const r of f.reqs) assert.ok(r.url.startsWith("https://eapi.pcloud.com/"), r.url);
-  const up = f.reqs[0];
+  const up = f.reqs[1];
   assert.equal(up.method, "POST");
-  assert.equal(up.url, "https://eapi.pcloud.com/uploadfile?path=/&filename=" + NAME + "&nopartial=1");
+  assert.equal(f.reqs[0].url, "https://eapi.pcloud.com/createfolderifnotexists?path=%2FrsL%20Confluence%20Backup");
+  assert.equal(up.url, "https://eapi.pcloud.com/uploadfile?path=%2FrsL%20Confluence%20Backup&filename=" + NAME + "&nopartial=1");
   const b = /boundary=(\S+)$/.exec(up.headers["Content-Type"])[1];
   assert.ok(up.body.startsWith("--" + b + "\r\n"));
   assert.ok(up.body.endsWith("\r\n--" + b + "--\r\n"));
   assert.ok(up.body.includes(`filename="${NAME}"`));
   assert.ok(up.body.includes('name="file"'));
-  assert.ok(f.reqs.some((r) => r.url === "https://eapi.pcloud.com/listfolder?path=/"));
+  assert.ok(f.reqs.some((r) => r.url === "https://eapi.pcloud.com/listfolder?path=%2FrsL%20Confluence%20Backup"));
   assert.ok(f.reqs.some((r) => /^https:\/\/eapi\.pcloud\.com\/gettextfile\?fileid=\d+$/.test(r.url)));
   // US host too
   const f2 = fakePcloud();
-  await pcloudTarget(sess({ apiHost: "api.pcloud.com" }), f2.http).list();
-  assert.equal(f2.reqs[0].url, "https://api.pcloud.com/listfolder?path=/");
+  assert.deepEqual(await pcloudTarget(sess({ apiHost: "api.pcloud.com" }), f2.http).list(), [], "no folder yet: an empty list, not an error");
+  assert.equal(f2.reqs[0].url, "https://api.pcloud.com/listfolder?path=%2FrsL%20Confluence%20Backup");
   // no or unknown host: nothing is sent
   const f3 = fakePcloud();
   await assert.rejects(pcloudTarget(sess(), f3.http).list(), (e) => e.code === "unavailable");
@@ -343,10 +373,17 @@ test("pCloud uses the region host and the multipart body", async () => {
 test("pCloud: result codes", async () => {
   clearAllSessions();
   setSession("pcloud", sess({ apiHost: "api.pcloud.com" }));
-  await assert.rejects(pcloudTarget(getSession("pcloud"), fakePcloud({ result: 2000 }).http).list(), (e) => e.code === "session");
-  assert.equal(getSession("pcloud"), null);
-  for (const result of [2009, 1000]) {
-    await assert.rejects(pcloudTarget(sess({ apiHost: "api.pcloud.com" }), fakePcloud({ result }).http).list(), (e) => {
+  for (const result of [1000, 2000, 2094]) { // login required, login failed, invalid access_token
+    for (const op of ["list", "upload", "download"]) {
+      setSession("pcloud", sess({ apiHost: "api.pcloud.com" }));
+      const t = pcloudTarget(getSession("pcloud"), fakePcloud({ result }).http);
+      const run = op === "list" ? t.list() : op === "upload" ? t.upload(NAME, TEXT) : t.download({ id: "5000", name: NAME, size: 1, modifiedAt: 1 });
+      await assert.rejects(run, (e) => e instanceof BackupError && e.code === "session", `${op} ${result}`);
+      assert.equal(getSession("pcloud"), null, `${op} ${result} clears the session`);
+    }
+  }
+  for (const result of [2009, 2005, 1001]) {
+    await assert.rejects(pcloudTarget(sess({ apiHost: "api.pcloud.com" }), fakePcloud({ result }).http).upload(NAME, TEXT), (e) => {
       assert.equal(e.code, "http");
       assert.deepEqual(e.detail, { status: result });
       assert.ok(!/secret|Log in/.test(e.message + JSON.stringify(e.detail)));
@@ -429,16 +466,6 @@ test("multipartBody is CRLF multipart (RFC 2046) and refuses injection", () => {
   assert.throws(() => multipartBody([{ headers: { A: "1\r\nX: y" }, body: "x" }], b), (e) => e.code === "format");
   assert.throws(() => multipartBody([{ headers: {}, body: "a--" + b }], b), (e) => e.code === "format");
   assert.throws(() => multipartBody([{ headers: {}, body: "x" }], "bad boundary"), (e) => e.code === "format");
-});
-
-test("the test hook accepts only https origins and restores after a throw", async () => {
-  assert.throws(() => withOneDriveDownloadOriginsForTests(["http://x.example.test"], () => 1));
-  assert.throws(() => withOneDriveDownloadOriginsForTests(["https://x.example.test/path"], () => 1));
-  assert.throws(() => withOneDriveDownloadOriginsForTests([DL_ORIGIN], () => { throw new Error("boom"); }), /boom/);
-  const f = fakeOnedrive();
-  const t = onedriveTarget(sess(), f.http);
-  await t.upload(NAME, TEXT);
-  await assert.rejects(t.download((await t.list())[0]), (e) => e.code === "download-host");
 });
 
 test("an empty token is a session error and sends nothing", async () => {
