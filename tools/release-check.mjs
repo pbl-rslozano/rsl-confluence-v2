@@ -122,6 +122,8 @@ const t = {
     !tok.includes("*") && tok !== "https:" && tok !== "http:" && (tok !== "data:" || dir === "img-src" || dir === "font-src"))),
   noCapWildcard: !/"path":\s*"(\*\*|\/\*\*|\$HOME\/\*\*|\$DOCUMENT\/\*\*|\$DOWNLOAD\/\*\*|\$DESKTOP\/\*\*)"|"url":\s*"\*"/.test(caps),
   noHttpsOpener: !/"url":\s*"https:\/\/\*"/.test(caps),
+  // WP28 (review): no bare string `opener:*` permission (opener:default opens any URL); the scoped object entry is the only one.
+  noOpenerStringPerm: !(JSON.parse(caps).permissions ?? []).some((p) => typeof p === "string" && p.startsWith("opener:")),
   // v2.7 (WP14.3): window permissions limited to theme + full screen.
   windowPermsMinimal: [...caps.matchAll(/"core:window:allow-([a-z-]+)"/g)].every((m) => ["set-theme", "set-fullscreen"].includes(m[1])),
   devtoolsOff: !/"devtools"\s*:\s*true/.test(readFileSync(join(ROOT, "apps/confluence/desktop/src-tauri/Cargo.toml"), "utf8") + JSON.stringify(tconf)),

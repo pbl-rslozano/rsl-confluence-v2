@@ -253,6 +253,29 @@ test("R16: a whole-host or non-https backup entry, a Google CSP host, or an unli
   assert.ok(r2.findings.some((f) => f.includes("BACKUP_NATIVE_URLS") && f.includes("http://api.pcloud.com/uploadfile*")), r2.findings.join("; "));
   const r3 = withFixture((rw) => rw(FILES[0], (s) => s.replace('{ origin: "https://api.pcloud.com",', '{ origin: "https://www.googleapis.com",')));
   assert.ok(r3.findings.some((f) => f.includes("CSP_HOSTS") && f.includes("Google")), r3.findings.join("; "));
-  const r4 = withFixture((rw) => rw(FILES[0], (s) => s.replace("ONEDRIVE_DOWNLOAD_ORIGINS: readonly string[] = [];", 'ONEDRIVE_DOWNLOAD_ORIGINS: readonly string[] = ["https://example-download.test"];')));
+  const r4 = withFixture((rw) => rw(FILES[0], (s) => s.replace("ONEDRIVE_DOWNLOAD_ORIGINS: readonly string[] = Object.freeze([]);", 'ONEDRIVE_DOWNLOAD_ORIGINS: readonly string[] = Object.freeze(["https://example-download.test"]);')));
   assert.ok(r4.findings.some((f) => f.includes("ONEDRIVE_DOWNLOAD_ORIGINS") && f.includes("https://example-download.test")), r4.findings.join("; "));
+});
+
+// ---- WP28 Task 3 fix round 1: the opener scope is exactly the mailto entry plus the sign-in URLs ----
+test("R16: a second opener:allow-open-url entry (placed first, so the real one stays last) is a finding", () => {
+  const r = withFixture(capEdit((j) => {
+    const i = j.permissions.findIndex((p) => p.identifier === "opener:allow-open-url");
+    j.permissions.splice(i, 0, { identifier: "opener:allow-open-url", allow: [{ url: "https://*" }] });
+  }));
+  assert.equal(r.ok, false);
+  assert.ok(r.findings.some((f) => f.includes("opener:allow-open-url") && f.includes("2")), r.findings.join("; "));
+});
+
+test("R16: a string opener:* permission (opener:default, opener:allow-open-url, any other) is a finding", () => {
+  for (const id of ["opener:default", "opener:allow-open-url", "opener:allow-default-urls", "opener:allow-open-path"]) {
+    const r = withFixture(capEdit((j) => j.permissions.push(id)));
+    assert.equal(r.ok, false, id);
+    assert.ok(r.findings.some((f) => f.includes(`"${id}"`) && f.includes("opener")), `${id}: ${r.findings.join("; ")}`);
+  }
+});
+
+test("R16: an object opener permission other than the one scoped allow-open-url is a finding", () => {
+  const r = withFixture(capEdit((j) => j.permissions.push({ identifier: "opener:default", allow: [] })));
+  assert.ok(r.findings.some((f) => f.includes("opener:default")), r.findings.join("; "));
 });

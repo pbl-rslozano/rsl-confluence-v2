@@ -124,9 +124,9 @@ export function isAllowedNativeUrl(url: string): boolean {
  * THIS table is the allowlist for it: the desktop and phone native HTTP, and the Tauri HTTP scope (R16 makes the
  * capability equal to this list). Google is reached only from the desktop app: its hosts are here, never in `CSP_HOSTS`.
  * An entry ending in "*" is a prefix (the prefix itself included); any other entry is exact. The query is ignored.
- * String literals only: release check R16 parses them statically.
+ * String literals only: release check R16 parses them statically. The exported lists are frozen at runtime.
  */
-export const BACKUP_NATIVE_URLS = [
+export const BACKUP_NATIVE_URLS = Object.freeze([
   "https://oauth2.googleapis.com/token",
   "https://www.googleapis.com/drive/v3/files*",
   "https://www.googleapis.com/upload/drive/v3/files*",
@@ -139,20 +139,20 @@ export const BACKUP_NATIVE_URLS = [
   "https://eapi.pcloud.com/uploadfile*",
   "https://eapi.pcloud.com/listfolder*",
   "https://eapi.pcloud.com/gettextfile*",
-] as const;
+] as const);
 
 /**
  * Sign-in pages: opened in the system browser (Tauri opener scope) or navigated to, never fetched. Same matching
  * rules as `BACKUP_NATIVE_URLS`.
  */
-export const BACKUP_SIGN_IN_URLS = [
+export const BACKUP_SIGN_IN_URLS = Object.freeze([
   "https://accounts.google.com/o/oauth2/v2/auth*",
   "https://login.microsoftonline.com/common/oauth2/v2.0/authorize*",
   "https://my.pcloud.com/oauth2/authorize*",
-] as const;
+] as const);
 
 /** pCloud serves one account from one of two API hosts (US, EU); the app asks the user which. */
-export const PCLOUD_API_HOSTS = ["api.pcloud.com", "eapi.pcloud.com"] as const;
+export const PCLOUD_API_HOSTS = Object.freeze(["api.pcloud.com", "eapi.pcloud.com"] as const);
 
 /**
  * OneDrive may answer a download with a redirect to a pre-authenticated file host. Whether and which origin is
@@ -160,7 +160,7 @@ export const PCLOUD_API_HOSTS = ["api.pcloud.com", "eapi.pcloud.com"] as const;
  * only by an ADR-0003 amendment, and each origin added here must also be added to `CSP_HOSTS` and
  * `BACKUP_NATIVE_URLS` (R16 checks both).
  */
-export const ONEDRIVE_DOWNLOAD_ORIGINS: readonly string[] = [];
+export const ONEDRIVE_DOWNLOAD_ORIGINS: readonly string[] = Object.freeze([]);
 
 /**
  * The gate. Strict on purpose: it is all that keeps backup code from any other URL.
@@ -171,8 +171,9 @@ export const ONEDRIVE_DOWNLOAD_ORIGINS: readonly string[] = [];
  *  - the match is on `origin + pathname`: the host is lowercased and a default port dropped by URL parsing, but a
  *    trailing dot or another port is another origin. Paths are case-sensitive;
  *  - the query is ignored.
+ * Exported for the unit tests only (the extra-origins argument); the app calls the two wrappers below.
  */
-function urlAllowed(url: unknown, entries: readonly string[], extraOrigins: readonly string[] = []): boolean {
+export function urlAllowed(url: unknown, entries: readonly string[], extraOrigins: readonly string[] = []): boolean {
   if (typeof url !== "string" || url.includes("#")) return false;
   const q = url.indexOf("?");
   const raw = q < 0 ? url : url.slice(0, q);

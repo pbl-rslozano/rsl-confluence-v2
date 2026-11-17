@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  BACKUP_NATIVE_URLS, BACKUP_SIGN_IN_URLS, PCLOUD_API_HOSTS, ONEDRIVE_DOWNLOAD_ORIGINS, CSP_HOSTS,
+  BACKUP_NATIVE_URLS, BACKUP_SIGN_IN_URLS, PCLOUD_API_HOSTS, ONEDRIVE_DOWNLOAD_ORIGINS, urlAllowed, CSP_HOSTS,
   isAllowedBackupUrl, isAllowedSignInUrl,
 } from "./public-hosts.ts";
 
@@ -164,23 +164,26 @@ test("isAllowedBackupUrl: an exact entry is exact, a trailing-star entry is a pr
   assert.equal(isAllowedBackupUrl("https://graph.microsoft.com/v1.0/me/drive/items"), false);
 });
 
-test("isAllowedBackupUrl: an origin in ONEDRIVE_DOWNLOAD_ORIGINS is allowed for any path, still https without userinfo or hash; empty by default", () => {
-  assert.equal(ONEDRIVE_DOWNLOAD_ORIGINS.length, 0);
-  const list = ONEDRIVE_DOWNLOAD_ORIGINS;
-  list.push("https://example-download.test");
-  try {
-    assert.equal(isAllowedBackupUrl("https://example-download.test/any/path?x=1"), true);
-    assert.equal(isAllowedBackupUrl("https://example-download.test/a/../b"), false);
-    assert.equal(isAllowedBackupUrl("https://example-download.test/a%2fb"), false);
-    assert.equal(isAllowedBackupUrl("http://example-download.test/any"), false);
-    assert.equal(isAllowedBackupUrl("https://u@example-download.test/any"), false);
-    assert.equal(isAllowedBackupUrl("https://example-download.test/any#x"), false);
-    assert.equal(isAllowedBackupUrl("https://example-download.test.evil.test/any"), false);
-  } finally {
-    list.pop();
+test("the exported allowlists are frozen at runtime", () => {
+  for (const l of [BACKUP_NATIVE_URLS, BACKUP_SIGN_IN_URLS, PCLOUD_API_HOSTS, ONEDRIVE_DOWNLOAD_ORIGINS]) {
+    assert.ok(Object.isFrozen(l));
+    assert.throws(() => l.push("https://example.test/x"), TypeError);
+    assert.throws(() => { l[0] = "https://example.test/x"; }, TypeError);
   }
   assert.equal(ONEDRIVE_DOWNLOAD_ORIGINS.length, 0);
   assert.equal(isAllowedBackupUrl("https://example-download.test/any"), false);
+});
+
+test("an origin in the download-origin list is allowed for any path, still https without userinfo or hash (gate called with an explicit origin list)", () => {
+  const extra = ["https://example-download.test"];
+  assert.equal(urlAllowed("https://example-download.test/any/path?x=1", [], extra), true);
+  assert.equal(urlAllowed("https://example-download.test/a/../b", [], extra), false);
+  assert.equal(urlAllowed("https://example-download.test/a%2fb", [], extra), false);
+  assert.equal(urlAllowed("http://example-download.test/any", [], extra), false);
+  assert.equal(urlAllowed("https://u@example-download.test/any", [], extra), false);
+  assert.equal(urlAllowed("https://example-download.test/any#x", [], extra), false);
+  assert.equal(urlAllowed("https://example-download.test.evil.test/any", [], extra), false);
+  assert.equal(urlAllowed("https://example-download.test/any", [], []), false);
 });
 
 test("isAllowedSignInUrl: the three sign-in prefixes with a query; nothing else", () => {

@@ -64,7 +64,7 @@ export function parseNativeHosts(src) {
 
 /** v2.8 (WP28): the string literals of one `export const NAME = [ ... ]` list (null when the constant is missing). */
 export function parseUrlList(src, name) {
-  const block = new RegExp(`export const ${name}\\b[^=]*=\\s*\\[([\\s\\S]*?)\\]`).exec(src)?.[1];
+  const block = new RegExp(`export const ${name}\\b[^=]*=\\s*(?:Object\\.freeze\\()?\\s*\\[([\\s\\S]*?)\\]`).exec(src)?.[1];
   return block === undefined ? null : [...block.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 }
 
@@ -109,11 +109,18 @@ export function checkPublicHosts(root = ROOT) {
   const capSrc = read(root, "apps/confluence/desktop/src-tauri/capabilities/main.json");
   let urls = [];
   let openerUrls = null;
+  let openerScopes = 0;
   try {
     const cap = JSON.parse(capSrc ?? "{}");
     for (const perm of cap.permissions ?? []) {
       const id = typeof perm === "string" ? perm : perm.identifier;
-      if (id === "opener:allow-open-url" && typeof perm !== "string") openerUrls = (perm.allow ?? []).map((a) => a.url);
+      // The opener scope is exactly one `opener:allow-open-url` object entry. A second entry, a bare string
+      // permission (`opener:default` and every other `opener:*`) or any other opener object would widen it.
+      if (id?.startsWith("opener:")) {
+        if (typeof perm === "string") findings.push(`capability: string permission "${id}" grants opener access without a URL scope`);
+        else if (id !== "opener:allow-open-url") findings.push(`capability: opener permission "${id}" is not allowed; only one scoped opener:allow-open-url`);
+        else { openerScopes += 1; openerUrls = (openerUrls ?? []).concat((perm.allow ?? []).map((a) => a.url)); }
+      }
       if (!id?.startsWith("http:")) continue;
       if (typeof perm === "string") findings.push(`capability: ${id} without a URL scope`);
       urls.push(...(perm.allow ?? []).map((a) => a.url));
@@ -185,6 +192,7 @@ export function checkPublicHosts(root = ROOT) {
   if (JSON.stringify([...urls].sort()) !== JSON.stringify([...wantUrls].sort())) findings.push(`capability http scope ${JSON.stringify(urls)} ≠ ${JSON.stringify(wantUrls)}`);
 
   const wantOpener = ["mailto:rslozano@gmail.com*", ...(signIn ?? [])];
+  if (openerScopes > 1) findings.push(`capability: ${openerScopes} opener:allow-open-url entries; exactly one allowed`);
   if (openerUrls === null) findings.push("capability: opener:allow-open-url scope missing");
   else if (JSON.stringify([...openerUrls].sort()) !== JSON.stringify([...wantOpener].sort())) findings.push(`capability opener scope ${JSON.stringify(openerUrls)} ≠ ${JSON.stringify(wantOpener)}`);
 
