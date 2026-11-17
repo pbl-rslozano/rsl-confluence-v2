@@ -5,7 +5,7 @@
  */
 import { backupFileName, openBackup, sealBackup, utf8Bytes, type EnvelopeHeader } from "./backup-crypto";
 import { buildPayload, parsePayload, type ParsedPayload } from "./backup-payload";
-import { sanitizeLedgerRow, type LedgerRow } from "./ledger-metrics";
+import { sanitizeLedgerRow } from "./ledger-metrics";
 import { normalizePreferences } from "./preferences-store";
 import { normalizeScoringProfile, type ScoringProfile } from "./scoring-profile";
 import { sanitizePreregistration, sanitizeTrial, type LedgerStore } from "./signal-ledger";
@@ -24,7 +24,11 @@ export interface BackupDeps {
   now: () => number;
 }
 
-export interface RowCounts { inFile: number; added: number; duplicates: number; tooOld: number; rejected: number; capDropped: number }
+/** capDropped = ledger rows removed by the row cap (exact, same number in the plan and the report); agePrunedDays = days dropped for age. */
+export interface RowCounts { inFile: number; added: number; duplicates: number; tooOld: number; rejected: number; capDropped: number; agePrunedDays: number }
+
+const canon = (v: unknown): string => JSON.stringify(v, (_k, x) =>
+  x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x);
 
 function keep<T>(items: T[], ok: (x: unknown) => T | null): { out: T[]; skipped: number } {
   const out: T[] = [];
@@ -36,8 +40,8 @@ function keep<T>(items: T[], ok: (x: unknown) => T | null): { out: T[]; skipped:
 export async function createBackupFile(deps: BackupDeps, passphrase: string): Promise<{
   name: string; text: string; bytes: number; createdAt: number;
   counts: { rows: number; journal: number; preregistrations: number; trials: number };
-  /** Local records the sanitiser would refuse on restore (so they are left out of the file). Normally 0. */
-  skipped: number;
+  /** Local records the restore sanitiser would refuse (for example replay rows), left out of the file, per section. */
+  skipped: { rows: number; preregistrations: number; trials: number; journal: number };
 }> {
   const createdAt = Math.floor(deps.now());
   const rows = keep(await deps.ledger.all(), (x) => { const r = sanitizeLedgerRow(x); return r && r.live === 1 ? r : null; });
@@ -59,7 +63,7 @@ export async function createBackupFile(deps: BackupDeps, passphrase: string): Pr
   return {
     name: backupFileName(createdAt), text, bytes: utf8Bytes(text), createdAt,
     counts: { rows: rows.out.length, journal: journal.out.length, preregistrations: pre.out.length, trials: trials.out.length },
-    skipped: rows.skipped + pre.skipped + trials.skipped + journal.skipped,
+    skipped: { rows: rows.skipped, preregistrations: pre.skipped, trials: trials.skipped, journal: journal.skipped },
   };
 }
 
@@ -70,7 +74,15 @@ export interface RestorePlan {
   journal: { inFile: number; added: number; duplicates: number; rejected: number };
   preregistrations: { added: number; kept: number; rejected: number };
   trials: { added: number; rejected: number };
-  settings: { present: boolean; localChangedAt: number | null; localNewer: boolean };
+  settings: {
+    present: boolean;
+    localChangedAt: number | null;
+    localNewer: boolean;
+    /** The backup's preferences / scoring profile differ from this device's (profile changes write no audit entry). */
+    preferencesDiffer: boolean;
+    profileDiffers: boolean;
+    differs: boolean;
+  };
   localNewerRecords: boolean;
 }
 
@@ -91,6 +103,13 @@ export async function openBackupFile(text: string, passphrase: string, deps: Bac
     const at = Date.parse(e.at);
     if (Number.isFinite(at) && (localChangedAt === null || at > localChangedAt)) localChangedAt = at;
   }
+  const present = payload.settings.preferences !== null || payload.settings.scoringProfile !== null;
+  const localPrefs = normalizePreferences(await deps.prefs.get("preferences", "current"));
+  let localProfile: ScoringProfile | null | "unreadable";
+  try { localProfile = normalizeScoringProfile(await deps.prefs.get("preferences", "scoring-profile-v1")); } catch { localProfile = "unreadable"; }
+  // Applying writes the preferences only when the backup holds them, and the profile (null = all indicators) always.
+  const preferencesDiffer = present && payload.settings.preferences !== null && canon(localPrefs) !== canon(payload.settings.preferences);
+  const profileDiffers = present && canon(localProfile) !== canon(payload.settings.scoringProfile);
   const newestJournal = (await deps.paper.load(deps.now())).journal.reduce((m, j) => Math.max(m, j.closedAt), 0);
   const newestBar = await deps.ledger.newestBarTime();
 
@@ -101,9 +120,12 @@ export async function openBackupFile(text: string, passphrase: string, deps: Bac
     preregistrations: { added: pre.added, kept: pre.kept, rejected: rejected.preregistrations },
     trials: { added: trialsAdded, rejected: rejected.trials },
     settings: {
-      present: payload.settings.preferences !== null || payload.settings.scoringProfile !== null,
+      present,
       localChangedAt,
       localNewer: localChangedAt !== null && localChangedAt > header.createdAt,
+      preferencesDiffer,
+      profileDiffers,
+      differs: preferencesDiffer || profileDiffers,
     },
     localNewerRecords: newestBar > header.createdAt || newestJournal > header.createdAt,
   };
@@ -122,7 +144,7 @@ export async function applyRestore(plan: RestorePlan, o: { settings: boolean }, 
   const { payload } = plan.parsed;
   const pre = await deps.ledger.restorePreregistrations(payload.research.preregistrations);
   const trials = await deps.ledger.restoreTrials(payload.research.trials);
-  const rows = await deps.ledger.restoreRows(payload.ledger.rows as LedgerRow[]);
+  const rows = await deps.ledger.restoreRows(payload.ledger.rows);
   const journal = await deps.paper.importJournal(payload.paper.journal);
   const settings = o.settings && plan.settings.present;
   if (settings) {

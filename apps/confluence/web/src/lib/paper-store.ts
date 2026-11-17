@@ -14,7 +14,7 @@
  * queue, so overlapping saves can never interleave.
  * ----------------------------------------------------------------------------
  */
-import type { LedgerPort } from "./signal-ledger";
+import { hashId, type LedgerPort } from "./signal-ledger";
 import { bookEquity, cleanTag, newBook, PAPER_SCHEMA, type ExitReason, type JournalEntry, type PaperAccount, type PaperBook, type PaperPosition } from "./paper-broker";
 import { normaliseSettings } from "./risk-engine";
 
@@ -111,18 +111,29 @@ export function createPaperStore(portOrPromise: PaperPort | Promise<PaperPort>) 
   }
 
   /**
-   * v2.8 (WP28): add journal entries whose id is absent. Never touches paper_state or paper_positions, so a restore cannot
-   * change the account, an open position or a drawdown lock.
+   * v2.8 (WP28): merge journal entries by CONTENT, never by id. Ids are per-account sequence numbers (`trade-N`) and the account is
+   * not restored, so the same id can name different trades on two devices. An entry whose content (everything except the id)
+   * matches a local one is a duplicate. Every other entry is stored under `bk:<fingerprint>:<original id>`, which can never
+   * collide with a local `trade-N`. Never touches paper_state or paper_positions.
    */
   function importJournal(entries: JournalEntry[], o: { dryRun?: boolean } = {}): Promise<{ added: number; duplicates: number }> {
     return enqueue(async (port) => {
-      const stored = new Set((await port.list(PAPER_JOURNAL)).map(({ id }) => id));
+      const stored = await port.list(PAPER_JOURNAL);
+      const taken = new Set(stored.map(({ id }) => id));
+      const have = new Set<string>();
+      for (const { doc } of stored) {
+        const local = sanitizeJournalEntry(doc);
+        if (local) have.add(journalContent(local));
+      }
       let added = 0;
       let duplicates = 0;
       for (const j of entries) {
-        if (stored.has(j.id)) { duplicates++; continue; }
-        stored.add(j.id);
-        if (!o.dryRun) await port.put(PAPER_JOURNAL, j.id, j);
+        const content = journalContent(j);
+        if (have.has(content)) { duplicates++; continue; }
+        have.add(content);
+        const id = restoredJournalId(j, content, taken);
+        taken.add(id);
+        if (!o.dryRun) await port.put(PAPER_JOURNAL, id, { ...j, id });
         added++;
       }
       return { added, duplicates };
@@ -133,6 +144,19 @@ export function createPaperStore(portOrPromise: PaperPort | Promise<PaperPort>) 
 }
 
 const EXIT_REASONS: readonly string[] = ["stop", "target", "manual", "drawdown lock", "time"] satisfies ExitReason[];
+/** Stable content of an entry without its id: keys sorted, so two devices agree on what "the same trade" is. */
+export function journalContent(j: JournalEntry): string {
+  const { id: _id, ...rest } = j;
+  return JSON.stringify(Object.fromEntries(Object.entries(rest).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))));
+}
+/** `bk:<8 hex>:<original id>` (the id rule allows 160 characters; a long original id is replaced by its own hash). */
+function restoredJournalId(j: JournalEntry, content: string, taken: Set<string>): string {
+  const fp = hashId(content);
+  const orig = j.id.length <= 140 ? j.id : hashId(j.id);
+  let id = `bk:${fp}:${orig}`;
+  for (let n = 2; taken.has(id); n++) id = `bk:${fp}:${orig}.${n}`;
+  return id;
+}
 const fin = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
 /** v2.8 (WP28): validate one untrusted journal entry; a clean copy with only known fields, or null. */

@@ -127,7 +127,10 @@ export function sanitizeTrial(x: unknown): TrialEntry | null {
   return out;
 }
 
-export interface RestoreRowsResult { added: number; duplicates: number; tooOld: number; capDropped: number }
+/** capDropped = ledger ROWS removed by the row cap (whole oldest days); agePrunedDays = days dropped for age. Never index units. */
+export interface RestoreRowsResult { added: number; duplicates: number; tooOld: number; capDropped: number; agePrunedDays: number }
+/** Filled by prune/dropDay when a restore wants to know what was removed. */
+interface PruneStats { ageDays: number; capDays: number; capRows: number }
 
 interface LedgerIndex {
   schema: 2;
@@ -184,6 +187,13 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
     return doc && doc.schema === 2 ? doc : { schema: 2, days: {} };
   }
 
+  async function dayRows(port: LedgerPort, day: string): Promise<number> {
+    const dayDoc = ((await port.get(LEDGER_META, `day|${day}`)) as DayDoc | null) ?? {};
+    let n = 0;
+    for (const id of dayDoc.ids ?? []) n += ((await port.get(LEDGER_COLLECTION, id)) as BarDoc | null)?.rows?.length ?? 0;
+    return n;
+  }
+
   async function dropDay(port: LedgerPort, index: LedgerIndex, day: string): Promise<void> {
     const dayDoc = ((await port.get(LEDGER_META, `day|${day}`)) as DayDoc | null) ?? {};
     for (const id of dayDoc.ids ?? []) await port.del(LEDGER_COLLECTION, id);
@@ -192,15 +202,16 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
     delete index.days[day];
   }
 
-  async function prune(port: LedgerPort, index: LedgerIndex, now: number, aggressive = false): Promise<void> {
+  async function prune(port: LedgerPort, index: LedgerIndex, now: number, aggressive = false, stats?: PruneStats): Promise<void> {
     const cutoff = dayOf(now - retentionFor(port.kind) * 86_400_000);
     const days = Object.keys(index.days).sort();
-    for (const d of days) if (d < cutoff) await dropDay(port, index, d);
+    for (const d of days) if (d < cutoff) { await dropDay(port, index, d); if (stats) stats.ageDays++; }
     let total = Object.values(index.days).reduce((a, n) => a + n, 0);
     const cap = maxRowsFor(port.kind);
     for (const d of Object.keys(index.days).sort()) {
       if (total <= cap) break;
       total -= index.days[d];
+      if (stats) { stats.capRows += await dayRows(port, d); stats.capDays++; }
       await dropDay(port, index, d);
     }
     if (aggressive) {
@@ -216,7 +227,7 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
     index.days[day] = (index.days[day] ?? 0) + units;
   }
 
-  async function write(port: LedgerPort, rows: LedgerRow[], universe?: UniverseSnapshot): Promise<number> {
+  async function write(port: LedgerPort, rows: LedgerRow[], universe?: UniverseSnapshot, stats?: PruneStats): Promise<number> {
     const groups = new Map<string, LedgerRow[]>();
     for (const r of rows) {
       const id = `${dayOf(r.t)}|${r.src}|${r.tf}|${r.cfg}|${r.t}`;
@@ -224,7 +235,7 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
       if (list) list.push(r); else groups.set(id, [r]);
     }
     const index = await readIndex(port);
-    await prune(port, index, Date.now());
+    await prune(port, index, Date.now(), false, stats);
     let added = 0;
     for (const [id, list] of groups) {
       const day = id.split("|")[0];
@@ -257,7 +268,7 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
     }
     // Prune again after writing: rows older than the window (e.g. catch-up of
     // very old bars) must not outlive this call.
-    await prune(port, index, Date.now());
+    await prune(port, index, Date.now(), false, stats);
     await port.put(LEDGER_META, INDEX_ID, index);
     return added;
   }
@@ -494,16 +505,59 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
     });
   }
   /* ---- v2.8 (WP28): restore from an encrypted backup. Rows are already sanitised by the caller. ---- */
+  /** Restore chunks of about 5,000 rows, never splitting a day (so a day is never re-created after its eviction). */
+  function restoreChunks(fresh: LedgerRow[]): LedgerRow[][] {
+    const out: LedgerRow[][] = [];
+    let cur: LedgerRow[] = [];
+    for (const r of fresh) {
+      if (cur.length >= 5000 && dayOf(cur[cur.length - 1].t) !== dayOf(r.t)) { out.push(cur); cur = []; }
+      cur.push(r);
+    }
+    if (cur.length) out.push(cur);
+    return out;
+  }
+
+  /** The dry run: replays write()'s pruning (age, then whole oldest days over the cap) over the index, chunk by chunk. */
+  async function simulateRestore(port: LedgerPort, chunks: LedgerRow[][]): Promise<PruneStats> {
+    const units = { ...(await readIndex(port)).days };
+    const stats: PruneStats = { ageDays: 0, capDays: 0, capRows: 0 };
+    const gone = new Set<string>(); // days already evicted in this simulation (their stored rows are gone)
+    const added: Record<string, number> = {};
+    const cutoff = dayOf(Date.now() - retentionFor(port.kind) * 86_400_000);
+    const cap = maxRowsFor(port.kind);
+    const evict = async (d: string): Promise<number> => {
+      const rows = (gone.has(d) ? 0 : await dayRows(port, d)) + (added[d] ?? 0);
+      gone.add(d);
+      added[d] = 0;
+      delete units[d];
+      return rows;
+    };
+    const prune = async () => {
+      for (const d of Object.keys(units).sort()) if (d < cutoff) { await evict(d); stats.ageDays++; }
+      let total = Object.values(units).reduce((a, n) => a + n, 0);
+      for (const d of Object.keys(units).sort()) {
+        if (total <= cap) break;
+        total -= units[d];
+        stats.capRows += await evict(d);
+        stats.capDays++;
+      }
+    };
+    for (const chunk of chunks) {
+      await prune();
+      for (const r of chunk) { const d = dayOf(r.t); units[d] = (units[d] ?? 0) + 1; added[d] = (added[d] ?? 0) + 1; }
+      await prune();
+    }
+    return stats;
+  }
+
   /**
    * Merge rows by id (an existing row is never overwritten). Rows older than the retention window are not written and are
-   * counted as tooOld. capDropped = rows the row cap removed (real run: measured from the index; dry run: the estimate
-   * rowsBefore + added - cap, which is a lower bound because the cap removes whole days).
+   * counted as tooOld. The dry run replays the pruning exactly, so capDropped (rows removed by the cap, whole oldest days)
+   * and agePrunedDays (days dropped for age) are the same numbers a real run reports.
    */
   function restoreRows(rows: LedgerRow[], o: { dryRun?: boolean } = {}): Promise<RestoreRowsResult> {
     return enqueue(async (port) => {
       const cutoff = dayOf(Date.now() - retentionFor(port.kind) * 86_400_000);
-      const index0 = await readIndex(port);
-      const rowsBefore = Object.values(index0.days).reduce((a, n) => a + n, 0);
       let tooOld = 0;
       let duplicates = 0;
       const groups = new Map<string, LedgerRow[]>();
@@ -523,13 +577,15 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
         for (const r of list) { if (have.has(r.id)) duplicates++; else fresh.push(r); }
       }
       fresh.sort((a, b) => a.t - b.t || a.pair.localeCompare(b.pair));
+      const chunks = restoreChunks(fresh);
       if (o.dryRun) {
-        return { added: fresh.length, duplicates, tooOld, capDropped: Math.max(0, rowsBefore + fresh.length - maxRowsFor(port.kind)) };
+        const st = await simulateRestore(port, chunks);
+        return { added: fresh.length, duplicates, tooOld, capDropped: st.capRows, agePrunedDays: st.ageDays };
       }
+      const st: PruneStats = { ageDays: 0, capDays: 0, capRows: 0 };
       let added = 0;
-      for (let i = 0; i < fresh.length; i += 5000) added += await write(port, fresh.slice(i, i + 5000));
-      const after = Object.values((await readIndex(port)).days).reduce((a, n) => a + n, 0);
-      return { added, duplicates, tooOld, capDropped: Math.max(0, rowsBefore + added - after) };
+      for (const chunk of chunks) added += await write(port, chunk, undefined, st);
+      return { added, duplicates, tooOld, capDropped: st.capRows, agePrunedDays: st.ageDays };
     });
   }
   /** Merge pre-registrations: a key that exists is kept and its decision date never moves. */

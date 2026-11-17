@@ -127,14 +127,13 @@ test("round trip restores every record into an empty device", async () => {
   const B = device();
   const plan = await openBackupFile(made.text, PASS, B.deps);
   assert.equal(plan.ledger.added, 200);
-  const before = await snap(B);
-  assert.equal(await snap(B), before, "the plan wrote nothing");
   const report = await applyRestore(plan, { settings: true }, B.deps);
   assert.equal(report.ledger.added, 200);
   assert.equal(report.settings, true);
 
   assert.deepEqual(await B.ledger.all(), await A.ledger.all());
-  assert.deepEqual((await B.paper.load(1)).journal, (await A.paper.load(1)).journal);
+  const noId = (list) => list.map(({ id: _id, ...rest }) => rest).sort((a, b) => a.closedAt - b.closedAt);
+  assert.deepEqual(noId((await B.paper.load(1)).journal), noId((await A.paper.load(1)).journal));
   assert.deepEqual((await B.ledger.preregistrations()).sort((a, b) => a.startedAt - b.startedAt), (await A.ledger.preregistrations()).sort((a, b) => a.startedAt - b.startedAt));
   assert.deepEqual((await B.ledger.trials()).sort(byId), (await A.ledger.trials()).sort(byId));
   assert.deepEqual(await B.prefsPort.get("preferences", "current"), prefs);
@@ -206,7 +205,7 @@ test("row cap removals are reported", async () => {
 test("schema-invalid file is rejected without side effects", async () => {
   const good = emptyParts(NOW);
   const cases = {
-    "schema 2": async () => fileOf(good).then(async () => sealBackup(JSON.stringify({ ...JSON.parse(buildPayload(good)), schema: 2 }), PASS, { createdAt: NOW, app: "2.8.0" })),
+    "schema 2": async () => sealBackup(JSON.stringify({ ...JSON.parse(buildPayload(good)), schema: 2 }), PASS, { createdAt: NOW, app: "2.8.0" }),
     "wrong format": async () => sealBackup(JSON.stringify({ ...JSON.parse(buildPayload(good)), format: "other" }), PASS, { createdAt: NOW, app: "2.8.0" }),
     "rows not an array": async () => sealBackup(JSON.stringify({ ...JSON.parse(buildPayload(good)), ledger: { rows: {} } }), PASS, { createdAt: NOW, app: "2.8.0" }),
     "paper is a string": async () => sealBackup(JSON.stringify({ ...JSON.parse(buildPayload(good)), paper: "x" }), PASS, { createdAt: NOW, app: "2.8.0" }),
@@ -311,13 +310,13 @@ test("newer local records are flagged and kept", async () => {
   const B = device();
   const localRow = mkRow("LOC", BAR0, 1);
   await B.ledger.restoreRows([localRow]);
-  await B.paper.importJournal([mkJournal(9, NOW - H)]);
+  await B.paper.importJournal([mkJournal(9, NOW - H, { proposalId: "prop-9" })]);
   assert.ok(await B.ledger.newestBarTime() > NOW - 2 * DAY);
   const plan = await openBackupFile(text, PASS, B.deps);
   assert.equal(plan.localNewerRecords, true);
   await applyRestore(plan, { settings: false }, B.deps);
   assert.ok((await B.ledger.all()).some((r) => r.id === localRow.id));
-  assert.ok((await B.paper.load(NOW)).journal.some((j) => j.id === "paper:9"));
+  assert.ok((await B.paper.load(NOW)).journal.some((j) => j.proposalId === "prop-9"));
 
   // only a newer journal trade (no newer bar)
   const E = device();
@@ -430,7 +429,7 @@ test("restoreRows never writes in a dry run and reports the same counts", async 
   assert.equal(await snap(B), before);
   const real = await B.ledger.restoreRows(rows);
   assert.deepEqual(real, dry);
-  assert.deepEqual(await B.ledger.restoreRows(rows), { added: 0, duplicates: 15, tooOld: 0, capDropped: 0 });
+  assert.deepEqual(await B.ledger.restoreRows(rows), { added: 0, duplicates: 15, tooOld: 0, capDropped: 0, agePrunedDays: 0 });
   assert.equal(await B.ledger.newestBarTime(), BAR0);
   assert.equal(await device().ledger.newestBarTime(), 0);
 });
@@ -449,4 +448,188 @@ test("size: 100,000 rows backup under 20 MB and in reasonable time", async () =>
   assert.ok(made.bytes < 20 * 1024 * 1024, `bytes ${made.bytes}`);
   assert.ok(took < 30_000, `took ${took} ms`);
   assert.equal(made.counts.rows, 100_000);
+});
+
+/* ---- fix round 1 ---- */
+const tradeEntry = (n, over = {}) => mkJournal(n, NOW - (10 - n) * H, { id: `trade-${n}`, proposalId: `prop-${n}`, ...over });
+const putRaw = (dev, e) => dev.paperPort.put("paper_journal", e.id, e);
+const ids = async (dev) => (await dev.paper.load(NOW)).journal.map((j) => j.id);
+
+test("F1a restoring onto an empty device never costs a later local trade", async () => {
+  const A = device();
+  await putRaw(A, tradeEntry(1, { pair: "BTCUSDT" }));
+  await putRaw(A, tradeEntry(2, { pair: "ETHUSDT" }));
+  const { text } = await createBackupFile(A.deps, PASS);
+  const B = device();
+  const plan = await openBackupFile(text, PASS, B.deps);
+  assert.deepEqual(plan.journal, { inFile: 2, added: 2, duplicates: 0, rejected: 0 });
+  await applyRestore(plan, { settings: false }, B.deps);
+  // B's own account now closes trades with the same per-account sequence ids
+  const book = await B.paper.load(NOW);
+  book.journal.push(tradeEntry(1, { pair: "SOLUSDT", proposalId: "local-1" }), tradeEntry(2, { pair: "XRPUSDT", proposalId: "local-2" }));
+  await B.paper.save(book);
+  const journal = (await B.paper.load(NOW)).journal;
+  assert.equal(journal.length, 4);
+  assert.deepEqual(journal.map((j) => j.pair).sort(), ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]);
+  for (const j of journal) assert.ok(sanitizeJournalEntry(j), `${j.id} passes the id rule`);
+  assert.ok(journal.filter((j) => j.id.startsWith("bk:")).length === 2);
+});
+
+test("F1b a device with its own trade-N ids loses nothing when another backup's trade-N ids arrive", async () => {
+  const A = device();
+  for (const n of [0, 1, 2]) await putRaw(A, tradeEntry(n, { pair: "BTCUSDT" }));
+  const { text } = await createBackupFile(A.deps, PASS);
+  const C = device();
+  await putRaw(C, tradeEntry(0, { pair: "BTCUSDT" })); // the very same trade as the backup's trade-0
+  await putRaw(C, tradeEntry(1, { pair: "XRPUSDT" })); // different trade, same id
+  await putRaw(C, tradeEntry(2, { pair: "XRPUSDT" }));
+  const plan = await openBackupFile(text, PASS, C.deps);
+  assert.deepEqual(plan.journal, { inFile: 3, added: 2, duplicates: 1, rejected: 0 });
+  const report = await applyRestore(plan, { settings: false }, C.deps);
+  assert.deepEqual(report.journal, { added: 2, duplicates: 1 });
+  const journal = (await C.paper.load(NOW)).journal;
+  assert.equal(journal.length, 5);
+  assert.deepEqual(journal.filter((j) => j.pair === "XRPUSDT").map((j) => j.id).sort(), ["trade-1", "trade-2"]);
+  assert.equal(journal.filter((j) => j.pair === "BTCUSDT").length, 3);
+});
+
+test("F1c restoring the same backup twice adds nothing the second time", async () => {
+  const A = device();
+  await putRaw(A, tradeEntry(1, { pair: "BTCUSDT" }));
+  await putRaw(A, tradeEntry(2, { pair: "ETHUSDT" }));
+  const { text } = await createBackupFile(A.deps, PASS);
+  const B = device();
+  await putRaw(B, tradeEntry(1, { pair: "SOLUSDT", proposalId: "local-1" }));
+  await applyRestore(await openBackupFile(text, PASS, B.deps), { settings: false }, B.deps);
+  const before = await snap(B);
+  const again = await openBackupFile(text, PASS, B.deps);
+  assert.deepEqual(again.journal, { inFile: 2, added: 0, duplicates: 2, rejected: 0 });
+  assert.equal(await snap(B), before, "the second plan wrote nothing");
+  const report = await applyRestore(again, { settings: false }, B.deps);
+  assert.deepEqual(report.journal, { added: 0, duplicates: 2 });
+  assert.equal((await ids(B)).length, 3);
+  // and restoring onto the device the backup came from adds nothing
+  assert.deepEqual((await openBackupFile(text, PASS, A.deps)).journal, { inFile: 2, added: 0, duplicates: 2, rejected: 0 });
+});
+
+test("F2 the plan flags settings that differ from this device, with or without an audit entry", async () => {
+  const profile = { version: 1, enabled: ["macd", "rsi"] };
+  const A = device("sqlite", NOW - 2 * DAY);
+  const prefs = normalizePreferences({ autoRefresh: false });
+  await A.prefsPort.put("preferences", "current", prefs);
+  await A.prefsPort.put("preferences", "scoring-profile-v1", profile);
+  const { text } = await createBackupFile(A.deps, PASS);
+
+  const same = device();
+  await same.prefsPort.put("preferences", "current", prefs);
+  await same.prefsPort.put("preferences", "scoring-profile-v1", profile);
+  const p0 = await openBackupFile(text, PASS, same.deps);
+  assert.deepEqual([p0.settings.differs, p0.settings.preferencesDiffer, p0.settings.profileDiffers, p0.settings.localNewer], [false, false, false, false]);
+
+  const profileOnly = device(); // no audit entry exists for a profile change
+  await profileOnly.prefsPort.put("preferences", "current", prefs);
+  await profileOnly.prefsPort.put("preferences", "scoring-profile-v1", null);
+  const p1 = await openBackupFile(text, PASS, profileOnly.deps);
+  assert.deepEqual([p1.settings.differs, p1.settings.preferencesDiffer, p1.settings.profileDiffers, p1.settings.localNewer], [true, false, true, false]);
+
+  const prefsOnly = device();
+  await prefsOnly.prefsPort.put("preferences", "current", normalizePreferences({ autoRefresh: true }));
+  await prefsOnly.prefsPort.put("preferences", "scoring-profile-v1", profile);
+  const p2 = await openBackupFile(text, PASS, prefsOnly.deps);
+  assert.deepEqual([p2.settings.differs, p2.settings.preferencesDiffer, p2.settings.profileDiffers], [true, true, false]);
+
+  const broken = device(); // an unreadable local profile counts as different
+  await broken.prefsPort.put("preferences", "current", prefs);
+  await broken.prefsPort.put("preferences", "scoring-profile-v1", { version: 9 });
+  assert.equal((await openBackupFile(text, PASS, broken.deps)).settings.profileDiffers, true);
+
+  // a backup with no settings never asks
+  const none = await openBackupFile(await fileOf(emptyParts(NOW)), PASS, profileOnly.deps);
+  assert.deepEqual([none.settings.present, none.settings.differs], [false, false]);
+  // a null backup profile (all indicators) against a custom local one is a difference, and apply writes null
+  const nullProfile = await fileOf({ ...emptyParts(NOW), settings: { preferences: prefs, scoringProfile: null } });
+  const custom = device();
+  await custom.prefsPort.put("preferences", "current", prefs);
+  await custom.prefsPort.put("preferences", "scoring-profile-v1", profile);
+  const p3 = await openBackupFile(nullProfile, PASS, custom.deps);
+  assert.equal(p3.settings.profileDiffers, true);
+  await applyRestore(p3, { settings: true }, custom.deps);
+  assert.equal(await custom.prefsPort.get("preferences", "scoring-profile-v1"), null);
+});
+
+test("F3 the plan's row-cap number counts rows, not index units (a stored universe is 40 units)", async () => {
+  const B = device("localstorage");
+  const oldest = Date.parse(dayOf(NOW - 13 * DAY) + "T00:00:00Z");
+  const first = Array.from({ length: 60 }, (_, i) => mkRow(`O${i}`, oldest, i)); // oldest day holds 60 rows
+  const rest = mkRows(70, 69, 2).slice(0, 4800);
+  assert.equal((await B.ledger.restoreRows([...first, ...rest])).added, 4860);
+  assert.equal(await B.ledger.record([mkRow("U0", BAR0 - 4 * H, 0)], { t: BAR0 - 4 * H, list: [{ p: "BTCUSDT", qv: 1, ac: "crypto" }] }), 1);
+  assert.equal((await B.ledger.stats()).rows, 4901); // 4,861 rows + 40 universe units
+  const incoming = Array.from({ length: 100 }, (_, i) => mkRow(`N${i}`, BAR0, i));
+  const plan = await openBackupFile(await fileOf({ ...emptyParts(NOW), ledger: { rows: incoming } }), PASS, B.deps);
+  assert.equal(plan.ledger.capDropped, 60);
+  const report = await applyRestore(plan, { settings: false }, B.deps);
+  assert.deepEqual(report.ledger, plan.ledger);
+  assert.equal(report.ledger.capDropped, 60);
+});
+
+test("F3b the reviewer's scenario: plan 400 equals applied 400, and age-pruned days are reported apart", async () => {
+  const B = device("localstorage");
+  const oldest = Date.parse(dayOf(NOW - 13 * DAY) + "T00:00:00Z");
+  const first = Array.from({ length: 400 }, (_, i) => mkRow(`O${i}`, oldest, i));
+  const rest = mkRows(70, 66, 1).slice(0, 4590);
+  await B.ledger.restoreRows([...first, ...rest]);
+  const incoming = Array.from({ length: 100 }, (_, i) => mkRow(`N${i}`, BAR0, i));
+  const plan = await openBackupFile(await fileOf({ ...emptyParts(NOW), ledger: { rows: incoming } }), PASS, B.deps);
+  assert.equal(plan.ledger.capDropped, 400);
+  assert.equal(plan.ledger.agePrunedDays, 0);
+  const report = await applyRestore(plan, { settings: false }, B.deps);
+  assert.equal(report.ledger.capDropped, 400);
+  assert.equal((await B.ledger.stats()).rows, 4690);
+  // a stale local day (older than retention) is pruned by age and counted as days, not as cap rows
+  const C = device("localstorage");
+  await C.ledgerPort.put("ledger", "x", {});
+  await C.ledgerPort.del("ledger", "x");
+  const stale = Date.parse(dayOf(NOW - 20 * DAY) + "T00:00:00Z");
+  const staleRow = mkRow("S0", stale, 0);
+  await C.ledgerPort.put("ledger", `${dayOf(stale)}|binance|4h|c1|${stale}`, { schema: 2, day: dayOf(stale), src: "binance", tf: "4h", cfg: "c1", t: stale, rows: [staleRow] });
+  await C.ledgerPort.put("ledger_meta", `day|${dayOf(stale)}`, { ids: [`${dayOf(stale)}|binance|4h|c1|${stale}`] });
+  await C.ledgerPort.put("ledger_meta", "index", { schema: 2, days: { [dayOf(stale)]: 1 } });
+  const p = await openBackupFile(await fileOf({ ...emptyParts(NOW), ledger: { rows: incoming.slice(0, 5) } }), PASS, C.deps);
+  assert.equal(p.ledger.agePrunedDays, 1);
+  assert.equal(p.ledger.capDropped, 0);
+  assert.deepEqual((await applyRestore(p, { settings: false }, C.deps)).ledger, p.ledger);
+});
+
+test("F4 a successful open and plan writes nothing to any store", async () => {
+  const A = device("sqlite", NOW - 2 * DAY);
+  await A.ledger.restoreRows(mkRows(3, 5, 30));
+  await A.paper.importJournal([mkJournal(1, NOW - 5 * DAY)]);
+  await A.ledger.restorePreregistrations([mkPrereg({ cfg: "c9" })]);
+  await A.ledger.restoreTrials([mkTrial(7)]);
+  await A.prefsPort.put("preferences", "current", normalizePreferences({ autoRefresh: false }));
+  const { text } = await createBackupFile(A.deps, PASS);
+
+  const B = device();
+  await B.ledger.restoreRows(mkRows(2, 4, 3));
+  await B.paper.save(newBook(NOW));
+  await B.paper.importJournal([mkJournal(5, NOW - H)]);
+  await B.ledger.registerTrial("c1", "mine");
+  await B.ledger.preregister({ cfg: "c1", source: "binance", tf: "4h", assetClass: "crypto", windowMode: "full", hypothesis: "m", horizon: 6 });
+  await B.prefsPort.put("preferences", "current", normalizePreferences({ autoRefresh: true }));
+  B.log.push({ at: new Date(NOW).toISOString(), event: "preferences.update", record: "preferences", reason: "x" });
+  const before = await snap(B);
+  const plan = await openBackupFile(text, PASS, B.deps);
+  assert.ok(plan.ledger.added > 0 && plan.journal.added === 1 && plan.preregistrations.added === 1 && plan.trials.added === 1);
+  assert.equal(await snap(B), before, "open + plan changed a store or the audit");
+});
+
+test("createBackupFile reports what it left out per section", async () => {
+  const A = device();
+  await A.ledger.restoreRows(mkRows(1, 2));
+  // a replay row can reach the ledger through the CSV import path; it is left out, and counted
+  await A.ledgerPort.put("ledger", "2026-11-10|binance|4h|c1|1", { schema: 2, day: "2026-11-10", src: "binance", tf: "4h", cfg: "c1", t: 1, rows: [mkRow("RPL", BAR0 - 100 * 4 * H, 0, { live: 0 })] });
+  const made = await createBackupFile(A.deps, PASS);
+  assert.deepEqual(made.skipped, { rows: 1, preregistrations: 0, trials: 0, journal: 0 });
+  assert.equal(made.counts.rows, 2);
 });
