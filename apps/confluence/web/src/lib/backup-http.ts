@@ -85,7 +85,9 @@ export function backupHttp(): BackupHttp {
       throw new BackupError(r.signal?.aborted ? "cancelled" : "network");
     }
     checkTextSize(res.text);
-    return res;
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(res.headers ?? {})) headers[k.toLowerCase()] = v;
+    return { status: res.status, headers, text: res.text };
   };
 }
 

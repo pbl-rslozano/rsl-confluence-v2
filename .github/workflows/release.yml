@@ -31,13 +31,6 @@ env:
   PNPM_VERSION: "10.34.9"
   # v2.6 (WP10): the source commit every build shows in About and stamps into build-manifest.json.
   NEXT_PUBLIC_GIT_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
-  # v2.8 (WP28): public OAuth client IDs and the app-link switch for encrypted cloud backup. Repository VARIABLES (not
-  # secrets); empty when unset, and a provider without a valid ID is "not set up yet". Workflow-level, so every step
-  # that builds the web core (gate, desktop, Android, iOS, the update-channel deploy) sees the same values.
-  NEXT_PUBLIC_RSL_BACKUP_GDRIVE_CLIENT_ID: ${{ vars.RSL_BACKUP_GDRIVE_CLIENT_ID }}
-  NEXT_PUBLIC_RSL_BACKUP_ONEDRIVE_CLIENT_ID: ${{ vars.RSL_BACKUP_ONEDRIVE_CLIENT_ID }}
-  NEXT_PUBLIC_RSL_BACKUP_PCLOUD_CLIENT_ID: ${{ vars.RSL_BACKUP_PCLOUD_CLIENT_ID }}
-  NEXT_PUBLIC_RSL_APP_LINK: ${{ vars.RSL_APP_LINK }}
 
 jobs:
   verify:
@@ -140,6 +133,13 @@ jobs:
           echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
       - name: Build and sign
         env:
+        # v2.8 (WP28): public OAuth client IDs and the app-link switch (repository VARIABLES, never secrets; empty when
+        # unset). Only steps that build the web core carry them: the gate (verify) never does, so tests and acceptance
+        # always see "Not set up yet".
+          NEXT_PUBLIC_RSL_BACKUP_GDRIVE_CLIENT_ID: ${{ vars.RSL_BACKUP_GDRIVE_CLIENT_ID }}
+          NEXT_PUBLIC_RSL_BACKUP_ONEDRIVE_CLIENT_ID: ${{ vars.RSL_BACKUP_ONEDRIVE_CLIENT_ID }}
+          NEXT_PUBLIC_RSL_BACKUP_PCLOUD_CLIENT_ID: ${{ vars.RSL_BACKUP_PCLOUD_CLIENT_ID }}
+          NEXT_PUBLIC_RSL_APP_LINK: ${{ vars.RSL_APP_LINK }}
           # macOS: Developer ID Application certificate + notarisation (App Store Connect API key).
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -198,6 +198,13 @@ jobs:
           echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
       - name: Build and sign
         env:
+        # v2.8 (WP28): public OAuth client IDs and the app-link switch (repository VARIABLES, never secrets; empty when
+        # unset). Only steps that build the web core carry them: the gate (verify) never does, so tests and acceptance
+        # always see "Not set up yet".
+          NEXT_PUBLIC_RSL_BACKUP_GDRIVE_CLIENT_ID: ${{ vars.RSL_BACKUP_GDRIVE_CLIENT_ID }}
+          NEXT_PUBLIC_RSL_BACKUP_ONEDRIVE_CLIENT_ID: ${{ vars.RSL_BACKUP_ONEDRIVE_CLIENT_ID }}
+          NEXT_PUBLIC_RSL_BACKUP_PCLOUD_CLIENT_ID: ${{ vars.RSL_BACKUP_PCLOUD_CLIENT_ID }}
+          NEXT_PUBLIC_RSL_APP_LINK: ${{ vars.RSL_APP_LINK }}
           # macOS: Developer ID Application certificate + notarisation (App Store Connect API key).
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -250,6 +257,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Generate native project and apply hardening
         working-directory: apps/confluence/mobile
+        env:
+        # v2.8 (WP28): public OAuth client IDs and the app-link switch (repository VARIABLES, never secrets; empty when
+        # unset). Only steps that build the web core carry them: the gate (verify) never does, so tests and acceptance
+        # always see "Not set up yet".
+          NEXT_PUBLIC_RSL_BACKUP_GDRIVE_CLIENT_ID: ${{ vars.RSL_BACKUP_GDRIVE_CLIENT_ID }}
+          NEXT_PUBLIC_RSL_BACKUP_ONEDRIVE_CLIENT_ID: ${{ vars.RSL_BACKUP_ONEDRIVE_CLIENT_ID }}
+          NEXT_PUBLIC_RSL_BACKUP_PCLOUD_CLIENT_ID: ${{ vars.RSL_BACKUP_PCLOUD_CLIENT_ID }}
+          NEXT_PUBLIC_RSL_APP_LINK: ${{ vars.RSL_APP_LINK }}
         run: |
           pnpm run web
           [ -d android ] || pnpm exec cap add android
@@ -309,7 +324,16 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with: { node-version: "${{ env.NODE_VERSION }}", cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build:pwa
+      - name: Build the PWA
+        env:
+        # v2.8 (WP28): public OAuth client IDs and the app-link switch (repository VARIABLES, never secrets; empty when
+        # unset). Only steps that build the web core carry them: the gate (verify) never does, so tests and acceptance
+        # always see "Not set up yet".
+          NEXT_PUBLIC_RSL_BACKUP_GDRIVE_CLIENT_ID: ${{ vars.RSL_BACKUP_GDRIVE_CLIENT_ID }}
+          NEXT_PUBLIC_RSL_BACKUP_ONEDRIVE_CLIENT_ID: ${{ vars.RSL_BACKUP_ONEDRIVE_CLIENT_ID }}
+          NEXT_PUBLIC_RSL_BACKUP_PCLOUD_CLIENT_ID: ${{ vars.RSL_BACKUP_PCLOUD_CLIENT_ID }}
+          NEXT_PUBLIC_RSL_APP_LINK: ${{ vars.RSL_APP_LINK }}
+        run: pnpm build:pwa
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: installer-android, path: android-build }
       # A step's `if` cannot see secrets, so the token's presence is tested in the script (no token → no deploy).
@@ -351,6 +375,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Generate native project (Swift Package Manager) and check ATS
         working-directory: apps/confluence/mobile
+        env:
+        # v2.8 (WP28): public OAuth client IDs and the app-link switch (repository VARIABLES, never secrets; empty when
+        # unset). Only steps that build the web core carry them: the gate (verify) never does, so tests and acceptance
+        # always see "Not set up yet".
+          NEXT_PUBLIC_RSL_BACKUP_GDRIVE_CLIENT_ID: ${{ vars.RSL_BACKUP_GDRIVE_CLIENT_ID }}
+          NEXT_PUBLIC_RSL_BACKUP_ONEDRIVE_CLIENT_ID: ${{ vars.RSL_BACKUP_ONEDRIVE_CLIENT_ID }}
+          NEXT_PUBLIC_RSL_BACKUP_PCLOUD_CLIENT_ID: ${{ vars.RSL_BACKUP_PCLOUD_CLIENT_ID }}
+          NEXT_PUBLIC_RSL_APP_LINK: ${{ vars.RSL_APP_LINK }}
         run: |
           pnpm run web
           [ -d ios ] || pnpm exec cap add ios --packagemanager SPM
@@ -601,6 +633,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build
         # Unsigned: Linux packages carry no platform signature; the release lists a SHA-256 for every file.
+        env:
+        # v2.8 (WP28): public OAuth client IDs and the app-link switch (repository VARIABLES, never secrets; empty when
+        # unset). Only steps that build the web core carry them: the gate (verify) never does, so tests and acceptance
+        # always see "Not set up yet".
+          NEXT_PUBLIC_RSL_BACKUP_GDRIVE_CLIENT_ID: ${{ vars.RSL_BACKUP_GDRIVE_CLIENT_ID }}
+          NEXT_PUBLIC_RSL_BACKUP_ONEDRIVE_CLIENT_ID: ${{ vars.RSL_BACKUP_ONEDRIVE_CLIENT_ID }}
+          NEXT_PUBLIC_RSL_BACKUP_PCLOUD_CLIENT_ID: ${{ vars.RSL_BACKUP_PCLOUD_CLIENT_ID }}
+          NEXT_PUBLIC_RSL_APP_LINK: ${{ vars.RSL_APP_LINK }}
         run: pnpm --filter @rsl/confluence-desktop tauri build --bundles deb,rpm,appimage
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

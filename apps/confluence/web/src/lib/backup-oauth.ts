@@ -129,6 +129,7 @@ export async function exchangeCode(
   o: { clientId: string; code: string; verifier: string; redirectUri: string },
   http: BackupHttp,
   now: number,
+  signal?: AbortSignal,
 ): Promise<ProviderSession> {
   if (p !== "gdrive" && p !== "onedrive") throw new BackupError("unavailable");
   if (!KNOWN_REDIRECTS.includes(o.redirectUri) || !VERIFIER_RE.test(o.verifier) || !TOKEN_RE.test(o.code) || !o.clientId) {
@@ -145,7 +146,7 @@ export async function exchangeCode(
   if (p === "onedrive") form.set("scope", ONEDRIVE_SCOPE);
   let res;
   try {
-    res = await http({ method: "POST", url, headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" }, body: form.toString() });
+    res = await http({ method: "POST", url, headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" }, body: form.toString(), signal });
   } catch (e) {
     throw e instanceof BackupError ? e : new BackupError("network");
   }
@@ -194,8 +195,9 @@ async function startFlow(p: OAuthProviderId, cfg: BackupConfig, redirectUri: str
 export async function beginWebSignIn(
   p: OAuthProviderId,
   cfg: BackupConfig,
-  deps: { storage: Pick<Storage, "setItem">; assign: (url: string) => void; origin?: string },
+  deps: { storage: Pick<Storage, "setItem"> & Partial<Pick<Storage, "getItem" | "removeItem">>; assign: (url: string) => void; origin?: string },
 ): Promise<void> {
+  purgeStalePending(deps.storage, Date.now());
   requireReady(p, "web", cfg, deps.origin ?? currentOrigin());
   const { url, state, verifier } = await startFlow(p, cfg, WEB_REDIRECT);
   try {
@@ -204,6 +206,22 @@ export async function beginWebSignIn(
     throw new BackupError("unavailable");
   }
   deps.assign(url);
+}
+
+/**
+ * Removes a pending sign-in entry (the verifier included) once it is older than 10 minutes, or is not an entry at
+ * all. An entry that may still come back is kept. Called whenever this module reads the entry.
+ */
+export function purgeStalePending(storage: Partial<Pick<Storage, "getItem" | "removeItem">>, now: number): void {
+  try {
+    if (!storage.getItem || !storage.removeItem) return;
+    const raw = storage.getItem(PENDING_KEY);
+    if (raw === null) return;
+    const e = readPending(raw);
+    if (!e || now - e.t > PENDING_MAX_AGE_MS) storage.removeItem(PENDING_KEY);
+  } catch {
+    /* storage unavailable: nothing to purge */
+  }
 }
 
 interface Pending { p: OAuthProviderId; s: string; v?: string; t: number }
@@ -231,6 +249,7 @@ export function consumeWebCallback(
   href: string,
   deps: { storage: Pick<Storage, "getItem" | "removeItem">; now: number },
 ): { provider: OAuthProviderId; result: CallbackResult; verifier?: string } | { foreign: true } | null {
+  purgeStalePending(deps.storage, deps.now);
   let u: URL;
   try {
     u = new URL(href);
@@ -279,13 +298,14 @@ async function sessionFrom(
   redirectUri: string,
   http: BackupHttp,
   now: number,
+  signal?: AbortSignal,
 ): Promise<ProviderSession> {
   if (result.kind === "token") {
     if (p !== "pcloud") throw new BackupError("sign-in");
     return { token: result.token, expiresAt: null, apiHost: result.apiHost };
   }
   if (p === "pcloud" || !verifier) throw new BackupError("sign-in");
-  return exchangeCode(p, { clientId: cfg.clientIds[p], code: result.code, verifier, redirectUri }, http, now);
+  return exchangeCode(p, { clientId: cfg.clientIds[p], code: result.code, verifier, redirectUri }, http, now, signal);
 }
 
 /** Desktop (loopback) and phone (app link) sign-in through the shell's broker. */
@@ -307,6 +327,9 @@ export async function signInShell(
     if (m === "timeout" || m === "port-busy" || m === "cancelled") throw new BackupError(m);
     throw new BackupError("sign-in");
   }
+  if (o.signal?.aborted) throw new BackupError("cancelled");
   const result = parseCallback(back, { provider: p, redirectUri, state });
-  setSession(p, await sessionFrom(p, result, verifier, cfg, redirectUri, o.http, o.now()));
+  const session = await sessionFrom(p, result, verifier, cfg, redirectUri, o.http, o.now(), o.signal);
+  if (o.signal?.aborted) throw new BackupError("cancelled");
+  setSession(p, session);
 }

@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { BackupError } from "./backup-crypto.ts";
 import {
   readBackupConfig, BUILD_BACKUP_CONFIG, availability, PROVIDER_NAMES, HOSTED_ORIGIN, WEB_REDIRECT, LOOPBACK_PORT,
@@ -16,7 +17,7 @@ import { webBackupHttp, backupHttp, setBackupNativeRequest, setShellOAuth, shell
 import { getSession, setSession, clearSession, clearAllSessions } from "./backup-session.ts";
 import {
   createPkce, randomState, authUrl, parseCallback, exchangeCode, beginWebSignIn, consumeWebCallback, completeWebSignIn,
-  signInShell, PENDING_KEY,
+  signInShell, PENDING_KEY, purgeStalePending,
 } from "./backup-oauth.ts";
 import { UPDATE_ORIGIN } from "./update-channel.ts";
 import {
@@ -292,7 +293,15 @@ const stateOf = (url) => new URL(url).searchParams.get("state");
 
 test("config: empty by default, invalid IDs become empty", () => {
   assert.deepEqual(readBackupConfig({}), { clientIds: { gdrive: "", onedrive: "", pcloud: "" }, appLink: false });
-  assert.deepEqual(BUILD_BACKUP_CONFIG, { clientIds: { gdrive: "", onedrive: "", pcloud: "" }, appLink: false });
+  // The build constant is whatever the build environment holds, so the test never assumes it is empty.
+  const env = process.env;
+  assert.deepEqual(BUILD_BACKUP_CONFIG, readBackupConfig({
+    NEXT_PUBLIC_RSL_BACKUP_GDRIVE_CLIENT_ID: env.NEXT_PUBLIC_RSL_BACKUP_GDRIVE_CLIENT_ID,
+    NEXT_PUBLIC_RSL_BACKUP_ONEDRIVE_CLIENT_ID: env.NEXT_PUBLIC_RSL_BACKUP_ONEDRIVE_CLIENT_ID,
+    NEXT_PUBLIC_RSL_BACKUP_PCLOUD_CLIENT_ID: env.NEXT_PUBLIC_RSL_BACKUP_PCLOUD_CLIENT_ID,
+    NEXT_PUBLIC_RSL_APP_LINK: env.NEXT_PUBLIC_RSL_APP_LINK,
+  }));
+  if (env.RSL_BK_NESTED) assert.equal(BUILD_BACKUP_CONFIG.clientIds.pcloud, "FAKEFAKE1234", "the nested run really saw the variable");
   const bad = readBackupConfig({
     NEXT_PUBLIC_RSL_BACKUP_GDRIVE_CLIENT_ID: "x",
     NEXT_PUBLIC_RSL_BACKUP_ONEDRIVE_CLIENT_ID: "00000000-0000-0000-0000-00000000000G",
@@ -621,7 +630,7 @@ test("web callback: right state resolves and clears the entry; replay, stale and
   assert.equal(consumeWebCallback("not a url", { storage, now: NOW }), null);
   // a null return does not touch a pending entry that is still waiting
   await beginWebSignIn("onedrive", FULL, { storage, assign: () => {}, origin: HOSTED_ORIGIN });
-  assert.equal(consumeWebCallback(WEB_REDIRECT, { storage, now: NOW }), null);
+  assert.equal(consumeWebCallback(WEB_REDIRECT, { storage, now: JSON.parse(storage.get(PENDING_KEY)).t }), null);
   assert.equal(storage.has(PENDING_KEY), true);
   // corrupt storage is just "no entry"
   const bad = memStorage({ [PENDING_KEY]: "{not json" });
@@ -903,15 +912,118 @@ test("shell broker slot", () => {
   assert.equal(shellOAuth(), null);
 });
 
-test("release workflow maps the three client IDs and the app link from repository variables, never secrets", () => {
+test("the suite passes with a client-ID variable set in the environment (the gate stays green once the owner configures one)", () => {
+  if (process.env.RSL_BK_NESTED) return; // the nested run is the proof; it does not nest again
+  const r = spawnSync(process.execPath, [join(process.cwd(), "scripts", "run-engine-tests.mjs"), "backup-oauth.test.mjs"], {
+    env: {
+      ...process.env,
+      RSL_BK_NESTED: "1",
+      NEXT_PUBLIC_RSL_BACKUP_PCLOUD_CLIENT_ID: "FAKEFAKE1234",
+      NEXT_PUBLIC_RSL_BACKUP_ONEDRIVE_CLIENT_ID: "00000000-0000-0000-0000-000000000000",
+      NEXT_PUBLIC_RSL_APP_LINK: "1",
+    },
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, (r.stdout || "").split("\n").filter((l) => /^not ok|^# (pass|fail)/.test(l)).join("\n") + (r.stderr || "").slice(0, 400));
+});
+
+test("release workflow: client IDs and the app link come from repository variables, only into the web-core build steps", () => {
   const text = readFileSync(join(process.cwd(), "..", "..", "..", ".github", "workflows", "release.yml"), "utf8");
-  for (const [k, v] of [
+  const pairs = [
     ["NEXT_PUBLIC_RSL_BACKUP_GDRIVE_CLIENT_ID", "RSL_BACKUP_GDRIVE_CLIENT_ID"],
     ["NEXT_PUBLIC_RSL_BACKUP_ONEDRIVE_CLIENT_ID", "RSL_BACKUP_ONEDRIVE_CLIENT_ID"],
     ["NEXT_PUBLIC_RSL_BACKUP_PCLOUD_CLIENT_ID", "RSL_BACKUP_PCLOUD_CLIENT_ID"],
     ["NEXT_PUBLIC_RSL_APP_LINK", "RSL_APP_LINK"],
-  ]) {
-    assert.ok(text.includes(`${k}: \${{ vars.${v} }}`), k);
-    assert.ok(!new RegExp(`${k}:\\s*\\$\\{\\{\\s*secrets\\.`).test(text), `${k} must not come from a secret`);
+  ];
+  const [head, jobsText] = text.split(/^jobs:\s*$/m);
+  const jobs = {};
+  let cur = null;
+  for (const line of jobsText.split("\n")) {
+    const m = /^  ([a-z_]+):\s*$/.exec(line);
+    if (m) cur = jobs[m[1]] = [];
+    else if (cur) cur.push(line);
   }
+  for (const k of Object.keys(jobs)) jobs[k] = jobs[k].join("\n");
+  for (const [k, v] of pairs) {
+    assert.ok(!head.includes(k), `${k} must not be workflow-level: every step, the gate's tests included, would see it`);
+    assert.ok(!jobs.verify.includes(k), `${k} must not reach the gate job`);
+    assert.ok(!new RegExp(`${k}:\\s*\\$\\{\\{\\s*secrets\\.`).test(text), `${k} must not come from a secret`);
+    // the web-core builds: desktop (three OS), Android and iOS web builds, and the update-channel PWA build
+    for (const job of ["windows", "macos", "linux", "android", "ios", "publish"]) {
+      assert.ok(jobs[job].includes(`${k}: \${{ vars.${v} }}`), `${job} sets ${k}`);
+    }
+  }
+});
+
+test("M-2: the native wrapper lower-cases response header names", async () => {
+  setBackupNativeRequest(async () => ({ status: 200, headers: { "Content-Type": "text/plain", ETag: "w", "x-a": "1" }, text: "ok" }));
+  try {
+    const r = await backupHttp()({ method: "GET", url: GOOD_URL });
+    assert.deepEqual(r.headers, { "content-type": "text/plain", etag: "w", "x-a": "1" });
+  } finally {
+    setBackupNativeRequest(null);
+  }
+});
+
+test("M-3: expired pending sign-in entries (verifier included) are purged whenever the module reads them", async () => {
+  const stale = (t) => JSON.stringify({ p: "onedrive", s: "old-state", v: "OLDVERIFIER".repeat(4), t });
+  // a plain page load (no callback parameters) removes an entry older than 10 minutes, keeps a fresh one
+  let st = memStorage({ [PENDING_KEY]: stale(NOW - 11 * 60 * 1000) });
+  assert.equal(consumeWebCallback(WEB_REDIRECT, { storage: st, now: NOW }), null);
+  assert.equal(st.has(PENDING_KEY), false);
+  st = memStorage({ [PENDING_KEY]: stale(NOW - 9 * 60 * 1000) });
+  assert.equal(consumeWebCallback(WEB_REDIRECT, { storage: st, now: NOW }), null);
+  assert.equal(st.has(PENDING_KEY), true, "a sign-in that may still return is kept");
+  // an unparseable leftover goes too
+  st = memStorage({ [PENDING_KEY]: "{junk" });
+  assert.equal(consumeWebCallback("not a url", { storage: st, now: NOW }), null);
+  assert.equal(st.has(PENDING_KEY), false);
+  // the helper itself
+  st = memStorage({ [PENDING_KEY]: stale(NOW - 10 * 60 * 1000 - 1) });
+  purgeStalePending(st, NOW);
+  assert.equal(st.has(PENDING_KEY), false);
+  st = memStorage({ [PENDING_KEY]: stale(NOW - 10 * 60 * 1000) });
+  purgeStalePending(st, NOW);
+  assert.equal(st.has(PENDING_KEY), true, "exactly 10 minutes is still fresh");
+  // beginWebSignIn purges first, even when it then refuses (provider not set up), and replaces an old entry otherwise
+  st = memStorage({ [PENDING_KEY]: stale(Date.now() - 11 * 60 * 1000) });
+  await rejectsCode(beginWebSignIn("onedrive", EMPTY, { storage: st, assign: () => assert.fail("navigated"), origin: HOSTED_ORIGIN }), "not-set-up");
+  assert.equal(st.has(PENDING_KEY), false);
+  st = memStorage({ [PENDING_KEY]: stale(Date.now() - 11 * 60 * 1000) });
+  await beginWebSignIn("pcloud", FULL, { storage: st, assign: () => {}, origin: HOSTED_ORIGIN });
+  assert.ok(!st.get(PENDING_KEY).includes("OLDVERIFIER"));
+  assert.equal(JSON.parse(st.get(PENDING_KEY)).p, "pcloud");
+  // a storage that only writes still works
+  await beginWebSignIn("pcloud", FULL, { storage: { setItem: () => {} }, assign: () => {}, origin: HOSTED_ORIGIN });
+});
+
+test("M-4: a cancel after the redirect arrives stops the sign-in, and the signal reaches the token request", async () => {
+  clearAllSessions();
+  // aborted while the browser was open, redirect arrives anyway: no exchange, no session
+  let ctl = new AbortController();
+  let http = recordingHttp(() => tokenOk());
+  let shell = fakeShell("loopback", (u) => { ctl.abort(); return LOOPBACK_REDIRECT + "?code=fake-code&state=" + stateOf(u); });
+  await rejectsCode(signInShell("gdrive", FULL, { shell: "tauri", oauth: shell, http, now: () => NOW, signal: ctl.signal }), "cancelled");
+  assert.equal(http.calls.length, 0);
+  assert.equal(getSession("gdrive", NOW), null);
+  // aborted during the token request: the session is not set, and the request carried the signal
+  ctl = new AbortController();
+  http = recordingHttp(() => { ctl.abort(); return tokenOk(); });
+  shell = fakeShell("loopback", (u) => LOOPBACK_REDIRECT + "?code=fake-code&state=" + stateOf(u));
+  await rejectsCode(signInShell("gdrive", FULL, { shell: "tauri", oauth: shell, http, now: () => NOW, signal: ctl.signal }), "cancelled");
+  assert.equal(http.calls.length, 1);
+  assert.equal(http.calls[0].signal, ctl.signal);
+  assert.equal(getSession("gdrive", NOW), null);
+  // not aborted: unchanged
+  ctl = new AbortController();
+  http = recordingHttp(() => tokenOk());
+  await signInShell("gdrive", FULL, { shell: "tauri", oauth: shell, http, now: () => NOW, signal: ctl.signal });
+  assert.equal(http.calls[0].signal, ctl.signal);
+  assert.notEqual(getSession("gdrive", NOW), null);
+  clearAllSessions();
+  // exchangeCode on its own passes the signal through
+  http = recordingHttp(() => tokenOk());
+  ctl = new AbortController();
+  await exchangeCode("gdrive", { clientId: FAKE_IDS.gdrive, code: "fake-code", verifier: "v".repeat(43), redirectUri: LOOPBACK_REDIRECT }, http, NOW, ctl.signal);
+  assert.equal(http.calls[0].signal, ctl.signal);
 });
