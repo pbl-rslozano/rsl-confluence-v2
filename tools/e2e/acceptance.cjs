@@ -4311,12 +4311,23 @@ async function hdPinnedBoxes(w, h, lang) {
       const idsAfter = await ledgerIds(p);
       const ledgerBack = ledgerAtBackup.length > 0 && idsAfter.length === ledgerAtBackup.length && ledgerAtBackup.every((x) => idsAfter.includes(x));
       // 7. audit grew by the upload and the restore; no storage holds the passphrase or the bucket secret
-      const auditAfter = await auditEvents(p);
+      // About's "intact (N entries)" must match the stored chain. The app may append an entry of its own (scan activity after
+      // the reload) between two reads, so the pair is read as About first, then the store, and read again (up to three times)
+      // until both agree; a real mismatch disagrees every time.
+      let auditAfter = [];
+      let auditShown = NaN;
+      const auditReads = [];
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt) await p.waitForTimeout(750);
+        await openAbout(p);
+        await p.waitForFunction(() => /intact \(\d+ entries\)/.test(document.querySelector('[role="dialog"]').textContent), null, { timeout: 10000 }).catch(() => null);
+        auditShown = Number(((await p.getByRole("dialog").textContent()).match(/intact \((\d+) entries\)/) || [])[1]);
+        await closeAbout(p);
+        auditAfter = await auditEvents(p);
+        auditReads.push(`${auditShown}/${auditAfter.length}`);
+        if (auditShown === auditAfter.length) break;
+      }
       const grew = (ev) => auditAfter.filter((e) => e === ev).length - auditBefore.filter((e) => e === ev).length;
-      await openAbout(p);
-      await p.waitForFunction(() => /intact \(\d+ entries\)/.test(document.querySelector('[role="dialog"]').textContent), null, { timeout: 10000 }).catch(() => null);
-      const auditShown = Number(((await p.getByRole("dialog").textContent()).match(/intact \((\d+) entries\)/) || [])[1]);
-      await closeAbout(p);
       const stored = await storageText(p);
       const secretsStored = [BK_PASS, BK_SECRET, BK_KEY_ID].filter((s) => stored.includes(s));
       const cloudHits = hits.filter((h) => !h.startsWith("127.0.0.1:8787"));
@@ -4332,7 +4343,7 @@ async function hdPinnedBoxes(w, h, lang) {
           && grew("backup.cloud.upload") === 1 && grew("backup.cloud.restore") === 1 && auditShown === auditAfter.length && secretsStored.length === 0 && gw.bad.length === 0 && cloudHits.length === 0,
         { secretsCleared, keySent, b2State, doneText, passCleared, files: gw.files.size, envelopeOk, noPlain, tfBefore, tfChanged, tfAfter, clearedTo, listText: listText.slice(0, 90),
           planText: planText.slice(0, 400), settingsUnchecked, planFocus, ledgerBeforeConfirm, prefsUnchangedBeforeConfirm: prefsBeforeConfirm === prefsBeforeRestore, btcAtBackup, ledger: `${ledgerAtBackup.length} → ${idsAfter.length}`, ledgerBack,
-          audit: { upload: grew("backup.cloud.upload"), restore: grew("backup.cloud.restore"), shown: auditShown, stored: auditAfter.length }, secretsStored: secretsStored.length, gatewayAuthFailures: gw.bad.length, cloudHits,
+          audit: { upload: grew("backup.cloud.upload"), restore: grew("backup.cloud.restore"), shown: auditShown, stored: auditAfter.length, reads: auditReads }, secretsStored: secretsStored.length, gatewayAuthFailures: gw.bad.length, cloudHits,
           longTasks: { worst: worstLongTask, ...bkLongTasks } });
     }
 
