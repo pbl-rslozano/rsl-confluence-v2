@@ -2826,6 +2826,8 @@ async function hdPinnedBoxes(w, h, lang) {
     const REFLECT = "Reflect view (mirror the price axis)";
     const reflectBox = () => chart.getByRole("checkbox", { name: REFLECT, exact: true });
     const openMenu = () => chart.getByRole("button", { name: "Indicators", exact: true }).click();
+    // The Indicators menu is only in the DOM while open: put it in the wanted state without guessing.
+    const setMenu = async (want) => { if (((await reflectBox().count()) > 0) !== want) await openMenu(); };
     const wicks = () => chart.locator('[data-testid="price-candles"] > g').evaluateAll((gs) => {
       const w = (g) => { const l = g.querySelector("line"); return [Number(l.getAttribute("y1")), Number(l.getAttribute("y2"))]; };
       return [w(gs[0]), w(gs[gs.length - 1])];
@@ -2851,10 +2853,10 @@ async function hdPinnedBoxes(w, h, lang) {
     const sumY = 2 * PAD_T + (Number(priceBottom) - PAD_T);
 
     // RV-1
-    await openMenu();
+    await setMenu(true);
     await reflectBox().check();
     await p.waitForTimeout(300);
-    await openMenu();
+    await setMenu(false);
     const wR = await wicks();
     const mirrored = [0, 1].every((i) => [0, 1].every((j) => Math.abs(wR[i][j] - (sumY - wN[i][j])) <= 0.15));
     const badge = chart.getByTestId("reflect-badge");
@@ -2872,22 +2874,35 @@ async function hdPinnedBoxes(w, h, lang) {
     const hR = await bodyH(), macdR = await boxes("macd"), volR = await boxes("volume");
     const roR = await readoutAt(10);
     const bodiesSame = hN.length > 0 && hN.length === hR.length && hN.every((h, i) => Math.abs(h - hR[i]) <= 0.01);
+    // Fund trend panel size-axis labels follow the mirrored mapping: reflected, "0 %" sits at the top of the panel.
+    await setMenu(true);
+    await chart.getByRole("checkbox", { name: "Fund trend panel", exact: true }).check();
+    await chart.locator('[data-fund-label="size0"]').waitFor({ timeout: 30000 }).catch(() => null);
+    const sizeLabels = () => chart.getByTestId("fund-panel").evaluate((g) => {
+      const top = Number(g.querySelector("line").getAttribute("y1"));
+      const t = [...g.querySelectorAll("text")].filter((e) => /^(0|200) %$/.test(e.textContent));
+      const y = (l) => Number(t.find((e) => e.textContent === l)?.getAttribute("y"));
+      return { top, y0: y("0 %"), y200: y("200 %") };
+    }).catch(() => null);
+    const lblR = await sizeLabels();
     // Simulated candles with Heikin-Ashi, normal and reflected.
     await p.getByTestId("scenarios-toggle").click();
     await p.getByTestId("scenarios-table").waitFor({ timeout: 30000 }).catch(() => null);
     await p.getByTestId("scenarios-show").click();
     await chart.locator('[data-sim="candle"]').first().waitFor({ timeout: 15000 }).catch(() => null);
-    await openMenu();
+    await setMenu(true);
     await chart.getByRole("checkbox", { name: "Heikin-Ashi (display only)", exact: true }).check();
     await p.waitForTimeout(300);
     const simH = () => chart.locator('[data-sim="candle"] rect').evaluateAll((els) => els.map((e) => Number(e.getAttribute("height"))));
     const simR = await simH();
     await reflectBox().uncheck();
     await p.waitForTimeout(300);
+    const lblN = await sizeLabels();
+    const labelsOk = !!lblR && !!lblN && lblR.y0 - lblR.top === 27 && lblR.y200 > lblR.y0 && lblN.y0 > lblN.y200 && lblN.y200 - lblN.top === 27;
     const simN = await simH();
     const simSame = simN.length === 6 && simN.length === simR.length && simN.every((h, i) => Math.abs(h - simR[i]) <= 0.01);
     // Back to reflected for the key toggle check: I turns it on, then off again.
-    await openMenu();
+    await setMenu(false);
     await svg.focus();
     await p.keyboard.press("i");
     await p.waitForTimeout(300);
@@ -2898,24 +2913,45 @@ async function hdPinnedBoxes(w, h, lang) {
     record("RV-1", "Reflect view mirrors the first and last candle positions, the Reflected badge shows on the price pane and in full screen, and I toggles it",
       mirrored && badgeVisible && badgeText === "Reflected" && attr === "1" && badgeFull && keyOn && keyOff, { wN, wR, sumY, badgeText, badgeVisible, attr, badgeFull, keyOn, keyOff, vbH: geom.vbH });
     record("RV-2", "Reflect view keeps the real readout (candle 10 O/H/L/C identical), every candle body height, the MACD and volume boxes and the Heikin-Ashi simulated body heights unchanged",
-      roN.length > 0 && roN === roR && bodiesSame && macdN === macdR && volN === volR && simSame,
-      { roN: roN.slice(0, 80), roR: roR.slice(0, 80), bodiesSame, macd: macdN === macdR, vol: volN === volR, simN, simR });
+      roN.length > 0 && roN === roR && bodiesSame && macdN === macdR && volN === volR && simSame && labelsOk,
+      { labelsOk, lblR, lblN, roN: roN.slice(0, 80), roR: roR.slice(0, 80), bodiesSame, macd: macdN === macdR, vol: volN === volR, simN, simR });
 
-    // RV-3 — everything off and the view reset gives the default SVG back; the choice is remembered per device.
-    await chart.getByRole("checkbox", { name: "Heikin-Ashi (display only)", exact: true }).uncheck().catch(() => null);
-    const menuOpen = await reflectBox().count();
-    if (!menuOpen) await openMenu();
+    // RV-3 — Reflect + Heikin-Ashi + projection, zoom and pan; then all off and Reset view gives the default SVG back.
+    await setMenu(true);
+    await chart.getByRole("checkbox", { name: "Fund trend panel", exact: true }).uncheck();
     await chart.getByRole("checkbox", { name: "Heikin-Ashi (display only)", exact: true }).uncheck();
-    await p.getByTestId("scenarios-show").click();
+    await setMenu(false);
+    const show = p.getByTestId("scenarios-show");
+    if ((await show.getAttribute("aria-pressed")) === "true") await show.click();
     await chart.locator("[data-sim]").first().waitFor({ state: "detached", timeout: 10000 }).catch(() => null);
+    await setMenu(true);
     await reflectBox().check();
+    await chart.getByRole("checkbox", { name: "Heikin-Ashi (display only)", exact: true }).check();
+    await setMenu(false);
+    await show.click();
+    await chart.locator('[data-sim="candle"]').first().waitFor({ timeout: 15000 }).catch(() => null);
+    const barsBefore = await chart.locator('[data-testid="price-candles"] > g').count();
     await chart.getByRole("button", { name: "Zoom in" }).click();
+    await p.waitForTimeout(200);
+    // The projection sits at the right edge, so it is counted while zoomed in; panning away then hides it.
+    const simZoomed = await chart.locator('[data-sim="candle"]').count();
     await svg.focus();
     await p.keyboard.press("Shift+ArrowLeft");
     await p.waitForTimeout(200);
+    const allOn = {
+      simZoomed,
+      reflect: await svg.getAttribute("data-reflect"),
+      ha: await chart.locator('[data-testid="price-candles"][data-ha="1"]').count(),
+      sim: await chart.locator('[data-sim="candle"]').count(),
+      zoomed: (await chart.locator('[data-testid="price-candles"] > g').count()) < barsBefore,
+    };
+    await setMenu(true);
     await reflectBox().uncheck();
+    await chart.getByRole("checkbox", { name: "Heikin-Ashi (display only)", exact: true }).uncheck();
+    await setMenu(false);
+    await show.click();
+    await chart.locator("[data-sim]").first().waitFor({ state: "detached", timeout: 10000 }).catch(() => null);
     await chart.getByRole("button", { name: "Reset view" }).click();
-    await openMenu();
     await p.mouse.move(1, 1);
     await p.waitForTimeout(400);
     // This run went through full screen (RV-1), which only reorders the serialised declarations of the svg's inline
@@ -2924,7 +2960,7 @@ async function hdPinnedBoxes(w, h, lang) {
     await p.evaluate(`window.__rvCanon = ${canon}`);
     const svgBack = await svg.evaluate((e) => window.__rvCanon(e));
     const svgDefaultCanon = await p.evaluate((html) => { const d = document.createElement("div"); d.innerHTML = html; return window.__rvCanon(d.firstElementChild); }, svgDefault);
-    await openMenu();
+    await setMenu(true);
     await reflectBox().check();
     const stored = await p.evaluate(() => { try { return localStorage.getItem("ct-chart-optin-v1"); } catch { return null; } });
     await p.reload({ waitUntil: "domcontentloaded" });
@@ -2933,14 +2969,14 @@ async function hdPinnedBoxes(w, h, lang) {
     await chart.waitFor({ timeout: 15000 });
     await p.waitForTimeout(500);
     const afterReload = await svg.getAttribute("data-reflect");
-    await openMenu();
+    await setMenu(true);
     await chart.getByRole("button", { name: "Reset to defaults" }).click();
     await p.waitForTimeout(300);
     const afterReset = await svg.getAttribute("data-reflect");
     const storedReset = await p.evaluate(() => { try { return localStorage.getItem("ct-chart-optin-v1"); } catch { return null; } });
     record("RV-3", "Reflect + Heikin-Ashi + projection with zoom and pan, then all off and Reset view, gives the default SVG back; Reflect is remembered across a reload (ct-chart-optin-v1) and Reset to defaults clears it",
-      svgBack === svgDefaultCanon && !!stored && stored.includes("reflect") && afterReload === "1" && afterReset === null && !(storedReset ?? "").includes("reflect"),
-      { back: svgBack === svgDefaultCanon, len: [svgDefaultCanon.length, svgBack.length], stored, afterReload, afterReset, storedReset });
+      allOn.reflect === "1" && allOn.ha === 1 && allOn.simZoomed > 0 && allOn.zoomed && svgBack === svgDefaultCanon && !!stored && stored.includes("reflect") && afterReload === "1" && afterReset === null && !(storedReset ?? "").includes("reflect"),
+      { allOn, back: svgBack === svgDefaultCanon, len: [svgDefaultCanon.length, svgBack.length], stored, afterReload, afterReset, storedReset });
     await c.close();
   }
 

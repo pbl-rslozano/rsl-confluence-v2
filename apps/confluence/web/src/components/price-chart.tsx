@@ -601,8 +601,8 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
                 {[100, 0, -100].map((tick) => (
                   <text key={tick} x={viewW - PAD_R + 6} y={yScore(tick) + 3} fill="var(--color-zinc-500)" fontSize={10} fontFamily={mono}>{tick > 0 ? "+" : tick < 0 ? "−" : ""}{Math.abs(tick)}</text>
                 ))}
-                <text x={PAD_L + 4} y={inTop + 9} fill={PANEL_COLOURS.size} opacity={0.8} fontSize={9} fontFamily={mono}>200 %</text>
-                <text x={PAD_L + 4} y={inBot - 2} fill={PANEL_COLOURS.size} opacity={0.8} fontSize={9} fontFamily={mono}>0 %</text>
+                <text x={PAD_L + 4} y={reflect ? ySize(200) - 2 : inTop + 9} fill={PANEL_COLOURS.size} opacity={0.8} fontSize={9} fontFamily={mono}>200 %</text>
+                <text data-fund-label="size0" x={PAD_L + 4} y={reflect ? ySize(0) + 9 : inBot - 2} fill={PANEL_COLOURS.size} opacity={0.8} fontSize={9} fontFamily={mono}>0 %</text>
               </g>
             );
           })()}
