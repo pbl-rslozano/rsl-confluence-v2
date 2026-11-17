@@ -14,8 +14,8 @@
  * queue, so overlapping saves can never interleave.
  * ----------------------------------------------------------------------------
  */
-import type { LedgerPort } from "./signal-ledger";
-import { bookEquity, newBook, PAPER_SCHEMA, type JournalEntry, type PaperAccount, type PaperBook, type PaperPosition } from "./paper-broker";
+import { hashId, type LedgerPort } from "./signal-ledger";
+import { bookEquity, cleanTag, newBook, PAPER_SCHEMA, type ExitReason, type JournalEntry, type PaperAccount, type PaperBook, type PaperPosition } from "./paper-broker";
 import { normaliseSettings } from "./risk-engine";
 
 export type PaperPort = LedgerPort;
@@ -110,7 +110,93 @@ export function createPaperStore(portOrPromise: PaperPort | Promise<PaperPort>) 
     });
   }
 
-  return { load, save, clear };
+  /**
+   * v2.8 (WP28): merge journal entries by CONTENT, never by id. Ids are per-account sequence numbers (`trade-N`) and the account is
+   * not restored, so the same id can name different trades on two devices. An entry whose content (everything except the id)
+   * matches a local one is a duplicate. Every other entry is stored under `bk:<fingerprint>:<original id>`, which can never
+   * collide with a local `trade-N`. Never touches paper_state or paper_positions.
+   */
+  function importJournal(entries: JournalEntry[], o: { dryRun?: boolean } = {}): Promise<{ added: number; duplicates: number }> {
+    return enqueue(async (port) => {
+      const stored = await port.list(PAPER_JOURNAL);
+      const taken = new Set(stored.map(({ id }) => id));
+      const have = new Set<string>();
+      for (const { doc } of stored) {
+        const local = sanitizeJournalEntry(doc);
+        if (local) have.add(journalContent(local));
+      }
+      let added = 0;
+      let duplicates = 0;
+      for (const j of entries) {
+        const content = journalContent(j);
+        if (have.has(content)) { duplicates++; continue; }
+        have.add(content);
+        const id = restoredJournalId(j, content, taken);
+        taken.add(id);
+        if (!o.dryRun) await port.put(PAPER_JOURNAL, id, { ...j, id });
+        added++;
+      }
+      return { added, duplicates };
+    });
+  }
+
+  return { load, save, clear, importJournal };
+}
+
+const EXIT_REASONS: readonly string[] = ["stop", "target", "manual", "drawdown lock", "time"] satisfies ExitReason[];
+/** Stable content of an entry without its id: keys sorted, so two devices agree on what "the same trade" is. */
+export function journalContent(j: JournalEntry): string {
+  const { id: _id, ...rest } = j;
+  return JSON.stringify(Object.fromEntries(Object.entries(rest).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))));
+}
+/** `bk:<8 hex>:<original id>` (the id rule allows 160 characters; a long original id is replaced by its own hash). */
+function restoredJournalId(j: JournalEntry, content: string, taken: Set<string>): string {
+  const fp = hashId(content);
+  // An entry restored before already carries one `bk:<hash>:` prefix; build from the bare id so a chain of restores never stacks prefixes.
+  const bare = j.id.replace(/^(bk:[0-9a-f]{8}:)+/, "");
+  const orig = bare.length <= 140 ? bare : hashId(bare);
+  let id = `bk:${fp}:${orig}`;
+  for (let n = 2; taken.has(id); n++) id = `bk:${fp}:${orig}.${n}`;
+  return id;
+}
+const fin = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+/** v2.8 (WP28): validate one untrusted journal entry; a clean copy with only known fields, or null. */
+export function sanitizeJournalEntry(x: unknown): JournalEntry | null {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return null;
+  const r = x as Record<string, unknown>;
+  const tok = (v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-9._-]{1,40}$/.test(v);
+  if (typeof r.id !== "string" || !/^[\w:|.-]{1,160}$/.test(r.id)) return null;
+  if (typeof r.proposalId !== "string" || !/^[\w:|.-]{1,160}$/.test(r.proposalId)) return null;
+  if (typeof r.pair !== "string" || !/^[A-Z0-9]{2,30}$/.test(r.pair)) return null;
+  if (typeof r.tf !== "string" || !/^[0-9]{1,2}[mhdwM]$/.test(r.tf)) return null;
+  if (!tok(r.src) || !tok(r.configId)) return null;
+  if (r.side !== "long" && r.side !== "short") return null;
+  if (typeof r.reason !== "string" || !EXIT_REASONS.includes(r.reason)) return null;
+  if (r.approvedBy !== "owner") return null;
+  const nums = ["openedAt", "closedAt", "size", "entry", "exit", "stop", "target", "fees", "funding", "pnl", "r", "approvedAt"] as const;
+  for (const k of nums) if (!fin(r[k])) return null;
+  const out = {
+    id: r.id, openedAt: r.openedAt, closedAt: r.closedAt, pair: r.pair, src: r.src, tf: r.tf, side: r.side, size: r.size,
+    entry: r.entry, exit: r.exit, stop: r.stop, target: r.target, fees: r.fees, funding: r.funding, pnl: r.pnl, r: r.r,
+    reason: r.reason, configId: r.configId, proposalId: r.proposalId, approvedAt: r.approvedAt, approvedBy: "owner",
+  } as JournalEntry;
+  for (const k of ["mae", "mfe"] as const) {
+    if (r[k] === undefined || r[k] === null) continue;
+    if (!fin(r[k])) return null;
+    out[k] = r[k] as number;
+  }
+  if (r.preReason !== undefined && r.preReason !== null) {
+    if (typeof r.preReason !== "string" || r.preReason.length > 280) return null;
+    out.preReason = r.preReason;
+  }
+  if (r.notes !== undefined && r.notes !== null) {
+    if (typeof r.notes !== "string" || r.notes.length > 2000) return null;
+    out.notes = r.notes;
+  }
+  const tag = cleanTag(r.tag);
+  if (tag) out.tag = tag;
+  return out;
 }
 
 export type PaperStore = ReturnType<typeof createPaperStore>;
@@ -153,6 +239,29 @@ const iso = (ms: number) => (ms ? new Date(ms).toISOString() : "");
 /** Id of a trade's saved annotation (tags + notes) in the "preferences" collection (components/trade-annotation.tsx). */
 export const paperNoteId = (j: Pick<JournalEntry, "proposalId" | "openedAt" | "closedAt">): string =>
   "paper-note:" + [j.proposalId, j.openedAt, j.closedAt].join(":");
+
+/** v2.8 final review (I-1): a trade's annotation as a backup carries it; restored under paperNoteId of the same three fields. */
+export interface TradeNote { proposalId: string; openedAt: number; closedAt: number; tags: string[]; notes: string }
+
+/**
+ * Validate one untrusted trade note: the editor's own rules (at most 12 tags, trimmed and de-duplicated, each at most 180
+ * characters; notes at most 2,000 characters), only known fields, and something to keep. Null for anything else.
+ */
+export function sanitizeTradeNote(x: unknown): TradeNote | null {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return null;
+  const r = x as Record<string, unknown>;
+  if (typeof r.proposalId !== "string" || !/^[\w:|.-]{1,160}$/.test(r.proposalId)) return null;
+  for (const k of ["openedAt", "closedAt"] as const) if (!Number.isSafeInteger(r[k]) || (r[k] as number) < 0) return null;
+  if (!Array.isArray(r.tags) || r.tags.length > 12 || typeof r.notes !== "string" || r.notes.length > 2000) return null;
+  const tags: string[] = [];
+  for (const t of r.tags) {
+    if (typeof t !== "string" || t.length > 180) return null;
+    const v = t.trim();
+    if (v && !tags.includes(v)) tags.push(v);
+  }
+  if (!tags.length && !r.notes.trim()) return null;
+  return { proposalId: r.proposalId, openedAt: r.openedAt as number, closedAt: r.closedAt as number, tags, notes: r.notes };
+}
 
 /** The Notes CSV cell from a saved annotation: "notes [tag, tag]"; anything malformed or missing is "". */
 export function annotationNote(saved: unknown): string {

@@ -1,7 +1,7 @@
 import { writeFileSync, existsSync, rmSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // --target=html (PWA / browser, default) | tauri (desktop) | capacitor (mobile)
 // v2.6 WP8: the export is then protected (tools/protect-build.mjs, ADR-0014) before anything packages out/.
@@ -56,6 +56,15 @@ if (exitCode === 0) {
   ], { stdio: "inherit" });
   exitCode = result.status ?? 1;
   if (exitCode !== 0) rmSync("out/.rsl-target", { force: true });
+}
+
+// v2.8 WP28 Task 7: the hosted site's verified app-link files (.well-known). Off unless the owner configures the
+// public identifiers (RSL_APP_LINK=1 + RSL_ANDROID_CERT_SHA256 / RSL_IOS_TEAM_ID); nothing is written otherwise.
+// Written before protect-build so the build manifest lists them. Hosted (html) target only.
+if (exitCode === 0 && target === "html") {
+  const { writeAppLinkFiles, appLinkWarnings } = await import(pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "tools", "app-link-files.mjs")).href);
+  for (const w of appLinkWarnings(process.env)) console.warn(`WARNING: ${w}`);
+  for (const f of writeAppLinkFiles("out", process.env)) console.log(`app link file: ${f}`);
 }
 
 // v2.6 WP8: obfuscate the app's own chunks, delete source maps, write build-manifest.json (next to out/, never

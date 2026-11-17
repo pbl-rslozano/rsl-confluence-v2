@@ -37,7 +37,7 @@ test("exchange key with write permission is still refused, provider key is accep
   assert.equal(profile.label, "coinglass key");
   assert.ok(!profile.maskedKey.includes(KEY));
   assert.ok(!JSON.stringify(profile).includes(KEY));
-  assert.deepEqual([...PROVIDER_IDS], ["whale-alert", "coinglass"]);
+  assert.deepEqual([...PROVIDER_IDS], ["whale-alert", "coinglass", "b2", "r2"]);
 });
 
 test("coinglass request carries the key header only and the fixed host", () => {
@@ -155,4 +155,68 @@ test("POST /providers/connect with a bad payload is 400 and GET /providers lists
   } finally {
     child.kill();
   }
+});
+
+// WP28 Task 8: backup-bucket keys (Backblaze B2, Cloudflare R2). The key pair is AWS's public documentation example.
+const BK_ACCESS = "AKIAIOSFODNN7EXAMPLE";
+const BK_SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+const B2_PAYLOAD = { provider: "b2", accessKeyId: BK_ACCESS, secretAccessKey: BK_SECRET, bucket: "rsl-backup-test", region: "us-west-004", label: "My bucket" };
+const R2_PAYLOAD = { provider: "r2", accessKeyId: BK_ACCESS, secretAccessKey: BK_SECRET, bucket: "rsl-backup-test", accountId: "0123456789abcdef0123456789abcdef" };
+const s3Fetcher = ({ head = 200, list = 403, buckets = ["rsl-backup-test"] } = {}) => async (url, init) => {
+  if (init.method === "HEAD") return new Response(null, { status: head });
+  if (list !== 200) return new Response(`<Error>${BK_SECRET}</Error>`, { status: list });
+  return new Response(`<ListAllMyBucketsResult>${buckets.map((b) => `<Bucket><Name>${b}</Name></Bucket>`).join("")}</ListAllMyBucketsResult>`, { status: 200 });
+};
+
+test("bucket keys: a restricted key (ListBuckets 403, HEAD 200) is accepted, and so is ListBuckets naming only the bucket", async () => {
+  const creds = validateProviderCredentials(B2_PAYLOAD);
+  assert.deepEqual(await verifyProvider(creds, { fetcher: s3Fetcher() }), { ok: true });
+  assert.deepEqual(await verifyProvider(validateProviderCredentials(R2_PAYLOAD), { fetcher: s3Fetcher({ list: 200 }) }), { ok: true });
+});
+
+test("bucket keys: a key that can list another bucket is refused with the 'other buckets' message, secret never echoed", async () => {
+  const creds = validateProviderCredentials(B2_PAYLOAD);
+  await assert.rejects(
+    verifyProvider(creds, { fetcher: s3Fetcher({ list: 200, buckets: ["rsl-backup-test", "someone-elses"] }) }),
+    (error) => error.message === "This key can reach other buckets. Create a key restricted to one bucket.",
+  );
+  for (const fetcher of [s3Fetcher({ head: 403 }), s3Fetcher({ list: 500 }), async () => { throw new Error(`${BK_SECRET} <Error/>`); }]) {
+    await assert.rejects(verifyProvider(creds, { fetcher }), (error) => error.message === "The provider rejected the key test." && !error.message.includes(BK_SECRET));
+  }
+});
+
+test("bucket keys: the profile is kind provider, carries the bucket and a masked key id, never the secret", () => {
+  for (const payload of [B2_PAYLOAD, R2_PAYLOAD]) {
+    const creds = validateProviderCredentials(payload);
+    const profile = createProviderProfile(creds);
+    assert.equal(profile.kind, "provider");
+    assert.equal(profile.provider, payload.provider);
+    assert.equal(profile.bucket, "rsl-backup-test");
+    assert.ok(!profile.maskedKey.includes(BK_ACCESS) && profile.maskedKey.startsWith("AKIA"));
+    const text = JSON.stringify(profile);
+    for (const secret of [BK_SECRET, BK_ACCESS, payload.region, payload.accountId].filter(Boolean)) assert.ok(!text.includes(secret), secret);
+  }
+  assert.equal(createProviderProfile(validateProviderCredentials(B2_PAYLOAD)).label, "My bucket");
+  assert.equal(createProviderProfile(validateProviderCredentials(R2_PAYLOAD)).label, "r2 key");
+});
+
+test("bucket keys: payload validation (key id, secret, bucket, region / account id)", () => {
+  const bad = "Invalid bucket key payload.";
+  assert.doesNotThrow(() => validateProviderCredentials(B2_PAYLOAD));
+  const cases = [
+    { ...B2_PAYLOAD, accessKeyId: "short" }, { ...B2_PAYLOAD, accessKeyId: "AKIA IOSFODNN7EXAMPLE" }, { ...B2_PAYLOAD, accessKeyId: undefined },
+    { ...B2_PAYLOAD, secretAccessKey: "x".repeat(15) }, { ...B2_PAYLOAD, secretAccessKey: "x".repeat(129) }, { ...B2_PAYLOAD, secretAccessKey: 5 },
+    { ...B2_PAYLOAD, bucket: "short" }, { ...B2_PAYLOAD, bucket: "has_underscore" }, { ...B2_PAYLOAD, bucket: "../etc/passwd" }, { ...B2_PAYLOAD, bucket: "a".repeat(64) },
+    { ...B2_PAYLOAD, region: "evil.example" }, { ...B2_PAYLOAD, region: "US-west-004" }, { ...B2_PAYLOAD, region: undefined },
+    { ...R2_PAYLOAD, bucket: "Upper-Case" }, { ...R2_PAYLOAD, bucket: "-leading" }, { ...R2_PAYLOAD, bucket: "trailing-" }, { ...R2_PAYLOAD, bucket: "a" },
+    { ...R2_PAYLOAD, accountId: "0123456789ABCDEF0123456789ABCDEF" }, { ...R2_PAYLOAD, accountId: "abc" }, { ...R2_PAYLOAD, accountId: undefined },
+  ];
+  for (const c of cases) assert.throws(() => validateProviderCredentials(c), (e) => e.message === bad && !e.message.includes(BK_SECRET), JSON.stringify(c));
+  assert.doesNotThrow(() => validateProviderCredentials({ ...R2_PAYLOAD, bucket: "abc" }));
+});
+
+test("bucket keys do not weaken the WP19 rule: an exchange key with write permission is refused, a bucket key is accepted", async () => {
+  assert.equal(profileAllowed({ provider: "binance", environment: "mainnet" }, { readOnly: false }).ok, false);
+  assert.equal(profileAllowed({ provider: "bybit", environment: "mainnet" }, { readOnly: false }).ok, false);
+  assert.deepEqual(await verifyProvider(validateProviderCredentials(B2_PAYLOAD), { fetcher: s3Fetcher() }), { ok: true });
 });

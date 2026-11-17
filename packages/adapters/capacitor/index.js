@@ -9,6 +9,8 @@ import { Share } from '@capacitor/share';
 import { App } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
 import { CapacitorHttp } from '@capacitor/core';
+import { makeNativeRequest } from './native-request.js';
+import { createAppLinkOAuth } from './oauth.js';
 import { fromCapacitorSqlite } from '@rsl/core-kit/core/rsl-storage.js';
 
 export const DB_NAME = 'rsl-conf';
@@ -34,6 +36,9 @@ export async function createAdapters() {
   return {
     shell: 'capacitor',
     makeNativeGet,
+    /** v2.8 (WP28): backup HTTP behind the backup allowlist, and the app-link sign-in broker. */
+    makeNativeRequest: (isAllowed) => makeNativeRequest(isAllowed, (o) => CapacitorHttp.request(o)),
+    makeOAuth: (isSignIn) => createAppLinkOAuth({ addListener: App.addListener.bind(App), open: globalThis.open.bind(globalThis), isSignIn }),
     sqlFactory: async () => {
       const sqlite = new SQLiteConnection(CapacitorSQLite);
       const consistent = (await sqlite.checkConnectionsConsistency()).result;

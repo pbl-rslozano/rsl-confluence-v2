@@ -20,6 +20,8 @@ const CAPTURE_DS2 = argAfter("--capture-ds2");
 const DS_ONLY = process.argv.includes("--ds-only");
 // v2.8 (header, owner decision 16 Nov 2026): `--hd-only` runs just HD-1 (two-line header control ribbon).
 const HD_ONLY = process.argv.includes("--hd-only");
+// v2.8 (WP28): `--bk-only` runs just BK-1…BK-4 (Cloud backup).
+const BK_ONLY = process.argv.includes("--bk-only");
 const OUT = path.join(__dirname, "evidence");
 fs.mkdirSync(OUT, { recursive: true });
 const AXE = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
@@ -72,7 +74,7 @@ async function mockExchanges(ctx, seen, opts = {}) {
       return route.fulfill({ status: 429, headers: { ...headers, "retry-after": "45" }, body: JSON.stringify({ code: -1003, msg: "Too many requests" }) });
     }
     const limit = Math.min(1000, Number(u.searchParams.get("limit") || 200));
-    return route.fulfill({ status: 200, headers, body: JSON.stringify(klines(u.searchParams.get("symbol") || "X", limit, stepOf(u), opts.now)) });
+    return route.fulfill({ status: 200, headers, body: JSON.stringify(klines(u.searchParams.get("symbol") || "X", limit, stepOf(u), typeof opts.now === "function" ? opts.now(stepOf(u)) : opts.now)) });
   });
 }
 
@@ -798,7 +800,7 @@ async function hdPinnedBoxes(w, h, lang) {
     await browser.close();
     return;
   }
-  if (!DS_ONLY && !HD_ONLY) {
+  if (!DS_ONLY && !HD_ONLY && !BK_ONLY) {
   const requests = [];
 
   /* ===== A. First run, legacy migration, brand, CNR ===== */
@@ -4007,9 +4009,436 @@ async function hdPinnedBoxes(w, h, lang) {
         { open: { ...open, text: undefined }, below, gaugeOk, oneRequest, reloaded, collapsed, narrow, phone, stale, staleOk, oneRow, histOk, summary, unavailable, badText: (badText || "").slice(0, 120) });
     }
   }
-  } // end of the full run (skipped with --ds-only / --hd-only)
+  } // end of the full run (skipped with --ds-only / --hd-only / --bk-only)
+  /* ===== v2.8 WP28: Cloud backup (encrypted) in About → Settings — the gateway is mocked on http://127.0.0.1:8787 (as RD-9) ===== */
+  /* acceptance-ids: BK-1, BK-2, BK-3, BK-4 */
+  if (!DS_ONLY && !HD_ONLY) {
+    const BK_PASS = "acceptance passphrase 1";
+    const BK_WRONG = "wrong passphrase 123";
+    const BK_KEY_ID = "FAKE-B2-KEYID-0045e1c7a9abcd", BK_SECRET = "FAKE-B2-APPKEY-3f9d2b7c41e8a6"; // obviously fake
+    const BK_MAX = 20 * 1024 * 1024;
+    // Review M-1: candles on a fixed clock per bar length — 1 ms before the current bar opened — so the newest bar served
+    // is already closed and no further bar closes during the checks (that would add ledger rows between backup and
+    // restore). Frozen once per run; the newest closed bar is the same one the wall clock gives.
+    const BK_T0 = Date.now();
+    const BK_NOW = (step) => Math.floor(BK_T0 / step) * step - 1;
+    // Hosts a collapsed (or merely expanded) section must never contact.
+    const bkForbidden = (u) => /(^|\.)login\.microsoftonline\.com$|(^|\.)graph\.microsoft\.com$|(^|\.)pcloud\.com$|(^|\.)googleapis\.com$/.test(u.hostname)
+      || (u.host === "127.0.0.1:8787" && u.pathname.startsWith("/backup/"));
+    const gw = { profiles: [], files: new Map(), serve: null, calls: [], connect: [], bad: [] };
+    const bkGateway = async (c) => {
+      await c.route(/^http:\/\/127\.0\.0\.1:8787\//, async (route) => {
+        const req = route.request();
+        const u = new URL(req.url());
+        const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, content-type", "access-control-allow-methods": "GET, POST, DELETE, OPTIONS" };
+        const reply = (status, b) => route.fulfill({ status, headers: { ...cors, "content-type": "application/json" }, body: JSON.stringify(b) });
+        if (req.method() === "OPTIONS") return route.fulfill({ status: 204, headers: cors });
+        gw.calls.push(`${req.method()} ${u.pathname}`);
+        if (req.headers().authorization !== "Bearer fixture-token") { gw.bad.push(u.pathname); return reply(401, { error: "unauthorized" }); }
+        if (u.pathname === "/health") return reply(200, { ok: true, service: "rsl-gateway", profiles: 0 });
+        if (u.pathname === "/profiles") return reply(200, { profiles: [] });
+        if (u.pathname === "/providers/connect" && req.method() === "POST") {
+          const b = JSON.parse(req.postData() || "{}");
+          gw.connect.push(b);
+          const profile = { id: "bk-b2-1", kind: "provider", provider: "b2", label: String(b.label || "B2"), bucket: "rsl-test-bucket", maskedKey: "0045…abcd", connectedAt: new Date().toISOString() };
+          gw.profiles = [profile];
+          return reply(200, { profile });
+        }
+        if (u.pathname === "/providers" && req.method() === "GET") return reply(200, { profiles: gw.profiles });
+        if (u.pathname === "/backup/upload" && req.method() === "POST") {
+          const name = u.searchParams.get("name");
+          const body = req.postData() || "";
+          const at = new Date().toISOString();
+          gw.files.set(name, { body, at });
+          return reply(200, { name, size: Buffer.byteLength(body), modifiedAt: at });
+        }
+        if (u.pathname === "/backup/list") return reply(200, { files: [...gw.files].map(([name, f]) => ({ name, size: Buffer.byteLength(f.body), modifiedAt: f.at })) });
+        if (u.pathname === "/backup/download") {
+          const f = gw.files.get(u.searchParams.get("name"));
+          if (!f) return reply(404, { error: "not found" });
+          const body = gw.serve ? gw.serve(f.body) : f.body;
+          return route.fulfill({ status: 200, headers: { ...cors, "content-type": "application/octet-stream" }, body });
+        }
+        return reply(404, { error: "not found" });
+      });
+    };
+    const bkContext = async () => {
+      const c = await newContext(browser);
+      await mockExchanges(c, undefined, { now: BK_NOW });
+      await bkGateway(c);
+      const hits = [];
+      c.on("request", (r) => { const u = new URL(r.url()); if (bkForbidden(u)) hits.push(u.host + u.pathname); });
+      const p = await c.newPage();
+      await p.goto(BASE, { waitUntil: "domcontentloaded" });
+      await completeFirstRun(p, { operator: "R" });
+      await waitRows(p);
+      return { c, p, hits };
+    };
+    const flat = (s) => (s || "").replace(/[⁨⁩]/g, "").replace(/\s+/g, " ").trim();
+    const idbAll = (p, db, store) => p.evaluate(([name, st]) => new Promise((resolve) => {
+      const rq = indexedDB.open(name);
+      rq.onerror = () => resolve([]);
+      rq.onsuccess = () => {
+        const d = rq.result;
+        if (!d.objectStoreNames.contains(st)) { d.close(); return resolve([]); }
+        const g = d.transaction(st, "readonly").objectStore(st).getAll();
+        g.onsuccess = () => { d.close(); resolve(g.result); };
+        g.onerror = () => { d.close(); resolve([]); };
+      };
+    }), [db, store]);
+    const ledgerIds = async (p) => (await idbAll(p, "rsl-conf-ledger", "ledger")).flatMap((d) => (d && d.rows) || []).map((r) => r.id).sort();
+    const auditEvents = async (p) => (await idbAll(p, "rsl-conf", "audit")).map((e) => e && e.event).filter(Boolean);
+    const prefsNow = async (p) => JSON.stringify((await idbAll(p, "rsl-conf", "preferences")));
+    const storageText = (p) => p.evaluate(async () => {
+      const out = [JSON.stringify({ ...localStorage }), JSON.stringify({ ...sessionStorage })];
+      for (const info of (indexedDB.databases ? await indexedDB.databases() : [])) {
+        await new Promise((done) => {
+          const rq = indexedDB.open(info.name);
+          rq.onerror = () => done();
+          rq.onsuccess = () => {
+            const d = rq.result;
+            const names = [...d.objectStoreNames];
+            if (!names.length) { d.close(); return done(); }
+            const tx = d.transaction(names, "readonly");
+            let left = names.length;
+            for (const n of names) {
+              const g = tx.objectStore(n).getAll();
+              const fin = () => { if (--left === 0) { d.close(); done(); } };
+              g.onsuccess = () => { try { out.push(JSON.stringify(g.result)); } catch { /* unserialisable */ } fin(); };
+              g.onerror = fin;
+            }
+          };
+        });
+      }
+      return out.join("\n");
+    });
+    const openAbout = async (p) => {
+      await p.getByRole("button", { name: "About" }).click();
+      await p.waitForSelector("text=Audit trail");
+    };
+    const closeAbout = async (p) => {
+      await p.keyboard.press("Escape");
+      await p.getByRole("dialog").waitFor({ state: "hidden", timeout: 5000 }).catch(() => null);
+    };
+    const expand = async (p) => {
+      const sec = p.getByTestId("about-cloud-backup");
+      if ((await sec.getAttribute("open")) === null) await sec.locator("summary").click();
+      await p.getByTestId("bk-provider-b2").waitFor({ timeout: 5000 });
+    };
+    const bkStatus = (p) => p.getByTestId("bk-status").textContent().then(flat, () => "");
+    /** Waits until the status line has left "Working…" and returns it. */
+    const settled = async (p, re) => {
+      await p.waitForFunction((src) => {
+        const t = document.querySelector('[data-testid="bk-status"]')?.textContent || "";
+        return t && !/Working…/.test(t) && (!src || new RegExp(src).test(t));
+      }, re ? re.source : null, { timeout: 60000 }).catch(() => null);
+      return bkStatus(p);
+    };
+    /** After a reload the page holds no gateway link: Check lists the gateway's profiles again (the B2 key stays in the gateway). */
+    const relinkGateway = async (p) => {
+      await p.getByRole("button", { name: /Private API/ }).first().click();
+      const dlg = p.getByRole("dialog");
+      await dlg.waitFor({ timeout: 10000 });
+      await dlg.locator("#gateway-token").fill("fixture-token");
+      await dlg.getByRole("button", { name: "Check", exact: true }).click();
+      await dlg.getByLabel("Connected data providers").getByText("Backups", { exact: true }).waitFor({ timeout: 10000 });
+      await closeAbout(p);
+    };
+    /** Restore… → the list → open the newest file with `pass`. */
+    const openNewest = async (p, pass) => {
+      await p.getByTestId("bk-restore-b2").click();
+      await p.getByTestId("bk-list").waitFor({ timeout: 15000 });
+      await p.getByTestId("bk-pass").fill(pass);
+      await p.getByTestId("bk-open").click();
+    };
+
+    /** A step that throws (an element never appears) records FAIL for the checks it had not reached, instead of ending the run. */
+    const bkGuard = async (ids, fn) => {
+      try { await fn(); } catch (e) {
+        if (process.env.BK_DEBUG) console.log(String(e && e.stack).split("\n").filter((l) => /acceptance\.cjs|waiting for|locator/.test(l)).slice(0, 6).join("\n"));
+        for (const id of ids) if (!results.some((r) => r.id === id)) record(id, "Cloud backup check did not complete", false, `threw: ${String(e && e.message).split("\n")[0].slice(0, 200)}`);
+      }
+    };
+
+    /* BK-1: at rest the section is a collapsed <details> with nothing rendered inside and nothing requested; expanded in the
+       default build (no client IDs) the five providers show their availability, still without a request. */
+    await bkGuard(["BK-1"], async () => {
+      const { c, p, hits } = await bkContext();
+      try {
+      await openAbout(p);
+      const sec = p.getByTestId("about-cloud-backup");
+      const present = (await sec.count()) === 1;
+      const closedAtRest = present && (await sec.getAttribute("open")) === null;
+      const rowsAtRest = await p.locator('[data-testid="about-cloud-backup"] [data-testid^="bk-provider-"]').count();
+      const title = flat(await sec.locator("summary").textContent().catch(() => ""));
+      const hitsAtRest = hits.length;
+      await expand(p);
+      const states = Object.fromEntries(await Promise.all(["gdrive", "onedrive", "pcloud", "b2", "r2"].map(async (id) => [id, await p.getByTestId(`bk-provider-${id}`).getAttribute("data-state")])));
+      const actions = await p.locator('[data-testid^="bk-backup-"], [data-testid^="bk-restore-"], [data-testid^="bk-signin-"]').count();
+      const inputs = await p.evaluate(() => [...document.querySelectorAll('[data-testid="bk-pass"], [data-testid="bk-pass2"]')].map((e) => `${e.type}/${e.autocomplete}`));
+      await p.addScriptTag({ content: AXE });
+      const axe = await p.evaluate(async () => (await window.axe.run(document.querySelector('[data-testid="about-cloud-backup"]'), { resultTypes: ["violations"] })).violations.map((v) => `${v.id}:${v.nodes.length}`));
+      await p.waitForTimeout(1000);
+      const origin = new URL(BASE).origin;
+      await p.screenshot({ path: path.join(OUT, "bk-1-expanded.png") }).catch(() => null);
+      record("BK-1", "Cloud backup: collapsed in About, nothing rendered or requested at rest; default build shows Google desktop-only, OneDrive/pCloud not set up, B2/R2 needing a gateway key",
+        closedAtRest && rowsAtRest === 0 && title === "Cloud backup (encrypted)" && hitsAtRest === 0 && hits.length === 0
+          && states.gdrive === "desktop-only" && states.onedrive === "not-set-up" && states.pcloud === "not-set-up" && states.b2 === "needs-gateway" && states.r2 === "needs-gateway"
+          && actions === 0 && inputs.join() === "password/new-password,password/new-password" && axe.length === 0,
+        { origin, closedAtRest, rowsAtRest, title, hitsAtRest, hits: hits.slice(0, 4), states, actions, inputs, axe });
+      } finally {
+        await c.close(); // review M-10: also when a step throws
+      }
+    });
+
+    /* BK-2 … BK-4 share one page: B2 connected through the mocked gateway, one backup uploaded. */
+    const shared = { c: null };
+    await bkGuard(["BK-2", "BK-3", "BK-4"], async () => {
+    const { c, p, hits } = await bkContext();
+    shared.c = c;
+    const consoleErrors = [];
+    p.on("pageerror", (e) => consoleErrors.push(String(e).slice(0, 160)));
+    // Final review M-1: every long task (>= 50 ms) on the page while a backup, an open or a restore runs. Key derivation and
+    // AES-GCM run in WebCrypto off the main thread, so nothing is exempted: no task may reach 200 ms.
+    const bkLongTasks = { probe: [], backup: [], open: [], restore: [] };
+    let bkPhase = null;
+    await p.exposeFunction("__bkLongTask", (ms) => { if (bkPhase) bkLongTasks[bkPhase].push(ms); });
+    const watchLongTasks = () => p.evaluate(() => {
+      if (window.__bkLtOn) return;
+      window.__bkLtOn = true;
+      try { new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__bkLongTask(Math.round(e.duration)); }).observe({ type: "longtask" }); } catch { /* no long-task API */ }
+    });
+    {
+      // 1. connect B2 with the Private API header button
+      await p.getByRole("button", { name: /Private API/ }).first().click();
+      const dlg = p.getByRole("dialog");
+      await dlg.waitFor({ timeout: 10000 });
+      await dlg.locator("#gateway-token").fill("fixture-token");
+      await dlg.getByRole("button", { name: "Check", exact: true }).click();
+      await dlg.getByText("Gateway online").waitFor({ timeout: 10000 });
+      await dlg.locator("#data-provider").click();
+      await p.getByRole("option", { name: /Backblaze B2/ }).click();
+      await dlg.locator("#data-provider-label").fill("Backups");
+      await dlg.locator("#bucket-key-id").fill(BK_KEY_ID);
+      await dlg.locator("#bucket-secret").fill(BK_SECRET);
+      await dlg.locator("#bucket-name").fill("rsl-test-bucket");
+      await dlg.locator("#bucket-region").fill("eu-central-003");
+      await dlg.getByRole("button", { name: "Connect", exact: true }).last().click();
+      await dlg.getByLabel("Connected data providers").getByText("Backups", { exact: true }).waitFor({ timeout: 10000 });
+      const secretsCleared = (await dlg.locator("#bucket-key-id").inputValue()) === "" && (await dlg.locator("#bucket-secret").inputValue()) === "";
+      const keySent = gw.connect.length === 1 && gw.connect[0].accessKeyId === BK_KEY_ID && gw.connect[0].secretAccessKey === BK_SECRET;
+      await closeAbout(p);
+      // 2. back up with the passphrase twice (once the first scan has finished recording)
+      for (let i = 0, last = -1; i < 20; i++) { const n = (await ledgerIds(p)).length; if (n === last && n > 0) break; last = n; await p.waitForTimeout(750); }
+      const auditBefore = await auditEvents(p);
+      const tfBefore = flat(await p.getByRole("combobox", { name: "Timeframe" }).textContent());
+      const ledgerAtBackup = await ledgerIds(p);
+      // Review M-8: the positive control for "no BTCUSDT in the upload": the ledger does hold BTCUSDT rows.
+      const btcAtBackup = ledgerAtBackup.some((x) => x.includes("|BTCUSDT|"));
+      await openAbout(p);
+      await expand(p);
+      const b2State = await p.getByTestId("bk-provider-b2").getAttribute("data-state");
+      await p.getByTestId("bk-pass").fill(BK_PASS);
+      await p.getByTestId("bk-pass2").fill(BK_PASS);
+      await watchLongTasks();
+      // Positive control: an 80 ms busy loop must be seen, so "no long task" cannot pass because the observer is deaf.
+      bkPhase = "probe";
+      await p.evaluate(() => { setTimeout(() => { const t = performance.now(); while (performance.now() - t < 80) { /* busy */ } }, 0); }); // a page task (a CDP evaluate is not one)
+      await p.waitForTimeout(300);
+      bkPhase = "backup";
+      await p.getByTestId("bk-backup-b2").click();
+      const doneText = await settled(p, /Backed up|could|refused|not/);
+      await p.waitForTimeout(300); // long-task entries are delivered after the task
+      bkPhase = null;
+      const passCleared = (await p.getByTestId("bk-pass").inputValue()) === "" && (await p.getByTestId("bk-pass2").inputValue()) === "";
+      const [name, file] = [...gw.files][0] || [];
+      let envelope = null;
+      try { envelope = JSON.parse(file.body); } catch { envelope = null; }
+      const envelopeOk = !!envelope && Object.keys(envelope).sort().join() === "ct,format,h,iv,v" && envelope.format === "rsl-confluence-backup" && envelope.v === 1;
+      const noPlain = !!file && !file.body.includes("BTCUSDT") && !file.body.includes(BK_PASS) && !file.body.includes("acceptance passphrase");
+      await closeAbout(p);
+      // 3. note the ledger, then change the timeframe preference (an audited settings change after the backup)
+      await p.getByRole("combobox", { name: "Timeframe" }).click();
+      await p.getByRole("option", { name: "1 hour", exact: true }).click();
+      await waitRows(p);
+      for (let i = 0; i < 40 && !(await auditEvents(p)).includes("preferences.update"); i++) await p.waitForTimeout(250);
+      // let the 1 h scan finish recording before the ledger is cleared
+      let last = -1;
+      for (let i = 0; i < 20; i++) { const n = (await ledgerIds(p)).length; if (n === last) break; last = n; await p.waitForTimeout(750); }
+      const tfChanged = flat(await p.getByRole("combobox", { name: "Timeframe" }).textContent());
+      // 4. clear the ledger (existing confirm)
+      await p.getByRole("button", { name: /Signal ledger \(forward test\)/ }).click();
+      await p.waitForSelector("text=Signals recorded");
+      await p.getByRole("dialog").getByRole("button", { name: "Clear ledger" }).first().click();
+      await p.getByRole("alertdialog").getByRole("button", { name: "Clear ledger" }).click();
+      for (let i = 0; i < 20 && (await ledgerIds(p)).length; i++) await p.waitForTimeout(250);
+      const clearedTo = (await ledgerIds(p)).length;
+      await closeAbout(p);
+      // 5. restore: the list shows the file; the plan shows the backup time, the counts and the newer-settings line
+      const prefsBeforeRestore = await prefsNow(p);
+      await openAbout(p);
+      await expand(p);
+      await p.getByTestId("bk-restore-b2").click();
+      await p.getByTestId("bk-list").waitFor({ timeout: 15000 });
+      const listText = flat(await p.getByTestId("bk-list").textContent());
+      await p.getByTestId("bk-pass").fill(BK_PASS);
+      await watchLongTasks();
+      bkPhase = "open";
+      await p.getByTestId("bk-open").click();
+      await p.getByTestId("bk-plan").waitFor({ timeout: 60000 }).catch(() => null);
+      await p.waitForTimeout(300);
+      bkPhase = null;
+      const planText = flat(await p.getByTestId("bk-plan").textContent().catch(() => ""));
+      const settingsUnchecked = (await p.getByTestId("bk-settings").isChecked().catch(() => true)) === false;
+      // Review I-2: focus moves into the plan (alertdialog) and it is described by the time and counts lines.
+      await p.waitForFunction(() => !!document.activeElement?.closest('[data-testid="bk-plan"]'), null, { timeout: 5000 }).catch(() => null);
+      const planFocus = await p.evaluate(() => {
+        const plan = document.querySelector('[data-testid="bk-plan"]');
+        const ids = (plan?.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
+        return { inside: !!plan && plan.contains(document.activeElement), on: document.activeElement?.getAttribute("data-testid") || document.activeElement?.tagName, described: ids.length === 2 && ids.every((id) => (document.getElementById(id)?.textContent || "").length > 0) };
+      });
+      await p.getByTestId("bk-settings").check();
+      const ledgerBeforeConfirm = (await ledgerIds(p)).length;
+      const prefsBeforeConfirm = await prefsNow(p); // review M-9: opening the plan and ticking the box write nothing
+      bkPhase = "restore"; // until the page reloads (the observer goes with the old page)
+      const [, ] = await Promise.all([p.waitForEvent("load", { timeout: 20000 }).catch(() => null), p.getByTestId("bk-confirm").click()]);
+      bkPhase = null;
+      const worstLongTask = Math.max(0, ...bkLongTasks.backup, ...bkLongTasks.open, ...bkLongTasks.restore);
+      // 6. after the reload: the ledger and the timeframe are back
+      await p.waitForSelector(".rsl-brand-host .rsl-brand", { timeout: 20000 });
+      await waitRows(p);
+      const tfAfter = flat(await p.getByRole("combobox", { name: "Timeframe" }).textContent());
+      const idsAfter = await ledgerIds(p);
+      const ledgerBack = ledgerAtBackup.length > 0 && idsAfter.length === ledgerAtBackup.length && ledgerAtBackup.every((x) => idsAfter.includes(x));
+      // 7. audit grew by the upload and the restore; no storage holds the passphrase or the bucket secret
+      // About's "intact (N entries)" must match the stored chain. The app may append an entry of its own (scan activity after
+      // the reload) between two reads, so the pair is read as About first, then the store, and read again (up to three times)
+      // until both agree; a real mismatch disagrees every time.
+      let auditAfter = [];
+      let auditShown = NaN;
+      const auditReads = [];
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt) await p.waitForTimeout(750);
+        await openAbout(p);
+        await p.waitForFunction(() => /intact \(\d+ entries\)/.test(document.querySelector('[role="dialog"]').textContent), null, { timeout: 10000 }).catch(() => null);
+        auditShown = Number(((await p.getByRole("dialog").textContent()).match(/intact \((\d+) entries\)/) || [])[1]);
+        await closeAbout(p);
+        auditAfter = await auditEvents(p);
+        auditReads.push(`${auditShown}/${auditAfter.length}`);
+        if (auditShown === auditAfter.length) break;
+      }
+      const grew = (ev) => auditAfter.filter((e) => e === ev).length - auditBefore.filter((e) => e === ev).length;
+      const stored = await storageText(p);
+      const secretsStored = [BK_PASS, BK_SECRET, BK_KEY_ID].filter((s) => stored.includes(s));
+      const cloudHits = hits.filter((h) => !h.startsWith("127.0.0.1:8787"));
+      record("BK-2", "Backup round trip through a mocked B2 gateway: encrypted upload without plaintext, restore shows the backup time, the record counts and asks before replacing newer settings, ledger and settings come back, no secret stored, no long task of 200 ms or more while it runs",
+        secretsCleared && keySent && b2State === "ready" && /^Backed up confluence-backup-\d{8}T\d{6}Z\.json \(/.test(doneText) && passCleared && gw.files.size === 1 && envelopeOk && noPlain
+          && tfChanged !== tfBefore && clearedTo === 0 && listText.includes(name)
+          && /Backup made /.test(planText) && /Ledger: \d+ rows, \d+ new\. Paper journal: \d+ trades, \d+ new\. Pre-registrations: \d+, \d+ new\./.test(planText)
+          && /Measured outcomes: \d+ rows, \d+ new\. Universe snapshots: \d+, \d+ new\. Recorded gaps: \d+, \d+ new\. Trade notes: \d+, \d+ new\./.test(planText)
+          && worstLongTask < 200 && bkLongTasks.probe.length === 1 && bkLongTasks.probe[0] >= 80
+          && /Your settings were changed after this backup \(.+\)\. Restoring them replaces your newer settings\./.test(planText) && settingsUnchecked
+          && ledgerBeforeConfirm === 0 && prefsBeforeConfirm === prefsBeforeRestore && ledgerBack && tfAfter === tfBefore && btcAtBackup
+          && planFocus.inside && planFocus.described
+          && grew("backup.cloud.upload") === 1 && grew("backup.cloud.restore") === 1 && auditShown === auditAfter.length && secretsStored.length === 0 && gw.bad.length === 0 && cloudHits.length === 0,
+        { secretsCleared, keySent, b2State, doneText, passCleared, files: gw.files.size, envelopeOk, noPlain, tfBefore, tfChanged, tfAfter, clearedTo, listText: listText.slice(0, 90),
+          planText: planText.slice(0, 400), settingsUnchecked, planFocus, ledgerBeforeConfirm, prefsUnchangedBeforeConfirm: prefsBeforeConfirm === prefsBeforeRestore, btcAtBackup, ledger: `${ledgerAtBackup.length} → ${idsAfter.length}`, ledgerBack,
+          audit: { upload: grew("backup.cloud.upload"), restore: grew("backup.cloud.restore"), shown: auditShown, stored: auditAfter.length, reads: auditReads }, secretsStored: secretsStored.length, gatewayAuthFailures: gw.bad.length, cloudHits,
+          longTasks: { worst: worstLongTask, ...bkLongTasks } });
+    }
+
+    /* BK-3: a wrong passphrase, then a file with one character of its ciphertext changed: the same refusal, nothing changed. */
+    {
+      await relinkGateway(p);
+      const before = await ledgerIds(p);
+      await p.evaluate(() => { window.__bkNoReload = 1; });
+      await openAbout(p);
+      await expand(p);
+      // Review I-2: Cancel discards the plan and returns focus to the Restore button that opened it.
+      await openNewest(p, BK_PASS);
+      await p.getByTestId("bk-plan").waitFor({ timeout: 60000 });
+      await p.waitForFunction(() => !!document.activeElement?.closest('[data-testid="bk-plan"]'), null, { timeout: 5000 }).catch(() => null);
+      const focusInPlan = await p.evaluate(() => !!document.activeElement?.closest('[data-testid="bk-plan"]'));
+      await p.getByTestId("bk-cancel").click();
+      await p.waitForFunction(() => document.activeElement?.getAttribute("data-testid") === "bk-restore-b2", null, { timeout: 5000 }).catch(() => null);
+      const focusBack = await p.evaluate(() => document.activeElement?.getAttribute("data-testid") || document.activeElement?.tagName);
+      const cancelled = (await p.getByTestId("bk-plan").count()) === 0;
+      await openNewest(p, BK_WRONG);
+      const wrong = await settled(p, /could not be opened|not a Confluence/);
+      const wrongPlan = await p.getByTestId("bk-plan").count();
+      gw.serve = (body) => {
+        const o = JSON.parse(body);
+        const i = Math.floor(o.ct.length / 2);
+        o.ct = o.ct.slice(0, i) + (o.ct[i] === "A" ? "B" : "A") + o.ct.slice(i + 1);
+        return JSON.stringify(o);
+      };
+      await openNewest(p, BK_PASS);
+      const tampered = await settled(p, /could not be opened|not a Confluence/);
+      const tamperedPlan = await p.getByTestId("bk-plan").count();
+      gw.serve = null;
+      const after = await ledgerIds(p);
+      const noReload = await p.evaluate(() => window.__bkNoReload === 1);
+      const msg = "This backup could not be opened: the passphrase is wrong or the file was changed.";
+      record("BK-3", "Cloud restore refuses a wrong passphrase and a tampered file (one ciphertext character changed) with the same message; no plan is shown, the ledger is unchanged and the page does not reload (a cancelled plan returns focus to Restore…)",
+        focusInPlan && focusBack === "bk-restore-b2" && cancelled && wrong === msg && tampered === msg && wrongPlan === 0 && tamperedPlan === 0 && after.length === before.length && after.every((x, i) => x === before[i]) && noReload,
+        { focusInPlan, focusBack, cancelled, wrong, tampered, wrongPlan, tamperedPlan, ledger: `${before.length} → ${after.length}`, noReload });
+      await closeAbout(p);
+    }
+
+    /* BK-4: a 20 MB + 1 download, a valid envelope around a payload of an unknown schema, and a foreign sign-in return. */
+    {
+      const { webcrypto } = require("node:crypto");
+      const b64u = (b) => Buffer.from(b).toString("base64url");
+      const seal = async (plain, pass, createdAt) => {
+        const enc = new TextEncoder();
+        const salt = webcrypto.getRandomValues(new Uint8Array(16));
+        const iv = webcrypto.getRandomValues(new Uint8Array(12));
+        const header = { schema: 1, cipher: "AES-256-GCM", kdf: "PBKDF2-SHA-256", iter: 600000, salt: b64u(salt), zip: "none", createdAt, app: "2.8.0 (build 20261117)" };
+        const hb = enc.encode(JSON.stringify(header));
+        const base = await webcrypto.subtle.importKey("raw", enc.encode(pass.normalize("NFC")), "PBKDF2", false, ["deriveKey"]);
+        const key = await webcrypto.subtle.deriveKey({ name: "PBKDF2", hash: "SHA-256", salt, iterations: 600000 }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt"]);
+        const ct = new Uint8Array(await webcrypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: hb, tagLength: 128 }, key, enc.encode(plain)));
+        return JSON.stringify({ format: "rsl-confluence-backup", v: 1, h: b64u(hb), iv: b64u(iv), ct: b64u(ct) });
+      };
+      const ledgerBefore = await ledgerIds(p);
+      const prefsBefore = await prefsNow(p);
+      await p.evaluate(() => { window.__bkNoReload = 1; });
+      await openAbout(p);
+      await expand(p);
+      gw.serve = () => Buffer.alloc(BK_MAX + 1, 0x61);
+      await openNewest(p, BK_PASS);
+      const oversize = await settled(p, /larger than 20 MB|could not|not a Confluence|refused|reached/);
+      const schema99 = await seal(JSON.stringify({ format: "rsl-confluence-backup-payload", schema: 99 }), BK_PASS, Date.now() - 60_000);
+      gw.serve = () => schema99;
+      await openNewest(p, BK_PASS);
+      const invalid = await settled(p, /not a Confluence|could not|larger|refused/);
+      gw.serve = null;
+      const plans = await p.getByTestId("bk-plan").count();
+      const ledgerAfter = await ledgerIds(p);
+      const prefsAfter = await prefsNow(p);
+      const noReload = await p.evaluate(() => window.__bkNoReload === 1);
+      await closeAbout(p);
+      // A sign-in return this page did not start: the code leaves the address bar and About opens on the section.
+      await p.goto(new URL("/?code=x&state=y", BASE).href, { waitUntil: "domcontentloaded" });
+      await p.waitForSelector(".rsl-brand-host .rsl-brand", { timeout: 20000 });
+      await p.getByTestId("about-cloud-backup").waitFor({ timeout: 10000 }).catch(() => null);
+      const foreignOpen = (await p.getByTestId("about-cloud-backup").getAttribute("open").catch(() => null)) !== null;
+      const foreign = await settled(p, /phone app/);
+      const href = p.url();
+      const u = new URL(href);
+      record("BK-4", "Cloud restore refuses a 20 MB + 1 download and a valid envelope whose payload has an unknown schema (ledger and preferences unchanged, no reload); a sign-in return this page did not start leaves no code in the address bar and says so in Cloud backup",
+        oversize === "The file is larger than 20 MB and was not opened." && invalid === "This is not a Confluence Terminal backup, or it was made by a newer version." && plans === 0
+          && ledgerAfter.join() === ledgerBefore.join() && prefsAfter === prefsBefore && noReload
+          && !/code=|state=/.test(href) && u.pathname === "/" && u.search === "" && foreignOpen
+          && foreign === "This sign-in was meant for the phone app or has expired. Start it again from Cloud backup.",
+        { oversize, invalid, plans, ledger: `${ledgerBefore.length} → ${ledgerAfter.length}`, prefsSame: prefsAfter === prefsBefore, noReload, href, foreignOpen, foreign });
+    }
+    if (consoleErrors.length) console.log("BK page errors:", consoleErrors.slice(0, 3).join(" | "));
+    });
+    if (shared.c) await shared.c.close();
+  }
   /* acceptance-ids: HD-1 — two-line header control ribbon at ≥ 1280 px (owner decision 16 Nov 2026, spec §3 item 9) */
-  if (!DS_ONLY) {
+  if (!DS_ONLY && !BK_ONLY) {
     const ev = {}; const bad = []; let more = null;
     const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     const runs = [];
@@ -4078,7 +4507,7 @@ async function hdPinnedBoxes(w, h, lang) {
       bad.length === 0, bad.length ? bad.slice(0, 14).join(" | ") : { rows: ev, theme: more.cycle.map((x) => x.current).join(" → "), focusTips: more.focusTips.length });
   }
   /* acceptance-ids: DS-1, DS-2 — layout at rest vs the baselines in tools/e2e/baselines/ (DS-2: v2.7.0-web; DS-1: re-captured for spec §3 item 9) */
-  if (!HD_ONLY) {
+  if (!HD_ONLY && !BK_ONLY) {
     const baseFile = path.join(__dirname, "baselines", "ds-1.json");
     const base = fs.existsSync(baseFile) ? JSON.parse(fs.readFileSync(baseFile, "utf8")) : null;
     const now = await ds1Snapshot();
@@ -4086,7 +4515,7 @@ async function hdPinnedBoxes(w, h, lang) {
     record("DS-1", `Main screen at rest: header, controls, list toolbar, columns, rows and footer within ±${DS_TOLERANCE_PX} px of the baseline (v2.7.0; re-captured 16 Nov 2026 for the two-line header, spec §3 item 9); default colours unchanged (text masked, clock frozen, FX mocked)`,
       diffs.length === 0, diffs.length ? diffs.slice(0, 12).join(" | ") : `${Object.keys(now.boxes).length} boxes`);
   }
-  if (!HD_ONLY) {
+  if (!HD_ONLY && !BK_ONLY) {
     const baseFile = path.join(__dirname, "baselines", "ds-2.json");
     const base = fs.existsSync(baseFile) ? JSON.parse(fs.readFileSync(baseFile, "utf8")) : null;
     const now = await ds2Snapshot();

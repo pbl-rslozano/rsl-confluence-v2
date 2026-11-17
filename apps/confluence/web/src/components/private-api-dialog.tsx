@@ -33,6 +33,10 @@ import {
   nextProviderLink,
   PROVIDER_LINK_STALE_MESSAGE,
   type DataProvider,
+  type ProviderFormState,
+  bucketFormError,
+  isBucketProvider,
+  prepareProviderSubmit,
   type GatewaySession,
   type PrivateApiEnvironment,
   type PrivateApiProfile,
@@ -53,7 +57,11 @@ interface PrivateApiDialogProps {
 const DATA_PROVIDER_LABELS: Record<DataProvider, string> = {
   "whale-alert": "Whale Alert — large transfers",
   coinglass: "CoinGlass — US spot ETF flows",
+  b2: "Backblaze B2 — encrypted backup bucket",
+  r2: "Cloudflare R2 — encrypted backup bucket",
 };
+
+const shortProviderName = (provider: DataProvider): string => DATA_PROVIDER_LABELS[provider].split(" — ")[0] as string;
 
 const PROVIDER_LABELS: Record<PrivateApiProvider, string> = {
   binance: "Binance",
@@ -86,6 +94,11 @@ export function PrivateApiDialog({
   const [dataProvider, setDataProvider] = useState<DataProvider>("whale-alert");
   const [providerLabel, setProviderLabel] = useState("");
   const [providerKey, setProviderKey] = useState("");
+  const [bucketKeyId, setBucketKeyId] = useState("");
+  const [bucketSecret, setBucketSecret] = useState("");
+  const [bucketName, setBucketName] = useState("");
+  const [bucketRegion, setBucketRegion] = useState("");
+  const [bucketAccountId, setBucketAccountId] = useState("");
   const [providerBusy, setProviderBusy] = useState(false);
   const [providerError, setProviderError] = useState<string | null>(null);
 
@@ -145,7 +158,13 @@ export function PrivateApiDialog({
     gatewayStatus === "online" && gatewayValid && gatewayToken.trim() ? { url: gatewayUrl, token: gatewayToken } : null;
   const providerSession: GatewaySession | null =
     freshSession ?? providerLink?.session ?? (profile ? { url: profile.gatewayUrl, token: profile.gatewayToken } : null);
-  const providerFormValid = providerSession !== null && providerKey.trim().length > 0;
+  const bucketMode = isBucketProvider(dataProvider);
+  const providerFormValid =
+    providerSession !== null &&
+    (bucketMode
+      ? bucketKeyId.trim().length > 0 && bucketSecret.trim().length > 0 && bucketName.trim().length > 0 &&
+        (dataProvider === "b2" ? bucketRegion.trim().length > 0 : bucketAccountId.trim().length > 0)
+      : providerKey.trim().length > 0);
 
   /** The gateway restarted or the token changed: drop the stale link locally. */
   const dropStaleLink = () => {
@@ -170,17 +189,25 @@ export function PrivateApiDialog({
 
   const handleProviderConnect = async () => {
     if (!providerSession || !providerFormValid) return;
-    const apiKey = providerKey.trim();
-    setProviderKey(""); // cleared at submit, success or failure: no other copy of the key is kept
+    const form: ProviderFormState = { apiKey: providerKey, keyId: bucketKeyId, secret: bucketSecret, bucket: bucketName, region: bucketRegion, accountId: bucketAccountId };
+    if (isBucketProvider(dataProvider)) {
+      const problem = bucketFormError(dataProvider, form);
+      if (problem) { // nothing was sent: the entered secrets stay so a typo can be fixed
+        setProviderError(problem);
+        return;
+      }
+    }
+    const label = providerLabel.trim() || shortProviderName(dataProvider);
+    const { input, cleared } = prepareProviderSubmit(dataProvider, label, form);
+    // cleared at submit, success or failure: no other copy of a key is kept
+    setProviderKey(cleared.apiKey);
+    setBucketKeyId(cleared.keyId);
+    setBucketSecret(cleared.secret);
     setProviderBusy(true);
     setProviderError(null);
     let link = providerLink;
     try {
-      const added = await connectProvider(providerSession, {
-        provider: dataProvider,
-        label: providerLabel.trim() || DATA_PROVIDER_LABELS[dataProvider].split(" — ")[0],
-        apiKey,
-      });
+      const added = await connectProvider(providerSession, input);
       link = nextProviderLink(link, { type: "connected", session: providerSession, profile: added });
       onProviderLinkChange(link);
       try {
@@ -229,7 +256,9 @@ export function PrivateApiDialog({
             <li key={p.id} className="flex items-center justify-between gap-3 rounded border border-zinc-700 bg-zinc-950 p-2">
               <div className="min-w-0">
                 <div className="truncate text-sm text-zinc-200">{p.label}</div>
-                <div className="font-mono text-xs text-zinc-500">{DATA_PROVIDER_LABELS[p.provider]} · {p.maskedKey}</div>
+                <div className="font-mono text-xs text-zinc-500">
+                  {p.bucket ? `${shortProviderName(p.provider)} · ${p.bucket} · ${p.maskedKey}` : `${DATA_PROVIDER_LABELS[p.provider]} · ${p.maskedKey}`}
+                </div>
               </div>
               <Button type="button" variant="outline" size="sm" className="shrink-0 border-rose-500/40 text-rose-300" disabled={providerBusy} onClick={() => handleProviderDisconnect(p.id)}>
                 Disconnect
@@ -241,13 +270,20 @@ export function PrivateApiDialog({
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="data-provider">Provider</Label>
-          <Select value={dataProvider} onValueChange={(value) => setDataProvider(value as DataProvider)}>
+          <Select value={dataProvider} onValueChange={(value) => {
+            setDataProvider(value as DataProvider);
+            setProviderKey("");
+            setBucketKeyId("");
+            setBucketSecret("");
+          }}>
             <SelectTrigger id="data-provider" aria-label="Data provider" className="border-zinc-700 bg-zinc-950">
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="border-zinc-700 bg-zinc-900">
               <SelectItem value="whale-alert">{DATA_PROVIDER_LABELS["whale-alert"]}</SelectItem>
               <SelectItem value="coinglass">{DATA_PROVIDER_LABELS.coinglass}</SelectItem>
+              <SelectItem value="b2">{DATA_PROVIDER_LABELS.b2}</SelectItem>
+              <SelectItem value="r2">{DATA_PROVIDER_LABELS.r2}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -256,27 +292,68 @@ export function PrivateApiDialog({
           <Input id="data-provider-label" value={providerLabel} onChange={(event) => setProviderLabel(event.target.value)} maxLength={80} className="border-zinc-700 bg-zinc-950" />
         </div>
       </div>
-      <div className="space-y-2">
-        <Label htmlFor="data-provider-key"><KeyRound className="h-3.5 w-3.5" /> Provider API key</Label>
-        <div className="flex gap-2">
-          <Input
-            id="data-provider-key"
-            type="password"
-            value={providerKey}
-            onChange={(event) => setProviderKey(event.target.value)}
-            autoComplete="new-password"
-            spellCheck={false}
-            className="border-zinc-700 bg-zinc-950 font-mono"
-          />
-          <Button type="button" variant="outline" className="shrink-0 border-zinc-700" disabled={!providerFormValid || providerBusy} onClick={handleProviderConnect}>
+      {bucketMode ? (
+        <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="bucket-key-id"><KeyRound className="h-3.5 w-3.5" /> Key ID</Label>
+              <Input id="bucket-key-id" type="password" value={bucketKeyId} onChange={(event) => setBucketKeyId(event.target.value)} autoComplete="off" spellCheck={false} className="border-zinc-700 bg-zinc-950 font-mono" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bucket-secret">{dataProvider === "b2" ? "Application key" : "Secret access key"}</Label>
+              <Input id="bucket-secret" type="password" value={bucketSecret} onChange={(event) => setBucketSecret(event.target.value)} autoComplete="off" spellCheck={false} className="border-zinc-700 bg-zinc-950 font-mono" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bucket-name">Bucket</Label>
+              <Input id="bucket-name" value={bucketName} onChange={(event) => setBucketName(event.target.value)} maxLength={63} autoComplete="off" spellCheck={false} className="border-zinc-700 bg-zinc-950 font-mono" />
+            </div>
+            <div className="space-y-2">
+              {dataProvider === "b2" ? (
+                <>
+                  <Label htmlFor="bucket-region">Region</Label>
+                  <Input id="bucket-region" value={bucketRegion} onChange={(event) => setBucketRegion(event.target.value)} placeholder="eu-central-003" autoComplete="off" spellCheck={false} className="border-zinc-700 bg-zinc-950 font-mono" />
+                </>
+              ) : (
+                <>
+                  <Label htmlFor="bucket-account">Account ID</Label>
+                  <Input id="bucket-account" value={bucketAccountId} onChange={(event) => setBucketAccountId(event.target.value)} autoComplete="off" spellCheck={false} className="border-zinc-700 bg-zinc-950 font-mono" />
+                </>
+              )}
+            </div>
+          </div>
+          <Button type="button" variant="outline" className="border-zinc-700" disabled={!providerFormValid || providerBusy} onClick={handleProviderConnect}>
             {providerBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Connect"}
           </Button>
+          {!providerSession && <p className="text-[11px] text-zinc-500">Check the local gateway first.</p>}
+          <p className="text-[11px] text-zinc-500">
+            Bucket keys stay in the gateway&apos;s memory on this PC and are cleared when it stops. Use a key restricted to this one bucket.
+          </p>
         </div>
-        {!providerSession && <p className="text-[11px] text-zinc-500">Check the local gateway first.</p>}
-      </div>
-      <p className="text-[11px] text-zinc-500">
-        Keys stay in the gateway&apos;s memory on this PC and are cleared when it stops. Both are paid plans for personal use.
-      </p>
+      ) : (
+      <div className="space-y-2">
+          <Label htmlFor="data-provider-key"><KeyRound className="h-3.5 w-3.5" /> Provider API key</Label>
+          <div className="flex gap-2">
+            <Input
+              id="data-provider-key"
+              type="password"
+              value={providerKey}
+              onChange={(event) => setProviderKey(event.target.value)}
+              autoComplete="new-password"
+              spellCheck={false}
+              className="border-zinc-700 bg-zinc-950 font-mono"
+            />
+            <Button type="button" variant="outline" className="shrink-0 border-zinc-700" disabled={!providerFormValid || providerBusy} onClick={handleProviderConnect}>
+              {providerBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Connect"}
+            </Button>
+          </div>
+          {!providerSession && <p className="text-[11px] text-zinc-500">Check the local gateway first.</p>}
+        </div>
+      )}
+      {!bucketMode && (
+        <p className="text-[11px] text-zinc-500">
+          Keys stay in the gateway&apos;s memory on this PC and are cleared when it stops. Both are paid plans for personal use.
+        </p>
+      )}
       {providerError && <div role="alert" className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-300">{providerError}</div>}
     </section>
   );
@@ -301,6 +378,8 @@ export function PrivateApiDialog({
         setSecrets(emptySecretState());
         setShowSecret(false);
         setProviderKey("");
+        setBucketKeyId("");
+        setBucketSecret("");
         setProviderError(null);
         setError(null);
         setGatewayStatus("idle");

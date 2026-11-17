@@ -195,3 +195,73 @@ desktop gateway" and the gateway contacts neither host.
   files' URL literals; both URLs are written in full in the source.
 - **Not verified:** the response CoinGlass gives for an invalid key is undocumented, so any non-OK status or any
   `code` other than `"0"` is treated as rejected. No Whale Alert ping or keepalive is documented.
+
+## Amendment — v2.8 (17 Nov 2026, WP28: encrypted cloud backup)
+The user may keep an encrypted backup file in their own cloud storage (Google Drive, Microsoft OneDrive, pCloud; Backblaze B2
+and Cloudflare R2 through the local gateway, a separate Node process started by hand). The file is encrypted on the device before any upload. No host below is
+contacted until the user opens the collapsed "Encrypted cloud backup" section in About, picks a provider whose build-time
+client ID is set and signs in. A provider without a client ID shows "Not set up yet" and is excluded from every network
+path. Nothing here reaches scoring, the ledger, alerts or any paper-trading rule, and no host serves an order endpoint.
+- **App, `connect-src` (+4):** `https://login.microsoftonline.com` (OneDrive token exchange), `https://graph.microsoft.com`
+  (OneDrive app folder), `https://api.pcloud.com` and `https://eapi.pcloud.com` (pCloud API, US and EU region). They are in
+  `CSP_HOSTS` (`apps/confluence/web/src/lib/public-hosts.ts`), the desktop CSP and `tools/egress-manifest.json` `web.hosts`
+  and `web.csp` (R8, R11). R8 now lists 24 hosts.
+- **Google is reached from the desktop app only.** `oauth2.googleapis.com` and `www.googleapis.com` are on the native
+  backup allowlist and are never in any CSP: the hosted web app does not offer Google (ADR-0019 records why).
+- **Native backup allowlist** (`BACKUP_NATIVE_URLS`, desktop and phone native HTTP, which is not subject to the CSP, and the
+  Tauri HTTP scope), on `oauth2.googleapis.com`, `www.googleapis.com`, `login.microsoftonline.com`, `graph.microsoft.com`,
+  `api.pcloud.com` and `eapi.pcloud.com`:
+  - `https://oauth2.googleapis.com/token`
+  - `https://www.googleapis.com/drive/v3/files*`, `https://www.googleapis.com/upload/drive/v3/files*`
+  - `https://login.microsoftonline.com/common/oauth2/v2.0/token`
+  - `https://graph.microsoft.com/v1.0/me/drive/special/approot*`, `https://graph.microsoft.com/v1.0/me/drive/items/*`
+  - `https://api.pcloud.com/` and `https://eapi.pcloud.com/` with `uploadfile*`, `createfolderifnotexists*`, `listfolder*` and `gettextfile*` (pCloud backups live in the dedicated folder `/rsL Confluence Backup`, created on first upload; the folder path travels only in the query)
+  A trailing `*` is a prefix and any other entry is exact. `isAllowedBackupUrl` refuses anything else: not https, userinfo,
+  a hash, `..`, `%2e`, `%2f`, `%5c` or `%25` in the raw path, another origin (a trailing dot or another port included).
+  The Tauri `http:default` scope equals this list plus the Coins.ph and Upbit paths (R16).
+- **Sign-in pages** (`BACKUP_SIGN_IN_URLS`): `https://accounts.google.com/o/oauth2/v2/auth*`,
+  `https://login.microsoftonline.com/common/oauth2/v2.0/authorize*`, `https://my.pcloud.com/oauth2/authorize*`. They are
+  navigations, never fetches: they are opened in the system browser (desktop: the Tauri opener scope, which now holds
+  these three URLs and the existing mailto link; phone: the system browser) or, on the web, the page navigates to them.
+  `accounts.google.com` and `my.pcloud.com` are in no CSP. `isAllowedSignInUrl` applies the same rules as above.
+- **OneDrive download origin: not added.** OneDrive may answer a download with a redirect to a pre-authenticated file host.
+  Which host (if any) is needed is not verified, so `ONEDRIVE_DOWNLOAD_ORIGINS` is empty and no file host is allowed.
+  An origin is added only by an amendment to this ADR after the manual check, and then to `CSP_HOSTS` and
+  `BACKUP_NATIVE_URLS` too (R16 checks both).
+- **Gateway only, never in any CSP:** Backblaze B2 and Cloudflare R2 are reached only from the local gateway
+  (`apps/confluence/gateway`, new files `s3-sign.mjs` and `backup-store.mjs`), with the user's own keys, which the user
+  is told to limit to one bucket, held in gateway memory only (the WP25 rule: cleared at exit and on a crash, never logged, never in an error or a
+  response). Their hosts carry a region or an account id, so they cannot be written out one by one. The gateway process in
+  `tools/egress-manifest.json` therefore gains `hostTemplates`: `s3.${region}.backblazeb2.com` (region must match
+  `^[a-z]{2}-[a-z]+-\d{3}$`) and `${accountId}.r2.cloudflarestorage.com` (account id must match `^[0-9a-f]{32}$`).
+  `tools/check-egress.mjs` (R11) lets a dynamic URL literal pass only when its authority equals one of those two strings
+  exactly, and only in `apps/confluence/gateway/backup-store.mjs` (`hostTemplates` maps that file to the two templates, so
+  the same literal in any other file is a finding; `s3Endpoint` there checks the region and account id first); any other dynamic host, a near miss and a `wss` literal stay findings, and no
+  `hostTemplates` entry exists for any other process. B2 and R2 are not in `web.hosts`, `web.csp` or `CSP_HOSTS`, and R16
+  refuses either family there.
+  - **What the gateway sends:** SigV4-signed (`node:crypto`, no new dependency), path-style S3 requests, redirects never
+    followed, and only: `HEAD /<bucket>` and `GET /` (the key test), `PUT`/`GET /<bucket>/rsl-confluence/<name>` and
+    `GET /<bucket>?list-type=2&prefix=rsl-confluence/`. `<name>` must match `^confluence-backup-\d{8}T\d{6}Z\.json$`; it is
+    checked before anything is signed, so there is no other object key and no path traversal.
+  - **Key test at connect:** the bucket must answer `HEAD` 200, and the key must not be able to enumerate other buckets
+    (ListBuckets 403, or 200 naming only this bucket); otherwise the key is refused. A 403 means "cannot list buckets", not
+    "restricted to one bucket": the user is still told to create a one-bucket key, and the gateway only ever addresses
+    `rsl-confluence/<name>` in the named bucket. This is separate from the WP19
+    read-only refusal, which still applies to exchange keys only.
+  - **Local routes:** `POST /backup/upload` (own 20 MB body limit; every other gateway route keeps 32 KB),
+    `GET /backup/list`, `GET /backup/download`, behind the same token, origin and host checks.
+  - **Transfer deadlines:** a PUT has 10 s plus bytes at 128 KiB/s (cap 5 minutes); a GET has 10 s to the headers, then
+    30 s between chunks; HEAD, ListBuckets and the listing keep 10 s.
+  - **Not verified:** B2 and R2 behaviour with real keys (the S3 `ListBuckets` answer for a scoped key in particular) is part
+    of the deferred manual checks below, which now include "R2 all-bucket Object R/W token: expect 403 (accepted)"; the code is proven against AWS's published SigV4 examples and a fake S3.
+- **Loopback listener (not egress):** the desktop app listens on `127.0.0.1:48787` for the OAuth redirect while a sign-in
+  is open. It is a listen address on the user's own computer; nothing leaves the computer through it.
+- **Tokens and keys:** access tokens live in memory only, are never stored or logged and are never in a backup; no refresh
+  token is requested.
+- **Manifest and check:** `tools/egress-manifest.json` `web` gains `backupNativeHosts` (the six native hosts) and
+  `signInPages` (the three sign-in hosts). R16 makes the capability http scope equal the native URLs above, the opener
+  scope equal the mailto link plus the sign-in URLs, both manifest lists equal the hosts of the two tables, and this ADR
+  name every host.
+- **§6 checks deferred:** CORS from the hosted origin, terms and limits for the new hosts are checked by the owner per
+  `docs/backup-provider-setup.md` once client IDs exist; a host that fails is removed. Until then none of these is
+  verified, and no live sign-in is part of any release gate (every provider flow is tested against mocks).

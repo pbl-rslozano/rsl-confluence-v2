@@ -21,12 +21,14 @@ import { writeJsonAtomic } from "../recorder/src/store.mjs";
 import { createServer } from "node:http";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { REFUSAL_MESSAGE, createProfile, profileAllowed, verifyCredentials } from "./exchange-auth.mjs";
-import { createProviderProfile, validateProviderCredentials, verifyProvider } from "./provider-auth.mjs";
+import { createProviderProfile, isBucketProvider, validateProviderCredentials, verifyProvider } from "./provider-auth.mjs";
+import { BACKUP_FILE_RE, BACKUP_MAX_BYTES, BUCKET_FAILED, getBackup, listBackups, putBackup } from "./backup-store.mjs";
 import { createEtfFlowCache, createWhaleStream } from "./provider-data.mjs";
 
 const HOST = "127.0.0.1";
 const PORT = Number.parseInt(process.env.CONFLUENCE_GATEWAY_PORT || "8787", 10);
-const MAX_BODY_BYTES = 32 * 1024;
+const MAX_BODY_BYTES = 32 * 1024; // every route but the backup upload
+const REFUSE_DRAIN_BYTES = BACKUP_MAX_BYTES + 1024 * 1024; // an early refusal discards at most this much of an unwanted body
 const TAURI_ORIGINS = new Set(["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"]);
 const ALLOWED_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 
@@ -34,7 +36,7 @@ const ALLOWED_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 const SESSION_TOKEN = process.env.CONFLUENCE_GATEWAY_TOKEN || randomUUID();
 
 const profiles = new Map();
-/** Data-provider keys (Whale Alert, CoinGlass): a separate kind from exchange keys, held in memory only. */
+/** Data-provider keys (Whale Alert, CoinGlass) and backup-bucket keys (B2, R2): a separate kind from exchange keys, held in memory only. */
 const providerProfiles = new Map();
 /** One Whale Alert stream per distinct key (the provider allows 2 connections per key), and the 1 h ETF-flow cache. */
 const whaleStreams = new Map();
@@ -118,9 +120,101 @@ function corsHeaders(origin) {
   };
 }
 
-function sendJson(response, status, payload, origin) {
-  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", ...corsHeaders(origin) });
+function sendJson(response, status, payload, origin, extraHeaders = {}) {
+  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", ...corsHeaders(origin), ...extraHeaders });
   response.end(JSON.stringify(payload));
+}
+
+function sendText(response, status, text, origin) {
+  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", ...corsHeaders(origin) });
+  response.end(text);
+}
+
+/**
+ * Reads a raw body of at most `limit` bytes, or returns null when it is larger (counted as it streams, so a chunked body
+ * is caught too). Bytes past the limit are dropped, not kept; the read stops and the socket is destroyed once the
+ * body is more than a megabyte over, so one request holds at most about `limit` bytes.
+ */
+async function readBytes(request, limit) {
+  let size = 0;
+  const chunks = [];
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > limit + 1024 * 1024) { request.destroy(); return null; }
+    if (size <= limit) chunks.push(chunk);
+  }
+  return size > limit ? null : Buffer.concat(chunks);
+}
+
+/**
+ * Refuses a request whose body has not been read. The body is discarded (never buffered) up to REFUSE_DRAIN_BYTES and
+ * the answer is sent once it has all arrived, so the client receives this answer and not a connection reset: Node closes
+ * a `Connection: close` socket as soon as the answer is sent, and a 20 MB upload still being written then fails with
+ * EPIPE / "fetch failed" (final review M-8). A request without a body is answered at once. A client that sends more
+ * than the budget is answered and cut off.
+ */
+function refuseUnread(request, response, status, payload, origin) {
+  const declared = Number(request.headers["content-length"]);
+  const hasBody = (Number.isFinite(declared) && declared > 0) || request.headers["transfer-encoding"] !== undefined;
+  if (!hasBody || request.readableEnded) {
+    sendJson(response, status, payload, origin);
+    return;
+  }
+  let drained = 0;
+  let answered = false;
+  const answer = () => {
+    if (answered) return;
+    answered = true;
+    sendJson(response, status, payload, origin);
+  };
+  request.on("data", (chunk) => {
+    drained += chunk.length;
+    if (drained >= REFUSE_DRAIN_BYTES) { answer(); request.destroy(); }
+  });
+  request.on("end", answer);
+  request.on("error", () => {});
+}
+
+/** The credentials of a connected bucket key by profile id; null for an unknown id or a non-bucket profile. */
+function bucketCredentials(id) {
+  const entry = typeof id === "string" ? providerProfiles.get(id) : null;
+  return entry && isBucketProvider(entry.provider) && entry.credentials?.secretAccessKey ? entry.credentials : null;
+}
+
+/** /backup/*: every failure becomes a fixed message, never upstream text, a URL or a key. */
+async function handleBackup(request, response, url, origin) {
+  const route = `${request.method} ${url.pathname}`;
+  if (route === "POST /backup/upload") {
+    // Cheap refusals first, from the query string and Content-Length, so a bad request never costs a 20 MB read.
+    const declared = Number(request.headers["content-length"]);
+    if (Number.isFinite(declared) && declared > BACKUP_MAX_BYTES) { refuseUnread(request, response, 413, { error: "Backup is larger than 20 MB." }, origin); return true; }
+    const creds = bucketCredentials(url.searchParams.get("profile"));
+    if (!creds) { refuseUnread(request, response, 409, { error: "No backup bucket key is connected." }, origin); return true; }
+    const name = url.searchParams.get("name");
+    if (!BACKUP_FILE_RE.test(name ?? "")) { refuseUnread(request, response, 400, { error: "Invalid backup name." }, origin); return true; }
+    const body = await readBytes(request, BACKUP_MAX_BYTES);
+    if (!body) { sendJson(response, 413, { error: "Backup is larger than 20 MB." }, origin); return true; }
+    try {
+      sendJson(response, 200, await putBackup(creds, name, body), origin);
+    } catch {
+      sendJson(response, 502, { error: BUCKET_FAILED }, origin);
+    }
+    return true;
+  }
+  if (route === "GET /backup/list" || route === "GET /backup/download") {
+    const creds = bucketCredentials(url.searchParams.get("profile"));
+    if (!creds) { sendJson(response, 409, { error: "No backup bucket key is connected." }, origin); return true; }
+    const name = url.searchParams.get("name");
+    if (url.pathname === "/backup/download" && !BACKUP_FILE_RE.test(name ?? "")) { sendJson(response, 400, { error: "Invalid backup name." }, origin); return true; }
+    try {
+      if (url.pathname === "/backup/list") sendJson(response, 200, { files: await listBackups(creds) }, origin);
+      else sendText(response, 200, await getBackup(creds, name), origin);
+    } catch {
+      sendJson(response, 502, { error: BUCKET_FAILED }, origin);
+    }
+    return true;
+  }
+  return false;
 }
 
 async function readJson(request) {
@@ -197,12 +291,14 @@ function validateCredentials(value) {
 const server = createServer(async (request, response) => {
   const origin = request.headers.origin || "";
 
+  // Final review M-8: these refusals come before any body is read, so they drain it (bounded) like the /backup/upload
+  // refusals; a client in the middle of a 20 MB upload then sees the 401/403 and not a reset.
   if (!allowedHost(request.headers.host)) {
-    sendJson(response, 403, { error: "Invalid Host header." }, origin);
+    refuseUnread(request, response, 403, { error: "Invalid Host header." }, origin);
     return;
   }
   if (!allowedOrigin(origin)) {
-    sendJson(response, 403, { error: "Origin is not allowed by the local gateway." }, origin);
+    refuseUnread(request, response, 403, { error: "Origin is not allowed by the local gateway." }, origin);
     return;
   }
   if (request.method === "OPTIONS") {
@@ -211,7 +307,7 @@ const server = createServer(async (request, response) => {
     return;
   }
   if (!tokenMatches(request.headers.authorization)) {
-    sendJson(response, 401, { error: "Missing or invalid gateway token. Copy it from the gateway console." }, origin);
+    refuseUnread(request, response, 401, { error: "Missing or invalid gateway token. Copy it from the gateway console." }, origin);
     return;
   }
 
@@ -230,6 +326,8 @@ const server = createServer(async (request, response) => {
       sendJson(response, 200, { revision: deployment.revision }, origin);
       return;
     }
+
+    if (url.pathname.startsWith("/backup/") && await handleBackup(request, response, url, origin)) return;
 
     if (request.method === "GET" && url.pathname === "/health") {
       sendJson(response, 200, { ok: true, service: "confluence-private-api-gateway", profiles: profiles.size, providers: providerProfiles.size }, origin);
@@ -308,7 +406,7 @@ const server = createServer(async (request, response) => {
     if (request.method === "DELETE" && providerMatch) {
       const entry = providerMatch[1] && providerProfiles.get(providerMatch[1]);
       const apiKey = entry?.provider === "whale-alert" ? entry.credentials?.apiKey : "";
-      if (entry?.credentials) entry.credentials.apiKey = "";
+      if (entry?.credentials) { entry.credentials.apiKey = ""; entry.credentials.accessKeyId = ""; entry.credentials.secretAccessKey = ""; }
       const removed = providerProfiles.delete(providerMatch[1]);
       etfFlowCache.delete(providerMatch[1]);
       closeWhaleStreamIfUnused(apiKey);
@@ -351,7 +449,7 @@ function closeAllProviderStreams() {
 
 function clearSecrets() {
   for (const entry of providerProfiles.values()) {
-    if (entry.credentials) entry.credentials.apiKey = "";
+    if (entry.credentials) { entry.credentials.apiKey = ""; entry.credentials.accessKeyId = ""; entry.credentials.secretAccessKey = ""; }
   }
   providerProfiles.clear();
   closeAllProviderStreams();

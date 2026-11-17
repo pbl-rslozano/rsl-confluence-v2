@@ -13,6 +13,12 @@
  *   - the egress manifest             tools/egress-manifest.json (web.nativeHosts, launcher)
  *   - ADR-0003                        docs/adr/0003-network-allowlist.md names the host
  *
+ * v2.8 (WP28, encrypted cloud backup): BACKUP_NATIVE_URLS (native HTTP, outside the CSP) and BACKUP_SIGN_IN_URLS
+ * (opened in the system browser, never fetched) are checked the same way: the Tauri http scope is the native URLs
+ * above plus BACKUP_NATIVE_URLS, the opener scope is the mailto link plus BACKUP_SIGN_IN_URLS, the egress manifest
+ * lists their hosts under web.backupNativeHosts / web.signInPages (equal sets), and ADR-0003 names every host.
+ * Google is desktop only, so no Google host may be a CSP host; B2 and R2 are gateway only, so no CSP host either.
+ *
  * Rewrites may only be plain 200 rewrites of read paths: no headers, no
  * signing, no force flags, no other upstream host.
  *
@@ -56,6 +62,21 @@ export function parseNativeHosts(src) {
   return out;
 }
 
+/** v2.8 (WP28): the string literals of one `export const NAME = [ ... ]` list (null when the constant is missing). */
+export function parseUrlList(src, name) {
+  const block = new RegExp(`export const ${name}\\b[^=]*=\\s*(?:Object\\.freeze\\()?\\s*\\[([\\s\\S]*?)\\]`).exec(src)?.[1];
+  return block === undefined ? null : [...block.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+}
+
+/** The origins in CSP_HOSTS (v2.8 WP28 uses them to keep Google, B2 and R2 out of the CSP). */
+function cspOrigins(src) {
+  const block = /export const CSP_HOSTS = \[([\s\S]*?)\] as const;/.exec(src)?.[1] ?? "";
+  return [...block.matchAll(/origin:\s*"([^"]+)"/g)].map((m) => m[1]);
+}
+
+const hostOf = (url) => { try { return new URL(url.replace(/\*$/, "")).host; } catch { return null; } };
+const unique = (l) => [...new Set(l)];
+
 /** Display names used in findings (v2.6 wording kept for Coins.ph). */
 const LABEL = { COINSPH: "Coins.ph", UPBIT: "Upbit" };
 
@@ -87,10 +108,19 @@ export function checkPublicHosts(root = ROOT) {
   // Tauri capability: the http scope must be exactly the union of every host's URLs, nothing broader.
   const capSrc = read(root, "apps/confluence/desktop/src-tauri/capabilities/main.json");
   let urls = [];
+  let openerUrls = null;
+  let openerScopes = 0;
   try {
     const cap = JSON.parse(capSrc ?? "{}");
     for (const perm of cap.permissions ?? []) {
       const id = typeof perm === "string" ? perm : perm.identifier;
+      // The opener scope is exactly one `opener:allow-open-url` object entry. A second entry, a bare string
+      // permission (`opener:default` and every other `opener:*`) or any other opener object would widen it.
+      if (id?.startsWith("opener:")) {
+        if (typeof perm === "string") findings.push(`capability: string permission "${id}" grants opener access without a URL scope`);
+        else if (id !== "opener:allow-open-url") findings.push(`capability: opener permission "${id}" is not allowed; only one scoped opener:allow-open-url`);
+        else { openerScopes += 1; openerUrls = (openerUrls ?? []).concat((perm.allow ?? []).map((a) => a.url)); }
+      }
       if (!id?.startsWith("http:")) continue;
       if (typeof perm === "string") findings.push(`capability: ${id} without a URL scope`);
       urls.push(...(perm.allow ?? []).map((a) => a.url));
@@ -144,9 +174,54 @@ export function checkPublicHosts(root = ROOT) {
 
     summaries.push(`${host}: ${paths.length} read paths, ${mine.length} rewrites`);
   }
+
+  // v2.8 (WP28) — encrypted cloud backup hosts.
+  const backupNative = parseUrlList(tableSrc, "BACKUP_NATIVE_URLS");
+  const signIn = parseUrlList(tableSrc, "BACKUP_SIGN_IN_URLS");
+  if (!backupNative?.length) findings.push("public-hosts.ts: BACKUP_NATIVE_URLS not found");
+  if (!signIn?.length) findings.push("public-hosts.ts: BACKUP_SIGN_IN_URLS not found");
+  for (const [name, list] of [["BACKUP_NATIVE_URLS", backupNative ?? []], ["BACKUP_SIGN_IN_URLS", signIn ?? []]]) {
+    for (const e of list) {
+      let u = null;
+      try { u = new URL(e.replace(/\*$/, "")); } catch { /* reported below */ }
+      // https, a host, a path that names something (never a whole host), no userinfo, query or hash, no dot segments.
+      if (!u || u.protocol !== "https:" || u.username || u.password || u.search || u.hash || e.includes("?") || e.includes("#") || u.pathname === "/" || e.includes("..") || e.indexOf("*") !== -1 && e.indexOf("*") !== e.length - 1) findings.push(`public-hosts.ts: ${name} entry ${e} must be an https URL with a path (no whole host), no query or hash, and "*" only as a final prefix mark`);
+    }
+  }
+  wantUrls.push(...(backupNative ?? []));
   if (JSON.stringify([...urls].sort()) !== JSON.stringify([...wantUrls].sort())) findings.push(`capability http scope ${JSON.stringify(urls)} ≠ ${JSON.stringify(wantUrls)}`);
 
-  return { ok: findings.length === 0, findings, summary: `${summaries.join("; ")}; ${urls.length} Tauri URLs` };
+  const wantOpener = ["mailto:rslozano@gmail.com*", ...(signIn ?? [])];
+  if (openerScopes > 1) findings.push(`capability: ${openerScopes} opener:allow-open-url entries; exactly one allowed`);
+  if (openerUrls === null) findings.push("capability: opener:allow-open-url scope missing");
+  else if (JSON.stringify([...openerUrls].sort()) !== JSON.stringify([...wantOpener].sort())) findings.push(`capability opener scope ${JSON.stringify(openerUrls)} ≠ ${JSON.stringify(wantOpener)}`);
+
+  const nativeBackupHosts = unique((backupNative ?? []).map(hostOf).filter(Boolean));
+  const signInHosts = unique((signIn ?? []).map(hostOf).filter(Boolean));
+  if (eg) {
+    for (const [key, want] of [["backupNativeHosts", nativeBackupHosts], ["signInPages", signInHosts]]) {
+      const have = eg.processes?.web?.[key];
+      if (!Array.isArray(have)) { findings.push(`egress-manifest: web.${key} lacks ${want.join(", ")}`); continue; }
+      for (const h of want) if (!have.includes(h)) findings.push(`egress-manifest: web.${key} lacks ${h}`);
+      for (const h of have) if (!want.includes(h)) findings.push(`egress-manifest: web.${key} lists ${h}, which is not ${key === "signInPages" ? "a sign-in page" : "a backup native host"} in public-hosts.ts`);
+    }
+  }
+  for (const h of unique([...nativeBackupHosts, ...signInHosts])) if (!adr.includes(h)) findings.push(`ADR-0003 does not name ${h}`);
+
+  // Google is desktop only and B2 / R2 are gateway only: none of them may be a CSP host. Origins the OneDrive
+  // download check adds must be CSP hosts and native backup URLs too.
+  const csp = cspOrigins(tableSrc);
+  for (const o of csp) {
+    if (/(^|\.)(google|googleapis|gstatic)\.com$/i.test(new URL(o).hostname)) findings.push(`public-hosts.ts: CSP_HOSTS lists Google host ${o}; Google is reached from the desktop app only`);
+    if (/backblazeb2\.com$|r2\.cloudflarestorage\.com$/i.test(new URL(o).hostname)) findings.push(`public-hosts.ts: CSP_HOSTS lists ${o}; B2 and R2 are gateway only`);
+  }
+  for (const o of parseUrlList(tableSrc, "ONEDRIVE_DOWNLOAD_ORIGINS") ?? []) {
+    if (!csp.includes(o)) findings.push(`public-hosts.ts: ONEDRIVE_DOWNLOAD_ORIGINS lists ${o}, which is not in CSP_HOSTS`);
+    if (!(backupNative ?? []).some((e) => e.startsWith(o + "/"))) findings.push(`public-hosts.ts: ONEDRIVE_DOWNLOAD_ORIGINS lists ${o}, which is not in BACKUP_NATIVE_URLS`);
+  }
+  const backupSummary = `${(backupNative ?? []).length} backup URLs, ${(signIn ?? []).length} sign-in pages`;
+
+  return { ok: findings.length === 0, findings, summary: `${summaries.join("; ")}; ${urls.length} Tauri URLs; ${backupSummary}` };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {

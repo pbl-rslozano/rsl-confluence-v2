@@ -3,7 +3,7 @@
   "description": "Allowed outbound hosts per process (ADR-0003, amended by ADR-0008). tools/check-egress.mjs fails when a source file under a process root contains an http(s) URL whose host is not listed for that process; the recorder also enforces this list at runtime.",
   "processes": {
     "web": {
-      "description": "Browser / Tauri / Capacitor app. Enforced by CSP connect-src (apps/confluence/web/src/lib/csp.ts) and release-check R8; listed here for one overview, not scanned by check-egress. v2.6: nativeHosts are reached outside the CSP (no CORS header) — web through the same-origin rewrite in public/_redirects, Capacitor/Tauri through nativeGet — and only on the read paths in src/lib/public-hosts.ts (release-check R16). v2.8 (WP20): `hosts` lists every CSP_HOSTS host without its scheme, the six display-currency rate hosts included (ADR-0015); tools/check-egress.test.mjs checks it. v2.8 (WP26): www.okx.com and api.exchange.coinbase.com join the CSP hosts; api.upbit.com is a native host (read paths only, like Coins.ph). The Node paths of the app (the server route src/app/api/market, the replay CLI) fetch these venues directly with plain fetch; they run on the user's own computer and use the same hosts. v2.8 (WP25): fapi.binance.com (REST only), publicreporting.cftc.gov and stablecoins.llama.fi join the CSP hosts for the market radar. v2.8 (WP25 part 2): the two liquidation websockets wss://fstream.binance.com and wss://stream.bybit.com join the CSP hosts (web.hosts lists them without the scheme); they are opened only while the radar gate holds. v2.8 (WP29): api.alternative.me (Crypto Fear & Greed Index, GET only) joins the CSP hosts; it is contacted only while the Fear & Greed widget is open, and the recorder, gateway and MCP never call it.",
+      "description": "Browser / Tauri / Capacitor app. Enforced by CSP connect-src (apps/confluence/web/src/lib/csp.ts) and release-check R8; listed here for one overview, not scanned by check-egress. v2.6: nativeHosts are reached outside the CSP (no CORS header) — web through the same-origin rewrite in public/_redirects, Capacitor/Tauri through nativeGet — and only on the read paths in src/lib/public-hosts.ts (release-check R16). v2.8 (WP20): `hosts` lists every CSP_HOSTS host without its scheme, the six display-currency rate hosts included (ADR-0015); tools/check-egress.test.mjs checks it. v2.8 (WP26): www.okx.com and api.exchange.coinbase.com join the CSP hosts; api.upbit.com is a native host (read paths only, like Coins.ph). The Node paths of the app (the server route src/app/api/market, the replay CLI) fetch these venues directly with plain fetch; they run on the user's own computer and use the same hosts. v2.8 (WP25): fapi.binance.com (REST only), publicreporting.cftc.gov and stablecoins.llama.fi join the CSP hosts for the market radar. v2.8 (WP25 part 2): the two liquidation websockets wss://fstream.binance.com and wss://stream.bybit.com join the CSP hosts (web.hosts lists them without the scheme); they are opened only while the radar gate holds. v2.8 (WP29): api.alternative.me (Crypto Fear & Greed Index, GET only) joins the CSP hosts; it is contacted only while the Fear & Greed widget is open, and the recorder, gateway and MCP never call it. v2.8 (WP28, encrypted cloud backup): login.microsoftonline.com, graph.microsoft.com, api.pcloud.com and eapi.pcloud.com join the CSP hosts (web.hosts, web.csp); they are contacted only after the user signs in from the collapsed Encrypted cloud backup section. backupNativeHosts are the hosts of BACKUP_NATIVE_URLS, reached by desktop and phone native HTTP outside the CSP (Google only from the desktop app, never in the CSP); signInPages are the hosts of BACKUP_SIGN_IN_URLS, opened in the system browser or navigated to and never fetched (release check R16 keeps both lists equal to public-hosts.ts).",
       "roots": [],
       "hosts": [
         "data-api.binance.vision",
@@ -24,6 +24,10 @@
         "publicreporting.cftc.gov",
         "stablecoins.llama.fi",
         "api.alternative.me",
+        "login.microsoftonline.com",
+        "graph.microsoft.com",
+        "api.pcloud.com",
+        "eapi.pcloud.com",
         "fstream.binance.com",
         "stream.bybit.com"
       ],
@@ -49,12 +53,29 @@
         "https://publicreporting.cftc.gov",
         "https://stablecoins.llama.fi",
         "https://api.alternative.me",
+        "https://login.microsoftonline.com",
+        "https://graph.microsoft.com",
+        "https://api.pcloud.com",
+        "https://eapi.pcloud.com",
         "wss://fstream.binance.com",
         "wss://stream.bybit.com"
       ],
       "nativeHosts": [
         "api.pro.coins.ph",
         "api.upbit.com"
+      ],
+      "backupNativeHosts": [
+        "oauth2.googleapis.com",
+        "www.googleapis.com",
+        "login.microsoftonline.com",
+        "graph.microsoft.com",
+        "api.pcloud.com",
+        "eapi.pcloud.com"
+      ],
+      "signInPages": [
+        "accounts.google.com",
+        "login.microsoftonline.com",
+        "my.pcloud.com"
       ]
     },
     "launcher": {
@@ -69,12 +90,20 @@
       "loopbackListen": true
     },
     "gateway": {
-      "description": "Optional local read-only API gateway (apps/confluence/gateway, ADR-0009 / ADR-0003): runs on the user's own computer, listens on loopback, and calls an exchange's account endpoint only when the user connects an API key and asks it to check the key's permissions (read-only; keys with trading or withdrawal permission are refused). v2.8 (WP25 part 2): it also holds optional, paid data-provider keys in memory only (CoinGlass over https, Whale Alert over wss), each checked with one test call at connect; both hosts are contacted only for a connected provider profile. Never bundled into the app.",
+      "description": "Optional local read-only API gateway (apps/confluence/gateway, ADR-0009 / ADR-0003): runs on the user's own computer, listens on loopback, and calls an exchange's account endpoint only when the user connects an API key and asks it to check the key's permissions (read-only; keys with trading or withdrawal permission are refused). v2.8 (WP25 part 2): it also holds optional, paid data-provider keys in memory only (CoinGlass over https, Whale Alert over wss), each checked with one test call at connect; both hosts are contacted only for a connected provider profile. v2.8 (WP28, encrypted cloud backup): it also reaches the user's own Backblaze B2 or Cloudflare R2 bucket (S3 API, SigV4) with a bucket-restricted key held in memory, only for a connected bucket profile. Those hosts carry a region or an account id, so they are listed as hostTemplates (an exact-match exception in tools/check-egress.mjs, valid in backup-store.mjs only, whose s3Endpoint checks the region and account id first) and never as web hosts or CSP entries. Never bundled into the app.",
       "roots": [
         "apps/confluence/gateway/exchange-auth.mjs",
         "apps/confluence/gateway/provider-auth.mjs",
-        "apps/confluence/gateway/provider-data.mjs"
+        "apps/confluence/gateway/provider-data.mjs",
+        "apps/confluence/gateway/s3-sign.mjs",
+        "apps/confluence/gateway/backup-store.mjs"
       ],
+      "hostTemplates": {
+        "apps/confluence/gateway/backup-store.mjs": [
+          "s3.${region}.backblazeb2.com",
+          "${accountId}.r2.cloudflarestorage.com"
+        ]
+      },
       "hosts": [
         "api.binance.com",
         "testnet.binance.vision",

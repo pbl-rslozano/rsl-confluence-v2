@@ -6,10 +6,51 @@
 //! keeps a single instance with remembered window state, and builds the native menu.
 //! Menu actions are emitted to the web app as `rsl-menu` events with the item id.
 
+mod oauth_loopback;
+
+use std::net::TcpListener;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Emitter, Manager};
 
 pub const APP_TITLE: &str = "rsL Confluence Terminal";
+
+/// WP28: the sign-in redirect listener. Held between `bind` and `wait`; `wait` takes it and drops it on every exit.
+#[derive(Default)]
+struct OAuthLoopback {
+    listener: Mutex<Option<TcpListener>>,
+    cancelled: Arc<AtomicBool>,
+}
+
+#[tauri::command]
+fn oauth_loopback_bind(state: tauri::State<'_, OAuthLoopback>) -> Result<(), String> {
+    let mut slot = state.listener.lock().map_err(|_| "io".to_string())?;
+    *slot = None; // drop any listener left from an earlier attempt before binding again
+    state.cancelled.store(false, Ordering::SeqCst);
+    *slot = Some(oauth_loopback::bind()?);
+    Ok(())
+}
+
+#[tauri::command]
+async fn oauth_loopback_wait(state: tauri::State<'_, OAuthLoopback>, timeout_ms: u64, relay_fragment: bool) -> Result<String, String> {
+    let listener = state.listener.lock().map_err(|_| "io".to_string())?.take().ok_or_else(|| "not-bound".to_string())?;
+    let cancelled = Arc::clone(&state.cancelled);
+    tauri::async_runtime::spawn_blocking(move || {
+        oauth_loopback::wait(listener, Duration::from_millis(timeout_ms), relay_fragment, &cancelled)
+    })
+    .await
+    .map_err(|_| "io".to_string())?
+}
+
+#[tauri::command]
+fn oauth_loopback_cancel(state: tauri::State<'_, OAuthLoopback>) {
+    state.cancelled.store(true, Ordering::SeqCst);
+    if let Ok(mut slot) = state.listener.lock() {
+        *slot = None;
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -28,6 +69,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         // v2.6: Coins.ph public market data (no CORS); URL scope in capabilities/main.json (R16).
         .plugin(tauri_plugin_http::init())
+        .manage(OAuthLoopback::default())
+        .invoke_handler(tauri::generate_handler![oauth_loopback_bind, oauth_loopback_wait, oauth_loopback_cancel])
         .setup(|app| {
             let about = MenuItemBuilder::with_id("about", format!("About {APP_TITLE}")).build(app)?;
             let settings = MenuItemBuilder::with_id("settings", "Settings…")

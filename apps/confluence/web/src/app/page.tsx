@@ -130,6 +130,11 @@ import { FxSourcesDialog } from "@/components/fx-sources-dialog";
 import { fxCredit, fxSourceInfo, type FxChoice } from "@/lib/fx-rates";
 import { PrivateApiDialog } from "@/components/private-api-dialog";
 import type { PrivateApiProfile, ProviderLink } from "@/lib/private-api";
+import type { CloudBackupProps, StatusLine } from "@/components/cloud-backup";
+import { BackupError } from "@/lib/backup-crypto";
+import { completeWebSignIn, consumeWebCallback } from "@/lib/backup-oauth";
+import { APP_LINK_PATH, BUILD_BACKUP_CONFIG } from "@/lib/backup-providers";
+import { backupHttp } from "@/lib/backup-http";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -650,6 +655,48 @@ export default function Home() {
     ),
     [rsl.port],
   );
+  /**
+   * v2.8 (WP28): Cloud backup in About. `cloudStart` opens About on the section after a web sign-in return. The return is
+   * read once on mount, before any await, and the code or token is removed from the address bar whatever happens next.
+   */
+  const [cloudStart, setCloudStart] = useState<{ open: boolean; notice: StatusLine | null }>({ open: false, notice: null });
+  useEffect(() => {
+    // Keys and values only: the section translates the notice when it renders it.
+    const backupError = (e: unknown): StatusLine =>
+      e instanceof BackupError ? { key: `bk.err.${e.code}`, vars: { status: e.detail.status ?? "—", origin: e.detail.origin ?? "—", size: "—", n: e.detail.n ?? "—" } } : { key: "bk.failed" };
+    let back: ReturnType<typeof consumeWebCallback> | undefined;
+    let refused: unknown = null;
+    try {
+      back = consumeWebCallback(window.location.href, { storage: window.sessionStorage, now: Date.now() });
+    } catch (e) {
+      back = undefined; // a refused redirect (state, provider error): say so and still clean the address bar
+      refused = e;
+    } finally {
+      if (back !== null) window.history.replaceState(null, "", window.location.pathname === APP_LINK_PATH ? "/" : window.location.pathname);
+    }
+    if (back === null) return;
+    const settle = async (): Promise<StatusLine | null> => {
+      if (back === undefined) return backupError(refused);
+      if ("foreign" in back) return { key: "bk.err.foreign" };
+      await completeWebSignIn(back, BUILD_BACKUP_CONFIG, backupHttp(), Date.now());
+      return null;
+    };
+    void settle().catch(backupError).then((notice) => {
+      setCloudStart({ open: true, notice });
+      setAboutOpen(true);
+    });
+    // Mount only: a sign-in return is read once.
+  }, []);
+  const cloudBackup = useMemo<CloudBackupProps>(() => ({
+    deps: { ledger: ledgerStore, paper: paperStore, prefs: rsl.port, audit: rsl.audit },
+    providerLink,
+    startOpen: cloudStart.open,
+    notice: cloudStart.notice,
+  }), [ledgerStore, paperStore, rsl.port, rsl.audit, providerLink, cloudStart]);
+  const onAboutOpenChange = useCallback((o: boolean) => {
+    setAboutOpen(o);
+    if (!o) setCloudStart({ open: false, notice: null });
+  }, []);
   /** Stored-history length per series, so a scan asks for 1,000 bars only when the engine window is not yet covered. */
   const historyLenRef = useRef<Map<string, { len: number; newest: number }>>(new Map());
   /** Newest bar already handed to the ledger per series (this session), so catch-up only scores new holes. */
@@ -2290,7 +2337,7 @@ export default function Home() {
           <Legend />
         </StatusFooter>
       </footer>
-      <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
+      <AboutDialog open={aboutOpen} onOpenChange={onAboutOpenChange} cloudBackup={cloudBackup} />
       <LedgerDialog
         open={ledgerOpen}
         onOpenChange={setLedgerOpen}

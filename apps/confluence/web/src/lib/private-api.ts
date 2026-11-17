@@ -112,7 +112,14 @@ export async function disconnectPrivateApi(profile: PrivateApiProfile): Promise<
 
 // ---- Data providers (v2.8 Step 4b): paid market-context keys held only by the gateway ----
 
-export type DataProvider = "whale-alert" | "coinglass";
+export type DataProvider = "whale-alert" | "coinglass" | "b2" | "r2";
+export type BucketProvider = "b2" | "r2";
+
+export function isBucketProvider(provider: DataProvider): provider is BucketProvider {
+  return provider === "b2" || provider === "r2";
+}
+
+const BUCKET_NAME_RE = /^[A-Za-z0-9-]{3,63}$/;
 
 export interface ProviderProfile {
   id: string;
@@ -121,6 +128,8 @@ export interface ProviderProfile {
   label: string;
   maskedKey: string;
   connectedAt: string;
+  /** B2 and R2 profiles only: the bucket name (not secret). */
+  bucket?: string;
 }
 
 /** Gateway session plus the connected provider profiles. Lives in page state only; never persisted. */
@@ -142,7 +151,9 @@ function toProviderProfile(value: unknown): ProviderProfile | null {
   const p = value as Record<string, unknown>;
   if (typeof p.id !== "string" || p.id.length === 0 || p.id.length > 100) return null;
   if (p.kind !== "provider") return null;
-  if (p.provider !== "whale-alert" && p.provider !== "coinglass") return null;
+  if (p.provider !== "whale-alert" && p.provider !== "coinglass" && p.provider !== "b2" && p.provider !== "r2") return null;
+  const bucket = p.provider === "b2" || p.provider === "r2";
+  if (bucket && (typeof p.bucket !== "string" || !BUCKET_NAME_RE.test(p.bucket))) return null;
   if (typeof p.label !== "string" || typeof p.maskedKey !== "string" || typeof p.connectedAt !== "string") return null;
   return {
     id: p.id,
@@ -151,6 +162,7 @@ function toProviderProfile(value: unknown): ProviderProfile | null {
     label: p.label.slice(0, 80),
     maskedKey: p.maskedKey.slice(0, 40),
     connectedAt: p.connectedAt.slice(0, 40),
+    ...(bucket ? { bucket: p.bucket as string } : {}),
   };
 }
 
@@ -208,15 +220,32 @@ export function nextProviderLink(link: ProviderLink | null, event: ProviderLinkE
   }
 }
 
+/** A key-only provider, or a bucket-restricted key pair for B2 (region) or R2 (account id). */
+export type ProviderConnectInput =
+  | { provider: "whale-alert" | "coinglass"; label: string; apiKey: string }
+  | { provider: "b2"; label: string; accessKeyId: string; secretAccessKey: string; bucket: string; region: string }
+  | { provider: "r2"; label: string; accessKeyId: string; secretAccessKey: string; bucket: string; accountId: string };
+
+/** Exactly the fields the gateway reads, in a fixed order; nothing else the caller holds is sent. */
+function providerConnectBody(input: ProviderConnectInput): Record<string, string> {
+  if (input.provider === "b2") {
+    return { provider: "b2", label: input.label, accessKeyId: input.accessKeyId, secretAccessKey: input.secretAccessKey, bucket: input.bucket, region: input.region };
+  }
+  if (input.provider === "r2") {
+    return { provider: "r2", label: input.label, accessKeyId: input.accessKeyId, secretAccessKey: input.secretAccessKey, bucket: input.bucket, accountId: input.accountId };
+  }
+  return { provider: input.provider, label: input.label, apiKey: input.apiKey };
+}
+
 export async function connectProvider(
   session: GatewaySession,
-  input: { provider: DataProvider; label: string; apiKey: string },
+  input: ProviderConnectInput,
 ): Promise<ProviderProfile> {
   const base = requireLoopbackSession(session);
   const payload = await providerRequest<{ profile?: unknown }>(`${base}/providers/connect`, {
     method: "POST",
     headers: authHeaders(session.token, true),
-    body: JSON.stringify({ provider: input.provider, label: input.label, apiKey: input.apiKey }),
+    body: JSON.stringify(providerConnectBody(input)),
     signal: AbortSignal.timeout(15_000),
   });
   const profile = toProviderProfile(payload.profile);
@@ -241,4 +270,54 @@ export async function disconnectProvider(session: GatewaySession, id: string): P
     headers: authHeaders(session.token),
     signal: AbortSignal.timeout(5_000),
   });
+}
+
+
+// ---- Provider form: the submit body, client-side checks and the secret clearing, as pure functions ----
+
+/** What the Data providers form holds. `apiKey`, `keyId` and `secret` are secrets; the rest is not. */
+export interface ProviderFormState {
+  apiKey: string;
+  keyId: string;
+  secret: string;
+  bucket: string;
+  region: string;
+  accountId: string;
+}
+
+export const EMPTY_PROVIDER_FORM: ProviderFormState = { apiKey: "", keyId: "", secret: "", bucket: "", region: "", accountId: "" };
+
+/** Copies of the gateway's rules (gateway/provider-auth.mjs, backup-store.mjs); the web never imports gateway code. */
+const B2_BUCKET_RE = /^[A-Za-z0-9-]{6,63}$/;
+const R2_BUCKET_RE = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
+const B2_REGION_RE = /^[a-z]{2}-[a-z]+-\d{3}$/;
+const R2_ACCOUNT_RE = /^[0-9a-f]{32}$/;
+
+/** A fixed message for the first bucket field that fails the gateway's rules, or null. Never echoes an entered value. */
+export function bucketFormError(provider: BucketProvider, form: ProviderFormState): string | null {
+  const bucket = form.bucket.trim();
+  if (!(provider === "b2" ? B2_BUCKET_RE : R2_BUCKET_RE).test(bucket)) {
+    return provider === "b2"
+      ? "Bucket: 6 to 63 letters, digits or hyphens."
+      : "Bucket: 3 to 63 lowercase letters, digits or hyphens, starting and ending with a letter or digit.";
+  }
+  if (provider === "b2" && !B2_REGION_RE.test(form.region.trim())) return "Region looks like eu-central-003.";
+  if (provider === "r2" && !R2_ACCOUNT_RE.test(form.accountId.trim())) return "Account ID is 32 lowercase hex characters.";
+  return null;
+}
+
+/** The connect input from the form, and the form as it must be once submitted: every secret field empty. */
+export function prepareProviderSubmit(
+  provider: DataProvider,
+  label: string,
+  form: ProviderFormState,
+): { input: ProviderConnectInput; cleared: ProviderFormState } {
+  const cleared: ProviderFormState = { ...form, apiKey: "", keyId: "", secret: "" };
+  if (provider === "b2") {
+    return { input: { provider, label, accessKeyId: form.keyId.trim(), secretAccessKey: form.secret.trim(), bucket: form.bucket.trim(), region: form.region.trim() }, cleared };
+  }
+  if (provider === "r2") {
+    return { input: { provider, label, accessKeyId: form.keyId.trim(), secretAccessKey: form.secret.trim(), bucket: form.bucket.trim(), accountId: form.accountId.trim() }, cleared };
+  }
+  return { input: { provider, label, apiKey: form.apiKey.trim() }, cleared };
 }

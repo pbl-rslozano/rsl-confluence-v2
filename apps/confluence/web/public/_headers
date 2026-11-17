@@ -10,6 +10,10 @@
   Content-Disposition: attachment
   X-Content-Type-Options: nosniff
 
+# v2.8 (WP28): the iPhone app-link file has no extension; Apple requires JSON. Exists only when the owner enables the link.
+/.well-known/apple-app-site-association
+  Content-Type: application/json
+
 /sw.js
   Cache-Control: no-cache
 
