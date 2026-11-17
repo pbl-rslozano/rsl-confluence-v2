@@ -34,6 +34,22 @@ test("v2.8 WP26: every CSP_HOSTS origin is in web.hosts and web.csp; Upbit only 
   for (const h of ["www.okx.com", "api.exchange.coinbase.com", "api.upbit.com"]) assert.ok(manifest.processes.recorder.hosts.includes(h), `recorder: ${h}`);
 });
 
+test("v2.8 WP28: web.hosts lists the four backup CSP hosts, web.csp the origins; Google and B2/R2 never in the CSP", () => {
+  const web = manifest.processes.web;
+  for (const h of ["login.microsoftonline.com", "graph.microsoft.com", "api.pcloud.com", "eapi.pcloud.com"]) {
+    assert.ok(CSP.includes(h), `${h} in CSP_HOSTS`);
+    assert.ok(web.hosts.includes(h), `${h} in web.hosts`);
+    assert.ok(web.csp.includes(`https://${h}`), `https://${h} in web.csp`);
+  }
+  for (const h of CSP) assert.ok(!/google|backblazeb2|r2\.cloudflarestorage/.test(h), `${h} must not be a CSP host`);
+  assert.deepEqual(web.backupNativeHosts, ["oauth2.googleapis.com", "www.googleapis.com", "login.microsoftonline.com", "graph.microsoft.com", "api.pcloud.com", "eapi.pcloud.com"]);
+  assert.deepEqual(web.signInPages, ["accounts.google.com", "login.microsoftonline.com", "my.pcloud.com"]);
+  const r = checkEgress();
+  assert.equal(r.ok, true, formatEgressFindings(r));
+  assert.deepEqual(r.webHostDrift, []);
+  assert.deepEqual(r.cspDrift, []);
+});
+
 test("v2.8 WP25 part 2: the wss CSP hosts must be in web.hosts without the scheme and in web.csp with it", () => {
   const web = manifest.processes.web;
   for (const o of ["wss://fstream.binance.com", "wss://stream.bybit.com"]) {

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-capability",
-  "description": "Least privilege for the main window: SQLite records, save/open dialogs (paths the user picks are added to the fs scope by the dialog plugin), file read/write in app data only, and the developer-contact mailto link, and (v2.7) window full screen for the chart, and GET of Coins.ph (ADR-0013) and, v2.8, Upbit (ADR-0003 v2.8, WP26) public market-data read paths (must match src/lib/public-hosts.ts, release check R16).",
+  "description": "Least privilege for the main window: SQLite records, save/open dialogs (paths the user picks are added to the fs scope by the dialog plugin), file read/write in app data only, and the developer-contact mailto link, and (v2.7) window full screen for the chart, and GET of Coins.ph (ADR-0013) and, v2.8, Upbit (ADR-0003 v2.8, WP26) public market-data read paths (must match src/lib/public-hosts.ts, release check R16), and, v2.8 (WP28, ADR-0003 v2.8), the encrypted cloud backup: the native backup URLs (Google Drive, OneDrive, pCloud: token exchange and app-folder file calls only) in the http scope and the three sign-in pages in the opener scope, both exactly the lists in src/lib/public-hosts.ts (BACKUP_NATIVE_URLS, BACKUP_SIGN_IN_URLS, release check R16).",
   "windows": [
     "main"
   ],
@@ -38,6 +38,15 @@
       "allow": [
         {
           "url": "mailto:rslozano@gmail.com*"
+        },
+        {
+          "url": "https://accounts.google.com/o/oauth2/v2/auth*"
+        },
+        {
+          "url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize*"
+        },
+        {
+          "url": "https://my.pcloud.com/oauth2/authorize*"
         }
       ]
     },
@@ -67,6 +76,42 @@
         },
         {
           "url": "https://api.upbit.com/v1/candles/*"
+        },
+        {
+          "url": "https://oauth2.googleapis.com/token"
+        },
+        {
+          "url": "https://www.googleapis.com/drive/v3/files*"
+        },
+        {
+          "url": "https://www.googleapis.com/upload/drive/v3/files*"
+        },
+        {
+          "url": "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+        },
+        {
+          "url": "https://graph.microsoft.com/v1.0/me/drive/special/approot*"
+        },
+        {
+          "url": "https://graph.microsoft.com/v1.0/me/drive/items/*"
+        },
+        {
+          "url": "https://api.pcloud.com/uploadfile*"
+        },
+        {
+          "url": "https://api.pcloud.com/listfolder*"
+        },
+        {
+          "url": "https://api.pcloud.com/gettextfile*"
+        },
+        {
+          "url": "https://eapi.pcloud.com/uploadfile*"
+        },
+        {
+          "url": "https://eapi.pcloud.com/listfolder*"
+        },
+        {
+          "url": "https://eapi.pcloud.com/gettextfile*"
         }
       ]
     }

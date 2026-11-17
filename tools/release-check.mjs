@@ -21,7 +21,7 @@
  *   R13 app icon: rsL icon sources present and copied into the Capacitor projects (CI also checks the built APK/IPA, tools/check-icons.py)
  *   R14 an acceptance check in tools/acceptance-ids.json missing from the suite without an ADR (v2.5)
  *   R15 update channel (ADR-0012): service worker re-versioned per build, Netlify headers, update host in both CSPs, CI publish job
- *   R16 public-host table (v2.6, ADR-0013; v2.8 WP26 every NATIVE_HOSTS entry: Coins.ph, Upbit): read paths identical in public-hosts.ts, _redirects, the launcher proxy, the Tauri http scope, the egress manifest and ADR-0003
+ *   R16 public-host table (v2.6, ADR-0013; v2.8 WP26 every NATIVE_HOSTS entry: Coins.ph, Upbit): read paths identical in public-hosts.ts, _redirects, the launcher proxy, the Tauri http scope, the egress manifest and ADR-0003; v2.8 WP28 also BACKUP_NATIVE_URLS (Tauri http scope) and BACKUP_SIGN_IN_URLS (opener scope, manifest, ADR-0003)
  *   R17 protected build (v2.6, ADR-0014): no source maps, only listed own chunks obfuscated, vendor chunks unchanged, build manifest complete (needs a built out/)
  *   R18 protected equivalence (v2.6, ADR-0014): evidence that acceptance + engine golden passed on this protected build (needs a built out/)
  *   R19 docs parity (v2.6): the architecture plan and the user guide cover every user-visible change; version stamps match
@@ -255,7 +255,7 @@ if (process.argv.includes("--with-tests")) {
 {
   const { checkPublicHosts } = await import("./checks/public-hosts.mjs");
   const r = checkPublicHosts(ROOT);
-  check("R16", "Public-host table consistent for every native host (rewrites, launcher, Tauri scope, egress manifest, ADR-0003)", r.ok, r.ok ? r.summary : r.findings.join("; "));
+  check("R16", "Public-host table consistent for every native host and the backup hosts (rewrites, launcher, Tauri http and opener scopes, egress manifest, ADR-0003)", r.ok, r.ok ? r.summary : r.findings.join("; "));
 }
 
 /* R17 / R18 — protected build and its equivalence evidence (v2.6 WP8, ADR-0014). They need a built out/; CI runs

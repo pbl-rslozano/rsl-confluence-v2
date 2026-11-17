@@ -46,6 +46,10 @@ export const CSP_HOSTS = [
   { origin: "https://publicreporting.cftc.gov", purpose: "CFTC Commitments of Traders, public reporting (ADR-0003 v2.8, WP25)" },
   { origin: "https://stablecoins.llama.fi", purpose: "DefiLlama stablecoin supply, public (ADR-0003 v2.8, WP25)" },
   { origin: "https://api.alternative.me", purpose: "Crypto Fear & Greed Index, GET /fng/ (ADR-0003 v2.8, WP29)" },
+  { origin: "https://login.microsoftonline.com", purpose: "OneDrive sign-in token exchange, encrypted cloud backup (ADR-0003 v2.8, WP28)" },
+  { origin: "https://graph.microsoft.com", purpose: "OneDrive app folder, encrypted cloud backup (ADR-0003 v2.8, WP28)" },
+  { origin: "https://api.pcloud.com", purpose: "pCloud API, US region, encrypted cloud backup (ADR-0003 v2.8, WP28)" },
+  { origin: "https://eapi.pcloud.com", purpose: "pCloud API, EU region, encrypted cloud backup (ADR-0003 v2.8, WP28)" },
   { origin: "wss://fstream.binance.com", purpose: "Binance USD-M liquidation stream, market radar (ADR-0003 v2.8, WP25)" },
   { origin: "wss://stream.bybit.com", purpose: "Bybit public liquidation stream, market radar (ADR-0003 v2.8, WP25)" },
 ] as const;
@@ -113,4 +117,85 @@ export function isAllowedNativeUrl(url: string): boolean {
   if (u.protocol !== "https:" || u.username || u.password || u.hash) return false;
   const rule = NATIVE_HOSTS.find((r) => r.origin === u.origin);
   return !!rule && pathAllowed(u.pathname, rule.paths);
+}
+
+/**
+ * v2.8 (WP28, ADR-0003 amendment v2.8, ADR-0019): encrypted cloud backup. Native HTTP is not subject to the CSP, so
+ * THIS table is the allowlist for it: the desktop and phone native HTTP, and the Tauri HTTP scope (R16 makes the
+ * capability equal to this list). Google is reached only from the desktop app: its hosts are here, never in `CSP_HOSTS`.
+ * An entry ending in "*" is a prefix (the prefix itself included); any other entry is exact. The query is ignored.
+ * String literals only: release check R16 parses them statically.
+ */
+export const BACKUP_NATIVE_URLS = [
+  "https://oauth2.googleapis.com/token",
+  "https://www.googleapis.com/drive/v3/files*",
+  "https://www.googleapis.com/upload/drive/v3/files*",
+  "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+  "https://graph.microsoft.com/v1.0/me/drive/special/approot*",
+  "https://graph.microsoft.com/v1.0/me/drive/items/*",
+  "https://api.pcloud.com/uploadfile*",
+  "https://api.pcloud.com/listfolder*",
+  "https://api.pcloud.com/gettextfile*",
+  "https://eapi.pcloud.com/uploadfile*",
+  "https://eapi.pcloud.com/listfolder*",
+  "https://eapi.pcloud.com/gettextfile*",
+] as const;
+
+/**
+ * Sign-in pages: opened in the system browser (Tauri opener scope) or navigated to, never fetched. Same matching
+ * rules as `BACKUP_NATIVE_URLS`.
+ */
+export const BACKUP_SIGN_IN_URLS = [
+  "https://accounts.google.com/o/oauth2/v2/auth*",
+  "https://login.microsoftonline.com/common/oauth2/v2.0/authorize*",
+  "https://my.pcloud.com/oauth2/authorize*",
+] as const;
+
+/** pCloud serves one account from one of two API hosts (US, EU); the app asks the user which. */
+export const PCLOUD_API_HOSTS = ["api.pcloud.com", "eapi.pcloud.com"] as const;
+
+/**
+ * OneDrive may answer a download with a redirect to a pre-authenticated file host. Whether and which origin is
+ * needed is a documented manual check (ADR-0003 v2.8, section 6 checks deferred), so this is empty. It is filled
+ * only by an ADR-0003 amendment, and each origin added here must also be added to `CSP_HOSTS` and
+ * `BACKUP_NATIVE_URLS` (R16 checks both).
+ */
+export const ONEDRIVE_DOWNLOAD_ORIGINS: readonly string[] = [];
+
+/**
+ * The gate. Strict on purpose: it is all that keeps backup code from any other URL.
+ *  - https only; no userinfo (raw `@` included, so an empty `https://@host` cannot slip through), no hash anywhere;
+ *  - the raw string up to the query must be plain printable ASCII with no backslash, `..`, `%2e`, `%2f`, `%5c`,
+ *    `%25` or an encoded control character (URL parsing would normalise dot segments and backslashes away, so the raw text is checked first, then the
+ *    parsed path again);
+ *  - the match is on `origin + pathname`: the host is lowercased and a default port dropped by URL parsing, but a
+ *    trailing dot or another port is another origin. Paths are case-sensitive;
+ *  - the query is ignored.
+ */
+function urlAllowed(url: unknown, entries: readonly string[], extraOrigins: readonly string[] = []): boolean {
+  if (typeof url !== "string" || url.includes("#")) return false;
+  const q = url.indexOf("?");
+  const raw = q < 0 ? url : url.slice(0, q);
+  if (/[^\x21-\x7e]/.test(raw) || /[\\@]|\.\.|%(?:2e|2f|5c|25|[01][0-9a-f]|7f)/i.test(raw)) return false;
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== "https:" || u.username || u.password || u.hash) return false;
+  if (u.pathname.includes("..") || /%2f|%5c|\\/i.test(u.pathname)) return false;
+  if (extraOrigins.includes(u.origin)) return true;
+  const key = u.origin + u.pathname;
+  return entries.some((e) => (e.endsWith("*") ? key.startsWith(e.slice(0, -1)) : key === e));
+}
+
+/** True when `url` may be fetched by the backup code (native HTTP and the Tauri HTTP scope). */
+export function isAllowedBackupUrl(url: string): boolean {
+  return urlAllowed(url, BACKUP_NATIVE_URLS, ONEDRIVE_DOWNLOAD_ORIGINS);
+}
+
+/** True when `url` is a sign-in page the backup code may open or navigate to (never fetch). */
+export function isAllowedSignInUrl(url: string): boolean {
+  return urlAllowed(url, BACKUP_SIGN_IN_URLS);
 }

@@ -55,7 +55,8 @@ test("the current tree passes R16 for every native host", () => {
   assert.equal(r.ok, true, r.findings.join("; "));
   assert.match(r.summary, /api\.pro\.coins\.ph: 3 read paths, 3 rewrites/);
   assert.match(r.summary, /api\.upbit\.com: 5 read paths, 5 rewrites/);
-  assert.match(r.summary, /8 Tauri URLs/);
+  assert.match(r.summary, /20 Tauri URLs/);
+  assert.match(r.summary, /12 backup URLs, 3 sign-in pages/);
 });
 
 test("_redirects lacking an Upbit path fails R16, naming it", () => {
@@ -196,4 +197,62 @@ test("the launcher still forwards valid read paths unchanged (Coins.ph exactly a
       if (p.startsWith("/x/coinsph/")) assert.deepEqual(echo.keys, ["headers", "signal"], p);
     }
   });
+});
+
+// ---- v2.8 WP28 Task 3: backup hosts (native backup allowlist, sign-in pages, opener scope) ----
+const CAP = "apps/confluence/desktop/src-tauri/capabilities/main.json";
+const capEdit = (fn) => (rw) => rw(CAP, (s) => { const j = JSON.parse(s); fn(j, (id) => j.permissions.find((p) => p.identifier === id)); return JSON.stringify(j); });
+
+test("R16 accepts the backup scope: the real tree is ok and reports the backup URLs", () => {
+  const r = checkPublicHosts();
+  assert.equal(r.ok, true, r.findings.join("; "));
+  assert.match(r.summary, /12 backup URLs, 3 sign-in pages/);
+});
+
+test("R16: an extra http URL in the capability is a finding", () => {
+  const r = withFixture(capEdit((j, perm) => perm("http:default").allow.push({ url: "https://api.pcloud.com/deletefile" })));
+  assert.ok(r.findings.some((f) => f.startsWith("capability http scope")), r.findings.join("; "));
+});
+
+test("R16: a BACKUP_NATIVE_URLS entry missing from the capability is a finding", () => {
+  const r = withFixture(capEdit((j, perm) => { const h = perm("http:default"); h.allow = h.allow.filter((a) => a.url !== "https://eapi.pcloud.com/gettextfile*"); }));
+  assert.ok(r.findings.some((f) => f.startsWith("capability http scope")), r.findings.join("; "));
+});
+
+test("R16: a sign-in URL missing from the opener scope, or an extra opener URL, is a finding", () => {
+  const r1 = withFixture(capEdit((j, perm) => { const o = perm("opener:allow-open-url"); o.allow = o.allow.filter((a) => !a.url.startsWith("https://my.pcloud.com")); }));
+  assert.ok(r1.findings.some((f) => f.startsWith("capability opener scope")), r1.findings.join("; "));
+  const r2 = withFixture(capEdit((j, perm) => perm("opener:allow-open-url").allow.push({ url: "https://accounts.google.com/*" })));
+  assert.ok(r2.findings.some((f) => f.startsWith("capability opener scope")), r2.findings.join("; "));
+  const r3 = withFixture(capEdit((j, perm) => { const o = perm("opener:allow-open-url"); o.allow = o.allow.filter((a) => !a.url.startsWith("mailto:")); }));
+  assert.ok(r3.findings.some((f) => f.startsWith("capability opener scope")), r3.findings.join("; "));
+});
+
+test("R16: a backup host missing from ADR-0003 is a finding (native, sign-in and CSP-only names)", () => {
+  const r1 = withFixture((rw) => rw("docs/adr/0003-network-allowlist.md", (s) => s.replaceAll("eapi.pcloud.com", "eapi.example.test")));
+  assert.ok(r1.findings.includes("ADR-0003 does not name eapi.pcloud.com"), r1.findings.join("; "));
+  const r2 = withFixture((rw) => rw("docs/adr/0003-network-allowlist.md", (s) => s.replaceAll("my.pcloud.com", "my.example.test")));
+  assert.ok(r2.findings.includes("ADR-0003 does not name my.pcloud.com"), r2.findings.join("; "));
+  const r3 = withFixture((rw) => rw("docs/adr/0003-network-allowlist.md", (s) => s.replaceAll("oauth2.googleapis.com", "oauth2.example.test")));
+  assert.ok(r3.findings.includes("ADR-0003 does not name oauth2.googleapis.com"), r3.findings.join("; "));
+});
+
+test("R16: the egress manifest must list every backup host, and nothing else, under backupNativeHosts and signInPages", () => {
+  const r1 = withFixture((rw) => rw("tools/egress-manifest.json", (s) => { const j = JSON.parse(s); j.processes.web.backupNativeHosts = j.processes.web.backupNativeHosts.filter((h) => h !== "graph.microsoft.com"); return JSON.stringify(j); }));
+  assert.ok(r1.findings.includes("egress-manifest: web.backupNativeHosts lacks graph.microsoft.com"), r1.findings.join("; "));
+  const r2 = withFixture((rw) => rw("tools/egress-manifest.json", (s) => { const j = JSON.parse(s); j.processes.web.signInPages.push("example.test"); return JSON.stringify(j); }));
+  assert.ok(r2.findings.includes("egress-manifest: web.signInPages lists example.test, which is not a sign-in page in public-hosts.ts"), r2.findings.join("; "));
+  const r3 = withFixture((rw) => rw("tools/egress-manifest.json", (s) => { const j = JSON.parse(s); delete j.processes.web.signInPages; return JSON.stringify(j); }));
+  assert.ok(r3.findings.some((f) => f.startsWith("egress-manifest: web.signInPages lacks")), r3.findings.join("; "));
+});
+
+test("R16: a whole-host or non-https backup entry, a Google CSP host, or an unlisted download origin is a finding", () => {
+  const r1 = withFixture((rw) => rw(FILES[0], (s) => s.replace('"https://api.pcloud.com/uploadfile*"', '"https://api.pcloud.com/*"')));
+  assert.ok(r1.findings.some((f) => f.includes("BACKUP_NATIVE_URLS") && f.includes("https://api.pcloud.com/*")), r1.findings.join("; "));
+  const r2 = withFixture((rw) => rw(FILES[0], (s) => s.replace('"https://api.pcloud.com/uploadfile*"', '"http://api.pcloud.com/uploadfile*"')));
+  assert.ok(r2.findings.some((f) => f.includes("BACKUP_NATIVE_URLS") && f.includes("http://api.pcloud.com/uploadfile*")), r2.findings.join("; "));
+  const r3 = withFixture((rw) => rw(FILES[0], (s) => s.replace('{ origin: "https://api.pcloud.com",', '{ origin: "https://www.googleapis.com",')));
+  assert.ok(r3.findings.some((f) => f.includes("CSP_HOSTS") && f.includes("Google")), r3.findings.join("; "));
+  const r4 = withFixture((rw) => rw(FILES[0], (s) => s.replace("ONEDRIVE_DOWNLOAD_ORIGINS: readonly string[] = [];", 'ONEDRIVE_DOWNLOAD_ORIGINS: readonly string[] = ["https://example-download.test"];')));
+  assert.ok(r4.findings.some((f) => f.includes("ONEDRIVE_DOWNLOAD_ORIGINS") && f.includes("https://example-download.test")), r4.findings.join("; "));
 });
