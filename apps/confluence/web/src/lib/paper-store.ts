@@ -152,7 +152,9 @@ export function journalContent(j: JournalEntry): string {
 /** `bk:<8 hex>:<original id>` (the id rule allows 160 characters; a long original id is replaced by its own hash). */
 function restoredJournalId(j: JournalEntry, content: string, taken: Set<string>): string {
   const fp = hashId(content);
-  const orig = j.id.length <= 140 ? j.id : hashId(j.id);
+  // An entry restored before already carries one `bk:<hash>:` prefix; build from the bare id so a chain of restores never stacks prefixes.
+  const bare = j.id.replace(/^(bk:[0-9a-f]{8}:)+/, "");
+  const orig = bare.length <= 140 ? bare : hashId(bare);
   let id = `bk:${fp}:${orig}`;
   for (let n = 2; taken.has(id); n++) id = `bk:${fp}:${orig}.${n}`;
   return id;

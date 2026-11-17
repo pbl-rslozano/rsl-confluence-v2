@@ -633,3 +633,32 @@ test("createBackupFile reports what it left out per section", async () => {
   assert.deepEqual(made.skipped, { rows: 1, preregistrations: 0, trials: 0, journal: 0 });
   assert.equal(made.counts.rows, 2);
 });
+
+test("F5 chained restores A to B to C to D keep exactly one bk: prefix and lose or duplicate nothing", async () => {
+  const A = device();
+  await putRaw(A, tradeEntry(1, { pair: "BTCUSDT" }));
+  await putRaw(A, tradeEntry(2, { pair: "ETHUSDT" }));
+  let from = A;
+  for (let hop = 0; hop < 14; hop++) { // past the point where the old behaviour overflowed the 160-character id limit
+    const { text } = await createBackupFile(from.deps, PASS);
+    const to = device();
+    const plan = await openBackupFile(text, PASS, to.deps);
+    assert.deepEqual(plan.journal, { inFile: 2, added: 2, duplicates: 0, rejected: 0 }, `hop ${hop}`);
+    assert.deepEqual((await applyRestore(plan, { settings: false }, to.deps)).journal, { added: 2, duplicates: 0 });
+    // restoring the same backup again, or onto a device that already holds the namespaced entries, adds nothing
+    assert.deepEqual((await openBackupFile(text, PASS, to.deps)).journal, { inFile: 2, added: 0, duplicates: 2, rejected: 0 });
+    assert.deepEqual((await openBackupFile(text, PASS, from.deps)).journal, { inFile: 2, added: 0, duplicates: 2, rejected: 0 });
+    from = to;
+  }
+  // the last device also trades on its own: its trade-1 is stored beside the restored entries
+  const book = await from.paper.load(NOW);
+  book.journal.push(tradeEntry(1, { pair: "SOLUSDT", proposalId: "local-1" }));
+  await from.paper.save(book);
+  const journal = (await from.paper.load(NOW)).journal;
+  assert.equal(journal.length, 3);
+  for (const j of journal.filter((x) => x.pair !== "SOLUSDT")) {
+    assert.match(j.id, /^bk:[0-9a-f]{8}:trade-[12]$/, j.id);
+    assert.ok(sanitizeJournalEntry(j));
+  }
+  assert.ok(journal.some((j) => j.id === "trade-1" && j.pair === "SOLUSDT"));
+});
