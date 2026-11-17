@@ -26,7 +26,7 @@ export const BACKUP_FILE_RE = /^confluence-backup-\d{8}T\d{6}Z\.json$/;
 export type BackupErrorCode =
   | "too-large-backup" | "too-large-file" | "format" | "schema" | "decrypt" | "passphrase" | "unsupported"
   | "not-set-up" | "unavailable" | "sign-in" | "state" | "session" | "network" | "http" | "download-host"
-  | "port-busy" | "timeout" | "cancelled" | "gateway" | "needs-gateway";
+  | "port-busy" | "timeout" | "cancelled" | "gateway" | "needs-gateway" | "partial";
 
 /** The one error vocabulary for backup. `detail` holds only sizes, statuses, provider ids or origins. */
 export class BackupError extends Error {

@@ -9,7 +9,7 @@
  * attempt; it is never stored, logged or put in a message. Errors show a fixed text per BackupError code, never a raw
  * message. Restoring asks first, shows the backup time and leaves newer settings alone unless the box is ticked.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRsl } from "@/rsl/RslContext";
 import { BackupError, MIN_PASSPHRASE_CHARS } from "@/lib/backup-crypto";
 import { applyRestore, createBackupFile, openBackupFile, type BackupDeps, type RestorePlan } from "@/lib/backup-service";
@@ -30,9 +30,12 @@ export interface CloudBackupProps {
   deps: Omit<BackupDeps, "now" | "app" | "actorId" | "ledger"> & { ledger: BackupDeps["ledger"] & Pick<LedgerStore, "stats"> };
   providerLink: ProviderLink | null;
   startOpen: boolean;
-  /** Already translated text (a sign-in return), shown in the status line when the section opens. */
-  notice: string | null;
+  /** A sign-in return to report (an i18n key and its values, translated at render), shown once the section is open. */
+  notice: StatusLine | null;
 }
+
+/** One status line: an i18n key and its values, translated at render so a language change applies to it. */
+export interface StatusLine { key: string; vars?: Record<string, string | number> }
 
 const PROVIDERS: BackupProviderId[] = ["gdrive", "onedrive", "pcloud", "b2", "r2"];
 const STATE_KEY: Record<Availability, string> = {
@@ -76,7 +79,7 @@ export function CloudBackupSection(props: CloudBackupProps) {
   );
 }
 
-type Status = { tone: "ok" | "err" | "info"; lines: string[] };
+type Status = { tone: "ok" | "err" | "info"; lines: StatusLine[] };
 
 function CloudBackupBody({ deps: base, providerLink, notice }: CloudBackupProps) {
   const { t, i18n, id, info } = useRsl();
@@ -86,7 +89,21 @@ function CloudBackupBody({ deps: base, providerLink, notice }: CloudBackupProps)
   const [running, setBusy] = useState(false);
   const [reloading, setReloading] = useState(false);
   const busy = running || reloading;
-  const [status, setStatus] = useState<Status | null>(notice ? { tone: "err", lines: [notice] } : null);
+  const [status, setStatus] = useState<Status | null>(null);
+  // The notice goes into the live region after it has mounted, so screen readers announce it (content present at
+  // insertion is not read out).
+  useEffect(() => {
+    if (!notice) return;
+    const id = requestAnimationFrame(() => setStatus({ tone: "err", lines: [notice] }));
+    return () => cancelAnimationFrame(id);
+  }, [notice]);
+  const rootRef = useRef<HTMLDivElement>(null);
+  /** After Cancel, focus goes back to the Restore button that opened the plan. */
+  const [refocus, setRefocus] = useState<{ p: BackupProviderId } | null>(null);
+  useEffect(() => {
+    if (!refocus) return;
+    rootRef.current?.querySelector<HTMLButtonElement>(`[data-testid="bk-restore-${refocus.p}"]`)?.focus();
+  }, [refocus]);
   const [, setTick] = useState(0); // sessions live in module memory: re-render after sign-in / sign-out
   const [list, setList] = useState<{ p: BackupProviderId; files: BackupFileInfo[]; chosen: string } | null>(null);
   const [plan, setPlan] = useState<{ p: BackupProviderId; plan: RestorePlan; settings: boolean; limits: { days: number; max: number } | null } | null>(null);
@@ -110,15 +127,15 @@ function CloudBackupBody({ deps: base, providerLink, notice }: CloudBackupProps)
   const when = (ms: number) => new Date(ms).toLocaleString(i18n.locale, { dateStyle: "medium", timeStyle: "short" });
 
   /** A fixed text per code. The timeout copy speaks of sign-in, so a transfer that ran out of time says "could not be reached". */
-  const errText = (e: unknown, signingIn: boolean): string => {
-    if (!(e instanceof BackupError)) return t("bk.failed");
+  const errLine = (e: unknown, signingIn: boolean): StatusLine => {
+    // Anything that is not a BackupError makes no claim about what changed (a store can fail part-way).
+    if (!(e instanceof BackupError)) return { key: "bk.failed" };
     const d = e.detail;
     const code = e.code === "timeout" && !signingIn ? "network" : e.code;
-    return t(`bk.err.${code}`, {
-      size: typeof d.size === "number" ? formatBytes(d.size) : "—",
-      status: d.status ?? "—",
-      origin: d.origin ?? "—",
-    });
+    return {
+      key: `bk.err.${code}`,
+      vars: { size: typeof d.size === "number" ? formatBytes(d.size) : "—", status: d.status ?? "—", origin: d.origin ?? "—", n: d.n ?? "—" },
+    };
   };
 
   /** One operation at a time, with a fresh AbortSignal; the passphrase fields are cleared afterwards. */
@@ -127,11 +144,11 @@ function CloudBackupBody({ deps: base, providerLink, notice }: CloudBackupProps)
     const ac = new AbortController();
     abortRef.current = ac;
     setBusy(true);
-    setStatus({ tone: "info", lines: [t("bk.working")] });
+    setStatus({ tone: "info", lines: [{ key: "bk.working" }] });
     try {
       await work(ac.signal);
     } catch (e) {
-      if (!ac.signal.aborted) setStatus({ tone: "err", lines: [errText(e, signingIn)] });
+      if (!ac.signal.aborted) setStatus({ tone: "err", lines: [errLine(e, signingIn)] });
     } finally {
       setPass("");
       setPass2("");
@@ -165,7 +182,7 @@ function CloudBackupBody({ deps: base, providerLink, notice }: CloudBackupProps)
     if (!oauth) throw new BackupError("unavailable", { provider: p });
     await signInShell(p, BUILD_BACKUP_CONFIG, { shell, oauth, http: backupHttp(), now: () => Date.now(), signal });
     setTick((n) => n + 1);
-    setStatus({ tone: "ok", lines: [t("bk.signedIn")] });
+    setStatus({ tone: "ok", lines: [{ key: "bk.signedIn" }] });
   }, true);
 
   const signOut = (p: OAuthProviderId) => {
@@ -182,7 +199,7 @@ function CloudBackupBody({ deps: base, providerLink, notice }: CloudBackupProps)
     if (!ok) {
       setPass("");
       setPass2("");
-      setStatus({ tone: "err", lines: [t("bk.err.passphrase")] });
+      setStatus({ tone: "err", lines: [{ key: "bk.err.passphrase" }] });
       return;
     }
     setList(null);
@@ -192,14 +209,20 @@ function CloudBackupBody({ deps: base, providerLink, notice }: CloudBackupProps)
       const file = await createBackupFile(deps, passphrase);
       if (signal.aborted) throw new BackupError("cancelled");
       await tg.upload(file.name, file.text, signal);
-      await deps.audit.append({
-        actorId: deps.actorId, event: "backup.cloud.upload", record: "backup",
-        reason: `${PROVIDER_NAMES[p]} · ${file.name} · ${file.bytes} bytes · ${file.counts.rows} rows`,
-      });
-      const lines = [t("bk.done", { name: file.name, size: formatBytes(file.bytes) })];
+      const lines: StatusLine[] = [{ key: "bk.done", vars: { name: file.name, size: formatBytes(file.bytes) } }];
       const s = file.skipped;
       if (s.rows + s.preregistrations + s.trials + s.journal > 0) {
-        lines.push(t("bk.skipped", { rows: s.rows, prereg: s.preregistrations, trials: s.trials, journal: s.journal }));
+        lines.push({ key: "bk.skipped", vars: { rows: s.rows, prereg: s.preregistrations, trials: s.trials, journal: s.journal } });
+      }
+      try {
+        await deps.audit.append({
+          actorId: deps.actorId, event: "backup.cloud.upload", record: "backup",
+          reason: `${PROVIDER_NAMES[p]} · ${file.name} · ${file.bytes} bytes · ${file.counts.rows} rows`,
+        });
+      } catch {
+        // The file is in the bucket: say so, and that only its audit entry is missing.
+        setStatus({ tone: "err", lines: [...lines, { key: "bk.uploadAuditFailed" }] });
+        return;
       }
       setStatus({ tone: "ok", lines });
     });
@@ -210,7 +233,7 @@ function CloudBackupBody({ deps: base, providerLink, notice }: CloudBackupProps)
     setList(null);
     void run(async (signal) => {
       const files = await target(p).list(signal);
-      if (!files.length) { setStatus({ tone: "info", lines: [t("bk.none")] }); return; }
+      if (!files.length) { setStatus({ tone: "info", lines: [{ key: "bk.none" }] }); return; }
       setList({ p, files, chosen: files[0].id });
       setStatus(null);
     });
@@ -222,7 +245,7 @@ function CloudBackupBody({ deps: base, providerLink, notice }: CloudBackupProps)
     if (passLength(passphrase) < MIN_PASSPHRASE_CHARS) {
       setPass("");
       setPass2("");
-      setStatus({ tone: "err", lines: [t("bk.err.passphrase")] });
+      setStatus({ tone: "err", lines: [{ key: "bk.err.passphrase" }] });
       return;
     }
     const { p, files, chosen } = list;
@@ -250,7 +273,7 @@ function CloudBackupBody({ deps: base, providerLink, notice }: CloudBackupProps)
     void run(async () => {
       await applyRestore(current.plan, { settings: current.settings && current.plan.settings.present }, deps);
       setPlan(null);
-      setStatus({ tone: "ok", lines: [t("bk.restored")] });
+      setStatus({ tone: "ok", lines: [{ key: "bk.restored" }] });
       setReloading(true); // every button stays disabled until the reload
       window.setTimeout(() => window.location.reload(), 800);
     });
@@ -260,7 +283,7 @@ function CloudBackupBody({ deps: base, providerLink, notice }: CloudBackupProps)
   const field = "h-9 w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 text-sm text-zinc-100";
 
   return (
-    <div className="mt-2 space-y-3">
+    <div ref={rootRef} className="mt-2 space-y-3">
       <p>{t("bk.intro")}</p>
 
       <ul className="space-y-2">
@@ -294,12 +317,12 @@ function CloudBackupBody({ deps: base, providerLink, notice }: CloudBackupProps)
       <div className="grid gap-2 sm:grid-cols-2">
         <label className="space-y-1">
           <span className="block text-zinc-300">{t("bk.passphrase")}</span>
-          <input data-testid="bk-pass" type="password" autoComplete="new-password" spellCheck={false} className={field}
+          <input data-testid="bk-pass" type="password" autoComplete="new-password" spellCheck={false} className={field} disabled={busy}
             value={pass} onChange={(e) => setPass(e.target.value)} />
         </label>
         <label className="space-y-1">
           <span className="block text-zinc-300">{t("bk.passphraseAgain")}</span>
-          <input data-testid="bk-pass2" type="password" autoComplete="new-password" spellCheck={false} className={field}
+          <input data-testid="bk-pass2" type="password" autoComplete="new-password" spellCheck={false} className={field} disabled={busy}
             value={pass2} onChange={(e) => setPass2(e.target.value)} />
         </label>
       </div>
@@ -322,10 +345,10 @@ function CloudBackupBody({ deps: base, providerLink, notice }: CloudBackupProps)
       )}
 
       {plan && <PlanPanel plan={plan} busy={busy} btn={btn} when={when}
-        onSettings={(v) => setPlan({ ...plan, settings: v })} onConfirm={confirmRestore} onCancel={() => { setPlan(null); setStatus(null); }} />}
+        onSettings={(v) => setPlan({ ...plan, settings: v })} onConfirm={confirmRestore} onCancel={() => { setPlan(null); setStatus(null); setRefocus({ p: plan.p }); }} />}
 
       <div role="status" data-testid="bk-status" className={status?.tone === "err" ? "text-rose-300" : status?.tone === "ok" ? "text-emerald-300" : "text-zinc-300"}>
-        {status?.lines.map((l, i) => <p key={i}>{l}</p>)}
+        {status?.lines.map((l, i) => <p key={i}>{t(l.key, l.vars)}</p>)}
       </div>
     </div>
   );
@@ -342,13 +365,23 @@ function PlanPanel({ plan: s, busy, btn, when, onSettings, onConfirm, onCancel }
 }) {
   const { t } = useRsl();
   const plan = s.plan;
+  const descId = useId();
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const focusedRef = useRef(false);
+  // alertdialog pattern: focus moves into the panel when it opens; Cancel (the safe choice) takes it as soon as it is
+  // enabled (the panel mounts while the opening operation is still finishing).
+  useEffect(() => {
+    if (busy || focusedRef.current || !cancelRef.current) return;
+    cancelRef.current.focus();
+    focusedRef.current = true;
+  }, [busy]);
   const payload = plan.parsed.payload;
   const rejected = plan.ledger.rejected + plan.journal.rejected + plan.preregistrations.rejected + plan.trials.rejected;
   const st = plan.settings;
   return (
-    <div role="alertdialog" aria-label={t("bk.restore")} data-testid="bk-plan" className="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-amber-100">
-      <p>{t("bk.restore.time", { time: when(plan.header.createdAt) })}</p>
-      <p>{t("bk.restore.counts", {
+    <div role="alertdialog" aria-label={t("bk.restore")} aria-describedby={`${descId}-time ${descId}-counts`} data-testid="bk-plan" className="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-amber-100">
+      <p id={`${descId}-time`}>{t("bk.restore.time", { time: when(plan.header.createdAt) })}</p>
+      <p id={`${descId}-counts`}>{t("bk.restore.counts", {
         rows: plan.ledger.inFile, added: plan.ledger.added,
         journal: plan.journal.inFile, jadded: plan.journal.added,
         prereg: payload.research.preregistrations.length + plan.preregistrations.rejected, padded: plan.preregistrations.added,
@@ -362,7 +395,7 @@ function PlanPanel({ plan: s, busy, btn, when, onSettings, onConfirm, onCancel }
         <>
           {st.localNewer && st.localChangedAt !== null
             ? <p data-testid="bk-settings-newer">{t("bk.restore.newer", { time: when(st.localChangedAt) })}</p>
-            : st.differs && <p data-testid="bk-settings-newer">{t("bk.restore.differs")}</p>}
+            : st.differs && <p data-testid="bk-settings-differs">{t("bk.restore.differs")}</p>}
           <label className="flex items-center gap-2">
             <input type="checkbox" data-testid="bk-settings" className="h-4 w-4 accent-cyan-500" checked={s.settings} disabled={busy}
               onChange={(e) => onSettings(e.target.checked)} />
@@ -372,7 +405,7 @@ function PlanPanel({ plan: s, busy, btn, when, onSettings, onConfirm, onCancel }
       )}
       <div className="flex gap-2 pt-1">
         <button type="button" data-testid="bk-confirm" className={btn} disabled={busy} onClick={onConfirm}>{t("bk.restore.confirm")}</button>
-        <button type="button" data-testid="bk-cancel" className={btn} disabled={busy} onClick={onCancel}>{t("bk.restore.cancel")}</button>
+        <button type="button" ref={cancelRef} data-testid="bk-cancel" className={btn} disabled={busy} onClick={onCancel}>{t("bk.restore.cancel")}</button>
       </div>
     </div>
   );

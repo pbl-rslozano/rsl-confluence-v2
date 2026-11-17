@@ -786,7 +786,7 @@
   "bk.done": "Backed up {name} ({size}).",
   "bk.skipped": "Left out because a restore could not read them: {rows} ledger rows, {prereg} pre-registrations, {trials} trials, {journal} paper trades.",
   "bk.none": "No backups found.",
-  "bk.failed": "That did not work on this device. Nothing was changed; try again.",
+  "bk.failed": "That did not work on this device. Try again.",
   "bk.restore.time": "Backup made {time}.",
   "bk.restore.counts": "Ledger: {rows} rows, {added} new. Paper journal: {journal} trades, {jadded} new. Pre-registrations: {prereg}, {padded} new.",
   "bk.restore.rejected": "{n} items could not be read and will not be restored.",
@@ -820,5 +820,7 @@
   "bk.err.port-busy": "Sign-in needs port 48787 on this computer, which another program is using.",
   "bk.err.gateway": "The local gateway did not accept the request. Reconnect in Settings → API.",
   "bk.err.needs-gateway": "Add a bucket key in Settings → API first.",
-  "bk.err.foreign": "This sign-in was meant for the phone app or has expired. Start it again from Cloud backup."
+  "bk.err.foreign": "This sign-in was meant for the phone app or has expired. Start it again from Cloud backup.",
+  "bk.err.partial": "Restore stopped part-way: {n} items were written. Running the same restore again is safe.",
+  "bk.uploadAuditFailed": "The backup was uploaded, but its audit entry could not be written."
 }

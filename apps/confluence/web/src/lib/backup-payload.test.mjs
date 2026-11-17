@@ -662,3 +662,68 @@ test("F5 chained restores A to B to C to D keep exactly one bk: prefix and lose 
   }
   assert.ok(journal.some((j) => j.id === "trade-1" && j.pair === "SOLUSDT"));
 });
+
+/* ---- WP28 Task 10 fix round 1 (I-1): a restore that stops part-way is audited and reported with what it wrote ---- */
+async function partialSource() {
+  const A = device();
+  await A.ledger.restoreRows(mkRows(4, 50));
+  await A.paper.importJournal([mkJournal(1, NOW - 2 * DAY), mkJournal(2, NOW - DAY)]);
+  await A.ledger.preregister({ cfg: "c1", source: "binance", tf: "4h", assetClass: "crypto", windowMode: "full", hypothesis: "h", horizon: 6 });
+  await A.ledger.registerTrial("c1", "variant-a", "note");
+  await A.ledger.registerTrial("c1", "variant-b");
+  return (await createBackupFile(A.deps, PASS)).text;
+}
+async function partialError(p) {
+  try { await p; } catch (e) { return e; }
+  assert.fail("expected the restore to fail");
+}
+
+test("a restore that fails in the journal step is audited as partial and reports the records it wrote", async () => {
+  const text = await partialSource();
+  const B = device();
+  const plan = await openBackupFile(text, PASS, B.deps);
+  const boom = new Error("journal store failed");
+  B.deps.paper = { ...B.deps.paper, importJournal: async (list, o = {}) => { if (o.dryRun) return B.paper.importJournal(list, o); throw boom; } };
+  const e = await partialError(applyRestore(plan, { settings: true }, B.deps));
+  assert.ok(e instanceof BackupError, `expected BackupError, got ${e}`);
+  assert.equal(e.code, "partial");
+  assert.equal(e.cause, boom, "the original error is kept as the cause");
+  assert.deepEqual(
+    { n: e.detail.n, preregistrations: e.detail.preregistrations, trials: e.detail.trials, rows: e.detail.rows, journal: e.detail.journal, settings: e.detail.settings, step: e.detail.step, audit: e.detail.audit },
+    { n: 203, preregistrations: 1, trials: 2, rows: 200, journal: 0, settings: 0, step: "journal", audit: "written" },
+  );
+  const partial = B.log.filter((x) => x.event === "backup.cloud.restore.partial");
+  assert.equal(partial.length, 1);
+  assert.equal(partial[0].record, "backup");
+  assert.match(partial[0].reason, /stopped in the journal step · 200 rows, 0 trades, 1 pre-registrations, 2 trials, 0 settings written/);
+  assert.equal(B.log.filter((x) => x.event === "backup.cloud.restore").length, 0);
+  assert.ok(!B.log.some((x) => JSON.stringify(x).includes(PASS)));
+  // running the same restore again is safe: it completes and adds only what was missing
+  B.deps.paper = B.paper;
+  const again = await applyRestore(await openBackupFile(text, PASS, B.deps), { settings: true }, B.deps);
+  assert.equal(again.ledger.added, 0);
+  assert.equal(again.journal.added, 2);
+  assert.equal((await B.ledger.all()).length, 200);
+});
+
+test("a ledger store that throws mid-restore: the rows already written are counted, and a failing audit never masks the error", async () => {
+  const text = await partialSource();
+  const B = device();
+  const plan = await openBackupFile(text, PASS, B.deps);
+  const realPut = B.ledgerPort.put.bind(B.ledgerPort);
+  let ledgerPuts = 0;
+  const boom = new Error("disk went away");
+  B.ledgerPort.put = async (c, i, d) => { if (c === "ledger" && ++ledgerPuts > 20) throw boom; return realPut(c, i, d); };
+  B.deps.audit = { ...B.deps.audit, append: async () => { throw new Error("audit store failed"); } };
+  const e = await partialError(applyRestore(plan, { settings: false }, B.deps));
+  assert.ok(e instanceof BackupError);
+  assert.equal(e.code, "partial");
+  assert.equal(e.cause, boom, "the audit failure does not replace the original error");
+  assert.equal(e.detail.step, "rows");
+  assert.equal(e.detail.audit, "failed");
+  B.ledgerPort.put = realPut;
+  const written = (await B.ledger.all()).length;
+  assert.ok(written > 0 && written < 200, `some rows were written (${written})`);
+  assert.equal(e.detail.rows, written);
+  assert.equal(e.detail.n, written + 1 + 2);
+});

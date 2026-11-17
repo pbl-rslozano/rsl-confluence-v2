@@ -130,7 +130,7 @@ import { FxSourcesDialog } from "@/components/fx-sources-dialog";
 import { fxCredit, fxSourceInfo, type FxChoice } from "@/lib/fx-rates";
 import { PrivateApiDialog } from "@/components/private-api-dialog";
 import type { PrivateApiProfile, ProviderLink } from "@/lib/private-api";
-import type { CloudBackupProps } from "@/components/cloud-backup";
+import type { CloudBackupProps, StatusLine } from "@/components/cloud-backup";
 import { BackupError } from "@/lib/backup-crypto";
 import { completeWebSignIn, consumeWebCallback } from "@/lib/backup-oauth";
 import { APP_LINK_PATH, BUILD_BACKUP_CONFIG } from "@/lib/backup-providers";
@@ -659,10 +659,11 @@ export default function Home() {
    * v2.8 (WP28): Cloud backup in About. `cloudStart` opens About on the section after a web sign-in return. The return is
    * read once on mount, before any await, and the code or token is removed from the address bar whatever happens next.
    */
-  const [cloudStart, setCloudStart] = useState<{ open: boolean; notice: string | null }>({ open: false, notice: null });
+  const [cloudStart, setCloudStart] = useState<{ open: boolean; notice: StatusLine | null }>({ open: false, notice: null });
   useEffect(() => {
-    const backupError = (e: unknown) =>
-      e instanceof BackupError ? t(`bk.err.${e.code}`, { status: e.detail.status ?? "—", origin: e.detail.origin ?? "—", size: "—" }) : t("bk.failed");
+    // Keys and values only: the section translates the notice when it renders it.
+    const backupError = (e: unknown): StatusLine =>
+      e instanceof BackupError ? { key: `bk.err.${e.code}`, vars: { status: e.detail.status ?? "—", origin: e.detail.origin ?? "—", size: "—", n: e.detail.n ?? "—" } } : { key: "bk.failed" };
     let back: ReturnType<typeof consumeWebCallback> | undefined;
     let refused: unknown = null;
     try {
@@ -674,9 +675,9 @@ export default function Home() {
       if (back !== null) window.history.replaceState(null, "", window.location.pathname === APP_LINK_PATH ? "/" : window.location.pathname);
     }
     if (back === null) return;
-    const settle = async (): Promise<string | null> => {
+    const settle = async (): Promise<StatusLine | null> => {
       if (back === undefined) return backupError(refused);
-      if ("foreign" in back) return t("bk.err.foreign");
+      if ("foreign" in back) return { key: "bk.err.foreign" };
       await completeWebSignIn(back, BUILD_BACKUP_CONFIG, backupHttp(), Date.now());
       return null;
     };

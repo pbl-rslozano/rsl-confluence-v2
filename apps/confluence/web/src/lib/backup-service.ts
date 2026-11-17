@@ -3,7 +3,7 @@
  * openBackupFile never writes. applyRestore merges by id, never overwrites a record, never touches the paper account,
  * open positions or risk settings, and writes one audit entry that holds counts only (no passphrase, no secrets).
  */
-import { backupFileName, openBackup, sealBackup, utf8Bytes, type EnvelopeHeader } from "./backup-crypto";
+import { BackupError, backupFileName, openBackup, sealBackup, utf8Bytes, type EnvelopeHeader } from "./backup-crypto";
 import { buildPayload, parsePayload, type ParsedPayload } from "./backup-payload";
 import { sanitizeLedgerRow } from "./ledger-metrics";
 import { normalizePreferences } from "./preferences-store";
@@ -139,22 +139,80 @@ export interface RestoreReport {
   settings: boolean;
 }
 
-/** Merge the plan's records into this device. Order: pre-registrations, trials, ledger rows, journal, settings. */
+type Step = "preregistrations" | "trials" | "rows" | "journal" | "settings" | "audit";
+
+/**
+ * Merge the plan's records into this device. Order: pre-registrations, trials, ledger rows, journal, settings.
+ *
+ * A failure part-way (a store error, a full disk) is never reported as "nothing changed": the records already merged are
+ * counted (the step that threw is re-counted with a dry run, which writes nothing), a `backup.cloud.restore.partial`
+ * audit entry records them, and a BackupError("partial") carries the counts with the original error as its `cause`.
+ * If that audit entry cannot be written either, the partial error is still thrown (detail.audit = "failed"). Running the
+ * same restore again is safe: every record merges by id.
+ */
 export async function applyRestore(plan: RestorePlan, o: { settings: boolean }, deps: BackupDeps): Promise<RestoreReport> {
   const { payload } = plan.parsed;
-  const pre = await deps.ledger.restorePreregistrations(payload.research.preregistrations);
-  const trials = await deps.ledger.restoreTrials(payload.research.trials);
-  const rows = await deps.ledger.restoreRows(payload.ledger.rows);
-  const journal = await deps.paper.importJournal(payload.paper.journal);
-  const settings = o.settings && plan.settings.present;
-  if (settings) {
-    if (payload.settings.preferences) await deps.prefs.put("preferences", "current", payload.settings.preferences);
-    await deps.prefs.put("preferences", "scoring-profile-v1", payload.settings.scoringProfile);
+  const done: Record<Exclude<Step, "audit">, number> = { preregistrations: 0, trials: 0, rows: 0, journal: 0, settings: 0 };
+  let step: Step = "preregistrations";
+  try {
+    const pre = await deps.ledger.restorePreregistrations(payload.research.preregistrations);
+    done.preregistrations = pre.added;
+    step = "trials";
+    const trials = await deps.ledger.restoreTrials(payload.research.trials);
+    done.trials = trials;
+    step = "rows";
+    const rows = await deps.ledger.restoreRows(payload.ledger.rows);
+    done.rows = rows.added;
+    step = "journal";
+    const journal = await deps.paper.importJournal(payload.paper.journal);
+    done.journal = journal.added;
+    step = "settings";
+    const settings = o.settings && plan.settings.present;
+    if (settings) {
+      if (payload.settings.preferences) { await deps.prefs.put("preferences", "current", payload.settings.preferences); done.settings++; }
+      await deps.prefs.put("preferences", "scoring-profile-v1", payload.settings.scoringProfile);
+      done.settings++;
+    }
+    step = "audit";
+    const ledger: RowCounts = { inFile: plan.ledger.inFile, ...rows, rejected: plan.ledger.rejected };
+    await deps.audit.append({
+      actorId: deps.actorId, event: "backup.cloud.restore", record: "backup",
+      reason: `${new Date(plan.header.createdAt).toISOString()} · ${rows.added} rows added, ${rows.duplicates} already present, ${rows.tooOld} too old, ${ledger.rejected} unreadable, ${rows.capDropped} removed by the row cap · ${journal.added} trades · ${pre.added} pre-registrations · settings ${settings ? "yes" : "no"}`,
+    });
+    return { ledger, journal, preregistrations: pre, trials, settings };
+  } catch (cause) {
+    if (step !== "settings" && step !== "audit") done[step] += await writtenBeforeFailure(step, plan, deps);
+    const n = done.preregistrations + done.trials + done.rows + done.journal + done.settings;
+    let audit: "written" | "failed" = "written";
+    try {
+      await deps.audit.append({
+        actorId: deps.actorId, event: "backup.cloud.restore.partial", record: "backup",
+        reason: `${new Date(plan.header.createdAt).toISOString()} · stopped in the ${step} step · ${done.rows} rows, ${done.journal} trades, ${done.preregistrations} pre-registrations, ${done.trials} trials, ${done.settings} settings written`,
+      });
+    } catch {
+      audit = "failed"; // the original failure is what the caller must see
+    }
+    const err = new BackupError("partial", { n, ...done, step, audit });
+    (err as Error & { cause?: unknown }).cause = cause;
+    throw err;
   }
-  const ledger: RowCounts = { inFile: plan.ledger.inFile, ...rows, rejected: plan.ledger.rejected };
-  await deps.audit.append({
-    actorId: deps.actorId, event: "backup.cloud.restore", record: "backup",
-    reason: `${new Date(plan.header.createdAt).toISOString()} · ${rows.added} rows added, ${rows.duplicates} already present, ${rows.tooOld} too old, ${ledger.rejected} unreadable, ${rows.capDropped} removed by the row cap · ${journal.added} trades · ${pre.added} pre-registrations · settings ${settings ? "yes" : "no"}`,
-  });
-  return { ledger, journal, preregistrations: pre, trials, settings };
+}
+
+/**
+ * How many of a step's planned records reached the store before it threw: the plan's dry-run count minus what a new dry
+ * run would still add. A store that cannot be read gives 0 (the count is then a lower bound).
+ */
+async function writtenBeforeFailure(step: "preregistrations" | "trials" | "rows" | "journal", plan: RestorePlan, deps: BackupDeps): Promise<number> {
+  const { payload } = plan.parsed;
+  try {
+    let left: number;
+    let planned: number;
+    if (step === "preregistrations") { planned = plan.preregistrations.added; left = (await deps.ledger.restorePreregistrations(payload.research.preregistrations, { dryRun: true })).added; }
+    else if (step === "trials") { planned = plan.trials.added; left = await deps.ledger.restoreTrials(payload.research.trials, { dryRun: true }); }
+    else if (step === "rows") { planned = plan.ledger.added; left = (await deps.ledger.restoreRows(payload.ledger.rows, { dryRun: true })).added; }
+    else { planned = plan.journal.added; left = (await deps.paper.importJournal(payload.paper.journal, { dryRun: true })).added; }
+    return Math.max(0, planned - left);
+  } catch {
+    return 0;
+  }
 }

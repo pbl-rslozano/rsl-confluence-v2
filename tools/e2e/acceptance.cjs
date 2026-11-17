@@ -74,7 +74,7 @@ async function mockExchanges(ctx, seen, opts = {}) {
       return route.fulfill({ status: 429, headers: { ...headers, "retry-after": "45" }, body: JSON.stringify({ code: -1003, msg: "Too many requests" }) });
     }
     const limit = Math.min(1000, Number(u.searchParams.get("limit") || 200));
-    return route.fulfill({ status: 200, headers, body: JSON.stringify(klines(u.searchParams.get("symbol") || "X", limit, stepOf(u), opts.now)) });
+    return route.fulfill({ status: 200, headers, body: JSON.stringify(klines(u.searchParams.get("symbol") || "X", limit, stepOf(u), typeof opts.now === "function" ? opts.now(stepOf(u)) : opts.now)) });
   });
 }
 
@@ -4017,6 +4017,11 @@ async function hdPinnedBoxes(w, h, lang) {
     const BK_WRONG = "wrong passphrase 123";
     const BK_KEY_ID = "FAKE-B2-KEYID-0045e1c7a9abcd", BK_SECRET = "FAKE-B2-APPKEY-3f9d2b7c41e8a6"; // obviously fake
     const BK_MAX = 20 * 1024 * 1024;
+    // Review M-1: candles on a fixed clock per bar length — 1 ms before the current bar opened — so the newest bar served
+    // is already closed and no further bar closes during the checks (that would add ledger rows between backup and
+    // restore). Frozen once per run; the newest closed bar is the same one the wall clock gives.
+    const BK_T0 = Date.now();
+    const BK_NOW = (step) => Math.floor(BK_T0 / step) * step - 1;
     // Hosts a collapsed (or merely expanded) section must never contact.
     const bkForbidden = (u) => /(^|\.)login\.microsoftonline\.com$|(^|\.)graph\.microsoft\.com$|(^|\.)pcloud\.com$|(^|\.)googleapis\.com$/.test(u.hostname)
       || (u.host === "127.0.0.1:8787" && u.pathname.startsWith("/backup/"));
@@ -4059,7 +4064,7 @@ async function hdPinnedBoxes(w, h, lang) {
     };
     const bkContext = async () => {
       const c = await newContext(browser);
-      await mockExchanges(c);
+      await mockExchanges(c, undefined, { now: BK_NOW });
       await bkGateway(c);
       const hits = [];
       c.on("request", (r) => { const u = new URL(r.url()); if (bkForbidden(u)) hits.push(u.host + u.pathname); });
@@ -4150,6 +4155,7 @@ async function hdPinnedBoxes(w, h, lang) {
     /** A step that throws (an element never appears) records FAIL for the checks it had not reached, instead of ending the run. */
     const bkGuard = async (ids, fn) => {
       try { await fn(); } catch (e) {
+        if (process.env.BK_DEBUG) console.log(String(e && e.stack).split("\n").filter((l) => /acceptance\.cjs|waiting for|locator/.test(l)).slice(0, 6).join("\n"));
         for (const id of ids) if (!results.some((r) => r.id === id)) record(id, "Cloud backup check did not complete", false, `threw: ${String(e && e.message).split("\n")[0].slice(0, 200)}`);
       }
     };
@@ -4158,6 +4164,7 @@ async function hdPinnedBoxes(w, h, lang) {
        default build (no client IDs) the five providers show their availability, still without a request. */
     await bkGuard(["BK-1"], async () => {
       const { c, p, hits } = await bkContext();
+      try {
       await openAbout(p);
       const sec = p.getByTestId("about-cloud-backup");
       const present = (await sec.count()) === 1;
@@ -4179,7 +4186,9 @@ async function hdPinnedBoxes(w, h, lang) {
           && states.gdrive === "desktop-only" && states.onedrive === "not-set-up" && states.pcloud === "not-set-up" && states.b2 === "needs-gateway" && states.r2 === "needs-gateway"
           && actions === 0 && inputs.join() === "password/new-password,password/new-password" && axe.length === 0,
         { origin, closedAtRest, rowsAtRest, title, hitsAtRest, hits: hits.slice(0, 4), states, actions, inputs, axe });
-      await c.close();
+      } finally {
+        await c.close(); // review M-10: also when a step throws
+      }
     });
 
     /* BK-2 … BK-4 share one page: B2 connected through the mocked gateway, one backup uploaded. */
@@ -4214,6 +4223,8 @@ async function hdPinnedBoxes(w, h, lang) {
       const auditBefore = await auditEvents(p);
       const tfBefore = flat(await p.getByRole("combobox", { name: "Timeframe" }).textContent());
       const ledgerAtBackup = await ledgerIds(p);
+      // Review M-8: the positive control for "no BTCUSDT in the upload": the ledger does hold BTCUSDT rows.
+      const btcAtBackup = ledgerAtBackup.some((x) => x.includes("|BTCUSDT|"));
       await openAbout(p);
       await expand(p);
       const b2State = await p.getByTestId("bk-provider-b2").getAttribute("data-state");
@@ -4246,6 +4257,7 @@ async function hdPinnedBoxes(w, h, lang) {
       const clearedTo = (await ledgerIds(p)).length;
       await closeAbout(p);
       // 5. restore: the list shows the file; the plan shows the backup time, the counts and the newer-settings line
+      const prefsBeforeRestore = await prefsNow(p);
       await openAbout(p);
       await expand(p);
       await p.getByTestId("bk-restore-b2").click();
@@ -4256,8 +4268,16 @@ async function hdPinnedBoxes(w, h, lang) {
       await p.getByTestId("bk-plan").waitFor({ timeout: 60000 }).catch(() => null);
       const planText = flat(await p.getByTestId("bk-plan").textContent().catch(() => ""));
       const settingsUnchecked = (await p.getByTestId("bk-settings").isChecked().catch(() => true)) === false;
+      // Review I-2: focus moves into the plan (alertdialog) and it is described by the time and counts lines.
+      await p.waitForFunction(() => !!document.activeElement?.closest('[data-testid="bk-plan"]'), null, { timeout: 5000 }).catch(() => null);
+      const planFocus = await p.evaluate(() => {
+        const plan = document.querySelector('[data-testid="bk-plan"]');
+        const ids = (plan?.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
+        return { inside: !!plan && plan.contains(document.activeElement), on: document.activeElement?.getAttribute("data-testid") || document.activeElement?.tagName, described: ids.length === 2 && ids.every((id) => (document.getElementById(id)?.textContent || "").length > 0) };
+      });
       await p.getByTestId("bk-settings").check();
       const ledgerBeforeConfirm = (await ledgerIds(p)).length;
+      const prefsBeforeConfirm = await prefsNow(p); // review M-9: opening the plan and ticking the box write nothing
       const [, ] = await Promise.all([p.waitForEvent("load", { timeout: 20000 }).catch(() => null), p.getByTestId("bk-confirm").click()]);
       // 6. after the reload: the ledger and the timeframe are back
       await p.waitForSelector(".rsl-brand-host .rsl-brand", { timeout: 20000 });
@@ -4280,10 +4300,11 @@ async function hdPinnedBoxes(w, h, lang) {
           && tfChanged !== tfBefore && clearedTo === 0 && listText.includes(name)
           && /Backup made /.test(planText) && /Ledger: \d+ rows, \d+ new\. Paper journal: \d+ trades, \d+ new\. Pre-registrations: \d+, \d+ new\./.test(planText)
           && /Your settings were changed after this backup \(.+\)\. Restoring them replaces your newer settings\./.test(planText) && settingsUnchecked
-          && ledgerBeforeConfirm === 0 && ledgerBack && tfAfter === tfBefore
+          && ledgerBeforeConfirm === 0 && prefsBeforeConfirm === prefsBeforeRestore && ledgerBack && tfAfter === tfBefore && btcAtBackup
+          && planFocus.inside && planFocus.described
           && grew("backup.cloud.upload") === 1 && grew("backup.cloud.restore") === 1 && auditShown === auditAfter.length && secretsStored.length === 0 && gw.bad.length === 0 && cloudHits.length === 0,
         { secretsCleared, keySent, b2State, doneText, passCleared, files: gw.files.size, envelopeOk, noPlain, tfBefore, tfChanged, tfAfter, clearedTo, listText: listText.slice(0, 90),
-          planText: planText.slice(0, 400), settingsUnchecked, ledgerBeforeConfirm, ledger: `${ledgerAtBackup.length} → ${idsAfter.length}`, ledgerBack,
+          planText: planText.slice(0, 400), settingsUnchecked, planFocus, ledgerBeforeConfirm, prefsUnchangedBeforeConfirm: prefsBeforeConfirm === prefsBeforeRestore, btcAtBackup, ledger: `${ledgerAtBackup.length} → ${idsAfter.length}`, ledgerBack,
           audit: { upload: grew("backup.cloud.upload"), restore: grew("backup.cloud.restore"), shown: auditShown, stored: auditAfter.length }, secretsStored: secretsStored.length, gatewayAuthFailures: gw.bad.length, cloudHits });
     }
 
@@ -4294,6 +4315,15 @@ async function hdPinnedBoxes(w, h, lang) {
       await p.evaluate(() => { window.__bkNoReload = 1; });
       await openAbout(p);
       await expand(p);
+      // Review I-2: Cancel discards the plan and returns focus to the Restore button that opened it.
+      await openNewest(p, BK_PASS);
+      await p.getByTestId("bk-plan").waitFor({ timeout: 60000 });
+      await p.waitForFunction(() => !!document.activeElement?.closest('[data-testid="bk-plan"]'), null, { timeout: 5000 }).catch(() => null);
+      const focusInPlan = await p.evaluate(() => !!document.activeElement?.closest('[data-testid="bk-plan"]'));
+      await p.getByTestId("bk-cancel").click();
+      await p.waitForFunction(() => document.activeElement?.getAttribute("data-testid") === "bk-restore-b2", null, { timeout: 5000 }).catch(() => null);
+      const focusBack = await p.evaluate(() => document.activeElement?.getAttribute("data-testid") || document.activeElement?.tagName);
+      const cancelled = (await p.getByTestId("bk-plan").count()) === 0;
       await openNewest(p, BK_WRONG);
       const wrong = await settled(p, /could not be opened|not a Confluence/);
       const wrongPlan = await p.getByTestId("bk-plan").count();
@@ -4310,9 +4340,9 @@ async function hdPinnedBoxes(w, h, lang) {
       const after = await ledgerIds(p);
       const noReload = await p.evaluate(() => window.__bkNoReload === 1);
       const msg = "This backup could not be opened: the passphrase is wrong or the file was changed.";
-      record("BK-3", "Cloud restore refuses a wrong passphrase and a tampered file (one ciphertext character changed) with the same message; no plan is shown, the ledger is unchanged and the page does not reload",
-        wrong === msg && tampered === msg && wrongPlan === 0 && tamperedPlan === 0 && after.length === before.length && after.every((x, i) => x === before[i]) && noReload,
-        { wrong, tampered, wrongPlan, tamperedPlan, ledger: `${before.length} → ${after.length}`, noReload });
+      record("BK-3", "Cloud restore refuses a wrong passphrase and a tampered file (one ciphertext character changed) with the same message; no plan is shown, the ledger is unchanged and the page does not reload (a cancelled plan returns focus to Restore…)",
+        focusInPlan && focusBack === "bk-restore-b2" && cancelled && wrong === msg && tampered === msg && wrongPlan === 0 && tamperedPlan === 0 && after.length === before.length && after.every((x, i) => x === before[i]) && noReload,
+        { focusInPlan, focusBack, cancelled, wrong, tampered, wrongPlan, tamperedPlan, ledger: `${before.length} → ${after.length}`, noReload });
       await closeAbout(p);
     }
 
