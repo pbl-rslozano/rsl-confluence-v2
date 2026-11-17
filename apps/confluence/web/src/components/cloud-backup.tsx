@@ -132,9 +132,14 @@ function CloudBackupBody({ deps: base, providerLink, notice }: CloudBackupProps)
     if (!(e instanceof BackupError)) return { key: "bk.failed" };
     const d = e.detail;
     const code = e.code === "timeout" && !signingIn ? "network" : e.code;
+    // Final review M-2: a backup over the 160 MB unpacked cap says both sizes (the file size is an estimate then).
+    const key = code === "too-large-backup" && typeof d.plain === "number" ? "bk.err.too-large-plain" : `bk.err.${code}`;
     return {
-      key: `bk.err.${code}`,
-      vars: { size: typeof d.size === "number" ? formatBytes(d.size) : "—", status: d.status ?? "—", origin: d.origin ?? "—", n: d.n ?? "—" },
+      key,
+      vars: {
+        size: typeof d.size === "number" ? formatBytes(d.size) : "—", plain: typeof d.plain === "number" ? formatBytes(d.plain) : "—",
+        status: d.status ?? "—", origin: d.origin ?? "—", n: d.n ?? "—",
+      },
     };
   };
 
@@ -215,6 +220,8 @@ function CloudBackupBody({ deps: base, providerLink, notice }: CloudBackupProps)
         lines.push({ key: "bk.skipped", vars: { rows: s.rows, prereg: s.preregistrations, trials: s.trials, journal: s.journal } });
       }
       if (s.replayRows > 0) lines.push({ key: "bk.skippedReplay", vars: { n: s.replayRows } });
+      const other = s.outcomes + s.universes + s.gaps + s.notes;
+      if (other > 0) lines.push({ key: "bk.skippedRecords", vars: { n: other } });
       try {
         await deps.audit.append({
           actorId: deps.actorId, event: "backup.cloud.upload", record: "backup",
@@ -377,7 +384,9 @@ function PlanPanel({ plan: s, busy, btn, when, onSettings, onConfirm, onCancel }
     focusedRef.current = true;
   }, [busy]);
   const payload = plan.parsed.payload;
-  const rejected = plan.ledger.rejected + plan.journal.rejected + plan.preregistrations.rejected + plan.trials.rejected;
+  const rejected = plan.ledger.rejected + plan.journal.rejected + plan.preregistrations.rejected + plan.trials.rejected
+    + plan.outcomes.rejected + plan.universes.rejected + plan.gaps.rejected + plan.notes.rejected;
+  const notKept = plan.outcomes.notKept + plan.universes.notKept + plan.gaps.notKept;
   const st = plan.settings;
   return (
     <div role="alertdialog" aria-label={t("bk.restore")} aria-describedby={`${descId}-time ${descId}-counts`} data-testid="bk-plan" className="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-amber-100">
@@ -387,7 +396,12 @@ function PlanPanel({ plan: s, busy, btn, when, onSettings, onConfirm, onCancel }
         journal: plan.journal.inFile, jadded: plan.journal.added,
         prereg: payload.research.preregistrations.length + plan.preregistrations.rejected, padded: plan.preregistrations.added,
       })}</p>
+      <p data-testid="bk-plan-records">{t("bk.restore.records", {
+        outcomes: plan.outcomes.inFile, oadded: plan.outcomes.added, universes: plan.universes.inFile, uadded: plan.universes.added,
+        gaps: plan.gaps.inFile, gadded: plan.gaps.added, notes: plan.notes.inFile, nadded: plan.notes.added,
+      })}</p>
       {rejected > 0 && <p>{t("bk.restore.rejected", { n: rejected })}</p>}
+      {notKept > 0 && <p>{t("bk.restore.notKept", { n: notKept })}</p>}
       {plan.ledger.tooOld > 0 && <p>{t("bk.restore.tooOld", { n: plan.ledger.tooOld, days: s.limits?.days ?? "—" })}</p>}
       {plan.ledger.capDropped > 0 && <p>{t("bk.restore.overCap", { n: plan.ledger.capDropped, max: s.limits?.max ?? "—" })}</p>}
       {plan.ledger.agePrunedDays > 0 && <p>{t("bk.restore.agePruned", { n: plan.ledger.agePrunedDays, days: s.limits?.days ?? "—" })}</p>}

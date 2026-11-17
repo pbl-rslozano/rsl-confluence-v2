@@ -240,6 +240,29 @@ const iso = (ms: number) => (ms ? new Date(ms).toISOString() : "");
 export const paperNoteId = (j: Pick<JournalEntry, "proposalId" | "openedAt" | "closedAt">): string =>
   "paper-note:" + [j.proposalId, j.openedAt, j.closedAt].join(":");
 
+/** v2.8 final review (I-1): a trade's annotation as a backup carries it; restored under paperNoteId of the same three fields. */
+export interface TradeNote { proposalId: string; openedAt: number; closedAt: number; tags: string[]; notes: string }
+
+/**
+ * Validate one untrusted trade note: the editor's own rules (at most 12 tags, trimmed and de-duplicated, each at most 180
+ * characters; notes at most 2,000 characters), only known fields, and something to keep. Null for anything else.
+ */
+export function sanitizeTradeNote(x: unknown): TradeNote | null {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return null;
+  const r = x as Record<string, unknown>;
+  if (typeof r.proposalId !== "string" || !/^[\w:|.-]{1,160}$/.test(r.proposalId)) return null;
+  for (const k of ["openedAt", "closedAt"] as const) if (!Number.isSafeInteger(r[k]) || (r[k] as number) < 0) return null;
+  if (!Array.isArray(r.tags) || r.tags.length > 12 || typeof r.notes !== "string" || r.notes.length > 2000) return null;
+  const tags: string[] = [];
+  for (const t of r.tags) {
+    if (typeof t !== "string" || t.length > 180) return null;
+    const v = t.trim();
+    if (v && !tags.includes(v)) tags.push(v);
+  }
+  if (!tags.length && !r.notes.trim()) return null;
+  return { proposalId: r.proposalId, openedAt: r.openedAt as number, closedAt: r.closedAt as number, tags, notes: r.notes };
+}
+
 /** The Notes CSV cell from a saved annotation: "notes [tag, tag]"; anything malformed or missing is "". */
 export function annotationNote(saved: unknown): string {
   const a = saved && typeof saved === "object" ? (saved as { tags?: unknown; notes?: unknown }) : {};

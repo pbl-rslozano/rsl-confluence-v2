@@ -127,6 +127,99 @@ export function sanitizeTrial(x: unknown): TrialEntry | null {
   return out;
 }
 
+/* ---- v2.8 final review (I-1): the ledger's own scored records that a backup carries besides the rows ---- */
+const TF_RE = /^[0-9]{1,2}[mhdwM]$/;
+const PAIR_RE = /^[A-Z0-9]{2,30}$/;
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const HORIZON_KEYS = new Set(["1", "3", "6", "12", "24"]); // ledger-metrics DEFAULT_HORIZONS
+const MAX_OUTCOME_ROWS = 1000;
+const MAX_UNIVERSE = 300;
+const MAX_GAP_SPANS = 50;
+const plainObj = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === "object" && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
+
+/** The outcome snapshots of one bar document (`o|<doc>`): row id → horizon → snapshot. */
+export interface OutcomeDoc { doc: string; out: Record<string, Record<string, OutcomeSnapshot>> }
+/** One stored universe (`u|<src>|<t>`). */
+export interface UniverseDoc { src: string; t: number; list: UniverseEntry[] }
+/** The recorded gaps of one series (`gap|<src>|<tf>|<pair>`). */
+export interface GapDoc { src: string; tf: string; pair: string; spans: GapSpan[] }
+
+function cleanSnapshot(x: unknown): OutcomeSnapshot | null {
+  if (!plainObj(x)) return null;
+  const n = (v: unknown) => finiteNum(v) && Math.abs(v) < 1e6;
+  if (!n(x.g) || !n(x.mfe) || !n(x.mae) || !n(x.f)) return null;
+  const out: OutcomeSnapshot = { g: x.g as number, mfe: x.mfe as number, mae: x.mae as number, f: x.f as number };
+  // A hold length that was NaN is stored as null by JSON: it is dropped (funding then comes from `f`).
+  if (x.hh !== undefined && x.hh !== null) {
+    if (!finiteNum(x.hh) || x.hh < 0 || x.hh > 1e6) return null;
+    out.hh = x.hh;
+  }
+  return out;
+}
+
+/**
+ * v2.8 final review (I-1): validate one untrusted outcome document. The bar document id must be well formed (its day is
+ * the day of its bar time) and every row id must belong to that bar (same engine, source, timeframe and time). Anything
+ * malformed makes the whole document null; nothing throws.
+ */
+export function sanitizeOutcomeDoc(x: unknown): OutcomeDoc | null {
+  if (!plainObj(x) || typeof x.doc !== "string" || !plainObj(x.out)) return null;
+  const parts = x.doc.split("|");
+  if (parts.length !== 5) return null;
+  const [day, src, tf, cfg, ts] = parts;
+  const t = Number(ts);
+  if (!DAY_RE.test(day) || !SAFE_TOKEN_RE.test(src) || !TF_RE.test(tf) || !CFG_RE.test(cfg) || !/^\d{1,16}$/.test(ts) || !Number.isSafeInteger(t)) return null;
+  if (dayOf(t) !== day) return null;
+  const keys = Object.keys(x.out);
+  if (!keys.length || keys.length > MAX_OUTCOME_ROWS) return null;
+  const out: Record<string, Record<string, OutcomeSnapshot>> = {};
+  for (const rowId of keys) {
+    const rp = rowId.split("|");
+    if (rp.length !== 5 || rp[0] !== cfg || rp[1] !== src || rp[2] !== tf || !PAIR_RE.test(rp[3]) || rp[4] !== ts) return null;
+    const hs = (x.out as Record<string, unknown>)[rowId];
+    if (!plainObj(hs)) return null;
+    const hk = Object.keys(hs);
+    if (!hk.length) return null;
+    const clean: Record<string, OutcomeSnapshot> = {};
+    for (const h of hk) {
+      if (!HORIZON_KEYS.has(h)) return null;
+      const s = cleanSnapshot(hs[h]);
+      if (!s) return null;
+      clean[h] = s;
+    }
+    out[rowId] = clean;
+  }
+  return { doc: x.doc, out };
+}
+
+/** v2.8 final review (I-1): validate one untrusted universe snapshot. */
+export function sanitizeUniverseDoc(x: unknown): UniverseDoc | null {
+  if (!plainObj(x) || !safeTok(x.src) || !Number.isSafeInteger(x.t) || (x.t as number) < 0 || !Array.isArray(x.list)) return null;
+  if (!x.list.length || x.list.length > MAX_UNIVERSE) return null;
+  const list: UniverseEntry[] = [];
+  for (const e of x.list) {
+    if (!plainObj(e) || typeof e.p !== "string" || !PAIR_RE.test(e.p) || !finiteNum(e.qv) || e.qv < 0 || !safeTok(e.ac)) return null;
+    list.push({ p: e.p, qv: e.qv, ac: e.ac });
+  }
+  return { src: x.src, t: x.t as number, list };
+}
+
+/** v2.8 final review (I-1): validate one untrusted series of recorded gaps. */
+export function sanitizeGapDoc(x: unknown): GapDoc | null {
+  if (!plainObj(x) || !safeTok(x.src) || typeof x.tf !== "string" || !TF_RE.test(x.tf) || typeof x.pair !== "string" || !PAIR_RE.test(x.pair)) return null;
+  if (!Array.isArray(x.spans) || !x.spans.length || x.spans.length > MAX_GAP_SPANS) return null;
+  const spans: GapSpan[] = [];
+  for (const s of x.spans) {
+    if (!plainObj(s) || !finiteNum(s.from) || !finiteNum(s.to) || s.from > s.to) return null;
+    spans.push({ from: s.from, to: s.to });
+  }
+  return { src: x.src, tf: x.tf, pair: x.pair, spans };
+}
+
+/** Per record kind: added, already on this device (`present`), and not kept (rows not on this device, too old, no room under the cap). */
+export interface RestoreExtraCounts { added: number; present: number; notKept: number }
+
 /** capDropped = ledger ROWS removed by the row cap (whole oldest days); agePrunedDays = days dropped for age. Never index units. */
 export interface RestoreRowsResult { added: number; duplicates: number; tooOld: number; capDropped: number; agePrunedDays: number }
 /** Filled by prune/dropDay when a restore wants to know what was removed. */
@@ -570,7 +663,7 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
   }
 
   /** The dry run: replays write()'s pruning (age, then whole oldest days over the cap) over the index, chunk by chunk. */
-  async function simulateRestore(port: LedgerPort, chunks: LedgerRow[][]): Promise<PruneStats> {
+  async function simulateRestore(port: LedgerPort, chunks: LedgerRow[][]): Promise<{ stats: PruneStats; units: Record<string, number>; gone: Set<string>; added: Record<string, number> }> {
     const units = { ...(await readIndex(port)).days };
     const stats: PruneStats = { ageDays: 0, capDays: 0, capRows: 0 };
     const gone = new Set<string>(); // days already evicted in this simulation (their stored rows are gone)
@@ -599,7 +692,149 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
       for (const r of chunk) { const d = dayOf(r.t); units[d] = (units[d] ?? 0) + 1; added[d] = (added[d] ?? 0) + 1; }
       await prune();
     }
-    return stats;
+    return { stats, units, gone, added };
+  }
+
+  /** The ledger as it stands after the rows step of a restore: real (read from the store) or simulated (dry run). */
+  interface LedgerView {
+    /** day → index units; a copy the extras planner charges as it goes. */
+    units: Record<string, number>;
+    /** Row ids of a bar document after the rows step, or null when it does not exist. */
+    rowIds(docId: string): Promise<Set<string> | null>;
+    /** A meta document of `day` after the rows step (null when absent or when its day was evicted). */
+    meta(key: string, day: string): Promise<unknown>;
+  }
+
+  /** Rows of a restore: dry run (simulated) or real (written in small indexed chunks), and the ledger view after them. */
+  async function rowsPhase(port: LedgerPort, rows: LedgerRow[], dryRun: boolean): Promise<{ result: RestoreRowsResult; view: () => Promise<LedgerView> }> {
+    const cutoff = dayOf(Date.now() - retentionFor(port.kind) * 86_400_000);
+    let tooOld = 0;
+    let duplicates = 0;
+    const groups = new Map<string, LedgerRow[]>();
+    const inFile = new Set<string>();
+    for (const r of rows) {
+      if (dayOf(r.t) < cutoff) { tooOld++; continue; }
+      if (inFile.has(r.id)) { duplicates++; continue; }
+      inFile.add(r.id);
+      const id = barDocId(r);
+      const l = groups.get(id);
+      if (l) l.push(r); else groups.set(id, [r]);
+    }
+    const fresh: LedgerRow[] = [];
+    for (const [id, list] of groups) {
+      const doc = (await port.get(LEDGER_COLLECTION, id)) as BarDoc | null;
+      const have = new Set((doc?.rows ?? []).map((r) => r.id));
+      for (const r of list) { if (have.has(r.id)) duplicates++; else fresh.push(r); }
+    }
+    fresh.sort((a, b) => a.t - b.t || a.pair.localeCompare(b.pair));
+    const chunks = restoreChunks(fresh);
+    const realView = async (): Promise<LedgerView> => ({
+      units: { ...(await readIndex(port)).days },
+      rowIds: async (docId) => {
+        const doc = (await port.get(LEDGER_COLLECTION, docId)) as BarDoc | null;
+        return doc ? new Set((doc.rows ?? []).map((r) => r.id)) : null;
+      },
+      meta: (key) => port.get(LEDGER_META, key),
+    });
+    if (dryRun) {
+      const sim = await simulateRestore(port, chunks);
+      const freshByDoc = new Map<string, Set<string>>();
+      for (const r of fresh) { const id = barDocId(r); const set = freshByDoc.get(id); if (set) set.add(r.id); else freshByDoc.set(id, new Set([r.id])); }
+      const view = async (): Promise<LedgerView> => ({
+        units: { ...sim.units },
+        rowIds: async (docId) => {
+          const d = docId.slice(0, 10);
+          const out = new Set<string>();
+          let exists = false;
+          if (!sim.gone.has(d)) {
+            const doc = (await port.get(LEDGER_COLLECTION, docId)) as BarDoc | null;
+            if (doc) { exists = true; for (const r of doc.rows ?? []) out.add(r.id); }
+          }
+          if ((sim.added[d] ?? 0) > 0 && freshByDoc.has(docId)) { exists = true; for (const id of freshByDoc.get(docId)!) out.add(id); }
+          return exists ? out : null;
+        },
+        meta: async (key, day) => (sim.gone.has(day) ? null : port.get(LEDGER_META, key)),
+      });
+      return { result: { added: fresh.length, duplicates, tooOld, capDropped: sim.stats.capRows, agePrunedDays: sim.stats.ageDays }, view };
+    }
+    const st: PruneStats = { ageDays: 0, capDays: 0, capRows: 0 };
+    let added = 0;
+    for (const chunk of chunks) {
+      try {
+        added += await write(port, chunk, undefined, st);
+      } catch (error) {
+        // v2.8 final review (I-2): no aggressive pruning here (it would delete this device's rows to make room for older
+        // backup rows, against the plan). Stop: write() left the index consistent, the caller reports a partial restore,
+        // and running it again stops at the same point or finishes once there is room.
+        if (isQuotaError(error)) full = true;
+        throw error;
+      }
+    }
+    return { result: { added, duplicates, tooOld, capDropped: st.capRows, agePrunedDays: st.ageDays }, view: realView };
+  }
+
+  /**
+   * v2.8 final review (I-1): plan the outcome snapshots and universes of a restore against the ledger after its rows step.
+   * Merged by key; a local value is never overwritten (a row's snapshots gain only the horizons it lacks). Kept only for rows
+   * this device holds after the restore and within its age window, and only while they fit under the row cap: they never
+   * cause a row to be removed. Newest days first; the same function runs for the dry run and the real run, so the counts
+   * agree.
+   */
+  async function planExtras(kind: string, view: LedgerView, outcomes: OutcomeDoc[], universes: UniverseDoc[]) {
+    const cutoff = dayOf(Date.now() - retentionFor(kind) * 86_400_000);
+    const cap = maxRowsFor(kind);
+    let total = Object.values(view.units).reduce((a, n) => a + n, 0);
+    const items: { day: string; key: string; units: number; doc: unknown }[] = [];
+    const oc: RestoreExtraCounts = { added: 0, present: 0, notKept: 0 };
+    const uc: RestoreExtraCounts = { added: 0, present: 0, notKept: 0 };
+    // The same bar document twice in a file: merged, the first value of a row and horizon wins.
+    const byDoc = new Map<string, Record<string, Record<string, OutcomeSnapshot>>>();
+    for (const od of outcomes) {
+      const cur = byDoc.get(od.doc) ?? {};
+      for (const [rowId, hs] of Object.entries(od.out)) cur[rowId] = { ...hs, ...(cur[rowId] ?? {}) };
+      byDoc.set(od.doc, cur);
+    }
+    for (const doc of [...byDoc.keys()].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))) {
+      const fromFile = byDoc.get(doc)!;
+      const rowKeys = Object.keys(fromFile).sort();
+      const day = doc.slice(0, 10);
+      if (day < cutoff || !(day in view.units)) { oc.notKept += rowKeys.length; continue; }
+      const ids = await view.rowIds(doc);
+      const key = `o|${doc}`;
+      const local = ((await view.meta(key, day)) as { out?: Record<string, Record<string, OutcomeSnapshot>> } | null)?.out ?? {};
+      const out = { ...local };
+      let units = 0;
+      let changed = false;
+      for (const rowId of rowKeys) {
+        if (!ids?.has(rowId)) { oc.notKept++; continue; }
+        const before = local[rowId];
+        const missing = Object.keys(fromFile[rowId]).some((h) => !before || !Object.prototype.hasOwnProperty.call(before, h));
+        if (!missing) { oc.present++; continue; }
+        const cost = before ? 0 : SNAPSHOT_UNITS;
+        if (total + cost > cap) { oc.notKept++; continue; }
+        total += cost;
+        units += cost;
+        out[rowId] = { ...fromFile[rowId], ...(before ?? {}) };
+        changed = true;
+        oc.added++;
+      }
+      if (changed) { items.push({ day, key, units, doc: { out } }); view.units[day] = (view.units[day] ?? 0) + units; }
+    }
+    const planned = new Set<string>();
+    for (const u of [...universes].sort((a, b) => b.t - a.t || (a.src < b.src ? -1 : a.src > b.src ? 1 : 0))) {
+      const key = `u|${u.src}|${u.t}`;
+      const day = dayOf(u.t);
+      if (planned.has(key)) { uc.present++; continue; }
+      if (day < cutoff || !(day in view.units)) { uc.notKept++; continue; }
+      if (await view.meta(key, day)) { uc.present++; continue; }
+      if (total + UNIVERSE_UNITS > cap) { uc.notKept++; continue; }
+      total += UNIVERSE_UNITS;
+      planned.add(key);
+      items.push({ day, key, units: UNIVERSE_UNITS, doc: { src: u.src, t: u.t, list: u.list } });
+      view.units[day] = (view.units[day] ?? 0) + UNIVERSE_UNITS;
+      uc.added++;
+    }
+    return { items, outcomes: oc, universes: uc };
   }
 
   /**
@@ -608,46 +843,76 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
    * and agePrunedDays (days dropped for age) are the same numbers a real run reports.
    */
   function restoreRows(rows: LedgerRow[], o: { dryRun?: boolean } = {}): Promise<RestoreRowsResult> {
+    return enqueue(async (port) => (await rowsPhase(port, rows, !!o.dryRun)).result);
+  }
+
+  /**
+   * v2.8 final review (I-1): restore rows, then their outcome snapshots and the universes (see planExtras). The extras are
+   * written in chunks, each indexed before its documents (writeMeta), so a full store stops with the index consistent.
+   */
+  function restoreLedger(input: { rows: LedgerRow[]; outcomes: OutcomeDoc[]; universes: UniverseDoc[] }, o: { dryRun?: boolean } = {}): Promise<{ rows: RestoreRowsResult; outcomes: RestoreExtraCounts; universes: RestoreExtraCounts }> {
     return enqueue(async (port) => {
-      const cutoff = dayOf(Date.now() - retentionFor(port.kind) * 86_400_000);
-      let tooOld = 0;
-      let duplicates = 0;
-      const groups = new Map<string, LedgerRow[]>();
-      const inFile = new Set<string>();
-      for (const r of rows) {
-        if (dayOf(r.t) < cutoff) { tooOld++; continue; }
-        if (inFile.has(r.id)) { duplicates++; continue; }
-        inFile.add(r.id);
-        const id = barDocId(r);
-        const l = groups.get(id);
-        if (l) l.push(r); else groups.set(id, [r]);
-      }
-      const fresh: LedgerRow[] = [];
-      for (const [id, list] of groups) {
-        const doc = (await port.get(LEDGER_COLLECTION, id)) as BarDoc | null;
-        const have = new Set((doc?.rows ?? []).map((r) => r.id));
-        for (const r of list) { if (have.has(r.id)) duplicates++; else fresh.push(r); }
-      }
-      fresh.sort((a, b) => a.t - b.t || a.pair.localeCompare(b.pair));
-      const chunks = restoreChunks(fresh);
-      if (o.dryRun) {
-        const st = await simulateRestore(port, chunks);
-        return { added: fresh.length, duplicates, tooOld, capDropped: st.capRows, agePrunedDays: st.ageDays };
-      }
-      const st: PruneStats = { ageDays: 0, capDays: 0, capRows: 0 };
-      let added = 0;
-      for (const chunk of chunks) {
-        try {
-          added += await write(port, chunk, undefined, st);
-        } catch (error) {
-          // v2.8 final review (I-2): no aggressive pruning here (it would delete this device's rows to make room for older
-          // backup rows, against the plan). Stop: write() left the index consistent, the caller reports a partial restore,
-          // and running it again stops at the same point or finishes once there is room.
-          if (isQuotaError(error)) full = true;
-          throw error;
+      const { result, view } = await rowsPhase(port, input.rows, !!o.dryRun);
+      const plan = await planExtras(port.kind, await view(), input.outcomes, input.universes);
+      if (!o.dryRun && plan.items.length) {
+        const index = await readIndex(port);
+        for (let i = 0; i < plan.items.length; i += 200) {
+          try {
+            await writeMeta(port, index, plan.items.slice(i, i + 200));
+          } catch (error) {
+            if (isQuotaError(error)) full = true;
+            throw error;
+          }
         }
       }
-      return { added, duplicates, tooOld, capDropped: st.capRows, agePrunedDays: st.ageDays };
+      return { rows: result, outcomes: plan.outcomes, universes: plan.universes };
+    });
+  }
+
+  /** v2.8 final review (I-1): what a backup carries besides the rows: outcome snapshots of the given rows, universes, gaps. */
+  function backupMeta(rowIds: Set<string>): Promise<{ outcomes: unknown[]; universes: unknown[]; gaps: unknown[] }> {
+    return enqueue(async (port) => {
+      const outcomes: unknown[] = [];
+      const universes: unknown[] = [];
+      const gaps: unknown[] = [];
+      for (const { id, doc } of await port.list(LEDGER_META)) {
+        const d = doc as Record<string, unknown> | null;
+        if (!d || typeof d !== "object") continue;
+        if (id.startsWith("o|")) {
+          const out: Record<string, unknown> = {};
+          const all = (d.out ?? {}) as Record<string, unknown>;
+          for (const rowId of Object.keys(all)) if (rowIds.has(rowId)) out[rowId] = all[rowId];
+          if (Object.keys(out).length) outcomes.push({ doc: id.slice(2), out });
+        } else if (id.startsWith("u|")) {
+          universes.push({ src: d.src, t: d.t, list: d.list });
+        } else if (id.startsWith("gap|")) {
+          const [, src, tf, pair] = id.split("|");
+          gaps.push({ src, tf, pair, spans: d.spans });
+        }
+      }
+      return { outcomes, universes, gaps };
+    });
+  }
+
+  /** v2.8 final review (I-1): merge recorded gaps by series and span start; a local span is never replaced or dropped. */
+  function restoreGaps(list: GapDoc[], o: { dryRun?: boolean } = {}): Promise<RestoreExtraCounts> {
+    return enqueue(async (port) => {
+      const c: RestoreExtraCounts = { added: 0, present: 0, notKept: 0 };
+      const bySeries = new Map<string, GapSpan[]>();
+      for (const g of list) bySeries.set(`gap|${g.src}|${g.tf}|${g.pair}`, [...(bySeries.get(`gap|${g.src}|${g.tf}|${g.pair}`) ?? []), ...g.spans]);
+      for (const [id, incoming] of bySeries) {
+        const spans = [...(((await port.get(LEDGER_META, id)) as { spans?: GapSpan[] } | null)?.spans ?? [])];
+        let changed = false;
+        for (const s of incoming) {
+          if (spans.some((g) => g.from === s.from)) { c.present++; continue; }
+          if (spans.length >= MAX_GAP_SPANS) { c.notKept++; continue; }
+          spans.push({ from: s.from, to: s.to });
+          changed = true;
+          c.added++;
+        }
+        if (changed && !o.dryRun) await port.put(LEDGER_META, id, { spans });
+      }
+      return c;
     });
   }
   /** Merge pre-registrations: a key that exists is kept and its decision date never moves. */
@@ -740,7 +1005,7 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
     record, all, seriesScores, stats, clear, cursor, setCursor,
     seriesCursors, setSeriesCursors, outcomes, saveOutcomes, universes,
     registerTrial, trials, preregistration, preregistrations, preregister, lastExport, markExported, slippage, setSlippage,
-    addGap, gaps, restoreRows, restorePreregistrations, restoreTrials, newestBarTime,
+    addGap, gaps, restoreRows, restoreLedger, restoreGaps, backupMeta, restorePreregistrations, restoreTrials, newestBarTime,
     /** True after a storage-full error that pruning could not resolve (writes are being dropped). */
     isFull: () => full,
     get kind() { return kind; },

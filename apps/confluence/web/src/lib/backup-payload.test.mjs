@@ -5,8 +5,8 @@ import assert from "node:assert/strict";
 import { sealBackup, openBackup, readBackupHeader, BackupError } from "./backup-crypto.ts";
 import { buildPayload, parsePayload, PAYLOAD_FORMAT, PAYLOAD_SCHEMA, PAYLOAD_LIMITS } from "./backup-payload.ts";
 import { createBackupFile, openBackupFile, applyRestore } from "./backup-service.ts";
-import { createLedgerStore, sanitizePreregistration, sanitizeTrial, PREREG_MIN_DAYS } from "./signal-ledger.ts";
-import { createPaperStore, memoryPaperPort, sanitizeJournalEntry } from "./paper-store.ts";
+import { createLedgerStore, sanitizePreregistration, sanitizeTrial, sanitizeOutcomeDoc, sanitizeUniverseDoc, sanitizeGapDoc, PREREG_MIN_DAYS } from "./signal-ledger.ts";
+import { createPaperStore, memoryPaperPort, sanitizeJournalEntry, sanitizeTradeNote, paperNoteId } from "./paper-store.ts";
 import { newBook } from "./paper-broker.ts";
 import { sanitizeLedgerRow } from "./ledger-metrics.ts";
 import { normalizePreferences } from "./preferences-store.ts";
@@ -90,9 +90,11 @@ async function snap(dev) {
   return JSON.stringify(out);
 }
 const byId = (a, b) => a.id.localeCompare(b.id);
+const EMPTY_LEDGER = { rows: [], outcomes: [], universes: [], gaps: [] };
+const EMPTY_PAPER = { journal: [], notes: [] };
 const emptyParts = (createdAt) => ({
-  createdAt, app: "2.8.0", settings: { preferences: null, scoringProfile: null }, ledger: { rows: [] },
-  research: { preregistrations: [], trials: [] }, paper: { journal: [] },
+  createdAt, app: "2.8.0", settings: { preferences: null, scoringProfile: null }, ledger: { ...EMPTY_LEDGER },
+  research: { preregistrations: [], trials: [] }, paper: { ...EMPTY_PAPER },
 });
 async function fileOf(parts, createdAt = parts.createdAt) {
   return sealBackup(buildPayload(parts), PASS, { createdAt, app: "2.8.0" });
@@ -153,7 +155,7 @@ test("no scored row is silently dropped", async () => {
   const rows = mkRows(4, 150); // 600 rows over 25 days
   const broken = { ...mkRow("BRK", BAR0 - 4 * H, 0), sc: "x" };
   const replay = mkRow("RPL", BAR0 - 8 * H, 0, { live: 0 });
-  const file = await fileOf({ ...emptyParts(NOW), ledger: { rows: [...rows, broken, replay] } });
+  const file = await fileOf({ ...emptyParts(NOW), ledger: { ...EMPTY_LEDGER, rows: [...rows, broken, replay] } });
 
   const B = device("localstorage");
   const cutoff = dayOf(NOW - 14 * DAY);
@@ -192,7 +194,7 @@ test("row cap removals are reported", async () => {
   assert.equal((await B.ledger.stats()).rows, 4990);
 
   const incoming = Array.from({ length: 100 }, (_, i) => mkRow(`N${i}`, BAR0, i));
-  const file = await fileOf({ ...emptyParts(NOW), ledger: { rows: incoming } });
+  const file = await fileOf({ ...emptyParts(NOW), ledger: { ...EMPTY_LEDGER, rows: incoming } });
   const plan = await openBackupFile(file, PASS, B.deps);
   assert.equal(plan.ledger.added, 100);
   assert.equal(plan.ledger.capDropped, 90);
@@ -207,8 +209,12 @@ test("schema-invalid file is rejected without side effects", async () => {
   const cases = {
     "schema 2": async () => sealBackup(JSON.stringify({ ...JSON.parse(buildPayload(good)), schema: 2 }), PASS, { createdAt: NOW, app: "2.8.0" }),
     "wrong format": async () => sealBackup(JSON.stringify({ ...JSON.parse(buildPayload(good)), format: "other" }), PASS, { createdAt: NOW, app: "2.8.0" }),
-    "rows not an array": async () => sealBackup(JSON.stringify({ ...JSON.parse(buildPayload(good)), ledger: { rows: {} } }), PASS, { createdAt: NOW, app: "2.8.0" }),
+    "rows not an array": async () => sealBackup(JSON.stringify({ ...JSON.parse(buildPayload(good)), ledger: { ...EMPTY_LEDGER, rows: {} } }), PASS, { createdAt: NOW, app: "2.8.0" }),
     "paper is a string": async () => sealBackup(JSON.stringify({ ...JSON.parse(buildPayload(good)), paper: "x" }), PASS, { createdAt: NOW, app: "2.8.0" }),
+    "outcomes missing": async () => sealBackup(JSON.stringify({ ...JSON.parse(buildPayload(good)), ledger: { rows: [], universes: [], gaps: [] } }), PASS, { createdAt: NOW, app: "2.8.0" }),
+    "universes not an array": async () => sealBackup(JSON.stringify({ ...JSON.parse(buildPayload(good)), ledger: { ...EMPTY_LEDGER, universes: "x" } }), PASS, { createdAt: NOW, app: "2.8.0" }),
+    "gaps not an array": async () => sealBackup(JSON.stringify({ ...JSON.parse(buildPayload(good)), ledger: { ...EMPTY_LEDGER, gaps: {} } }), PASS, { createdAt: NOW, app: "2.8.0" }),
+    "notes missing": async () => sealBackup(JSON.stringify({ ...JSON.parse(buildPayload(good)), paper: { journal: [] } }), PASS, { createdAt: NOW, app: "2.8.0" }),
     "createdAt differs from header": async () => sealBackup(buildPayload({ ...good, createdAt: NOW + 1 }), PASS, { createdAt: NOW, app: "2.8.0" }),
     "501 pre-registrations": async () => fileOf({ ...good, research: { preregistrations: Array.from({ length: 501 }, (_, i) => mkPrereg({ cfg: `c${i}` })), trials: [] } }),
     "invalid scoring profile": async () => fileOf({ ...good, settings: { preferences: null, scoringProfile: { version: 1, enabled: ["rsi", "nope"] } } }),
@@ -223,13 +229,13 @@ test("schema-invalid file is rejected without side effects", async () => {
     assert.equal(await snap(B), before, `${name}: nothing changed`);
   }
   // rows above the limit (limit lowered in a direct parse call)
-  const text = buildPayload({ ...good, ledger: { rows: mkRows(1, 2) } });
+  const text = buildPayload({ ...good, ledger: { ...EMPTY_LEDGER, rows: mkRows(1, 2) } });
   const header = readBackupHeader(await fileOf(good));
-  assert.throws(() => parsePayload(text, header, { ...PAYLOAD_LIMITS, rows: 1 }), (e) => e instanceof BackupError && e.code === "schema");
-  assert.throws(() => parsePayload("not json", header), (e) => e instanceof BackupError && e.code === "format");
+  await assert.rejects(parsePayload(text, header, { ...PAYLOAD_LIMITS, rows: 1 }), (e) => e instanceof BackupError && e.code === "schema");
+  await assert.rejects(parsePayload("not json", header), (e) => e instanceof BackupError && e.code === "format");
   assert.equal(PAYLOAD_FORMAT, "rsl-confluence-backup-payload");
   assert.equal(PAYLOAD_SCHEMA, 1);
-  assert.deepEqual(PAYLOAD_LIMITS, { rows: 1_000_000, preregistrations: 500, trials: 20_000, journal: 100_000 });
+  assert.deepEqual(PAYLOAD_LIMITS, { rows: 1_000_000, preregistrations: 500, trials: 20_000, journal: 100_000, outcomes: 1_000_000, universes: 100_000, gaps: 100_000, notes: 100_000 });
 });
 
 test("wrong passphrase and tampered file change nothing", async () => {
@@ -343,7 +349,8 @@ test("the paper account is never touched", async () => {
   assert.equal((await B.paperPort.list("paper_journal")).length, 1);
   const payload = JSON.parse((await openBackup(text, PASS)).plain);
   assert.deepEqual(Object.keys(payload).sort(), ["app", "createdAt", "format", "ledger", "paper", "research", "schema", "settings"]);
-  assert.deepEqual(Object.keys(payload.paper), ["journal"]);
+  assert.deepEqual(Object.keys(payload.paper), ["journal", "notes"], "the journal and its trade notes only: no account, positions or risk settings");
+  assert.deepEqual(Object.keys(payload.ledger), ["rows", "outcomes", "universes", "gaps"]);
 });
 
 test("nothing secret reaches the file or the audit", async () => {
@@ -361,18 +368,18 @@ test("nothing secret reaches the file or the audit", async () => {
   assert.equal(entry.record, "backup");
   assert.equal(entry.actorId, "owner-test");
   for (const bad of [PASS, "token", "apiKey"]) assert.ok(!JSON.stringify(entry).includes(bad));
-  assert.match(entry.reason, /^\d{4}-\d{2}-\d{2}T[\d:.]+Z · 6 rows added, 0 already present, 0 too old, 0 unreadable, 0 removed by the row cap · 1 trades · 0 pre-registrations · settings yes$/);
+  assert.match(entry.reason, /^\d{4}-\d{2}-\d{2}T[\d:.]+Z · 6 rows added, 0 already present, 0 too old, 0 unreadable, 0 removed by the row cap · 1 trades · 0 pre-registrations · settings yes · 0 outcome records · 0 universes · 0 gaps · 0 trade notes$/);
 });
 
 test("rejected journal, pre-registration and trial items are counted", async () => {
   const parts = {
     ...emptyParts(NOW),
     research: { preregistrations: [mkPrereg(), mkPrereg({ cfg: "c2", minDays: 30 })], trials: [mkTrial(1), { ...mkTrial(2), id: "x" }, mkTrial(3)] },
-    paper: { journal: [mkJournal(1, NOW - DAY), mkJournal(2, NOW - DAY, { side: "up" })] },
+    paper: { ...EMPTY_PAPER, journal: [mkJournal(1, NOW - DAY), mkJournal(2, NOW - DAY, { side: "up" })] },
   };
   const B = device();
   const plan = await openBackupFile(await fileOf(parts), PASS, B.deps);
-  assert.deepEqual(plan.parsed.rejected, { rows: 0, preregistrations: 1, trials: 1, journal: 1 });
+  assert.deepEqual(plan.parsed.rejected, { rows: 0, preregistrations: 1, trials: 1, journal: 1, outcomes: 0, universes: 0, gaps: 0, notes: 0 });
   assert.deepEqual(plan.journal, { inFile: 2, added: 1, duplicates: 0, rejected: 1 });
   assert.deepEqual(plan.trials, { added: 2, rejected: 1 });
   assert.deepEqual(plan.preregistrations, { added: 1, kept: 0, rejected: 1 });
@@ -566,7 +573,7 @@ test("F3 the plan's row-cap number counts rows, not index units (a stored univer
   assert.equal(await B.ledger.record([mkRow("U0", BAR0 - 4 * H, 0)], { t: BAR0 - 4 * H, list: [{ p: "BTCUSDT", qv: 1, ac: "crypto" }] }), 1);
   assert.equal((await B.ledger.stats()).rows, 4901); // 4,861 rows + 40 universe units
   const incoming = Array.from({ length: 100 }, (_, i) => mkRow(`N${i}`, BAR0, i));
-  const plan = await openBackupFile(await fileOf({ ...emptyParts(NOW), ledger: { rows: incoming } }), PASS, B.deps);
+  const plan = await openBackupFile(await fileOf({ ...emptyParts(NOW), ledger: { ...EMPTY_LEDGER, rows: incoming } }), PASS, B.deps);
   assert.equal(plan.ledger.capDropped, 60);
   const report = await applyRestore(plan, { settings: false }, B.deps);
   assert.deepEqual(report.ledger, plan.ledger);
@@ -580,7 +587,7 @@ test("F3b the reviewer's scenario: plan 400 equals applied 400, and age-pruned d
   const rest = mkRows(70, 66, 1).slice(0, 4590);
   await B.ledger.restoreRows([...first, ...rest]);
   const incoming = Array.from({ length: 100 }, (_, i) => mkRow(`N${i}`, BAR0, i));
-  const plan = await openBackupFile(await fileOf({ ...emptyParts(NOW), ledger: { rows: incoming } }), PASS, B.deps);
+  const plan = await openBackupFile(await fileOf({ ...emptyParts(NOW), ledger: { ...EMPTY_LEDGER, rows: incoming } }), PASS, B.deps);
   assert.equal(plan.ledger.capDropped, 400);
   assert.equal(plan.ledger.agePrunedDays, 0);
   const report = await applyRestore(plan, { settings: false }, B.deps);
@@ -595,7 +602,7 @@ test("F3b the reviewer's scenario: plan 400 equals applied 400, and age-pruned d
   await C.ledgerPort.put("ledger", `${dayOf(stale)}|binance|4h|c1|${stale}`, { schema: 2, day: dayOf(stale), src: "binance", tf: "4h", cfg: "c1", t: stale, rows: [staleRow] });
   await C.ledgerPort.put("ledger_meta", `day|${dayOf(stale)}`, { ids: [`${dayOf(stale)}|binance|4h|c1|${stale}`] });
   await C.ledgerPort.put("ledger_meta", "index", { schema: 2, days: { [dayOf(stale)]: 1 } });
-  const p = await openBackupFile(await fileOf({ ...emptyParts(NOW), ledger: { rows: incoming.slice(0, 5) } }), PASS, C.deps);
+  const p = await openBackupFile(await fileOf({ ...emptyParts(NOW), ledger: { ...EMPTY_LEDGER, rows: incoming.slice(0, 5) } }), PASS, C.deps);
   assert.equal(p.ledger.agePrunedDays, 1);
   assert.equal(p.ledger.capDropped, 0);
   assert.deepEqual((await applyRestore(p, { settings: false }, C.deps)).ledger, p.ledger);
@@ -630,7 +637,7 @@ test("createBackupFile reports what it left out per section", async () => {
   // a replay row can reach the ledger through the CSV import path; it is left out on purpose (only live rows are backed up), and counted as a replay row
   await A.ledgerPort.put("ledger", "2026-11-10|binance|4h|c1|1", { schema: 2, day: "2026-11-10", src: "binance", tf: "4h", cfg: "c1", t: 1, rows: [mkRow("RPL", BAR0 - 100 * 4 * H, 0, { live: 0 })] });
   const made = await createBackupFile(A.deps, PASS);
-  assert.deepEqual(made.skipped, { rows: 0, replayRows: 1, preregistrations: 0, trials: 0, journal: 0 }, "replay rows are counted apart, not as unreadable");
+  assert.deepEqual(made.skipped, { rows: 0, replayRows: 1, preregistrations: 0, trials: 0, journal: 0, outcomes: 0, universes: 0, gaps: 0, notes: 0 }, "replay rows are counted apart, not as unreadable");
   assert.equal(made.counts.rows, 2);
 });
 
@@ -788,7 +795,7 @@ test("I-2 a restore onto a nearly full localStorage store stops cleanly: every s
   const B = device("localstorage", NOW, port);
   assert.equal((await B.ledger.restoreRows(mkRows(20, 50))).added, 1000);
   const incoming = mkRows(40, 30, 50); // 1,200 rows on older days (still inside 14 days), other pairs
-  const file = await fileOf({ ...emptyParts(NOW), ledger: { ...emptyParts(NOW).ledger, rows: incoming } });
+  const file = await fileOf({ ...emptyParts(NOW), ledger: { ...EMPTY_LEDGER, rows: incoming } });
   const plan = await openBackupFile(file, PASS, B.deps);
   assert.equal(plan.ledger.added, 1200);
   port.limit = port.used + 450_000; // room for roughly half of the incoming rows
@@ -807,7 +814,7 @@ test("I-2 a re-run stops at the same consistent point, and finishes once there i
   const port = quotaPort("localstorage");
   const B = device("localstorage", NOW, port);
   await B.ledger.restoreRows(mkRows(20, 50));
-  const file = await fileOf({ ...emptyParts(NOW), ledger: { ...emptyParts(NOW).ledger, rows: mkRows(40, 30, 50) } });
+  const file = await fileOf({ ...emptyParts(NOW), ledger: { ...EMPTY_LEDGER, rows: mkRows(40, 30, 50) } });
   port.limit = port.used + 450_000;
   await partialError(applyRestore(await openBackupFile(file, PASS, B.deps), { settings: false }, B.deps));
   const first = (await B.ledger.all()).map((r) => r.id).sort();
@@ -855,4 +862,192 @@ test("I-2 a failure inside one bar document leaves no orphan: the day of a writt
     port.put = realPut;
     assert.deepEqual(await ledgerProblems(port), [], `failure at put ${failAt + 1}`);
   }
+});
+
+/* ---- final review (I-1): outcome snapshots, trade notes, recorded gaps and universe snapshots are backed up ---- */
+const snapOf = (i) => ({ g: 0.01 * (i % 7) - 0.02, mfe: 0.03, mae: -0.01, f: 0.0001, hh: 4 });
+/** Device A with rows, measured outcomes for some of them, a universe, two gaps, journal trades and their notes. */
+async function richDevice() {
+  const A = device();
+  const rows = mkRows(4, 50);
+  await A.ledger.restoreRows(rows);
+  const measured = rows.filter((_, i) => i % 3 === 0);
+  const snaps = new Map(measured.map((r, i) => [r.id, { 1: snapOf(i), 3: { ...snapOf(i + 1), hh: 12 } }]));
+  assert.equal(await A.ledger.saveOutcomes(measured, snaps), measured.length);
+  const urow = mkRow("UNI", BAR0, 9);
+  assert.equal(await A.ledger.record([urow], { t: BAR0, list: [{ p: "BTCUSDT", qv: 12345.5, ac: "crypto" }, { p: "ETHUSDT", qv: 999, ac: "crypto" }] }), 1);
+  await A.ledger.addGap("binance", "4h", "P0", { from: BAR0 - 40 * H, to: BAR0 - 30 * H });
+  await A.ledger.addGap("binance", "4h", "P1", { from: BAR0 - 80 * H, to: BAR0 - 60 * H });
+  const trades = [mkJournal(1, NOW - 2 * DAY), mkJournal(2, NOW - DAY)];
+  await A.paper.importJournal(trades);
+  const stored = (await A.paper.load(NOW)).journal;
+  for (const [i, j] of stored.entries()) await A.prefsPort.put("preferences", paperNoteId(j), { tags: [`setup-${i}`, "breakout"], notes: `kept the stop ${i}` });
+  return { A, rows: [...rows, urow], measured, snaps };
+}
+const allMeta = async (dev, prefix) => (await dev.ledgerPort.list("ledger_meta")).filter((x) => x.id.startsWith(prefix)).sort(byId);
+const notesOf = async (dev) => (await dev.prefsPort.list("preferences")).filter((x) => x.id.startsWith("paper-note:")).sort(byId);
+
+test("I-1 outcome snapshots, trade notes, recorded gaps and universe snapshots survive from device A to device B", async () => {
+  const { A, rows, measured } = await richDevice();
+  const made = await createBackupFile(A.deps, PASS);
+  assert.deepEqual(
+    { outcomes: made.counts.outcomes, universes: made.counts.universes, gaps: made.counts.gaps, notes: made.counts.notes },
+    { outcomes: measured.length, universes: 1, gaps: 2, notes: 2 },
+  );
+  const B = device();
+  const plan = await openBackupFile(made.text, PASS, B.deps);
+  assert.deepEqual(plan.outcomes, { inFile: measured.length, added: measured.length, present: 0, notKept: 0, rejected: 0 });
+  assert.deepEqual(plan.universes, { inFile: 1, added: 1, present: 0, notKept: 0, rejected: 0 });
+  assert.deepEqual(plan.gaps, { inFile: 2, added: 2, present: 0, notKept: 0, rejected: 0 });
+  assert.deepEqual(plan.notes, { inFile: 2, added: 2, present: 0, rejected: 0 });
+  const report = await applyRestore(plan, { settings: false }, B.deps);
+  assert.deepEqual(report.outcomes, { added: measured.length, present: 0, notKept: 0 });
+  assert.deepEqual(report.universes, { added: 1, present: 0, notKept: 0 });
+  assert.deepEqual(report.gaps, { added: 2, present: 0, notKept: 0 });
+  assert.deepEqual(report.notes, { added: 2, present: 0 });
+
+  assert.deepEqual([...(await B.ledger.outcomes(rows))].sort(), [...(await A.ledger.outcomes(rows))].sort(), "every measured outcome is on B");
+  assert.deepEqual(await allMeta(B, "o|"), await allMeta(A, "o|"));
+  assert.deepEqual(await B.ledger.universes(), await A.ledger.universes());
+  assert.deepEqual(await B.ledger.gaps("binance", "4h"), await A.ledger.gaps("binance", "4h"));
+  assert.deepEqual(await notesOf(B), await notesOf(A), "notes re-attach to the restored trades (same proposal and times)");
+  for (const j of (await B.paper.load(NOW)).journal) assert.ok(await B.prefsPort.get("preferences", paperNoteId(j)), `note for ${j.id}`);
+  assert.equal((await B.ledger.stats()).rows, (await A.ledger.stats()).rows, "the index charges the same units (rows, snapshots, universe)");
+  assert.deepEqual(await ledgerProblems(B.ledgerPort), []);
+  assert.match(B.log.at(-1).reason, new RegExp(`${measured.length} outcome records · 1 universes · 2 gaps · 2 trade notes`));
+});
+
+test("I-1 restore merges by key, never overwrites a local value, and a re-run adds nothing", async () => {
+  const { A, rows, measured } = await richDevice();
+  const { text } = await createBackupFile(A.deps, PASS);
+  const B = device();
+  await B.ledger.restoreRows(rows.filter((r) => !r.pair.startsWith("UNI")));
+  // B already measured the first row at h=1 with a different value, and has its own note and gap on the same keys
+  const first = measured[0];
+  const local = { g: 0.5, mfe: 0.6, mae: -0.1, f: 0, hh: 4 };
+  await B.ledger.saveOutcomes([first], new Map([[first.id, { 1: local }]]));
+  const trade = (await A.paper.load(NOW)).journal[0];
+  await B.prefsPort.put("preferences", paperNoteId(trade), { tags: ["mine"], notes: "newer local note" });
+  await B.ledger.addGap("binance", "4h", "P0", { from: BAR0 - 40 * H, to: BAR0 - 35 * H });
+  const plan = await openBackupFile(text, PASS, B.deps);
+  assert.deepEqual(plan.outcomes, { inFile: measured.length, added: measured.length, present: 0, notKept: 0, rejected: 0 }, "the first row gains h=3; h=1 stays local");
+  assert.deepEqual(plan.notes, { inFile: 2, added: 1, present: 1, rejected: 0 });
+  assert.deepEqual(plan.gaps, { inFile: 2, added: 1, present: 1, notKept: 0, rejected: 0 });
+  await applyRestore(plan, { settings: false }, B.deps);
+  const mine = (await B.ledger.outcomes([first])).get(first.id);
+  assert.deepEqual(mine[1], local, "the local h=1 outcome is kept");
+  assert.deepEqual(mine[3], { ...snapOf(1), hh: 12 }, "the missing h=3 outcome is added");
+  assert.deepEqual(await B.prefsPort.get("preferences", paperNoteId(trade)), { tags: ["mine"], notes: "newer local note" });
+  assert.deepEqual((await B.ledger.gaps("binance", "4h")).P0, [{ from: BAR0 - 40 * H, to: BAR0 - 35 * H }], "the local span with the same start is kept");
+  // a re-run is safe: nothing new
+  const again = await openBackupFile(text, PASS, B.deps);
+  assert.deepEqual(again.outcomes, { inFile: measured.length, added: 0, present: measured.length, notKept: 0, rejected: 0 });
+  assert.deepEqual(again.universes, { inFile: 1, added: 0, present: 1, notKept: 0, rejected: 0 });
+  assert.deepEqual(again.gaps, { inFile: 2, added: 0, present: 2, notKept: 0, rejected: 0 });
+  assert.deepEqual(again.notes, { inFile: 2, added: 0, present: 2, rejected: 0 });
+  const before = await snap(B);
+  const r2 = await applyRestore(again, { settings: false }, B.deps);
+  assert.equal(r2.outcomes.added + r2.universes.added + r2.gaps.added + r2.notes.added, 0);
+  B.log.pop();
+  assert.equal(await snap(B), before, "a second restore changes no record");
+});
+
+test("I-1 outcomes and universes never cost a row: the plan's cap removals are those of the rows alone, and plan and report agree", async () => {
+  const { A } = await richDevice();
+  const { text } = await createBackupFile(A.deps, PASS);
+  const B = device("localstorage");
+  assert.equal((await B.ledger.restoreRows(mkRows(100, 50).map((r) => mkRow(`Z${r.pair}`, r.t)))).added, 5000);
+  const plan = await openBackupFile(text, PASS, B.deps);
+  const rowsOnly = await B.ledger.restoreRows(plan.parsed.payload.ledger.rows, { dryRun: true });
+  assert.ok(plan.ledger.capDropped > 0);
+  assert.equal(plan.ledger.capDropped, rowsOnly.capDropped, "snapshots and universes remove no row");
+  assert.equal(plan.outcomes.added + plan.outcomes.present + plan.outcomes.notKept, plan.outcomes.inFile - plan.outcomes.rejected);
+  const report = await applyRestore(plan, { settings: false }, B.deps);
+  assert.deepEqual(report.outcomes, { added: plan.outcomes.added, present: plan.outcomes.present, notKept: plan.outcomes.notKept });
+  assert.deepEqual(report.universes, { added: plan.universes.added, present: plan.universes.present, notKept: plan.universes.notKept });
+  assert.deepEqual(report.ledger, plan.ledger);
+  assert.ok((await B.ledger.stats()).rows <= 5000);
+  assert.deepEqual(await ledgerProblems(B.ledgerPort), []);
+});
+
+test("I-1 outcomes and universes fill the room under the cap and stop there; plan and report agree", async () => {
+  const { A, measured } = await richDevice();
+  const { text } = await createBackupFile(A.deps, PASS);
+  const B = device("localstorage");
+  assert.equal((await B.ledger.restoreRows(mkRows(60, 80).map((r) => mkRow(`Y${r.pair}`, r.t)).slice(0, 4790))).added, 4790); // 4,790 units used
+  const plan = await openBackupFile(text, PASS, B.deps);
+  // 201 new rows bring B to 4,991 units: 9 units of room = 18 rows of snapshots, and no room for a 40-unit universe
+  assert.equal(plan.ledger.capDropped, 0);
+  assert.equal(plan.outcomes.added, 18);
+  assert.equal(plan.outcomes.notKept, measured.length - 18);
+  assert.deepEqual(plan.universes, { inFile: 1, added: 0, present: 0, notKept: 1, rejected: 0 });
+  const report = await applyRestore(plan, { settings: false }, B.deps);
+  assert.equal(report.outcomes.added, 18);
+  assert.equal(report.universes.added, 0);
+  assert.equal((await B.ledger.stats()).rows, 5000);
+  assert.deepEqual(await ledgerProblems(B.ledgerPort), []);
+});
+
+test("I-1 sanitisers refuse hostile outcome, universe, gap and note records without throwing", async () => {
+  const t = BAR0;
+  const doc = `${dayOf(t)}|binance|4h|c1|${t}`;
+  const rowId = `c1|binance|4h|P0|${t}`;
+  const goodO = { doc, out: { [rowId]: { 1: snapOf(1), 3: snapOf(2) } } };
+  assert.deepEqual(sanitizeOutcomeDoc(goodO), goodO);
+  assert.deepEqual(sanitizeOutcomeDoc({ ...goodO, extra: 1 }), goodO);
+  assert.deepEqual(sanitizeOutcomeDoc({ doc, out: { [rowId]: { 1: { ...snapOf(1), hh: null } } } }), { doc, out: { [rowId]: { 1: { g: snapOf(1).g, mfe: 0.03, mae: -0.01, f: 0.0001 } } } }, "a NaN hold length (stored as null) is dropped");
+  const badO = [
+    null, [], "x", 1, { doc }, { out: goodO.out }, { doc: "x", out: goodO.out },
+    { doc: `${dayOf(t - DAY)}|binance|4h|c1|${t}`, out: goodO.out }, // the day does not match the bar time
+    { doc, out: { [`c2|binance|4h|P0|${t}`]: { 1: snapOf(1) } } }, // another engine's row
+    { doc, out: { [`c1|binance|4h|P0|${t + 1}`]: { 1: snapOf(1) } } }, // another bar's row
+    { doc, out: { [rowId]: { 2: snapOf(1) } } }, // not a horizon
+    { doc, out: { [rowId]: { 1: { ...snapOf(1), g: "0.1" } } } },
+    { doc, out: { [rowId]: { 1: { ...snapOf(1), mfe: Infinity } } } },
+    { doc, out: { [rowId]: [] } }, { doc, out: [] }, { doc, out: { [rowId]: {} } },
+    { doc, out: JSON.parse(`{"__proto__": {"1": ${JSON.stringify(snapOf(1))}}}`) },
+    { doc, out: Object.fromEntries(Array.from({ length: 1001 }, (_, i) => [`c1|binance|4h|P${i}|${t}`, { 1: snapOf(1) }])) },
+  ];
+  for (const b of badO) assert.equal(sanitizeOutcomeDoc(b), null, JSON.stringify(b)?.slice(0, 80));
+  assert.equal(({}).polluted, undefined);
+
+  const goodU = { src: "binance", t, list: [{ p: "BTCUSDT", qv: 1.5, ac: "crypto" }] };
+  assert.deepEqual(sanitizeUniverseDoc({ ...goodU, extra: 1 }), goodU);
+  for (const b of [null, { ...goodU, src: "bad src" }, { ...goodU, t: "1" }, { ...goodU, t: 1.5 }, { ...goodU, list: "x" }, { ...goodU, list: [] },
+    { ...goodU, list: [{ p: "btc", qv: 1, ac: "crypto" }] }, { ...goodU, list: [{ p: "BTCUSDT", qv: -1, ac: "crypto" }] },
+    { ...goodU, list: [{ p: "BTCUSDT", qv: 1, ac: "<script>" }] }, { ...goodU, list: Array.from({ length: 301 }, () => goodU.list[0]) }]) {
+    assert.equal(sanitizeUniverseDoc(b), null, JSON.stringify(b)?.slice(0, 80));
+  }
+
+  const goodG = { src: "binance", tf: "4h", pair: "P0", spans: [{ from: t - 10 * H, to: t - 5 * H }] };
+  assert.deepEqual(sanitizeGapDoc({ ...goodG, extra: 1, spans: [{ ...goodG.spans[0], x: 1 }] }), goodG);
+  for (const b of [null, { ...goodG, tf: "4hh" }, { ...goodG, pair: "p|0" }, { ...goodG, src: "a|b" }, { ...goodG, spans: [] }, { ...goodG, spans: "x" },
+    { ...goodG, spans: [{ from: t, to: t - 1 }] }, { ...goodG, spans: [{ from: NaN, to: t }] }, { ...goodG, spans: Array.from({ length: 51 }, (_, i) => ({ from: i, to: i + 1 })) }]) {
+    assert.equal(sanitizeGapDoc(b), null, JSON.stringify(b)?.slice(0, 80));
+  }
+
+  const goodN = { proposalId: "prop-1", openedAt: NOW - 5 * H, closedAt: NOW, tags: ["breakout", "a+"], notes: "kept the stop" };
+  assert.deepEqual(sanitizeTradeNote({ ...goodN, extra: "<img onerror=x>" }), goodN);
+  assert.deepEqual(sanitizeTradeNote({ ...goodN, tags: [" breakout ", "breakout", ""] }), { ...goodN, tags: ["breakout"] }, "tags are trimmed and de-duplicated like the editor does");
+  for (const b of [null, { ...goodN, proposalId: "bad id!" }, { ...goodN, openedAt: 1.5 }, { ...goodN, closedAt: -1 }, { ...goodN, tags: "x" },
+    { ...goodN, tags: [1] }, { ...goodN, tags: ["t".repeat(181)] }, { ...goodN, tags: Array.from({ length: 13 }, (_, i) => `t${i}`) },
+    { ...goodN, notes: 5 }, { ...goodN, notes: "n".repeat(2001) }, { ...goodN, tags: [], notes: "" }]) {
+    assert.equal(sanitizeTradeNote(b), null, JSON.stringify(b)?.slice(0, 80));
+  }
+
+  // a file full of hostile records opens: they are counted as rejected and nothing is written
+  const file = await fileOf({
+    ...emptyParts(NOW),
+    ledger: { ...EMPTY_LEDGER, outcomes: [goodO, ...badO], universes: [goodU, null, { ...goodU, src: 7 }], gaps: [goodG, "x"] },
+    paper: { ...EMPTY_PAPER, notes: [goodN, { ...goodN, tags: "x" }, null] },
+  });
+  const B = device();
+  const before = await snap(B);
+  const plan = await openBackupFile(file, PASS, B.deps);
+  assert.equal(plan.outcomes.rejected, badO.length);
+  assert.equal(plan.universes.rejected, 2);
+  assert.equal(plan.gaps.rejected, 1);
+  assert.equal(plan.notes.rejected, 2);
+  assert.equal(plan.outcomes.notKept, 1, "the good outcome's row is not on B: not kept");
+  assert.equal(await snap(B), before);
 });

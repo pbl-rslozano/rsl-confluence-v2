@@ -774,7 +774,7 @@
   "bk.state.notSetUp": "Not set up yet",
   "bk.state.desktopOnly": "Desktop app only",
   "bk.state.webDesktopOnly": "Web and desktop only",
-  "bk.state.needsGateway": "Add a bucket key in Settings → API (local gateway on this computer)",
+  "bk.state.needsGateway": "Add a bucket key with نجی API (the key button in the header) while the local gateway runs on this computer",
   "bk.state.notHere": "Not set up for this web address",
   "bk.signIn": "Sign in",
   "bk.signedIn": "Signed in for this session",
@@ -818,10 +818,14 @@
   "bk.err.http": "The provider refused the request (code {status}).",
   "bk.err.download-host": "Restoring from OneDrive needs its download server ({origin}), which this build does not allow yet.",
   "bk.err.port-busy": "Sign-in needs port 48787 on this computer, which another program is using.",
-  "bk.err.gateway": "The local gateway did not accept the request. Reconnect in Settings → API.",
-  "bk.err.needs-gateway": "Add a bucket key in Settings → API first.",
+  "bk.err.gateway": "The local gateway did not accept the request. Reconnect with نجی API (the key button in the header).",
+  "bk.err.needs-gateway": "Add a bucket key with نجی API (the key button in the header) first.",
   "bk.err.foreign": "This sign-in was meant for the phone app or has expired. Start it again from Cloud backup.",
   "bk.err.partial": "Restore stopped part-way: {n} items were written. Running the same restore again is safe.",
   "bk.uploadAuditFailed": "The backup was uploaded, but its audit entry could not be written.",
-  "bk.skippedReplay": "{n} replay ledger rows are not backed up (only live rows are)."
+  "bk.skippedReplay": "{n} replay ledger rows are not backed up (only live rows are).",
+  "bk.restore.records": "Measured outcomes: {outcomes} rows, {oadded} new. Universe snapshots: {universes}, {uadded} new. Recorded gaps: {gaps}, {gadded} new. Trade notes: {notes}, {nadded} new.",
+  "bk.restore.notKept": "{n} outcome records, universe snapshots or gaps will not be kept: their rows are not on this device or are older than it keeps, or there is no room for them. No row is removed to make room.",
+  "bk.skippedRecords": "{n} other records (measured outcomes, universe snapshots, gaps or trade notes) were left out because a restore could not read them.",
+  "bk.err.too-large-plain": "The backup would be about {size}, and {plain} once unpacked; the limits are 20 MB for the file and 160 MB unpacked. Export the ledger as CSV from the Ledger instead."
 }

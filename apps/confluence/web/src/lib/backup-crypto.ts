@@ -62,6 +62,26 @@ const enc = new TextEncoder();
 /** Input is fed to (de)compression in slices this size, so the output cap bounds memory in every engine. */
 const PIPE_SLICE_BYTES = 16 * 1024;
 
+/** Main-thread work between two yields of the cooperative loops (final review M-1: no long task near 200 ms). */
+export const YIELD_BUDGET_MS = 40;
+const clock = (): number => (typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now());
+/** One trip through the event loop (scheduler.yield where the engine has it, so a background tab is not slowed down more). */
+function yieldOnce(): Promise<void> {
+  const s = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler;
+  return typeof s?.yield === "function" ? s.yield() : new Promise((resolve) => setTimeout(resolve, 0));
+}
+/**
+ * A tick for long loops: returns a promise to await once `budgetMs` of work has run since the last yield, else undefined
+ * (so the common case costs one clock read and no microtask). Usage: `const t = tick(); if (t) await t;`.
+ */
+export function cooperative(budgetMs = YIELD_BUDGET_MS): () => Promise<void> | undefined {
+  let last = clock();
+  return () => {
+    if (clock() - last < budgetMs) return undefined;
+    return yieldOnce().then(() => { last = clock(); });
+  };
+}
+
 export function utf8Bytes(s: string): number {
   return enc.encode(s).length;
 }
