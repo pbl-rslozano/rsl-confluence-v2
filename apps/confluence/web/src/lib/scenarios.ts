@@ -7,7 +7,8 @@
  * fan is centred. Seeded from pair + timeframe + last closed bar time, so a refresh reproduces it.
  */
 import { atr as atrSeries, type Kline } from "./indicators";
-import { rng } from "./ledger-metrics";
+import { rng, roundFt, wilson } from "./ledger-metrics";
+import { fundTrendSeries, FT_MAX_STALE_MS } from "./fund-trend";
 
 export const SC_PATHS = 200;
 export const SC_BLOCK = 6;
@@ -179,4 +180,250 @@ export function simulate(bars: Kline[], intervalMs: number, seed: number): Simul
   });
 
   return { paths, bands, volPct: p.pct[p.pct.length - 1], widened, blocks: starts.length, mu };
+}
+
+// ---------------------------------------------------------------- odds, paths and ledger fields (Task 2)
+
+export const SC_STATE_TH = 15;
+export const SC_SAMPLE_EVERY = 2;
+export const SC_MIN_NEFF = 20;
+export const SC_BUCKET = 0.5;
+export const SC_OFFICIAL_H = 6;
+
+export type FtState = "up" | "flat" | "down";
+
+/** Fund trend direction only: down <= -15, up >= 15, otherwise flat. Null and non-finite -> null. */
+export function ftState(ft: number | null | undefined): FtState | null {
+  if (typeof ft !== "number" || !Number.isFinite(ft)) return null;
+  return ft <= -SC_STATE_TH ? "down" : ft >= SC_STATE_TH ? "up" : "flat";
+}
+
+/** Volatility regime from today's ATR/close percentile, cut at 33 / 67. NaN (bad data) is unknown, never a number. */
+export function volRegime(volPct: number | null | undefined): "low" | "mid" | "high" | null {
+  if (typeof volPct !== "number" || !Number.isFinite(volPct)) return null;
+  return volPct < 33 ? "low" : volPct > 67 ? "high" : "mid";
+}
+
+/** Local copy of market-client.barCloseTime (that module pulls in venue code). Monthly bars close at the next UTC month start. */
+export function barClose(openTime: number, intervalMs: number): number {
+  if (intervalMs >= 28 * DAY && intervalMs <= 31 * DAY) {
+    const d = new Date(openTime);
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
+  }
+  return openTime + intervalMs;
+}
+
+function newestClosedDaily(daily: Kline[], closeTime: number): Kline | null {
+  let lo = 0;
+  let hi = daily.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (daily[mid].time + DAY <= closeTime) lo = mid + 1; else hi = mid;
+  }
+  return lo > 0 ? daily[lo - 1] : null;
+}
+
+/** Fund trend as of each bar's own close (no look-ahead), rounded like the ledger; null when absent or stale (same rule as applyFundTrend). */
+export function ftAtBars(daily: Kline[] | null, bars: Kline[], intervalMs: number): (number | null)[] {
+  if (!daily || daily.length === 0) return bars.map(() => null);
+  const closes = bars.map((b) => barClose(b.time, intervalMs));
+  const values = fundTrendSeries(daily, bars.map((b, i) => ({ time: b.time, closeTime: closes[i] })));
+  return values.map((v, i) => {
+    const newest = newestClosedDaily(daily, closes[i]);
+    return typeof v === "number" && newest !== null && closes[i] - (newest.time + DAY) <= FT_MAX_STALE_MS ? roundFt(v) : null;
+  });
+}
+
+export type Bucket = "up" | "range" | "down";
+export const BUCKETS = ["up", "range", "down"] as const;
+export type Scenario = "continue" | "pause" | "reverse" | "up" | "range" | "down";
+
+export function bucketOf(x: number): Bucket {
+  return x > SC_BUCKET ? "up" : x < -SC_BUCKET ? "down" : "range";
+}
+
+export function scenarioOf(b: Bucket, s: FtState | null): Scenario {
+  if (s === "up") return b === "up" ? "continue" : b === "range" ? "pause" : "reverse";
+  if (s === "down") return b === "down" ? "continue" : b === "range" ? "pause" : "reverse";
+  return b;
+}
+
+export function scenarioOrder(s: FtState | null): Scenario[] {
+  return s === "up" || s === "down" ? ["continue", "pause", "reverse"] : ["up", "range", "down"];
+}
+
+export interface BucketOdds { p: number; lo: number; hi: number; cases: number }
+export interface ScenarioOdds {
+  state: FtState | null;
+  fallback: "noState" | "fewMatches" | null;
+  matches: number;
+  nEff: number;
+  odds: Record<Bucket, BucketOdds>;
+  base: Record<Bucket, number>;
+  baseNEff: number;
+  sigmaH: number;
+  withState: number;
+  sampled: number;
+}
+
+/**
+ * Odds of the three outcome buckets after h bars, from past bars sampled every 2 bars newest-first.
+ * Outcome x = ln(c[i+h]/c[i]) / (ATR_i/c_i * sqrt(h)). Null when nothing is sampled or today's ATR is not finite.
+ */
+export function scenarioOdds(bars: Kline[], ftAt: (number | null)[], h: ScHorizon, intervalMs: number): ScenarioOdds | null {
+  const n = bars.length;
+  const last = n - 1;
+  const a = atrSeries(bars, SC_ATR);
+  const sigmaH = (a[last] / bars[last]?.close) * Math.sqrt(h);
+  if (!(sigmaH > 0) || !Number.isFinite(sigmaH)) return null;
+
+  const xs: number[] = [];
+  const sts: (FtState | null)[] = [];
+  for (let i = last - h; i >= 0; i -= SC_SAMPLE_EVERY) {
+    const ai = a[i];
+    if (!Number.isFinite(ai) || !(ai > 0)) continue;
+    let ok = true;
+    for (let k = i + 1; k <= i + h; k++) if (!stepOk(bars[k - 1].time, bars[k].time, intervalMs)) { ok = false; break; }
+    if (!ok) continue;
+    const x = Math.log(bars[i + h].close / bars[i].close) / ((ai / bars[i].close) * Math.sqrt(h));
+    if (!Number.isFinite(x)) continue;
+    xs.push(x);
+    sts.push(ftState(ftAt[i]));
+  }
+  const sampled = xs.length;
+  if (sampled === 0) return null;
+
+  const tally = (pick: (idx: number) => boolean): Record<Bucket, number> => {
+    const c: Record<Bucket, number> = { up: 0, range: 0, down: 0 };
+    for (let q = 0; q < sampled; q++) if (pick(q)) c[bucketOf(xs[q])]++;
+    return c;
+  };
+  const state = ftState(ftAt[last]);
+  const withState = sts.filter((s) => s !== null).length;
+  const matches = state === null ? 0 : sts.filter((s) => s === state).length;
+  const allCounts = tally(() => true);
+  const baseNEff = (sampled * 2) / h;
+  const base = { up: allCounts.up / sampled, range: allCounts.range / sampled, down: allCounts.down / sampled };
+
+  let fallback: ScenarioOdds["fallback"] = null;
+  let counts = allCounts;
+  let total = sampled;
+  let nEff = baseNEff;
+  if (state === null) fallback = "noState";
+  else if ((matches * 2) / h < SC_MIN_NEFF) fallback = "fewMatches";
+  if (fallback === null) {
+    counts = tally((q) => sts[q] === state);
+    total = matches;
+    nEff = (matches * 2) / h;
+  }
+  const odds = {} as Record<Bucket, BucketOdds>;
+  for (const b of BUCKETS) {
+    const p = counts[b] / total;
+    const [lo, hi] = wilson(p * nEff, nEff);
+    odds[b] = { p, lo, hi, cases: counts[b] };
+  }
+  return { state, fallback, matches, nEff, odds, base, baseNEff, sigmaH, withState, sampled };
+}
+
+/** Per bucket, the simulated path whose end-of-horizon x is nearest the bucket's median x (ties -> lowest index); empty -> null. */
+export function pickPaths(sim: Simulation, h: ScHorizon, sigmaH: number, lastClose: number): Record<Bucket, number | null> {
+  const groups: Record<Bucket, { p: number; x: number }[]> = { up: [], range: [], down: [] };
+  sim.paths.forEach((path, p) => {
+    const x = Math.log(path[h - 1].close / lastClose) / sigmaH;
+    if (Number.isFinite(x)) groups[bucketOf(x)].push({ p, x });
+  });
+  const out: Record<Bucket, number | null> = { up: null, range: null, down: null };
+  for (const b of BUCKETS) {
+    const g = groups[b];
+    if (g.length === 0) continue;
+    const med = quantile7(g.map((e) => e.x).sort((u, v) => u - v), 0.5);
+    let best = g[0];
+    for (const e of g) {
+      const d = Math.abs(e.x - med);
+      const bd = Math.abs(best.x - med);
+      if (d < bd || (d === bd && e.p < best.p)) best = e;
+    }
+    out[b] = best.p;
+  }
+  return out;
+}
+
+export interface ScenarioRequest { pair: string; tf: string; intervalMs: number; bars: Kline[]; daily: Kline[] | null; horizon: ScHorizon }
+export interface ScenarioResult {
+  key: string;
+  horizon: ScHorizon;
+  lastClose: number;
+  lastTime: number;
+  barCount: number;
+  bands: Band[];
+  paths: Record<Bucket, Ohlc[] | null>;
+  odds: ScenarioOdds;
+  volPct: number;
+  widened: 15 | 30 | "all";
+  atr: number;
+  ftNow: number | null;
+}
+
+export function scenarioKey(req: Pick<ScenarioRequest, "pair" | "tf" | "horizon">, lastTime: number, barCount: number, dailyLast: number | null): string {
+  return `${req.pair}|${req.tf}|${lastTime}|${barCount}|${req.horizon}|${dailyLast ?? "-"}`;
+}
+
+/** Shared by the sheet and the ledger fields: one 24-step simulation, odds at horizon h. */
+function core(bars: Kline[], ftAt: (number | null)[], h: ScHorizon, ctx: { pair: string; tf: string; intervalMs: number }): { sim: Simulation; odds: ScenarioOdds } | null {
+  if (bars.length < SC_MIN_BARS) return null;
+  const odds = scenarioOdds(bars, ftAt, h, ctx.intervalMs);
+  if (!odds) return null;
+  const sim = simulate(bars, ctx.intervalMs, scenarioSeed(ctx.pair, ctx.tf, bars[bars.length - 1].time));
+  return sim ? { sim, odds } : null;
+}
+
+export function runScenarios(req: ScenarioRequest): ScenarioResult | { na: "history" } {
+  const { bars, horizon: h } = req;
+  if (bars.length < SC_MIN_BARS) return { na: "history" };
+  const ftAt = ftAtBars(req.daily, bars, req.intervalMs);
+  const c = core(bars, ftAt, h, req);
+  if (!c) return { na: "history" };
+  const lastBar = bars[bars.length - 1];
+  const picked = pickPaths(c.sim, h, c.odds.sigmaH, lastBar.close);
+  const paths = {} as Record<Bucket, Ohlc[] | null>;
+  for (const b of BUCKETS) paths[b] = picked[b] === null ? null : c.sim.paths[picked[b]!].slice(0, h);
+  const dailyLast = req.daily && req.daily.length ? req.daily[req.daily.length - 1].time : null;
+  return {
+    key: scenarioKey(req, lastBar.time, bars.length, dailyLast),
+    horizon: h,
+    lastClose: lastBar.close,
+    lastTime: lastBar.time,
+    barCount: bars.length,
+    bands: c.sim.bands.slice(0, h),
+    paths,
+    odds: c.odds,
+    volPct: c.sim.volPct,
+    widened: c.sim.widened,
+    atr: atrSeries(bars, SC_ATR)[bars.length - 1],
+    ftNow: ftAt[ftAt.length - 1] ?? null,
+  };
+}
+
+export type Scb = [lo95: number, lo68: number, hi68: number, hi95: number];
+export interface Scp { s: -1 | 0 | 1 | null; p: [number, number, number]; b: [number, number, number]; w: number; f: 0 | 1 }
+
+const r5 = (v: number): number => Math.round(v * 1e5) / 1e5;
+const r3 = (v: number): number => Math.round(v * 1e3) / 1e3;
+
+/** Ledger fields at the official H = 6: band edges at step 6 as ln(band / last close), and the three odds with what scoring needs. */
+export function scenarioFields(window: Kline[], ftAt: (number | null)[], ctx: { pair: string; tf: string; intervalMs: number }): { scb: Scb | null; scp: Scp | null } {
+  const c = core(window, ftAt, SC_OFFICIAL_H, ctx);
+  if (!c) return { scb: null, scp: null };
+  const lc = window[window.length - 1].close;
+  const b = c.sim.bands[SC_OFFICIAL_H - 1];
+  const scb: Scb = [r5(Math.log(b.p025 / lc)), r5(Math.log(b.p16 / lc)), r5(Math.log(b.p84 / lc)), r5(Math.log(b.p975 / lc))];
+  const o = c.odds;
+  const scp: Scp = {
+    s: o.state === "down" ? -1 : o.state === "flat" ? 0 : o.state === "up" ? 1 : null,
+    p: [r3(o.odds.up.p), r3(o.odds.range.p), r3(o.odds.down.p)],
+    b: [r3(o.base.up), r3(o.base.range), r3(o.base.down)],
+    w: r5(o.sigmaH),
+    f: o.fallback ? 1 : 0,
+  };
+  return { scb: scb.every(Number.isFinite) ? scb : null, scp: scp.w > 0 ? scp : null };
 }

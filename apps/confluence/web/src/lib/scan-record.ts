@@ -13,7 +13,7 @@ import { baseOf } from "./quotes";
 import type { Kline } from "./indicators";
 import type { AssetClass, LedgerRow } from "./ledger-metrics";
 import { roundFt } from "./ledger-metrics";
-import { fundTrendSeries } from "./fund-trend";
+import { fundTrendSeries, FT_MAX_STALE_MS } from "./fund-trend";
 import type { SeriesScore, RowContext } from "./scan-pipeline";
 import { toLedgerRow } from "./scan-pipeline";
 import { barWhileClosed } from "./asset-classes";
@@ -130,8 +130,7 @@ export function enrichCatchUp(rows: LedgerRow[], kl: Kline[], ctx: ScanRecordCon
 }
 
 const DAY_MS = 86_400_000;
-/** The newest daily bar used for a row must have closed no more than this long before the row's own bar close. */
-export const FT_MAX_STALE_MS = 36 * 3_600_000;
+export { FT_MAX_STALE_MS };
 
 function newestClosedDaily(daily: Kline[], closeTime: number): Kline | null {
   let lo = 0, hi = daily.length; // first index whose close is after closeTime

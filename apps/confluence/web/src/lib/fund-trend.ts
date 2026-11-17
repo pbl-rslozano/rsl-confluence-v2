@@ -24,6 +24,8 @@ export const FT_DISAGREE_SCORE = 55;
 export const FT_DISAGREE_FT = 25;
 
 const DAY_MS = 86_400_000;
+/** The newest daily bar used for a row must have closed no more than this long before the row's own bar close. */
+export const FT_MAX_STALE_MS = 36 * 3_600_000;
 const SIGMA_FLOOR = 1e-8;
 const SEED_RETURNS = 60;
 
