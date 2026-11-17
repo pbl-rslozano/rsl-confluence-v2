@@ -12,8 +12,10 @@
 import { baseOf } from "./quotes";
 import type { Kline } from "./indicators";
 import type { AssetClass, LedgerRow } from "./ledger-metrics";
-import { roundFt } from "./ledger-metrics";
+import { roundFt, indexOfTime } from "./ledger-metrics";
 import { fundTrendSeries, freshFt, FT_MAX_STALE_MS } from "./fund-trend";
+import { scenarioFields, ftAtBars } from "./scenarios";
+import { ENGINE_BARS } from "./engine-config";
 import type { SeriesScore, RowContext } from "./scan-pipeline";
 import { toLedgerRow } from "./scan-pipeline";
 import { barWhileClosed } from "./asset-classes";
@@ -126,6 +128,8 @@ export function enrichCatchUp(rows: LedgerRow[], kl: Kline[], ctx: ScanRecordCon
   }
   if (ctx.dailyOf) applyFundTrend(rows, ctx.dailyOf);
   else for (const row of rows) if (row.ac === "crypto") row.ft = null; // no daily data source (hosted build): "not available", like live rows
+  // v2.8 (WP22): the scenario fields last, after ft is set (the signal bar's state comes from row.ft).
+  applyScenarios(rows, () => kl, ctx.dailyOf, ctx.intervalMs);
   return rows;
 }
 
@@ -151,6 +155,44 @@ export function applyFundTrend(rows: LedgerRow[], dailyOf: (symbol: string) => K
       const fresh = freshFt(v, daily, row.tc);
       row.ft = fresh === null ? null : roundFt(fresh);
     });
+  }
+  return rows;
+}
+
+/**
+ * v2.8 (WP22): scb / scp of each row, the OFFICIAL run: the ENGINE_BARS (1,000) bars ending at the row's own bar, H = 6, the same
+ * code as the sheet (scenarios.ts scenarioFields). Never scored. Call after ft is set: the signal bar's Fund trend state is row.ft;
+ * earlier bars use the daily bars closed at or before their own close (crypto with a daily source only; otherwise unknown, which gives
+ * the coin's overall odds). A row whose bar is not in `bars`, or with fewer than 300 bars, gets null.
+ */
+export function applyScenarios(
+  rows: LedgerRow[],
+  barsOf: (pair: string) => Kline[] | undefined,
+  dailyOf: ((pair: string) => Kline[]) | undefined,
+  intervalMs: number,
+): LedgerRow[] {
+  const byPair = new Map<string, LedgerRow[]>();
+  for (const row of rows) {
+    const list = byPair.get(row.pair);
+    if (list) list.push(row); else byPair.set(row.pair, [row]);
+  }
+  for (const [pair, list] of byPair) {
+    const bars = barsOf(pair);
+    if (!bars || !bars.length) {
+      for (const row of list) Object.assign(row, { scb: null, scp: null });
+      continue;
+    }
+    // Fund trend as of each bar's own close does not depend on the window, so it is computed once per series.
+    let ftAll: (number | null)[] | null = null;
+    for (const row of list) {
+      const i = indexOfTime(bars, row.t);
+      if (i < 0) { Object.assign(row, { scb: null, scp: null }); continue; }
+      if (ftAll === null) ftAll = row.ac === "crypto" && dailyOf ? ftAtBars(dailyOf(pair), bars, intervalMs) : bars.map(() => null);
+      const from = Math.max(0, i - (ENGINE_BARS - 1));
+      const ft = ftAll.slice(from, i + 1);
+      ft[ft.length - 1] = row.ft ?? null;
+      Object.assign(row, scenarioFields(bars.slice(from, i + 1), ft, { pair, tf: row.tf, intervalMs }));
+    }
   }
   return rows;
 }

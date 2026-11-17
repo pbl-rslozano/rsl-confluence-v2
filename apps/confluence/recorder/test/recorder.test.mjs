@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
-  barWhileClosed, classifySymbol, detectHistoricalPattern, ENGINE_BARS, enrich, percentiles, resetFundTrendFeedForTests, resetRateLimitForTests, rateLimitCooldown, ret20, scoreSeries, toLedgerRow,
+  applyScenarios, barWhileClosed, cachedDailyBars, classifySymbol, detectHistoricalPattern, ENGINE_BARS, enrich, percentiles, resetFundTrendFeedForTests, resetRateLimitForTests, rateLimitCooldown, ret20, scoreSeries, toLedgerRow,
 } from "../src/engine.mjs";
 import { sanitizeLedgerRow } from "../../web/src/lib/ledger-metrics.ts";
 import { createRecorder, readHeartbeatStatus } from "../src/recorder-core.mjs";
@@ -73,7 +73,7 @@ test("live rows are identical to scoreSeries + toLedgerRow (+ enrich) on the sam
   const got = ledgerRows(dir);
   // v2.8 (WP21): `ft` is a logged benchmark (number or null), never part of the score; compare the rest.
   assert.ok(got.every((r) => r.ft === null || Number.isFinite(r.ft)), "every crypto row carries ft");
-  assert.deepEqual(got.map(({ ft, ...r }) => r), expectedLive(klBySym, T0));
+  assert.deepEqual(got.map(({ ft, scb, scp, ...r }) => r), expectedLive(klBySym, T0)); // v2.8 (WP22): scb/scp are logged, never scored
   assert.equal(got[0].wb, 999, "engine saw every closed bar it was given");
   assert.equal(got[2].rk, 3, "rank = position in the scanned (class) universe, as in the app");
   assert.equal(got[2].rku, 4, "rku = position in the full unfiltered venue ranking");
@@ -84,6 +84,54 @@ test("live rows are identical to scoreSeries + toLedgerRow (+ enrich) on the sam
     assert.ok([-1, 0, 1].includes(r.pd) && [0, 1, 2, 3].includes(r.pc));
     assert.equal(r.fr, null);
     assert.equal(r.oiChg, null);
+  }
+});
+
+test("v2.8 (WP22): recorder rows carry the same scb/scp as the app's applyScenarios for the same bars", async (t) => {
+  const dayMs = 86_400_000;
+  const dailyUrl = (url) => url.pathname === "/api/v3/klines" && url.searchParams.get("interval") === "1d";
+  const daily = (url) => {
+    const todayOpen = Math.floor(Date.now() / dayMs) * dayMs;
+    const limit = Math.min(1000, Number(url.searchParams.get("limit")));
+    const rows = Array.from({ length: limit }, (_, i) => {
+      const time = todayOpen - (limit - 1 - i) * dayMs;
+      const c = 100 * Math.exp(0.002 * i + 0.01 * Math.sin(i));
+      return [time, String(c), String(c * 1.01), String(c * 0.99), String(c), "10", time + dayMs - 1, "0", 10, "5", "0", "0"];
+    });
+    return new Response(JSON.stringify(rows), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const dir = tempDir(t);
+  const ex = mockExchange({ override: (url) => (dailyUrl(url) ? daily(url) : undefined) });
+  await runOnce(dir, ex);
+  const cur = currentOpen(T0);
+  const klBySym = Object.fromEntries(UNIVERSE.map((u) => [u.symbol, bars(u.symbol, cur - 999 * IV, cur - IV)]));
+  const got = ledgerRows(dir);
+  assert.equal(got.length, 3);
+  const want = expectedLive(klBySym, T0);
+  // The app's path on the same rows: ft as the recorder wrote it, the same daily bars, the same bars.
+  want.forEach((r, i) => { r.ft = got[i].ft; });
+  applyScenarios(want, (sym) => klBySym[sym], (sym) => cachedDailyBars("binance", sym), IV);
+  for (let i = 0; i < got.length; i++) {
+    assert.ok(Array.isArray(got[i].scb) && got[i].scp && typeof got[i].scp.w === "number", `${got[i].pair} carries scb and scp`);
+    assert.deepEqual({ scb: got[i].scb, scp: got[i].scp }, JSON.parse(JSON.stringify({ scb: want[i].scb, scp: want[i].scp })), got[i].pair);
+    assert.ok(sanitizeLedgerRow(got[i]), "the app's import sanitiser accepts it");
+  }
+  assert.ok(got.some((r) => r.scp.s !== null), "a crypto row with daily bars has a trend state");
+});
+
+test("v2.8 (WP22): a failed Fund trend feed still writes scb with scp.s null", async (t) => {
+  const dir = tempDir(t);
+  const dailyUrl = (url) => url.pathname === "/api/v3/klines" && url.searchParams.get("interval") === "1d";
+  const ex = mockExchange({ override: (url) => (dailyUrl(url) ? new Response("down", { status: 500 }) : undefined) });
+  const { result } = await runOnce(dir, ex);
+  assert.equal(result.written, 3);
+  const rows = ledgerRows(dir);
+  for (const r of rows) {
+    assert.ok(Array.isArray(r.scb) && r.scb.length === 4, `${r.pair} scb`);
+    assert.equal(r.scp.s, null, `${r.pair} state unknown`);
+    assert.equal(r.scp.f, 1);
+    assert.deepEqual(r.scp.p, r.scp.b);
+    assert.equal(r.ft, null);
   }
 });
 
@@ -149,7 +197,7 @@ test("catch-up after a gap scores every missed closed bar with the full ENGINE_B
         universeRank: FULL_RANK[u.symbol], rankSource: "now",
       });
       Object.assign(exp, enrich(exp, kl.slice(0, j + 1), { intervalMs: IV, btc: merged.BTCUSDT, rs: null }));
-      const { ft, ...scored } = row; // v2.8 (WP21): ft is a benchmark, not part of the scored row
+      const { ft, scb, scp, ...scored } = row; // v2.8: ft (WP21) and scb/scp (WP22) are logged, not part of the scored row
       assert.deepEqual(scored, JSON.parse(JSON.stringify(exp)), `${u.symbol} ${new Date(row.t).toISOString()}`);
     }
   }

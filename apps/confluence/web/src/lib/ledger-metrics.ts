@@ -29,6 +29,7 @@ import { ENGINE_BARS } from "./engine-window";
 import { FR_MAX, OI_CHG_MAX, OI_CHG_MIN } from "./derivatives-context";
 import type { RadarContext } from "./radar/snapshot";
 import { RAD_BOUNDS } from "./radar/rad-bounds";
+import type { Scb, Scp } from "./scenarios";
 
 export type AssetClass = "crypto" | "rwa" | "stock" | "fx" | "commodity";
 
@@ -104,6 +105,11 @@ export interface LedgerRow {
   /* ---- v2.8 (WP25): the market-radar context at the bar close (BTC values), logged, never scored ---- */
   /** Newest radar context at or before this bar's close (at most 2 h old); null = radar recording was off or nothing qualified. */
   rad?: RadarContext | null;
+  /* ---- v2.8 (WP22): the scenario check on the official run (the last 1,000 bars, H = 6), logged, never scored ---- */
+  /** Band edges at step 6 as ln(band / close): [lo95, lo68, hi68, hi95]. Null when not computed (fewer than 300 bars, replay, older rows). */
+  scb?: Scb | null;
+  /** Scenario odds: s = Fund trend state (-1/0/1, null = unknown), p = [up, range, down] odds, b = the coin's base rates, w = sigma_H, f = 1 when the overall odds were used. Null as scb. */
+  scp?: Scp | null;
 }
 
 /** Fund trend as stored on a row: one decimal, so web and recorder rows match. */
@@ -1050,6 +1056,12 @@ export const LEDGER_CSV_COLUMNS = [
   "fund_trend",
   // v2.8 (WP25) — appended after fund_trend (WP22's scb/scp go after these). Alerts are codes joined by "|".
   "radar_funding_pctl", "radar_oi_chg_24h", "radar_long_short", "radar_taker_share", "radar_us_premium", "radar_kr_premium", "radar_ph_premium", "radar_alerts",
+  // v2.8 (WP22) — appended after the radar columns: the 6-bar band edges, the state, the three odds, the base rates, sigma_H, fallback.
+  "scenario_band_lo95", "scenario_band_lo68", "scenario_band_hi68", "scenario_band_hi95",
+  "scenario_state",
+  "scenario_p_up", "scenario_p_range", "scenario_p_down",
+  "scenario_base_up", "scenario_base_range", "scenario_base_down",
+  "scenario_width", "scenario_fallback",
 ] as const;
 
 const iso = (ms: number) => (ms ? new Date(ms).toISOString() : "");
@@ -1063,6 +1075,11 @@ export function ledgerRowValues(r: LedgerRow): (string | number)[] {
     r.mev ?? "", r.bp ?? "", r.pin ?? "", r.spl ?? "", r.earn ?? "", engineBarsOf(r),
     r.vt ?? "", r.pd ?? "", r.pc ?? "", r.fr ?? "", r.oiChg ?? "", r.ft ?? "",
     r.rad?.frp ?? "", r.rad?.oi24 ?? "", r.rad?.ls ?? "", r.rad?.tk ?? "", r.rad?.usP ?? "", r.rad?.krP ?? "", r.rad?.phP ?? "", r.rad ? r.rad.al.join("|") : "",
+    r.scb?.[0] ?? "", r.scb?.[1] ?? "", r.scb?.[2] ?? "", r.scb?.[3] ?? "",
+    r.scp?.s ?? "",
+    r.scp?.p[0] ?? "", r.scp?.p[1] ?? "", r.scp?.p[2] ?? "",
+    r.scp?.b[0] ?? "", r.scp?.b[1] ?? "", r.scp?.b[2] ?? "",
+    r.scp?.w ?? "", r.scp?.f ?? "",
   ];
 }
 
@@ -1095,6 +1112,38 @@ function strictNew(r: Record<string, unknown>): Pick<LedgerRow, "vt" | "pd" | "p
     vt: nil(vt) ? null : (vt as number), pd: nil(pd) ? null : (pd as -1 | 0 | 1), pc: nil(pc) ? null : (pc as 0 | 1 | 2 | 3),
     fr: nil(fr) ? null : (fr as number), oiChg: nil(oiChg) ? null : (oiChg as number), ft: nil(ft) ? null : (ft as number),
   };
+}
+
+const SC_BAND_MAX = 5;
+const SC_WIDTH_MAX = 5;
+const isProb3 = (v: unknown): v is [number, number, number] =>
+  Array.isArray(v) && v.length === 3 && v.every((x) => finite(x) && x >= 0 && x <= 1) && Math.abs((v as number[]).reduce((a, b) => a + b, 0) - 1) <= 0.01;
+/**
+ * v2.8 (WP22) strict check of `scb` / `scp`: absent/null → null; anything else must be in range, else the WHOLE row is rejected.
+ * scb: 4 finite numbers, |x| <= 5, ascending. scp: s in {-1, 0, 1, null}; p and b three values in [0, 1] summing to 1 +- 0.01;
+ * w finite in (0, 5]; f in {0, 1}. Unknown scp keys are dropped.
+ */
+function strictScenario(r: Record<string, unknown>): { scb: Scb | null; scp: Scp | null } | typeof INVALID {
+  const nil = (v: unknown) => v === null || v === undefined;
+  let scb: Scb | null = null;
+  let scp: Scp | null = null;
+  if (!nil(r.scb)) {
+    const b = r.scb;
+    if (!Array.isArray(b) || b.length !== 4 || !b.every((x) => finite(x) && Math.abs(x) <= SC_BAND_MAX)) return INVALID;
+    for (let i = 1; i < 4; i++) if ((b[i] as number) < (b[i - 1] as number)) return INVALID;
+    scb = [b[0], b[1], b[2], b[3]] as Scb;
+  }
+  if (!nil(r.scp)) {
+    const o = r.scp;
+    if (typeof o !== "object" || Array.isArray(o)) return INVALID;
+    const { s, p, b, w, f } = o as Record<string, unknown>;
+    if (!(s === null || s === -1 || s === 0 || s === 1)) return INVALID;
+    if (!isProb3(p) || !isProb3(b)) return INVALID;
+    if (!(finite(w) && w > 0 && w <= SC_WIDTH_MAX)) return INVALID;
+    if (f !== 0 && f !== 1) return INVALID;
+    scp = { s, p: [p[0], p[1], p[2]], b: [b[0], b[1], b[2]], w, f };
+  }
+  return { scb, scp };
 }
 
 /** Alert codes on a row: same shape as radar/alerts.ts ALERT_CODE (kept local so the ledger does not pull in the radar rules). */
@@ -1152,6 +1201,8 @@ export function sanitizeLedgerRow(x: unknown): LedgerRow | null {
   if (v28 === INVALID) return null;
   const rad = strictRad(r.rad);
   if (rad === INVALID) return null;
+  const sc = strictScenario(r);
+  if (sc === INVALID) return null;
   const bl = Array.isArray(r.bl) && r.bl.length === 4 && r.bl.every(finite) ? (r.bl as number[]) : [0, 0, 0, 0];
   const bit = (v: unknown): 0 | 1 => (v === 1 || v === true ? 1 : 0);
   const out: LedgerRow = {
@@ -1174,7 +1225,7 @@ export function sanitizeLedgerRow(x: unknown): LedgerRow | null {
     eb: finite(r.eb) && r.eb >= 0 ? r.eb : undefined,
   };
   for (const [k, v] of Object.entries(extra)) if (v !== undefined) (out as unknown as Record<string, unknown>)[k] = v;
-  return Object.assign(out, v28, { rad });
+  return Object.assign(out, v28, { rad }, sc);
 }
 
 /* ------------------------------------------------------------------ *
@@ -1237,6 +1288,22 @@ function csvRad(get: (n: (typeof LEDGER_CSV_COLUMNS)[number]) => string | undefi
   };
 }
 
+const SCB_CELLS = ["scenario_band_lo95", "scenario_band_lo68", "scenario_band_hi68", "scenario_band_hi95"] as const;
+const SCP_CELLS = ["scenario_state", "scenario_p_up", "scenario_p_range", "scenario_p_down", "scenario_base_up", "scenario_base_range", "scenario_base_down", "scenario_width", "scenario_fallback"] as const;
+/**
+ * v2.8 (WP22): the scenario columns → untrusted `scb` / `scp` for the sanitiser. All four band cells empty → scb null; all scp cells
+ * empty → scp null. A partial or non-numeric set is passed through (a null in the array, or a string), so the sanitiser rejects the row.
+ * An empty state cell with the rest present is a null state (unknown trend).
+ */
+function csvScenario(get: (n: (typeof LEDGER_CSV_COLUMNS)[number]) => string | undefined, num: (n: (typeof LEDGER_CSV_COLUMNS)[number]) => number | string | null): { scb: unknown; scp: unknown } {
+  const scb = SCB_CELLS.every((c) => (get(c) ?? "") === "") ? null : SCB_CELLS.map((c) => num(c));
+  const scp = SCP_CELLS.every((c) => (get(c) ?? "") === "") ? null : {
+    s: num("scenario_state"), p: [num("scenario_p_up"), num("scenario_p_range"), num("scenario_p_down")],
+    b: [num("scenario_base_up"), num("scenario_base_range"), num("scenario_base_down")], w: num("scenario_width"), f: num("scenario_fallback"),
+  };
+  return { scb, scp };
+}
+
 /** True when `text` starts with the ledger CSV header (BOM and quotes tolerated). */
 export function looksLikeLedgerCsv(text: string): boolean {
   return /^\uFEFF?"?id"?,"?config_id"?,/.test(text);
@@ -1274,6 +1341,7 @@ export function parseLedgerCsv(text: string, maxRows = 500_000): { rows: LedgerR
       eb: eb !== null && eb !== wb ? eb : undefined,
       vt: num("vote_vector"), pd: num("pattern_dir"), pc: num("pattern_conf"), fr: num("funding_rate"), oiChg: num("oi_change_pct"), ft: num("fund_trend"),
       rad: csvRad(get, num, csvTime(get("bar_close_utc"))),
+      ...csvScenario(get, num),
     };
     const row = sanitizeLedgerRow(raw);
     if (row) rows.push(row); else rejected++;

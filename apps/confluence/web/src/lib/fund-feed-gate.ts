@@ -9,7 +9,7 @@
  */
 import type { LedgerRow } from "./ledger-metrics";
 import type { Kline } from "./indicators";
-import { applyFundTrend } from "./scan-record";
+import { applyFundTrend, applyScenarios } from "./scan-record";
 
 export const FEED_WAIT_MS = 90_000;
 
@@ -59,6 +59,9 @@ export interface LiveWriteOptions<R> {
    * data source, e.g. the hosted build) -> ft null.
    */
   dailyOf?: (symbol: string) => Kline[];
+  /** v2.8 (WP22): the closed bars of a pair (the scan's own). With `intervalMs`, each row gets scb/scp from the 1,000 bars ending at its bar. */
+  barsOf?: (pair: string) => Kline[] | undefined;
+  intervalMs?: number;
   timeoutMs?: number;
   timers?: GateTimers;
 }
@@ -68,12 +71,18 @@ export async function writeLiveRows<R extends { ac: string; pair: string; t: num
   const crypto = rows.filter((r) => r.ac === "crypto");
   const others = rows.filter((r) => r.ac !== "crypto");
   const writes: Promise<number>[] = [];
-  if (others.length) writes.push(o.write(others));
+  const scenarios = o.barsOf !== undefined && o.intervalMs !== undefined;
+  if (others.length) {
+    if (scenarios) applyScenarios(others as unknown as LedgerRow[], o.barsOf!, undefined, o.intervalMs!);
+    writes.push(o.write(others));
+  }
   if (crypto.length) {
     writes.push((async () => {
       await waitForFeed(o.settled, { signal: o.signal, timeoutMs: o.timeoutMs, timers: o.timers });
       if (o.dailyOf) applyFundTrend(crypto as unknown as LedgerRow[], o.dailyOf);
       else for (const r of crypto) r.ft = null;
+      // After ft: the signal bar's state is the row's own ft; earlier bars use the same daily bars.
+      if (scenarios) applyScenarios(crypto as unknown as LedgerRow[], o.barsOf!, o.dailyOf, o.intervalMs!);
       return o.write(crypto);
     })());
   }

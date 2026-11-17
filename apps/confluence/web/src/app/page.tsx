@@ -1193,8 +1193,12 @@ export default function Home() {
       const newestClosed = prepared.reduce((m, p) => (p.fresh && p.kl.length ? Math.max(m, p.kl[p.kl.length - 1].time) : m), 0);
       // v2.8 (WP21): crypto rows wait for this scan's Fund trend feed (<= 90 s; an abort writes at once) so ft is not lost for good; others write at once.
       const universeSnap = data.universe ? { t: newestClosed, list: data.universe } : undefined;
+      // v2.8 (WP22): the scenario fields (scb/scp) come from this scan's own closed bars, the last 1,000 ending at each row's bar.
+      const klinesByPair = new Map(out.map((r) => [r.pair, r.klines] as const));
       const liveWrite = ledgerRows.length
         ? writeLiveRows(ledgerRows, {
+            barsOf: (pair) => klinesByPair.get(pair),
+            intervalMs: data.intervalMs,
             write: (rs) => ledgerStore.record(rs, universeSnap).catch(() => 0),
             settled: feedSettled,
             signal: feed.signal,

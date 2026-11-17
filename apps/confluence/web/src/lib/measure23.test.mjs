@@ -647,7 +647,7 @@ console.log("WP21 ft: ledger field, CSV, catch-up no-look-ahead, benchmark");
   const header = [...LEDGER_CSV_COLUMNS, "net_return_h1"];
   const at = (col) => LEDGER_CSV_COLUMNS.indexOf(col);
 
-  ok("fund_trend is exported; the WP25 radar columns follow it and radar_alerts is the last CSV column", LEDGER_CSV_COLUMNS[LEDGER_CSV_COLUMNS.length - 1] === "radar_alerts" && at("radar_funding_pctl") === at("fund_trend") + 1 && ledgerRowValues(row)[at("fund_trend")] === -37.3);
+  ok("fund_trend is exported; the WP25 radar columns follow it; scenario_fallback is the last CSV column and the scenario columns follow radar_alerts", LEDGER_CSV_COLUMNS[LEDGER_CSV_COLUMNS.length - 1] === "scenario_fallback" && at("scenario_band_lo95") === at("radar_alerts") + 1 && at("radar_funding_pctl") === at("fund_trend") + 1 && ledgerRowValues(row)[at("fund_trend")] === -37.3);
   {
     const imp = parseLedgerImport(csvOf(header, [[...ledgerRowValues(row), ""]]));
     ok("v2.8 CSV round-trips ft", imp.rows.length === 1 && imp.rows[0].ft === -37.3 && JSON.stringify(imp.rows[0]) === JSON.stringify(sanitizeLedgerRow(row)), JSON.stringify(imp));
@@ -757,7 +757,7 @@ console.log("WP25 rad: radar context on the ledger row, CSV, sanitiser");
   const header = [...LEDGER_CSV_COLUMNS, "net_return_h1"];
   const at = (col) => LEDGER_CSV_COLUMNS.indexOf(col);
   const withCell = (col, v, r = row) => { const l = [...ledgerRowValues(r), ""]; l[at(col)] = v; return l; };
-  ok("the WP25 CSV columns are appended after fund_trend in the specified order", LEDGER_CSV_COLUMNS.slice(at("fund_trend") + 1).join() === "radar_funding_pctl,radar_oi_chg_24h,radar_long_short,radar_taker_share,radar_us_premium,radar_kr_premium,radar_ph_premium,radar_alerts");
+  ok("the WP25 CSV columns are appended after fund_trend in the specified order", LEDGER_CSV_COLUMNS.slice(at("fund_trend") + 1, at("radar_alerts") + 1).join() === "radar_funding_pctl,radar_oi_chg_24h,radar_long_short,radar_taker_share,radar_us_premium,radar_kr_premium,radar_ph_premium,radar_alerts");
   {
     const vals = ledgerRowValues(row);
     ok("rad is exported per field, alerts joined by |", vals[at("radar_funding_pctl")] === 82.5 && vals[at("radar_alerts")] === "BREAKAWAY_KR|DEPEG_USDC" && vals[at("radar_kr_premium")] === -1.4 && vals.length === LEDGER_CSV_COLUMNS.length);
