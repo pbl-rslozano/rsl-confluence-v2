@@ -17,3 +17,7 @@
 /x/upbit/v1/ticker        https://api.upbit.com/v1/ticker        200
 /x/upbit/v1/orderbook     https://api.upbit.com/v1/orderbook     200
 /x/upbit/v1/candles/*     https://api.upbit.com/v1/candles/:splat    200
+
+# v2.8 (WP28): the phone app link lands on this hosted page when the app is not installed or the link is not verified;
+# the single page app shows it as a foreign callback. Same-origin 200 rewrite, no host, no secrets (not a /x/ rule).
+/oauth/app/*  /index.html  200

@@ -265,6 +265,9 @@ jobs:
           NEXT_PUBLIC_RSL_BACKUP_ONEDRIVE_CLIENT_ID: ${{ vars.RSL_BACKUP_ONEDRIVE_CLIENT_ID }}
           NEXT_PUBLIC_RSL_BACKUP_PCLOUD_CLIENT_ID: ${{ vars.RSL_BACKUP_PCLOUD_CLIENT_ID }}
           NEXT_PUBLIC_RSL_APP_LINK: ${{ vars.RSL_APP_LINK }}
+          RSL_APP_LINK: ${{ vars.RSL_APP_LINK }}
+          RSL_ANDROID_CERT_SHA256: ${{ vars.RSL_ANDROID_CERT_SHA256 }}
+          RSL_IOS_TEAM_ID: ${{ vars.RSL_IOS_TEAM_ID }}
         run: |
           pnpm run web
           [ -d android ] || pnpm exec cap add android
@@ -333,6 +336,9 @@ jobs:
           NEXT_PUBLIC_RSL_BACKUP_ONEDRIVE_CLIENT_ID: ${{ vars.RSL_BACKUP_ONEDRIVE_CLIENT_ID }}
           NEXT_PUBLIC_RSL_BACKUP_PCLOUD_CLIENT_ID: ${{ vars.RSL_BACKUP_PCLOUD_CLIENT_ID }}
           NEXT_PUBLIC_RSL_APP_LINK: ${{ vars.RSL_APP_LINK }}
+          RSL_APP_LINK: ${{ vars.RSL_APP_LINK }}
+          RSL_ANDROID_CERT_SHA256: ${{ vars.RSL_ANDROID_CERT_SHA256 }}
+          RSL_IOS_TEAM_ID: ${{ vars.RSL_IOS_TEAM_ID }}
         run: pnpm build:pwa
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: installer-android, path: android-build }
@@ -383,6 +389,9 @@ jobs:
           NEXT_PUBLIC_RSL_BACKUP_ONEDRIVE_CLIENT_ID: ${{ vars.RSL_BACKUP_ONEDRIVE_CLIENT_ID }}
           NEXT_PUBLIC_RSL_BACKUP_PCLOUD_CLIENT_ID: ${{ vars.RSL_BACKUP_PCLOUD_CLIENT_ID }}
           NEXT_PUBLIC_RSL_APP_LINK: ${{ vars.RSL_APP_LINK }}
+          RSL_APP_LINK: ${{ vars.RSL_APP_LINK }}
+          RSL_ANDROID_CERT_SHA256: ${{ vars.RSL_ANDROID_CERT_SHA256 }}
+          RSL_IOS_TEAM_ID: ${{ vars.RSL_IOS_TEAM_ID }}
         run: |
           pnpm run web
           [ -d ios ] || pnpm exec cap add ios --packagemanager SPM

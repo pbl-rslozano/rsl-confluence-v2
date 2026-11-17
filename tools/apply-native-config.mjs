@@ -7,6 +7,8 @@
  * Android: allowBackup=false, usesCleartextTraffic=false, release signing from env
  *          (RSL_KEYSTORE, RSL_KEYSTORE_PASSWORD, RSL_KEY_ALIAS, RSL_KEY_PASSWORD) — unsigned when absent.
  * iOS:     fails if an App Transport Security exception is present (ATS stays at defaults).
+ * App link (WP28, off by default): RSL_APP_LINK=1 plus RSL_ANDROID_CERT_SHA256 / RSL_IOS_TEAM_ID (public identifiers) adds
+ *          the verified intent filter (Android) and App.entitlements with the associated domain (iOS).
  * Both:    stamps the app version from apps/confluence/web/src/rsl/app-info.ts
  *          (Android versionName "2.3 (20261101)" / versionCode 20261101; iOS MARKETING_VERSION 2.3,
  *          CURRENT_PROJECT_VERSION 20261101) so the installed app shows the same build as the footer.
@@ -22,6 +24,11 @@ const mobile = join(dirname(fileURLToPath(import.meta.url)), "..", "apps", "conf
 const { applyIcons } = await import("./native-icons.mjs");
 const ICONS = { mobileDir: mobile, iconsDir: join(mobile, "..", "desktop", "src-tauri", "icons"), iosIcon: join(mobile, "resources", "ios-AppIcon-1024.png") };
 
+// v2.8 WP28 Task 7: the phone app link is off unless the owner sets it (RSL_APP_LINK=1 and a valid public identifier).
+const { appLinkConfig, patchAndroidManifest, iosEntitlements } = await import("./app-link-files.mjs");
+const APP_LINK = appLinkConfig(process.env);
+if (!APP_LINK) console.log("app link not configured (phone sign-in shows Web and desktop only)");
+
 // v2.3.1: version stamp shared with the web build (app-info.ts is the single source).
 const appInfo = readFileSync(join(mobile, "..", "web", "src", "rsl", "app-info.ts"), "utf8");
 const APP_VERSION = /version:\s*"([\d.]+)"/.exec(appInfo)?.[1];
@@ -36,6 +43,10 @@ if (which === "all" || which === "android") {
     xml = xml.replace(/android:allowBackup="true"/, 'android:allowBackup="false"');
     if (!/android:allowBackup=/.test(xml)) xml = xml.replace("<application", '<application android:allowBackup="false"');
     if (!/android:usesCleartextTraffic=/.test(xml)) xml = xml.replace("<application", '<application android:usesCleartextTraffic="false"');
+    if (APP_LINK?.androidSha256.length) {
+      xml = patchAndroidManifest(xml, APP_LINK);
+      console.log("Android app link intent filter ✓");
+    }
     writeFileSync(manifest, xml);
     console.log("Android manifest hardened ✓");
 
@@ -77,6 +88,10 @@ if (which === "all" || which === "ios") {
     const p = readFileSync(plist, "utf8");
     if (/NSAllowsArbitraryLoads<\/key>\s*<true\/>/.test(p)) throw new Error("ATS exception present in Info.plist — remove it.");
     console.log("iOS Info.plist: ATS at defaults ✓");
+    if (APP_LINK?.iosAppId) {
+      writeFileSync(join(mobile, "ios", "App", "App", "App.entitlements"), iosEntitlements(APP_LINK));
+      console.log("iOS associated domain (App.entitlements) ✓");
+    }
     const pbx = join(mobile, "ios", "App", "App.xcodeproj", "project.pbxproj");
     let x = readFileSync(pbx, "utf8");
     if (!/MARKETING_VERSION = /.test(x) || !/CURRENT_PROJECT_VERSION = /.test(x)) throw new Error("project.pbxproj: version anchors missing");
