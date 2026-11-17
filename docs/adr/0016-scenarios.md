@@ -55,7 +55,19 @@ advice. Scenarios never vote (no score, paper rule, alert or Radar input), the e
 | Widening | Applies when fewer than 20 eligible blocks | A thin sample gives a jagged fan; the widening is disclosed in the text. |
 | Pointer zoom and pan | With the projection on they use the real bars' span | The empty slots must not change what a zoom gesture means. |
 
-- **Cost.** One simulation per open sheet and horizon, in the existing worker; about 1 ms per ledger row for the official
-  run. At rest nothing is computed.
+- **Cost.** One simulation per open sheet and horizon, in the existing worker. The ledger's official run costs about 1 ms
+  per row on a desktop (Node/V8; `npm run test:scenario-ledger` prints it, about 1.0 ms), several times that on a phone.
+  Catch-up writes up to 48 rows per pair, so a return after a gap costs pairs × 48 rows: about 4.8 s at 100 pairs and
+  about 10 s at 200; a scan's live rows add about 0.1–0.25 s. In the app this runs on the main thread (scoring goes to the
+  worker, the enrichment does not), so it is cut into chunks of 8 rows with a yield between chunks
+  (`applyScenariosAsync`, `enrichCatchUpAsync`, `writeLiveRows`; `scheduler.yield()`, else a `MessageChannel` task).
+  The values, the row order and the single catch-up write are unchanged. The tests "C1: catch-up of 100 pairs x 48 rows
+  …" and "C1: a live write of 200 rows …" in `src/lib/scenario-ledger.test.mjs` measure the largest synchronous block
+  (an event-loop heartbeat) and require ≤ 100 ms; it was about 6 s for the catch-up and about 0.28 s for the live write
+  before the chunking, and is about 50 ms and 30 ms after. The recorder (Node, no UI) runs it in one pass and computes
+  each row once (step 3c). At rest nothing is computed.
+- **Writer limits.** `scenarioFields` writes `scb` as null when an edge is beyond ±5 and `scp` as null when σ_6 > 5 (after
+  a crash of 90 % or more ATR/close can pass 2), and a row whose scenario work throws gets both null: these fields are
+  logged only, so they must never make the strict import reject, or block the write of, a scored row.
 - **Limits.** A flat or missing Fund trend, or too few similar moments, gives the coin's overall odds. The odds describe
   the past and carry no claim about the next bars.

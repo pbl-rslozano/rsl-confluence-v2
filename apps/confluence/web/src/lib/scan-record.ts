@@ -15,6 +15,7 @@ import type { AssetClass, LedgerRow } from "./ledger-metrics";
 import { roundFt, indexOfTime } from "./ledger-metrics";
 import { fundTrendSeries, freshFt, FT_MAX_STALE_MS } from "./fund-trend";
 import { scenarioFields, ftAtBars } from "./scenarios";
+import { yieldToMain } from "./yield-main";
 import { ENGINE_BARS } from "./engine-config";
 import type { SeriesScore, RowContext } from "./scan-pipeline";
 import { toLedgerRow } from "./scan-pipeline";
@@ -115,8 +116,11 @@ export function catchUpContext(p: ScanSeries, ctx: ScanRecordContext, shared: Sc
   };
 }
 
-/** Enrich catch-up rows on the bars up to each row (no look-ahead); rs is not cross-sectional for past bars. */
-export function enrichCatchUp(rows: LedgerRow[], kl: Kline[], ctx: ScanRecordContext, shared: ScanShared): LedgerRow[] {
+/**
+ * Enrich catch-up rows on the bars up to each row (no look-ahead); rs is not cross-sectional for past bars.
+ * `scenarios: false` leaves scb/scp to the caller (the recorder computes them once, in its step 3c, after the Fund trend feed).
+ */
+export function enrichCatchUp(rows: LedgerRow[], kl: Kline[], ctx: ScanRecordContext, shared: ScanShared, opts: { scenarios?: boolean } = {}): LedgerRow[] {
   const index = new Map(kl.map((b, i) => [b.time, i]));
   for (const row of rows) {
     const i = index.get(row.t);
@@ -129,8 +133,38 @@ export function enrichCatchUp(rows: LedgerRow[], kl: Kline[], ctx: ScanRecordCon
   if (ctx.dailyOf) applyFundTrend(rows, ctx.dailyOf);
   else for (const row of rows) if (row.ac === "crypto") row.ft = null; // no daily data source (hosted build): "not available", like live rows
   // v2.8 (WP22): the scenario fields last, after ft is set (the signal bar's state comes from row.ft).
-  applyScenarios(rows, () => kl, ctx.dailyOf, ctx.intervalMs);
+  if (opts.scenarios !== false) applyScenarios(rows, () => kl, ctx.dailyOf, ctx.intervalMs);
   return rows;
+}
+
+/**
+ * v2.8 (final review C1): enrichCatchUp for the app's main thread. The same values, but the scenario fields (about 1 ms a row) run
+ * in chunks of SC_CHUNK_ROWS rows with a yield after each full chunk, and a yield before the rest of the enrichment, so a catch-up of
+ * 100 pairs x 48 rows is never one multi-second block. The daily bars of the pair are read once, before the first yield, so ft and
+ * the earlier bars' Fund trend states come from the same snapshot even if the feed refreshes its cache meanwhile.
+ */
+export async function enrichCatchUpAsync(
+  rows: LedgerRow[], kl: Kline[], ctx: ScanRecordContext, shared: ScanShared, pause: () => Promise<void> = yieldToMain,
+): Promise<LedgerRow[]> {
+  const dailyOf = ctx.dailyOf ? snapshotDaily(ctx.dailyOf) : undefined;
+  if (dailyOf) for (const row of rows) dailyOf(row.pair);
+  await pause();
+  enrichCatchUp(rows, kl, dailyOf ? { ...ctx, dailyOf } : ctx, shared, { scenarios: false });
+  await applyScenariosAsync(rows, () => kl, dailyOf, ctx.intervalMs, pause);
+  return rows;
+}
+
+/** A per-call memo of `dailyOf`: each pair's daily bars are read once, so a chunked run sees one snapshot. */
+export function snapshotDaily(dailyOf: (symbol: string) => Kline[]): (symbol: string) => Kline[] {
+  const memo = new Map<string, Kline[]>();
+  return (symbol) => {
+    let v = memo.get(symbol);
+    if (v === undefined) {
+      v = dailyOf(symbol);
+      memo.set(symbol, v);
+    }
+    return v;
+  };
 }
 
 export { FT_MAX_STALE_MS };
@@ -159,11 +193,15 @@ export function applyFundTrend(rows: LedgerRow[], dailyOf: (symbol: string) => K
   return rows;
 }
 
+/** v2.8 (final review C1): rows per chunk of scenario work between two yields (about 1 ms a row on a desktop, several on a phone). */
+export const SC_CHUNK_ROWS = 8;
+
 /**
  * v2.8 (WP22): scb / scp of each row, the OFFICIAL run: the ENGINE_BARS (1,000) bars ending at the row's own bar, H = 6, the same
  * code as the sheet (scenarios.ts scenarioFields). Never scored. Call after ft is set: the signal bar's Fund trend state is row.ft;
  * earlier bars use the daily bars closed at or before their own close (crypto with a daily source only; otherwise unknown, which gives
- * the coin's overall odds). A row whose bar is not in `bars`, or with fewer than 300 bars, gets null.
+ * the coin's overall odds). A row whose bar is not in `bars`, or with fewer than 300 bars, gets null. A row whose work throws (bad
+ * bars) gets null too: a logged-only field never blocks a scored write.
  */
 export function applyScenarios(
   rows: LedgerRow[],
@@ -171,13 +209,43 @@ export function applyScenarios(
   dailyOf: ((pair: string) => Kline[]) | undefined,
   intervalMs: number,
 ): LedgerRow[] {
+  for (const _ of scenarioSteps(rows, barsOf, dailyOf, intervalMs)) { /* one row per step */ }
+  return rows;
+}
+
+/**
+ * applyScenarios for the main thread: the same steps, in chunks of SC_CHUNK_ROWS rows with `pause()` (a yield) after each full chunk.
+ * The rows are the caller's own objects and nothing else is shared, so a later scan cannot be changed by a run still in progress.
+ */
+export async function applyScenariosAsync(
+  rows: LedgerRow[],
+  barsOf: (pair: string) => Kline[] | undefined,
+  dailyOf: ((pair: string) => Kline[]) | undefined,
+  intervalMs: number,
+  pause: () => Promise<void> = yieldToMain,
+): Promise<LedgerRow[]> {
+  let n = 0;
+  for (const _ of scenarioSteps(rows, barsOf, dailyOf, intervalMs)) {
+    if (++n % SC_CHUNK_ROWS === 0) await pause();
+  }
+  return rows;
+}
+
+/** One step per row, in row order within each pair (pairs in first-seen order): the shared body of the two functions above. */
+function* scenarioSteps(
+  rows: LedgerRow[],
+  barsOf: (pair: string) => Kline[] | undefined,
+  dailyOf: ((pair: string) => Kline[]) | undefined,
+  intervalMs: number,
+): Generator<void> {
   const byPair = new Map<string, LedgerRow[]>();
   for (const row of rows) {
     const list = byPair.get(row.pair);
     if (list) list.push(row); else byPair.set(row.pair, [row]);
   }
   for (const [pair, list] of byPair) {
-    const bars = barsOf(pair);
+    let bars: Kline[] | undefined;
+    try { bars = barsOf(pair); } catch { bars = undefined; }
     if (!bars || !bars.length) {
       for (const row of list) Object.assign(row, { scb: null, scp: null });
       continue;
@@ -185,14 +253,19 @@ export function applyScenarios(
     // Fund trend as of each bar's own close does not depend on the window, so it is computed once per series.
     let ftAll: (number | null)[] | null = null;
     for (const row of list) {
-      const i = indexOfTime(bars, row.t);
-      if (i < 0) { Object.assign(row, { scb: null, scp: null }); continue; }
-      if (ftAll === null) ftAll = row.ac === "crypto" && dailyOf ? ftAtBars(dailyOf(pair), bars, intervalMs) : bars.map(() => null);
-      const from = Math.max(0, i - (ENGINE_BARS - 1));
-      const ft = ftAll.slice(from, i + 1);
-      ft[ft.length - 1] = row.ft ?? null;
-      Object.assign(row, scenarioFields(bars.slice(from, i + 1), ft, { pair, tf: row.tf, intervalMs }));
+      try {
+        const i = indexOfTime(bars, row.t);
+        if (i < 0) { Object.assign(row, { scb: null, scp: null }); continue; }
+        if (ftAll === null) ftAll = row.ac === "crypto" && dailyOf ? ftAtBars(dailyOf(pair), bars, intervalMs) : bars.map(() => null);
+        const from = Math.max(0, i - (ENGINE_BARS - 1));
+        const ft = ftAll.slice(from, i + 1);
+        ft[ft.length - 1] = row.ft ?? null;
+        Object.assign(row, scenarioFields(bars.slice(from, i + 1), ft, { pair, tf: row.tf, intervalMs }));
+      } catch {
+        Object.assign(row, { scb: null, scp: null });
+      } finally {
+        yield;
+      }
     }
   }
-  return rows;
 }

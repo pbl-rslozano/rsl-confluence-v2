@@ -395,7 +395,8 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
             result.warnings.push(`catch-up ${t.symbol}: ${job.error}`);
             continue; // cursor not advanced: retried next cycle
           }
-          catchUp.push(...enrichCatchUp(job.catchUpRows ?? [], kl, recordCtx, shared));
+          // scb/scp are left to step 3c, after the Fund trend feed: computed once per row (final review T7.1).
+          catchUp.push(...enrichCatchUp(job.catchUpRows ?? [], kl, recordCtx, shared, { scenarios: false }));
         }
         cursorUpdates[key] = last.time;
       }

@@ -399,6 +399,8 @@ export interface Scp { s: -1 | 0 | 1 | null; p: [number, number, number]; b: [nu
 
 const r5 = (v: number): number => Math.round(v * 1e5) / 1e5;
 const r3 = (v: number): number => Math.round(v * 1e3) / 1e3;
+/** = ledger-metrics.ts SC_BAND_MAX and SC_WIDTH_MAX (|scb| <= 5, 0 < w <= 5); kept local to avoid an import cycle. */
+const SC_FIELD_MAX = 5;
 
 /** Ledger fields at the official H = 6: band edges at step 6 as ln(band / last close), and the three odds with what scoring needs. */
 export function scenarioFields(window: Kline[], ftAt: (number | null)[], ctx: { pair: string; tf: string; intervalMs: number }): { scb: Scb | null; scp: Scp | null } {
@@ -415,5 +417,9 @@ export function scenarioFields(window: Kline[], ftAt: (number | null)[], ctx: { 
     w: r5(o.sigmaH),
     f: o.fallback ? 1 : 0,
   };
-  return { scb: scb.every(Number.isFinite) ? scb : null, scp: scp.w > 0 ? scp : null };
+  // The strict sanitiser's limits (ledger-metrics.ts strictScenario): a value it would reject is written as null, never stored, so
+  // an import or restore never drops a scored row over a logged-only field (after a >= 90 % crash ATR/close can pass 2, w > 5).
+  const scbOk = scb.every((x) => Number.isFinite(x) && Math.abs(x) <= SC_FIELD_MAX);
+  const scpOk = Number.isFinite(scp.w) && scp.w > 0 && scp.w <= SC_FIELD_MAX;
+  return { scb: scbOk ? scb : null, scp: scpOk ? scp : null };
 }

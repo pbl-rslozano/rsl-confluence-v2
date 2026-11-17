@@ -104,7 +104,7 @@ import {
 } from "@/lib/market-client";
 import { COINSPH_MIN_REFRESH_MS, COINSPH_MIN_USD_TURNOVER } from "@/lib/coinsph";
 import { healthFromError, healthFromScan, type SourceHealth } from "@/lib/source-health";
-import { catchUpContext, enrichCatchUp, liveRow, scanShared, type ScanRecordContext, type ScanSeries } from "@/lib/scan-record";
+import { catchUpContext, enrichCatchUpAsync, liveRow, scanShared, type ScanRecordContext, type ScanSeries } from "@/lib/scan-record";
 import {
   DEFAULT_APP_PREFERENCES,
   loadAppPreferences,
@@ -1247,12 +1247,17 @@ export default function Home() {
                 // Same queue and abort signal as the post-scan feed: never two runs at once, and a new scan or source switch stops it.
                 if (cryptoRows.length) await fundQueueRef.current.enqueue(() => loadFundTrends(source, cryptoRows, Date.now(), { signal: feed.signal }), feed.signal);
               } catch { /* aborted, halted or unavailable: those rows log ft null (still written) */ }
-              catchUpCtx = { ...recordCtx, dailyOf: (symbol) => cachedDailyBars(source, symbol) };
+              // One read of the daily cache for every pending pair, now (as when this loop ran in one block): the yields below
+              // cannot let a later feed refresh change the values of the pairs still to come.
+              const dailySnap = new Map(pending.map((j) => [j.pair, cachedDailyBars(source, j.pair)] as const));
+              catchUpCtx = { ...recordCtx, dailyOf: (symbol) => dailySnap.get(symbol) ?? cachedDailyBars(source, symbol) };
             }
             for (const j of pending) {
               const r = byKey.get(j.job.key);
               if (!r || r.error) continue; // cursor not advanced: retried next scan (review C5)
-              rowsToAdd.push(...enrichCatchUp(r.catchUpRows ?? [], j.kl, catchUpCtx, shared));
+              // v2.8 (final review C1): the same rows and values as enrichCatchUp, with a yield every few rows of scenario work, so
+              // 100 pairs x 48 rows never freeze the page. The rows still go to the ledger in this order, in one write, after the loop.
+              rowsToAdd.push(...(await enrichCatchUpAsync(r.catchUpRows ?? [], j.kl, catchUpCtx, shared)));
               if (r.gap) void ledgerStore.addGap(source, tf, j.pair, r.gap);
               done[j.pair] = j.kl[j.kl.length - 1].time;
             }

@@ -205,6 +205,45 @@ test("catch-up after a gap scores every missed closed bar with the full ENGINE_B
   assert.ok(existsSync(join(dir, "candles", "binance", "4h", "BTCUSDT.json")));
 });
 
+test("v2.8 (final review T7.1): catch-up rows carry the app's scb/scp, computed once (step 3c), not again in enrichCatchUp", async (t) => {
+  const dayMs = 86_400_000;
+  const dailyUrl = (url) => url.pathname === "/api/v3/klines" && url.searchParams.get("interval") === "1d";
+  const daily = (url) => {
+    const todayOpen = Math.floor(Date.now() / dayMs) * dayMs;
+    const limit = Math.min(1000, Number(url.searchParams.get("limit")));
+    const rows = Array.from({ length: limit }, (_, i) => {
+      const time = todayOpen - (limit - 1 - i) * dayMs;
+      const c = 100 * Math.exp(0.002 * i + 0.01 * Math.sin(i));
+      return [time, String(c), String(c * 1.01), String(c * 0.99), String(c), "10", time + dayMs - 1, "0", 10, "5", "0", "0"];
+    });
+    return new Response(JSON.stringify(rows), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const dir = tempDir(t);
+  const ex = mockExchange({ override: (url) => (dailyUrl(url) ? daily(url) : undefined) });
+  await runOnce(dir, ex);
+  const cur1 = currentOpen(T0);
+  const t2 = T0 + 10 * IV;
+  mock.timers.setTime(t2);
+  const { result } = await runOnce(dir, ex);
+  assert.equal(result.catchUpRows, 27);
+  const cur2 = currentOpen(t2);
+  const merged = Object.fromEntries(UNIVERSE.map((u) => [u.symbol, bars(u.symbol, cur1 - 999 * IV, cur2 - IV)]));
+  const cu = allLedger(dir).filter((r) => r.rks === "now");
+  assert.equal(cu.length, 27);
+  // The app's path on the same rows: ft as the recorder wrote it, the same daily bars, the same bars.
+  const want = cu.map((r) => ({ ...r, scb: undefined, scp: undefined }));
+  applyScenarios(want, (sym) => merged[sym], (sym) => cachedDailyBars("binance", sym), IV);
+  for (let i = 0; i < cu.length; i++) {
+    assert.ok(Array.isArray(cu[i].scb) && cu[i].scp, `${cu[i].pair} ${cu[i].t} carries scb and scp`);
+    assert.deepEqual({ scb: cu[i].scb, scp: cu[i].scp }, JSON.parse(JSON.stringify({ scb: want[i].scb, scp: want[i].scp })), `${cu[i].pair} ${cu[i].t}`);
+  }
+  assert.ok(cu.some((r) => r.scp.s !== null), "catch-up crypto rows have a trend state from the daily bars");
+  // Computed once: the catch-up enrichment leaves scb/scp to step 3c (the only applyScenarios call in the cycle).
+  const src = readFileSync(new URL("../src/recorder-core.mjs", import.meta.url), "utf8");
+  assert.match(src, /enrichCatchUp\([^)]*\{ scenarios: false \}\)/, "enrichCatchUp is called with { scenarios: false }");
+  assert.equal(src.match(/\bapplyScenarios\(/g)?.length, 1, "one applyScenarios call");
+});
+
 test("the rankings log holds the full unfiltered venue ranking of every cycle", async (t) => {
   const dir = tempDir(t);
   const ex = mockExchange();

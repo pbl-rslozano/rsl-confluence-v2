@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { rng, sanitizeLedgerRow, parseLedgerCsv, parseLedgerImport, LEDGER_CSV_COLUMNS, ledgerRowValues } from "./ledger-metrics.ts";
 import { scenarioFields, runScenarios, ftAtBars, scenarioSeed, SC_MIN_BARS } from "./scenarios.ts";
-import { applyScenarios, applyFundTrend } from "./scan-record.ts";
+import { applyScenarios, applyFundTrend, enrichCatchUp, enrichCatchUpAsync } from "./scan-record.ts";
 import { writeLiveRows } from "./fund-feed-gate.ts";
 import { ENGINE_BARS } from "./engine-config.ts";
 
@@ -253,6 +253,171 @@ test("JSON import keeps scb/scp and drops unknown scp keys", () => {
   const old = sanitizeLedgerRow({ ...row, scb: undefined, scp: undefined });
   assert.equal(old.scb, null);
   assert.equal(old.scp, null);
+});
+
+/* ---------------- Final review C1: the largest synchronous block, not the per-row average ---------------- */
+// The event loop's longest stall while the work runs: a setImmediate heartbeat records the gap between its ticks. Work that never
+// yields shows up as one gap the length of the whole run; work that yields shows its longest chunk.
+const BLOCK_BUDGET_MS = 100;
+function lagMonitor() {
+  let last = performance.now();
+  let max = 0;
+  let on = true;
+  const tick = () => {
+    const now = performance.now();
+    max = Math.max(max, now - last);
+    last = now;
+    if (on) setImmediate(tick);
+  };
+  setImmediate(tick);
+  return { stop() { on = false; max = Math.max(max, performance.now() - last); return max; } };
+}
+const clone = (x) => JSON.parse(JSON.stringify(x));
+const pickSc = (r) => ({ ft: r.ft, scb: r.scb, scp: r.scp });
+
+test("C1: catch-up of 100 pairs x 48 rows never blocks the main thread for more than 100 ms; values identical", async () => {
+  const pairs = [];
+  const dailyBy = new Map();
+  for (let s = 0; s < 100; s++) {
+    const pair = "P" + s + "USDT";
+    const kl = series(1100, { seed: 900 + s });
+    dailyBy.set(pair, dailyFor(kl));
+    const rows = [];
+    for (let k = 0; k < 48; k++) rows.push({ ...rowAt(kl, 1052 + k), pair });
+    pairs.push({ pair, kl, rows });
+  }
+  const ctx = { src: "binance", tf: "1h", intervalMs: H, appVersion: "t", dailyOf: (p) => dailyBy.get(p) ?? [] };
+  const shared = { rs: new Map(), btc: pairs[0].kl, universeRank: new Map() };
+  const want = pairs.slice(0, 5).map((p) => enrichCatchUp(clone(p.rows), p.kl, ctx, shared).map(pickSc));
+  const mon = lagMonitor();
+  const t0 = performance.now();
+  const out = [];
+  for (const p of pairs) out.push(...(await enrichCatchUpAsync(p.rows, p.kl, ctx, shared)));
+  const total = performance.now() - t0;
+  const max = mon.stop();
+  console.log(`  (catch-up 100 x 48: total ${total.toFixed(0)} ms, largest synchronous block ${max.toFixed(1)} ms)`);
+  assert.equal(out.length, 4800);
+  assert.deepEqual(out.map((r) => r.pair + r.t), pairs.flatMap((p) => p.rows.map((r) => r.pair + r.t)), "row order unchanged");
+  assert.ok(out.every((r) => r.scb && r.scp), "all computed");
+  for (let i = 0; i < 5; i++) assert.deepEqual(pairs[i].rows.map(pickSc), want[i], `bit-identical to the synchronous path (${pairs[i].pair})`);
+  assert.ok(max <= BLOCK_BUDGET_MS, `largest synchronous block ${max.toFixed(1)} ms > ${BLOCK_BUDGET_MS} ms`);
+});
+
+test("C1: a live write of 200 rows never blocks the main thread for more than 100 ms; others first; values identical", async () => {
+  const bars = new Map();
+  const dailyBy = new Map();
+  const rows = [];
+  for (let s = 0; s < 200; s++) {
+    const crypto = s < 150;
+    const pair = (crypto ? "L" : "S") + s + (crypto ? "USDT" : "");
+    const kl = series(1000, { seed: 1500 + s });
+    bars.set(pair, kl);
+    if (crypto) dailyBy.set(pair, dailyFor(kl));
+    rows.push({ ...rowAt(kl, 999), pair, ac: crypto ? "crypto" : "stock" });
+  }
+  const barsOf = (p) => bars.get(p);
+  const dailyOf = (p) => dailyBy.get(p) ?? [];
+  const exp = clone(rows);
+  const expOthers = exp.filter((r) => r.ac !== "crypto");
+  const expCrypto = exp.filter((r) => r.ac === "crypto");
+  applyScenarios(expOthers, barsOf, undefined, H);
+  applyFundTrend(expCrypto, dailyOf);
+  applyScenarios(expCrypto, barsOf, dailyOf, H);
+  const writes = [];
+  const mon = lagMonitor();
+  const n = await writeLiveRows(rows, {
+    write: async (rs) => { writes.push(rs.map((r) => r.pair)); return rs.length; },
+    settled: Promise.resolve(), dailyOf, barsOf, intervalMs: H, timers: fakeTimers(),
+  });
+  const max = mon.stop();
+  console.log(`  (live 200 rows: largest synchronous block ${max.toFixed(1)} ms)`);
+  assert.equal(n, 200);
+  assert.deepEqual(writes, [expOthers.map((r) => r.pair), expCrypto.map((r) => r.pair)], "others written first, then crypto, in row order");
+  assert.deepEqual(rows.map(pickSc), exp.map(pickSc), "bit-identical to the synchronous path");
+  assert.ok(max <= BLOCK_BUDGET_MS, `largest synchronous block ${max.toFixed(1)} ms > ${BLOCK_BUDGET_MS} ms`);
+});
+
+/* ---------------- Final review I1: the writer never emits what the strict sanitiser rejects ---------------- */
+/** n ordinary bars, then a crash to `left` of the price over three bars. */
+function crashSeries(left, seed = 21) {
+  const b = series(1000, { seed });
+  let c = b[b.length - 1].close;
+  const step = Math.pow(left, 1 / 3);
+  for (let k = 0; k < 3; k++) {
+    const o = c;
+    c = o * step;
+    const t = b[b.length - 1].time + H;
+    b.push({ time: t, open: o, high: o * 1.001, low: c * 0.999, close: c, volume: 1 });
+  }
+  return b;
+}
+/** A hyper-volatile series: log returns of about +-2.5 a bar, so 6-step bands pass ln(x) = 5. */
+function wildSeries(n = 1000, seed = 33) {
+  const r = rng(seed);
+  const out = [];
+  let c = 1;
+  for (let i = 0; i < n; i++) {
+    const o = c;
+    const cl = o * Math.exp((r() < 0.5 ? -1 : 1) * (2 + r()));
+    out.push({ time: T0 + i * H, open: o, high: Math.max(o, cl) * 1.01, low: Math.min(o, cl) * 0.99, close: cl, volume: 1 });
+    c = cl;
+  }
+  return out;
+}
+
+test("I1: after a >= 90 % crash (and on hyper-volatile bars) the writer's output always passes sanitizeLedgerRow", () => {
+  const fixtures = { crash90: crashSeries(0.1), crash95: crashSeries(0.05), crash99: crashSeries(0.01), wild: wildSeries() };
+  let rawW = 0;
+  let rawEdge = 0;
+  for (const [name, b] of Object.entries(fixtures)) {
+    const raw = runScenarios({ ...ctxOf(), bars: b, daily: null, horizon: 6 });
+    assert.ok(!("na" in raw), name);
+    const lc = b[b.length - 1].close;
+    const e = raw.bands[5];
+    const edges = [e.p025, e.p16, e.p84, e.p975].map((v) => Math.log(v / lc));
+    if (raw.odds.sigmaH > 5) rawW++;
+    if (edges.some((x) => Math.abs(x) > 5)) rawEdge++;
+    const f = scenarioFields(b, b.map(() => null), ctxOf());
+    const clean = sanitizeLedgerRow({ ...row, scb: f.scb, scp: f.scp });
+    assert.ok(clean, `${name}: the sanitiser accepts the row (scb ${JSON.stringify(f.scb)}, w ${f.scp?.w})`);
+    assert.deepEqual([clean.scb, clean.scp], [f.scb, f.scp], name);
+    if (raw.odds.sigmaH > 5) assert.equal(f.scp, null, `${name}: w > 5 -> scp null`);
+    if (edges.some((x) => Math.abs(x) > 5)) assert.equal(f.scb, null, `${name}: an edge beyond +-5 -> scb null`);
+  }
+  assert.ok(rawW >= 1, "a fixture reaches w > 5");
+  assert.ok(rawEdge >= 1, "a fixture reaches an edge beyond +-5");
+});
+
+/* ---------------- Final review T7.3: a logged-only field never blocks a scored write ---------------- */
+test("T7.3: a row whose scenario work throws gets null fields; other rows and the write are unaffected", async () => {
+  const bad = bars1400.slice();
+  bad[700] = null; // corrupt bar inside the 1,000-bar window
+  const barsOf = (p) => (p === "BAD" ? bad : p === "THROW" ? (() => { throw new Error("feed"); })() : bars1400);
+  const mk = () => [
+    { ...rowAt(bars1400, 1399, { ft: 20 }), pair: "BAD" },
+    { ...rowAt(bars1400, 1399, { ft: 20 }), pair: "THROW" },
+    rowAt(bars1400, 1399, { ft: 20 }),
+  ];
+  const rs = mk();
+  applyScenarios(rs, barsOf, () => daily, H);
+  assert.deepEqual(rs.slice(0, 2).map((r) => [r.scb, r.scp]), [[null, null], [null, null]]);
+  assert.ok(rs[2].scb && rs[2].scp, "the good row still computes");
+  const written = [];
+  const n = await writeLiveRows(mk().map((r) => ({ ...r, ac: "stock" })), {
+    write: async (x) => { written.push(...x); return x.length; }, settled: Promise.resolve(), barsOf, intervalMs: H, timers: fakeTimers(),
+  });
+  assert.equal(n, 3, "every scored row is written");
+  assert.deepEqual(written.map((r) => r.scb === null), [true, true, false]);
+});
+
+/* ---------------- Final review T7.1: the recorder computes catch-up scb/scp once ---------------- */
+test("T7.1: enrichCatchUp with { scenarios: false } leaves scb/scp to the caller; the default computes them", () => {
+  const ctx = { src: "binance", tf: "1h", intervalMs: H, appVersion: "t" };
+  const shared = { rs: new Map(), btc: bars1400, universeRank: new Map() };
+  const off = enrichCatchUp([rowAt(bars1400, 1300)], bars1400, ctx, shared, { scenarios: false });
+  assert.ok(!("scb" in off[0]) && !("scp" in off[0]), "not computed");
+  const on = enrichCatchUp([rowAt(bars1400, 1300)], bars1400, ctx, shared);
+  assert.ok(on[0].scb && on[0].scp, "computed by default");
 });
 
 test("applyScenarios cost: at most 10 ms per row on average", () => {
