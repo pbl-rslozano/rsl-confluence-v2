@@ -90,6 +90,15 @@ const clamp = (x: number): number => Math.min(V2_CLIP, Math.max(-V2_CLIP, x)) + 
  * (e.g. 100 x 0.1 gives 0, not 1.9e-16).
  */
 export function rollingSigmaAt(values: ArrayLike<number>, j: number, n = V2_SIGMA_BARS): number {
+  if (values instanceof Float64Array) return sigma64(values, j, n);
+  if (j < n - 1 || j >= values.length) return NaN;
+  const w = new Float64Array(n);
+  for (let i = 0; i < n; i++) w[i] = values[j - n + 1 + i];
+  return sigma64(w, n - 1, n);
+}
+
+/** The one implementation of rollingSigmaAt, monomorphic on Float64Array (the hot path of v2InputSeries). */
+function sigma64(values: Float64Array, j: number, n: number): number {
   if (j < n - 1 || j >= values.length) return NaN;
   let sum = 0, sumAbs = 0;
   for (let i = j - n + 1; i <= j; i++) {
@@ -172,13 +181,21 @@ function rawPsar(k: Kline[]): Float64Array {
 }
 function rawIchimoku(k: Kline[]): Float64Array {
   const n = k.length, out = nan(n), displacement = 26;
-  const hi = (p: number, i: number) => { let m = -Infinity; for (let x = Math.max(0, i - p + 1); x <= i; x++) if (k[x].high > m) m = k[x].high; return m; };
-  const lo = (p: number, i: number) => { let m = Infinity; for (let x = Math.max(0, i - p + 1); x <= i; x++) if (k[x].low < m) m = k[x].low; return m; };
   for (let j = 0; j < n; j++) {
     const src = j - displacement;
     if (src < 51) continue;
-    const tenkan = (hi(9, src) + lo(9, src)) / 2, kijun = (hi(26, src) + lo(26, src)) / 2;
-    const spanA = (tenkan + kijun) / 2, spanB = (hi(52, src) + lo(52, src)) / 2;
+    // One forward pass over the 52 bars ending at src; each window starts updating at its own first
+    // bar, so every extreme is taken in the same order as a separate forward scan (bit-identical).
+    let h9 = -Infinity, l9 = Infinity, h26 = -Infinity, l26 = Infinity, h52 = -Infinity, l52 = Infinity;
+    for (let x = src - 51; x <= src; x++) {
+      const h = k[x].high, l = k[x].low;
+      if (h > h52) h52 = h;
+      if (l < l52) l52 = l;
+      if (x > src - 26) { if (h > h26) h26 = h; if (l < l26) l26 = l; }
+      if (x > src - 9) { if (h > h9) h9 = h; if (l < l9) l9 = l; }
+    }
+    const tenkan = (h9 + l9) / 2, kijun = (h26 + l26) / 2;
+    const spanA = (tenkan + kijun) / 2, spanB = (h52 + l52) / 2;
     if (!fin(spanA) || !fin(spanB)) continue;
     const top = Math.max(spanA, spanB), bot = Math.min(spanA, spanB);
     out[j] = k[j].close - (top + bot) / 2;
@@ -219,12 +236,22 @@ function rawRsi(closes: number[]): Float64Array {
   }
   return out;
 }
+/** Highest high and lowest low of the 14 bars ending at i (NaN before bar 13); shared by %K and %R. */
+function range14(k: Kline[]): { hh: Float64Array; ll: Float64Array } {
+  const n = k.length, period = 14, hh = nan(n), ll = nan(n);
+  for (let i = period - 1; i < n; i++) {
+    let h = -Infinity, l = Infinity;
+    for (let j = i - period + 1; j <= i; j++) { if (k[j].high > h) h = k[j].high; if (k[j].low < l) l = k[j].low; }
+    hh[i] = h;
+    ll[i] = l;
+  }
+  return { hh, ll };
+}
 /** %K14 - 50; 50 on a flat range. */
-function rawStoch(k: Kline[]): Float64Array {
+function rawStoch(k: Kline[], r: { hh: Float64Array; ll: Float64Array }): Float64Array {
   const n = k.length, period = 14, out = nan(n);
   for (let i = period - 1; i < n; i++) {
-    let hh = -Infinity, ll = Infinity;
-    for (let j = i - period + 1; j <= i; j++) { if (k[j].high > hh) hh = k[j].high; if (k[j].low < ll) ll = k[j].low; }
+    const hh = r.hh[i], ll = r.ll[i];
     out[i] = (hh === ll ? 50 : (100 * (k[i].close - ll)) / (hh - ll)) - 50;
   }
   return out;
@@ -244,11 +271,10 @@ function rawCci(k: Kline[]): Float64Array {
   return out;
 }
 /** Williams %R14 + 50; %R is -50 on a flat range. */
-function rawWilliams(k: Kline[]): Float64Array {
+function rawWilliams(k: Kline[], r: { hh: Float64Array; ll: Float64Array }): Float64Array {
   const n = k.length, period = 14, out = nan(n);
   for (let i = period - 1; i < n; i++) {
-    let hh = -Infinity, ll = Infinity;
-    for (let j = i - period + 1; j <= i; j++) { if (k[j].high > hh) hh = k[j].high; if (k[j].low < ll) ll = k[j].low; }
+    const hh = r.hh[i], ll = r.ll[i];
     const w = hh === ll ? -50 : (-100 * (hh - k[i].close)) / (hh - ll);
     if (fin(w)) out[i] = w + 50;
   }
@@ -279,9 +305,9 @@ function rawMfi(k: Kline[]): Float64Array {
   return out;
 }
 function rawBollinger(k: Kline[], closes: number[]): { raw: Float64Array; band: Float64Array } {
-  const n = k.length, m = sma(closes, 20), raw = nan(n), band = nan(n);
+  const n = k.length, m = sma(closes, 20), raw = nan(n), band = nan(n), c64 = Float64Array.from(closes);
   for (let j = 0; j < n; j++) {
-    const s = rollingSigmaAt(closes, j, 20);
+    const s = sigma64(c64, j, 20);
     if (fin(m[j]) && fin(s)) { raw[j] = closes[j] - m[j]; band[j] = 2 * s; }
   }
   return { raw, band };
@@ -351,28 +377,36 @@ function rawCmf(k: Kline[]): Float64Array {
 export function v2InputSeries(k: Kline[], o: { intervalMs: number; volumeAvailable: boolean }, from: number): V2InputSeries[] {
   const n = k.length;
   const closes = k.map((c) => c.close);
-  const atr14 = atr(k, V2_ATR);
+  const atr14 = Float64Array.from(atr(k, V2_ATR));
+  const r14 = range14(k);
   const boll = rawBollinger(k, closes), kelt = rawKeltner(k, closes);
   const raws: Record<VotingIndicatorId, Float64Array> = {
     sma: rawSma(k, closes), ema: rawEma(k, closes), macd: rawMacd(k), adx: rawAdx(k), psar: rawPsar(k),
-    ichimoku: rawIchimoku(k), supertrend: rawSupertrend(k), rsi: rawRsi(closes), stochastic: rawStoch(k),
-    cci: rawCci(k), williams: rawWilliams(k), ao: rawAo(k), mfi: rawMfi(k), bollinger: boll.raw, keltner: kelt.raw,
+    ichimoku: rawIchimoku(k), supertrend: rawSupertrend(k), rsi: rawRsi(closes), stochastic: rawStoch(k, r14),
+    cci: rawCci(k), williams: rawWilliams(k, r14), ao: rawAo(k), mfi: rawMfi(k), bollinger: boll.raw, keltner: kelt.raw,
     vwap: rawVwap(k, o.intervalMs), obv: rawObv(k), cmf: rawCmf(k),
   };
   const bands: Partial<Record<VotingIndicatorId, Float64Array>> = { bollinger: boll.band, keltner: kelt.band };
   const dropAll = contrarianDropped(o.intervalMs);
-  const cumVol = new Float64Array(n);
-  for (let j = 0; j < n; j++) cumVol[j] = (j > 0 ? cumVol[j - 1] : 0) + (fin(k[j].volume) ? Math.abs(k[j].volume) : 0);
+  const cumVol = new Float64Array(n), absClose = new Float64Array(n);
+  for (let j = 0; j < n; j++) {
+    cumVol[j] = (j > 0 ? cumVol[j - 1] : 0) + (fin(k[j].volume) ? Math.abs(k[j].volume) : 0);
+    absClose[j] = Math.abs(closes[j]);
+  }
 
   return V2_INPUTS.map((spec): V2InputSeries => {
     const raw = raws[spec.id];
     const z = nan(n);
     const dropped = dropAll && (V2_CONTRARIAN as readonly string[]).includes(spec.id);
     if (!dropped && !(spec.volume && !o.volumeAvailable)) {
+      // Per-input choices hoisted out of the bar loop; the arithmetic per bar is unchanged.
+      const div = spec.divisor === "atr14" ? atr14 : spec.divisor === "band" ? bands[spec.id]! : null;
+      const kind = SCALE_KIND[spec.id];
+      const scales = kind === "price" ? absClose : kind === "volume" ? cumVol : null;
+      const constScale = kind === "osc" ? 100 : 1;
       for (let j = Math.max(0, from); j < n; j++) {
-        const divisor = spec.divisor === "atr14" ? atr14[j] : spec.divisor === "band" ? bands[spec.id]![j] : rollingSigmaAt(raw, j);
-        const kind = SCALE_KIND[spec.id];
-        const scale = kind === "price" ? Math.abs(closes[j]) : kind === "osc" ? 100 : kind === "unit" ? 1 : cumVol[j];
+        const divisor = div ? div[j] : sigma64(raw, j, V2_SIGMA_BARS);
+        const scale = scales ? scales[j] : constScale;
         if (!fin(raw[j]) || !fin(divisor) || divisor <= 0 || divisor <= V2_DIVISOR_FLOOR * scale) continue;
         z[j] = clamp((spec.sign * raw[j]) / divisor);
       }
@@ -383,8 +417,15 @@ export function v2InputSeries(k: Kline[], o: { intervalMs: number; volumeAvailab
 
 /**
  * z of every input at bar `j` of a series computed once by `v2InputSeries`, in V2_INPUTS order
- * (NaN for an out-of-range bar). Because raw[j] and z[j] are causal, this equals recomputing on
- * `k.slice(0, j + 1)`, at a few microseconds per row: compute the series once, then slice per row.
+ * (NaN for an out-of-range bar), at a few microseconds per row.
+ *
+ * Because raw[j] and z[j] are causal, this equals recomputing on a PREFIX that starts at bar 0,
+ * `k.slice(0, j + 1)`, and nothing more. It does NOT equal recomputing on a row's own window
+ * `k.slice(max(0, j - 999), j + 1)` once the series is longer than 1,000 bars: running sums and
+ * smoothers carry a different rounding history (1e-15 .. 7e-14), the session-anchored VWAP below 1d
+ * is truncated by the window start, and the OBV divisor floor's cumulative volume starts elsewhere.
+ * Use it for display, or for series of at most 1,000 bars (where the window is the prefix). Recorded,
+ * replayed and caught-up rows go through `scoreV2` on the row's own window.
  */
 export function v2RowAt(series: readonly V2InputSeries[], j: number): Float64Array {
   const out = new Float64Array(series.length).fill(NaN);

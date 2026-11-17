@@ -208,6 +208,10 @@ ok("series are returned in table order, one per input", series.map((s) => s.id).
   ok("window not yet full gives NaN", Number.isNaN(rollingSigmaAt([1, 2, 3, 4], 2, 4)));
   const xs = measureWalks(1, 300, 5)[0].map((c) => c.close);
   ok("matches Classic rollingStdDev", near(rollingSigmaAt(xs, 250, 20), rollingStdDev(xs, 20)[250], 1e-12));
+  const x64 = Float64Array.from(xs);
+  let pathBad = "";
+  for (let j = 0; j < xs.length && !pathBad; j++) for (const n of [4, 20, 100]) if (!Object.is(rollingSigmaAt(xs, j, n), rollingSigmaAt(x64, j, n))) pathBad = `${j}/${n}`;
+  ok("rollingSigmaAt gives the same bits for number[] and Float64Array input", pathBad === "", pathBad);
 }
 
 // 11. sampled prefix pin (M1/M2/M5): raw[j] vs Classic's ind* on k.slice(0, j+1)
@@ -228,6 +232,7 @@ ok("series are returned in table order, one per input", series.map((s) => s.id).
     return 100 * (ps / per) / a[n - 1] - 100 * (ms / per) / a[n - 1];
   };
   const bad = [];
+  const compared = {};
   for (const j of [20, 40, 80, 150, 400, 999]) {
     const p = k.slice(0, j + 1);
     const cl = p.map((c) => c.close);
@@ -245,12 +250,21 @@ ok("series are returned in table order, one per input", series.map((s) => s.id).
     };
     const vw = IND.indVWAP(p, { intervalMs: H });
     if (vw.value != null) { const vwap = cl[j] / (1 + vw.value); exp.vwap = vw.value * vwap; }
-    for (const [id, e] of Object.entries(exp)) {
-      if (e == null) continue; // Classic is unavailable at this prefix
+    for (const id of VOTE_ORDER) {
+      const e = exp[id];
+      if (e == null) {
+        // Classic is unavailable at this early prefix; from bar 150 every input must be pinned.
+        if (j >= 150) bad.push(`${id}@${j}: Classic gave no value`);
+        continue;
+      }
+      compared[id] = (compared[id] ?? 0) + 1;
       if (!near(ser[id].raw[j], e, 1e-12)) bad.push(`${id}@${j}: ${ser[id].raw[j]} vs ${e}`);
     }
   }
+  const unpinned = VOTE_ORDER.filter((id) => !(compared[id] >= 3));
   ok("prefix pin: raw[j] equals Classic on slice(0, j+1) for j in {20,40,80,150,400,999}, all inputs incl. ADX and VWAP", bad.length === 0, bad.join(" | "));
+  ok("prefix pin compares every one of the 18 inputs at >= 3 sampled bars (no silent skip)", unpinned.length === 0,
+    unpinned.map((id) => `${id}:${compared[id] ?? 0}`).join(" "));
   // VWAP spans many UTC days at 1h: pin session bucketing at every 7th bar against Classic.
   let vbad = "";
   for (let j = 30; j < 1000 && !vbad; j += 7) {
@@ -281,6 +295,11 @@ ok("series are returned in table order, one per input", series.map((s) => s.id).
   ok("v2RowAt per-row cost from a precomputed series is far under the 5 ms / 2 x Classic budget", perRowMs < 0.05 && perRowMs < 2 * classicMs, `${perRowMs} ms`);
   const row = v2RowAt(pre, 700), cut = v2InputSeries(k.slice(0, 701), O1H, 700);
   ok("v2RowAt(precomputed, j) equals the prefix recomputation (bit-identical)", row.length === 18 && cut.every((s, i) => Object.is(s.z[700], row[i])));
+  // Beyond 1,000 bars v2RowAt is a PREFIX equality only (from bar 0), not the row's own window; recorded
+  // rows use scoreV2 on their own window (confluence-v2.test.mjs, "window equality").
+  const long = fingerprintSeries(), preLong = v2InputSeries(long, O1H, 1000);
+  const rowLong = v2RowAt(preLong, 1099), prefixLong = v2InputSeries(long.slice(0, 1100), O1H, 1099);
+  ok("v2RowAt at t > 999 equals the prefix-from-bar-0 recomputation (its only guarantee)", prefixLong.every((s, i) => Object.is(s.z[1099], rowLong[i])));
   ok("v2RowAt rejects out-of-range rows with NaN", v2RowAt(pre, 5000).every(Number.isNaN) && v2RowAt(pre, -1).every(Number.isNaN));
 }
 
