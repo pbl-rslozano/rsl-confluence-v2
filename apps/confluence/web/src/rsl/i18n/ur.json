@@ -753,5 +753,6 @@
   "sc.down": "نیچے",
   "sc.sample": "{cases} ملتے جلتے ماضی کے لمحات · مؤثر نمونہ {neff}",
   "sc.showOnChart": "چارٹ پر دکھائیں",
-  "sc.hideFromChart": "چارٹ سے چھپائیں"
+  "sc.hideFromChart": "چارٹ سے چھپائیں",
+  "sc.sampleAll": "{cases} ماضی کے لمحات (تمام بارز) · مؤثر نمونہ {neff}"
 }

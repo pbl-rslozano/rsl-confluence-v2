@@ -753,5 +753,6 @@
   "sc.down": "下跌",
   "sc.sample": "{cases} 个相似的过往时点 · 有效样本 {neff}",
   "sc.showOnChart": "在图表上显示",
-  "sc.hideFromChart": "从图表隐藏"
+  "sc.hideFromChart": "从图表隐藏",
+  "sc.sampleAll": "{cases} 个过往时点(全部K线) · 有效样本 {neff}"
 }

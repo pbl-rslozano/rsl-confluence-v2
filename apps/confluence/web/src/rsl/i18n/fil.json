@@ -753,5 +753,6 @@
   "sc.down": "Pababa",
   "sc.sample": "{cases} katulad na nakaraang sandali · epektibong sample {neff}",
   "sc.showOnChart": "Ipakita sa chart",
-  "sc.hideFromChart": "Itago sa chart"
+  "sc.hideFromChart": "Itago sa chart",
+  "sc.sampleAll": "{cases} nakaraang sandali (lahat ng bar) · epektibong sample {neff}"
 }

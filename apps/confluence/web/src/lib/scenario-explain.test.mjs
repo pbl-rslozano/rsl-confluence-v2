@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  EXPLAIN_KEYS, volRegime, invalidation, nextMacroEvent, disagreeingBloc, explainScenarios, sheetNotes,
+  EXPLAIN_KEYS, volRegime, invalidation, nextMacroEvent, disagreeingBloc, explainScenarios, sheetNotes, sampleLine,
 } from "./scenario-explain.ts";
 
 let passed = 0;
@@ -199,6 +199,17 @@ test("no text is generated outside the catalog", () => {
       assert.ok(!/free text/.test(String(v)), "raw event label leaked into " + p.key);
     }
   }
+});
+
+test("sampleLine: similar moments normally; all sampled bars with the overall n_eff in fallback", () => {
+  const en = JSON.parse(readFileSync(join(process.cwd(), "src", "rsl", "i18n", "en.json"), "utf8"));
+  const normal = sampleLine(result({ odds: { matches: 245, nEff: 81.66, sampled: 400 } }).odds);
+  assert.deepEqual(normal, { key: "sc.sample", vars: { cases: 245, neff: 81.7 } });
+  const noState = sampleLine(result({ odds: { state: null, fallback: "noState", matches: 0, nEff: 163.33, baseNEff: 163.33, sampled: 490, withState: 0 } }).odds);
+  assert.deepEqual(noState, { key: "sc.sampleAll", vars: { cases: 490, neff: 163.3 } });
+  const few = sampleLine(result({ odds: { fallback: "fewMatches", matches: 12, nEff: 120, sampled: 360 } }).odds);
+  assert.deepEqual(few, { key: "sc.sampleAll", vars: { cases: 360, neff: 120 } });
+  for (const k of ["sc.sample", "sc.sampleAll"]) assert.ok(k in en, "en.json lacks " + k);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

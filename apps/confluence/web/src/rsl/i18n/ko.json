@@ -753,5 +753,6 @@
   "sc.down": "하락",
   "sc.sample": "비슷한 과거 시점 {cases}개 · 유효 표본 {neff}",
   "sc.showOnChart": "차트에 표시",
-  "sc.hideFromChart": "차트에서 숨기기"
+  "sc.hideFromChart": "차트에서 숨기기",
+  "sc.sampleAll": "과거 시점 {cases}개(모든 봉) · 유효 표본 {neff}"
 }

@@ -21,8 +21,9 @@ import {
   BUCKETS, SC_HORIZONS, SC_MIN_BARS, scenarioKey, scenarioOf, scenarioOrder,
   type Bucket, type Scenario, type ScenarioResult, type ScHorizon,
 } from "@/lib/scenarios";
-import { explainScenarios, sheetNotes, type ExplainPart } from "@/lib/scenario-explain";
+import { explainScenarios, sampleLine, sheetNotes, type ExplainPart } from "@/lib/scenario-explain";
 import type { ChartProjection } from "@/lib/chart-geometry";
+import { RadioPills } from "@/components/ui/radio-pills";
 import { useRsl } from "@/rsl/RslContext";
 
 type ScOut = ScenarioResult | { na: "history" };
@@ -144,7 +145,7 @@ export function ScenarioSection({ asset, formatPrice, onProjection }: {
       content = <p data-testid="scenarios-loading" className="text-zinc-500">{t("sc.loading")}</p>;
     } else {
       const o = result.odds;
-      const neff = Math.round(o.nEff * 10) / 10;
+      const sample = sampleLine(o);
       const c = asset.confluence;
       const explain = explainScenarios({
         result, confluence: c, bars: klines, intervalMs: INTERVAL_MS[tf],
@@ -187,7 +188,7 @@ export function ScenarioSection({ asset, formatPrice, onProjection }: {
               </tbody>
             </table>
           </div>
-          <p data-testid="scenarios-sample" data-neff={neff} className="text-zinc-500">{t("sc.sample", { cases: o.matches, neff })}</p>
+          <p data-testid="scenarios-sample" data-neff={sample.vars!.neff} className="text-zinc-500">{render(sample)}</p>
           <p data-testid="scenarios-explain" className="leading-relaxed text-zinc-400">{explain.map(render).join(" ")}</p>
           {notes.length > 0 && (
             <div data-testid="scenarios-note" className="space-y-0.5 text-[11px] text-zinc-500">
@@ -227,37 +228,5 @@ export function ScenarioSection({ asset, formatPrice, onProjection }: {
       </button>
       {body}
     </section>
-  );
-}
-
-/** Radio pills with roving tab index and arrow-key navigation (the ledger dialog's pattern). */
-function RadioPills<T extends string | number>({ testId, label, value, options, onChange }: { testId: string; label: string; value: T; options: { value: T; label: string }[]; onChange: (v: T) => void }) {
-  const refs = useRef<(HTMLButtonElement | null)[]>([]);
-  const move = (from: number, delta: number) => {
-    const next = (from + delta + options.length) % options.length;
-    onChange(options[next].value);
-    refs.current[next]?.focus();
-  };
-  return (
-    <div role="radiogroup" aria-label={label} data-testid={testId} className="flex flex-wrap gap-1">
-      {options.map((o, i) => (
-        <button
-          key={String(o.value)}
-          ref={(el) => { refs.current[i] = el; }}
-          type="button"
-          role="radio"
-          aria-checked={value === o.value}
-          tabIndex={value === o.value ? 0 : -1}
-          onClick={() => onChange(o.value)}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); move(i, document.dir === "rtl" && e.key === "ArrowRight" ? -1 : 1); }
-            else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); move(i, document.dir === "rtl" && e.key === "ArrowLeft" ? 1 : -1); }
-          }}
-          className={`rsl-touch min-h-8 rounded-md border px-2 text-xs ${value === o.value ? "border-cyan-400 bg-cyan-500/10 text-cyan-200" : "border-zinc-700 text-zinc-300"}`}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
   );
 }

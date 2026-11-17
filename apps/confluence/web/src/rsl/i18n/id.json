@@ -753,5 +753,6 @@
   "sc.down": "Turun",
   "sc.sample": "{cases} momen serupa di masa lalu · sampel efektif {neff}",
   "sc.showOnChart": "Tampilkan di grafik",
-  "sc.hideFromChart": "Sembunyikan dari grafik"
+  "sc.hideFromChart": "Sembunyikan dari grafik",
+  "sc.sampleAll": "{cases} momen masa lalu (semua bar) · sampel efektif {neff}"
 }

@@ -753,5 +753,6 @@
   "sc.down": "Down",
   "sc.sample": "{cases} similar past moments · effective sample {neff}",
   "sc.showOnChart": "Show on chart",
-  "sc.hideFromChart": "Hide from chart"
+  "sc.hideFromChart": "Hide from chart",
+  "sc.sampleAll": "{cases} past moments (all bars) · effective sample {neff}"
 }

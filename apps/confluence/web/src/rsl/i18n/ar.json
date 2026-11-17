@@ -297,7 +297,8 @@
     "sc.down",
     "sc.sample",
     "sc.showOnChart",
-    "sc.hideFromChart"
+    "sc.hideFromChart",
+    "sc.sampleAll"
   ],
   "app.subtitle": "ماسح توافق مؤشرات العملات المشفّرة",
   "ctx.page": "الماسح",
@@ -1051,5 +1052,6 @@
   "sc.down": "هبوط",
   "sc.sample": "{cases} لحظة سابقة مشابهة · العينة الفعلية {neff}",
   "sc.showOnChart": "عرض على الرسم البياني",
-  "sc.hideFromChart": "إخفاء من الرسم البياني"
+  "sc.hideFromChart": "إخفاء من الرسم البياني",
+  "sc.sampleAll": "{cases} لحظة سابقة (كل الشموع) · العينة الفعلية {neff}"
 }

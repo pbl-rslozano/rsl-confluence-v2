@@ -753,5 +753,6 @@
   "sc.down": "নিম্নমুখী",
   "sc.sample": "{cases}টি অনুরূপ অতীত মুহূর্ত · কার্যকর নমুনা {neff}",
   "sc.showOnChart": "চার্টে দেখান",
-  "sc.hideFromChart": "চার্ট থেকে লুকান"
+  "sc.hideFromChart": "চার্ট থেকে লুকান",
+  "sc.sampleAll": "{cases}টি অতীত মুহূর্ত (সব বার) · কার্যকর নমুনা {neff}"
 }

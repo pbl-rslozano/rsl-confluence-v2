@@ -753,5 +753,6 @@
   "sc.down": "Baja",
   "sc.sample": "{cases} momentos pasados similares · muestra efectiva {neff}",
   "sc.showOnChart": "Mostrar en el gráfico",
-  "sc.hideFromChart": "Quitar del gráfico"
+  "sc.hideFromChart": "Quitar del gráfico",
+  "sc.sampleAll": "{cases} momentos pasados (todas las velas) · muestra efectiva {neff}"
 }

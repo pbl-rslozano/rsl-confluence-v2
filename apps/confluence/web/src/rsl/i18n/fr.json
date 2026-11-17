@@ -753,5 +753,6 @@
   "sc.down": "Baisse",
   "sc.sample": "{cases} moments passés similaires · échantillon effectif {neff}",
   "sc.showOnChart": "Afficher sur le graphique",
-  "sc.hideFromChart": "Retirer du graphique"
+  "sc.hideFromChart": "Retirer du graphique",
+  "sc.sampleAll": "{cases} moments passés (toutes les bougies) · échantillon effectif {neff}"
 }

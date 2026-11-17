@@ -753,5 +753,6 @@
   "sc.down": "नीचे",
   "sc.sample": "{cases} मिलते-जुलते पिछले क्षण · प्रभावी नमूना {neff}",
   "sc.showOnChart": "चार्ट पर दिखाएँ",
-  "sc.hideFromChart": "चार्ट से छिपाएँ"
+  "sc.hideFromChart": "चार्ट से छिपाएँ",
+  "sc.sampleAll": "{cases} पिछले क्षण (सभी बार) · प्रभावी नमूना {neff}"
 }

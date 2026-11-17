@@ -753,5 +753,6 @@
   "sc.down": "下落",
   "sc.sample": "似た過去の局面 {cases} 件 · 有効サンプル {neff}",
   "sc.showOnChart": "チャートに表示",
-  "sc.hideFromChart": "チャートから消す"
+  "sc.hideFromChart": "チャートから消す",
+  "sc.sampleAll": "過去の局面 {cases} 件(全ての足) · 有効サンプル {neff}"
 }

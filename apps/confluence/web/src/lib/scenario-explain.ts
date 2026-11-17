@@ -8,7 +8,7 @@
 import type { BlocName, ConfluenceResult, Kline } from "./indicators";
 import { ENGINE_BARS } from "./engine-window";
 import { MACRO_EVENTS, type MacroEvent } from "./macro-calendar";
-import { barClose, volRegime, SC_MIN_NEFF, type FtState, type ScenarioResult } from "./scenarios";
+import { barClose, volRegime, SC_MIN_NEFF, type FtState, type ScenarioOdds, type ScenarioResult } from "./scenarios";
 
 export { volRegime };
 
@@ -146,4 +146,13 @@ export function sheetNotes(result: ScenarioResult, barsHeld: number): ExplainPar
   if (barsHeld > ENGINE_BARS) parts.push({ key: "sc.recorded" });
   if (Object.values(result.paths).some((p) => p === null)) parts.push({ key: "sc.noPath" });
   return parts;
+}
+
+/**
+ * The sample line under the odds. Normally the similar past moments (matches) and their n_eff; in fallback the odds
+ * come from all sampled bars, so the line counts those, with the overall n_eff (never 0 cases beside a large n_eff).
+ */
+export function sampleLine(o: ScenarioOdds): ExplainPart {
+  const neff = Math.round(o.nEff * 10) / 10;
+  return o.fallback ? { key: "sc.sampleAll", vars: { cases: o.sampled, neff } } : { key: "sc.sample", vars: { cases: o.matches, neff } };
 }

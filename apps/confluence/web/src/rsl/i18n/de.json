@@ -753,5 +753,6 @@
   "sc.down": "Abwärts",
   "sc.sample": "{cases} ähnliche frühere Momente · effektive Stichprobe {neff}",
   "sc.showOnChart": "Im Chart zeigen",
-  "sc.hideFromChart": "Aus dem Chart entfernen"
+  "sc.hideFromChart": "Aus dem Chart entfernen",
+  "sc.sampleAll": "{cases} frühere Momente (alle Kerzen) · effektive Stichprobe {neff}"
 }
