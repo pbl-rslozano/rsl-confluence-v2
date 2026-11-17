@@ -28,7 +28,7 @@
     "test:coffee": "node --experimental-strip-types --no-warnings --test src/rsl/coffee-kit.test.mjs",
     "test:backup-crypto": "node --experimental-strip-types --no-warnings --test src/lib/backup-crypto.test.mjs",
     "test:backup-payload": "node scripts/run-engine-tests.mjs backup-payload.test.mjs",
-    "test:backup-oauth": "node --experimental-strip-types --no-warnings --test src/lib/backup-oauth.test.mjs",
+    "test:backup-oauth": "node scripts/run-engine-tests.mjs backup-oauth.test.mjs",
     "calibrate": "node scripts/run-engine-tests.mjs null-calibration.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",

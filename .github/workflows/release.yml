@@ -31,6 +31,13 @@ env:
   PNPM_VERSION: "10.34.9"
   # v2.6 (WP10): the source commit every build shows in About and stamps into build-manifest.json.
   NEXT_PUBLIC_GIT_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+  # v2.8 (WP28): public OAuth client IDs and the app-link switch for encrypted cloud backup. Repository VARIABLES (not
+  # secrets); empty when unset, and a provider without a valid ID is "not set up yet". Workflow-level, so every step
+  # that builds the web core (gate, desktop, Android, iOS, the update-channel deploy) sees the same values.
+  NEXT_PUBLIC_RSL_BACKUP_GDRIVE_CLIENT_ID: ${{ vars.RSL_BACKUP_GDRIVE_CLIENT_ID }}
+  NEXT_PUBLIC_RSL_BACKUP_ONEDRIVE_CLIENT_ID: ${{ vars.RSL_BACKUP_ONEDRIVE_CLIENT_ID }}
+  NEXT_PUBLIC_RSL_BACKUP_PCLOUD_CLIENT_ID: ${{ vars.RSL_BACKUP_PCLOUD_CLIENT_ID }}
+  NEXT_PUBLIC_RSL_APP_LINK: ${{ vars.RSL_APP_LINK }}
 
 jobs:
   verify:
