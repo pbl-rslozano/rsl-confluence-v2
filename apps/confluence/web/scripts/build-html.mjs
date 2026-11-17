@@ -62,7 +62,8 @@ if (exitCode === 0) {
 // public identifiers (RSL_APP_LINK=1 + RSL_ANDROID_CERT_SHA256 / RSL_IOS_TEAM_ID); nothing is written otherwise.
 // Written before protect-build so the build manifest lists them. Hosted (html) target only.
 if (exitCode === 0 && target === "html") {
-  const { writeAppLinkFiles } = await import(pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "tools", "app-link-files.mjs")).href);
+  const { writeAppLinkFiles, appLinkWarnings } = await import(pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "tools", "app-link-files.mjs")).href);
+  for (const w of appLinkWarnings(process.env)) console.warn(`WARNING: ${w}`);
   for (const f of writeAppLinkFiles("out", process.env)) console.log(`app link file: ${f}`);
 }
 

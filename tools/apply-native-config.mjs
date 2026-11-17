@@ -25,8 +25,9 @@ const { applyIcons } = await import("./native-icons.mjs");
 const ICONS = { mobileDir: mobile, iconsDir: join(mobile, "..", "desktop", "src-tauri", "icons"), iosIcon: join(mobile, "resources", "ios-AppIcon-1024.png") };
 
 // v2.8 WP28 Task 7: the phone app link is off unless the owner sets it (RSL_APP_LINK=1 and a valid public identifier).
-const { appLinkConfig, patchAndroidManifest, iosEntitlements } = await import("./app-link-files.mjs");
+const { appLinkConfig, patchAndroidManifest, iosEntitlements, patchPbxproj, appLinkWarnings } = await import("./app-link-files.mjs");
 const APP_LINK = appLinkConfig(process.env);
+for (const w of appLinkWarnings(process.env)) console.warn(`WARNING: ${w}`);
 if (!APP_LINK) console.log("app link not configured (phone sign-in shows Web and desktop only)");
 
 // v2.3.1: version stamp shared with the web build (app-info.ts is the single source).
@@ -96,6 +97,7 @@ if (which === "all" || which === "ios") {
     let x = readFileSync(pbx, "utf8");
     if (!/MARKETING_VERSION = /.test(x) || !/CURRENT_PROJECT_VERSION = /.test(x)) throw new Error("project.pbxproj: version anchors missing");
     x = x.replace(/MARKETING_VERSION = [^;]+;/g, `MARKETING_VERSION = ${APP_VERSION};`).replace(/CURRENT_PROJECT_VERSION = [^;]+;/g, `CURRENT_PROJECT_VERSION = ${APP_BUILD};`);
+    x = patchPbxproj(x, APP_LINK);
     writeFileSync(pbx, x);
     console.log(`iOS version ${APP_VERSION} (${APP_BUILD}) ✓`);
     console.log(`iOS app icon: ${applyIcons({ ...ICONS, which: "ios" }).ios} file ✓`);

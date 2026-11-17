@@ -29,15 +29,35 @@ const HOST = new URL(grab(read("apps/confluence/web/src/lib/update-channel.ts"),
 const FINGERPRINT = /^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$/;
 const TEAM_ID = /^[A-Z0-9]{10}$/;
 
+function parseIds(env) {
+  const androidSha256 = (env.RSL_ANDROID_CERT_SHA256 ?? "").split(/[\s,]+/).map((s) => s.trim().toUpperCase()).filter(Boolean);
+  const team = (env.RSL_IOS_TEAM_ID ?? "").trim();
+  return {
+    androidSet: androidSha256.length > 0, androidOk: androidSha256.length > 0 && androidSha256.every((f) => FINGERPRINT.test(f)), androidSha256,
+    iosSet: team.length > 0, iosOk: TEAM_ID.test(team), team,
+  };
+}
+
 /** null unless the owner enabled the link and supplied at least one valid public identifier. */
 export function appLinkConfig(env = {}) {
   if (env.RSL_APP_LINK !== "1") return null;
-  const androidSha256 = (env.RSL_ANDROID_CERT_SHA256 ?? "").split(/[\s,]+/).map((s) => s.trim().toUpperCase()).filter(Boolean);
-  const androidOk = androidSha256.length > 0 && androidSha256.every((f) => FINGERPRINT.test(f));
-  const team = (env.RSL_IOS_TEAM_ID ?? "").trim();
-  const iosOk = TEAM_ID.test(team);
+  const { androidOk, androidSha256, iosOk, team } = parseIds(env);
   if (!androidOk && !iosOk) return null;
   return { enabled: true, host: HOST, androidSha256: androidOk ? androidSha256 : [], iosAppId: iosOk ? `${team}.${APP_ID}` : null };
+}
+
+/**
+ * One-line warnings for an owner typo: RSL_APP_LINK=1 with an identifier that is set but invalid. They name the
+ * variable and never the value. Empty when the link is off on purpose (RSL_APP_LINK unset).
+ */
+export function appLinkWarnings(env = {}) {
+  if (env.RSL_APP_LINK !== "1") return [];
+  const { androidSet, androidOk, iosSet, iosOk } = parseIds(env);
+  const w = [];
+  if (androidSet && !androidOk) w.push("app link: RSL_ANDROID_CERT_SHA256 is not valid (expected 32-byte AA:BB:... fingerprints); the Android link is skipped");
+  if (iosSet && !iosOk) w.push("app link: RSL_IOS_TEAM_ID is not valid (expected 10 capital letters or digits); the iOS link is skipped");
+  if (!androidOk && !iosOk) w.push("app link: RSL_APP_LINK=1 but no valid identifier, so the app link stays off");
+  return w;
 }
 
 export function writeAppLinkFiles(outDir, env = {}) {
@@ -88,4 +108,27 @@ export function iosEntitlements(cfg) {
 </dict>
 </plist>
 `;
+}
+
+/** Path of the entitlements file as Xcode's CODE_SIGN_ENTITLEMENTS names it (relative to ios/App, where the project lives). */
+export const ENTITLEMENTS_SETTING = "App/App.entitlements";
+
+/**
+ * Xcode only applies an entitlements file that a build setting names. Sets CODE_SIGN_ENTITLEMENTS in every build
+ * configuration of the app target (found by its bundle id): Debug and Release. An existing different value is
+ * replaced, because the associated domain must come from this file. Idempotent; unchanged when there is no iOS link.
+ */
+export function patchPbxproj(pbx, cfg) {
+  if (!cfg?.iosAppId) return pbx;
+  const idLine = `PRODUCT_BUNDLE_IDENTIFIER = ${APP_ID};`;
+  let n = 0;
+  const out = pbx.replace(/buildSettings = \{[^{}]*\};/g, (block) => {
+    if (!block.includes(idLine)) return block;
+    n++;
+    const setting = `CODE_SIGN_ENTITLEMENTS = ${ENTITLEMENTS_SETTING};`;
+    if (/CODE_SIGN_ENTITLEMENTS = [^;]*;/.test(block)) return block.replace(/CODE_SIGN_ENTITLEMENTS = [^;]*;/, setting);
+    return block.replace(idLine, `${setting}\n\t\t\t\t${idLine}`);
+  });
+  if (!n) throw new Error(`project.pbxproj: app target anchor missing (${idLine})`);
+  return out;
 }
