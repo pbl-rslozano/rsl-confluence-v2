@@ -121,6 +121,7 @@ test("oversize backup is refused before upload", async () => {
   const plain = randomBytes(30 * 1024 * 1024).toString("base64"); // ~40 MB, incompressible
   const e = await rejects(sealBackup(plain, PASS, OPTS), "too-large-backup");
   assert.ok(e.detail.size > 20971520);
+  assert.equal(e.detail.plain, undefined);
 });
 
 /** Test-only: builds a valid envelope straight from WebCrypto, bypassing sealBackup's own limits. */
@@ -188,7 +189,49 @@ test("a corrupt gzip body still gives format with sliced writes", async () => {
 
 test("seal refuses plain text over the 160 MB open limit", async () => {
   const e = await rejects(sealBackup("0".repeat(BACKUP_MAX_PLAIN_BYTES + 1), PASS, OPTS), "too-large-backup");
-  assert.equal(e.detail.size, BACKUP_MAX_PLAIN_BYTES + 1);
+  assert.equal(e.detail.plain, BACKUP_MAX_PLAIN_BYTES + 1);
+});
+
+test("M-2 over the unpacked cap, both sizes are reported: the estimated encrypted file and the unpacked text", async () => {
+  const plain = "0".repeat(BACKUP_MAX_PLAIN_BYTES + 1);
+  const gz = await rejects(sealBackup(plain, PASS, OPTS), "too-large-backup");
+  assert.equal(gz.detail.plain, BACKUP_MAX_PLAIN_BYTES + 1);
+  assert.ok(gz.detail.size > 0 && gz.detail.size < 2 * 1024 * 1024, `zeros compress well: the file would be small (${gz.detail.size})`);
+  const none = await rejects(sealBackup(plain, PASS, { ...OPTS, zip: "none" }), "too-large-backup");
+  const b64 = Math.ceil((BACKUP_MAX_PLAIN_BYTES + 1 + 16) / 3) * 4;
+  assert.ok(none.detail.size >= b64 && none.detail.size < b64 + 1024, `uncompressed estimate ${none.detail.size} vs ${b64}`);
+  // under the unpacked cap but over 20 MB: the size is the encrypted file's own size, and there is no unpacked size
+  const { randomBytes } = await import("node:crypto");
+  const noisy = randomBytes(16 * 1024 * 1024).toString("base64");
+  const file = await rejects(sealBackup(noisy, PASS, OPTS), "too-large-backup");
+  assert.equal(file.detail.plain, undefined);
+  assert.ok(file.detail.size > BACKUP_MAX_FILE_BYTES);
+});
+
+/** The longest stretch (ms) in which a 5 ms timer could not run while `fn` ran: the longest main-thread task. */
+async function maxBlockMs(fn) {
+  let max = 0;
+  let last = performance.now();
+  const iv = setInterval(() => { const n = performance.now(); max = Math.max(max, n - last); last = n; }, 5);
+  try { await fn(); } finally { clearInterval(iv); }
+  return Math.max(max, performance.now() - last);
+}
+
+test("M-1 sealing and opening a large backup never holds the event loop for 200 ms (key derivation and AES run off it)", async () => {
+  // About 60 MB of ledger-like JSON with random numbers: it compresses roughly like a real ledger.
+  // Built as one flat string (the 300,000 pieces are garbage straight away), so the heap holds what the app would.
+  const piece = (i) => `{"id":"c1|binance|4h|P${i % 300}|${1794772800000 - i * 14400000}","c":${(Math.random() * 1000).toFixed(4)},"sc":${(Math.random() * 200 - 100).toFixed(2)},"v":${Math.round(Math.random() * 1e6)},"ft":${(Math.random() * 80 - 40).toFixed(1)},"oi":${(Math.random() * 5).toFixed(3)}}`;
+  let plain = "[";
+  for (let i = 0; i < 300_000; i++) plain += (i ? "," : "") + piece(i);
+  plain = Buffer.from(plain + "]").toString(); // flatten the rope
+  let file;
+  const seal = await maxBlockMs(async () => { file = await sealBackup(plain, PASS, OPTS); });
+  let back;
+  const open = await maxBlockMs(async () => { back = await openBackup(file, PASS); });
+  assert.equal(back.plain, plain);
+  console.log(`# M-1 longest task: seal ${seal.toFixed(0)} ms, open ${open.toFixed(0)} ms (${(plain.length / 1048576).toFixed(1)} MB text, ${(file.length / 1048576).toFixed(1)} MB file)`);
+  assert.ok(seal < 200, `seal held the event loop for ${seal.toFixed(0)} ms`);
+  assert.ok(open < 200, `open held the event loop for ${open.toFixed(0)} ms`);
 });
 
 test("seal refuses a createdAt that open would refuse", async () => {

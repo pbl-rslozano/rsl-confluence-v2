@@ -97,19 +97,106 @@ function toB64u(bytes: Uint8Array): string {
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** Strict, canonical, unpadded base64url; anything else is a "format" error. */
-function fromB64u(s: unknown): Uint8Array {
-  if (typeof s !== "string" || !B64URL_RE.test(s) || s.length % 4 === 1) throw new BackupError("format");
+/** Bytes per base64 step: a multiple of 3, so the steps' texts join without padding (final review M-1). */
+const B64_BLOCK_BYTES = 3 * 8192;
+const B64_BLOCK_CHARS = 4 * 8192;
+
+/** toB64u in steps, yielding to the event loop between them, for the ciphertext (up to 15 MB). */
+async function encodeB64u(bytes: Uint8Array, tick: () => Promise<void> | undefined): Promise<string> {
+  const out: string[] = [];
+  for (let i = 0; i < bytes.length; i += B64_BLOCK_BYTES) {
+    out.push(toB64u(bytes.subarray(i, i + B64_BLOCK_BYTES)));
+    const t = tick();
+    if (t) await t;
+  }
+  return out.join("");
+}
+
+/** The output buffer for an unpadded base64url text, after the length rule (a length of 4n+1 is never valid). */
+function b64uTarget(s: unknown): Uint8Array {
+  if (typeof s !== "string" || s.length % 4 === 1) throw new BackupError("format");
+  const rem = s.length % 4;
+  return new Uint8Array(Math.floor(s.length / 4) * 3 + (rem === 2 ? 1 : rem === 3 ? 2 : 0));
+}
+
+/**
+ * Decodes one step of whole 4-character groups (the last step may end in a partial group) into `out` at `at` and returns
+ * the bytes written. Each step is checked on its own: a full group always maps to exactly 3 bytes, so only the last
+ * step can carry non-zero trailing bits, and the re-encode catches them. Anything else is a "format" error.
+ */
+function decodeB64uStep(part: string, out: Uint8Array, at: number): number {
+  if (!B64URL_RE.test(part)) throw new BackupError("format");
   let bin: string;
   try {
-    bin = atob(s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4));
+    bin = atob(part.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (part.length % 4)) % 4));
   } catch {
     throw new BackupError("format");
   }
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  if (toB64u(out) !== s) throw new BackupError("format"); // non-zero trailing bits
+  const bytes = out.subarray(at, at + bin.length);
+  if (bytes.length !== bin.length) throw new BackupError("format");
+  for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+  // Whole groups are canonical by construction (4 characters ↔ 3 bytes); a final partial group must re-encode to itself
+  // (non-zero trailing bits are refused).
+  const rem = part.length % 4;
+  if (rem && toB64u(bytes.subarray(bytes.length - (rem - 1))) !== part.slice(part.length - rem)) throw new BackupError("format");
+  return bin.length;
+}
+
+/** Strict, canonical, unpadded base64url; anything else is a "format" error. */
+function fromB64u(s: unknown): Uint8Array {
+  const out = b64uTarget(s);
+  const text = s as string;
+  for (let i = 0, at = 0; i < text.length; i += B64_BLOCK_CHARS) at += decodeB64uStep(text.slice(i, i + B64_BLOCK_CHARS), out, at);
   return out;
+}
+
+/** fromB64u in steps, yielding to the event loop between them, for the ciphertext (final review M-1). */
+async function decodeB64u(s: unknown, tick: () => Promise<void> | undefined): Promise<Uint8Array> {
+  const out = b64uTarget(s);
+  const text = s as string;
+  for (let i = 0, at = 0; i < text.length; i += B64_BLOCK_CHARS) {
+    at += decodeB64uStep(text.slice(i, i + B64_BLOCK_CHARS), out, at);
+    const t = tick();
+    if (t) await t;
+  }
+  return out;
+}
+
+/** UTF-8 bytes of `s` in 1 MiB steps (never splitting a surrogate pair), yielding between them. */
+async function encodeText(s: string, tick: () => Promise<void> | undefined): Promise<{ chunks: Uint8Array[]; bytes: number }> {
+  const STEP = 1 << 20;
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  for (let i = 0; i < s.length;) {
+    let j = Math.min(s.length, i + STEP);
+    if (j < s.length) { const c = s.charCodeAt(j - 1); if (c >= 0xd800 && c <= 0xdbff) j--; }
+    const b = enc.encode(s.slice(i, j));
+    chunks.push(b);
+    bytes += b.length;
+    i = j;
+    const t = tick();
+    if (t) await t;
+  }
+  return { chunks, bytes };
+}
+
+/** Strict UTF-8 text of `chunks`, decoded as a stream, yielding between chunks. A bad sequence is a "format" error. */
+async function decodeText(chunks: Uint8Array[], tick: () => Promise<void> | undefined): Promise<string> {
+  const dec = new TextDecoder("utf-8", { fatal: true });
+  const parts: string[] = [];
+  try {
+    for (const c of chunks) {
+      for (let i = 0; i < c.length; i += 1 << 20) {
+        parts.push(dec.decode(c.subarray(i, i + (1 << 20)), { stream: true }));
+        const t = tick();
+        if (t) await t;
+      }
+    }
+    parts.push(dec.decode());
+  } catch {
+    throw new BackupError("format");
+  }
+  return parts.join("");
 }
 
 function checkPassphrase(passphrase: string, min: number): string {
@@ -130,18 +217,24 @@ async function deriveKey(passphrase: string, salt: Uint8Array, iter: number): Pr
 }
 
 /**
- * Runs `bytes` through a (de)compression stream. The input is written in PIPE_SLICE_BYTES slices while the output is read
+ * Runs `input` through a (de)compression stream. The input is written in PIPE_SLICE_BYTES slices while the output is read
  * concurrently. Chromium inflates a whole written chunk before it enqueues any output, so a single big write would put the
  * entire decompressed bomb in memory before the cap is ever checked. Aborts as soon as the output passes `cap`.
+ * Final review M-1: the writer yields to the event loop (`tick`), since a stream transform runs on the calling thread.
  */
-async function pipeBytes(bytes: Uint8Array, transform: CompressionStream | DecompressionStream, cap: number): Promise<Uint8Array[]> {
+async function pipeBytes(input: Uint8Array | Uint8Array[], transform: CompressionStream | DecompressionStream, cap: number, tick: () => Promise<void> | undefined = () => undefined): Promise<Uint8Array[]> {
   const writer = transform.writable.getWriter();
   const reader = transform.readable.getReader();
+  const parts = Array.isArray(input) ? input : [input];
   let stop = false;
   void (async () => {
     try {
-      for (let i = 0; i < bytes.length && !stop; i += PIPE_SLICE_BYTES) {
-        await writer.write(bytes.subarray(i, i + PIPE_SLICE_BYTES) as BufferSource);
+      for (const bytes of parts) {
+        for (let i = 0; i < bytes.length && !stop; i += PIPE_SLICE_BYTES) {
+          await writer.write(bytes.subarray(i, i + PIPE_SLICE_BYTES) as BufferSource);
+          const t = tick();
+          if (t) await t;
+        }
       }
       if (!stop) await writer.close();
     } catch {
@@ -168,10 +261,20 @@ async function pipeBytes(bytes: Uint8Array, transform: CompressionStream | Decom
 }
 
 function concat(chunks: Uint8Array[]): Uint8Array {
+  if (chunks.length === 1) return chunks[0];
   const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
   let at = 0;
   for (const c of chunks) { out.set(c, at); at += c.length; }
   return out;
+}
+
+/** Plain text compressed for the over-cap estimate: the first part only, scaled (final review M-2). */
+const ESTIMATE_SAMPLE_BYTES = 8 * 1024 * 1024;
+
+/** The encrypted file's size for a body of `bodyBytes` (before the 16-byte tag): the envelope around unpadded base64url. */
+function fileBytesFor(headerB64: string, ivB64: string, bodyBytes: number): number {
+  const shell = JSON.stringify({ format: BACKUP_FORMAT, v: 1, h: headerB64, iv: ivB64, ct: "" }).length;
+  return shell + Math.ceil(((bodyBytes + 16) * 4) / 3);
 }
 
 export async function sealBackup(
@@ -191,11 +294,28 @@ export async function sealBackup(
   };
   // Exactly the rules openBackup applies, so seal never writes a backup that open will always refuse.
   validateHeader(header as unknown as Record<string, unknown>, Date.now());
-  let body: Uint8Array = enc.encode(plain);
-  if (body.length > BACKUP_MAX_PLAIN_BYTES) throw new BackupError("too-large-backup", { size: body.length });
-  if (zip === "gzip") body = concat(await pipeBytes(body, new CompressionStream("gzip"), Infinity));
-
   const headerBytes = enc.encode(JSON.stringify(header));
+  const tick = cooperative();
+  const text = await encodeText(plain, tick);
+  if (text.bytes > BACKUP_MAX_PLAIN_BYTES) {
+    // Final review M-2: say how big the FILE would be (estimated from a compressed sample) and how big unpacked.
+    let body = text.bytes;
+    if (zip === "gzip") {
+      const sample: Uint8Array[] = [];
+      let taken = 0;
+      for (const c of text.chunks) {
+        if (taken >= ESTIMATE_SAMPLE_BYTES) break;
+        const part = c.subarray(0, ESTIMATE_SAMPLE_BYTES - taken);
+        sample.push(part);
+        taken += part.length;
+      }
+      const z = (await pipeBytes(sample, new CompressionStream("gzip"), Infinity, tick)).reduce((n, c) => n + c.length, 0);
+      body = Math.ceil((z * text.bytes) / taken);
+    }
+    throw new BackupError("too-large-backup", { size: fileBytesFor(toB64u(headerBytes), toB64u(iv), body), plain: text.bytes });
+  }
+  const body: Uint8Array = zip === "gzip" ? concat(await pipeBytes(text.chunks, new CompressionStream("gzip"), Infinity, tick)) : concat(text.chunks.length ? text.chunks : [new Uint8Array(0)]);
+
   let ct: Uint8Array;
   try {
     const key = await deriveKey(pass, salt, PBKDF2_ITERATIONS);
@@ -204,8 +324,8 @@ export async function sealBackup(
   } catch {
     throw new BackupError("unsupported");
   }
-  const file = JSON.stringify({ format: BACKUP_FORMAT, v: 1, h: toB64u(headerBytes), iv: toB64u(iv), ct: toB64u(ct) });
-  const size = utf8Bytes(file);
+  const file = JSON.stringify({ format: BACKUP_FORMAT, v: 1, h: toB64u(headerBytes), iv: toB64u(iv), ct: await encodeB64u(ct, tick) });
+  const size = file.length; // the envelope is ASCII only (base64url and fixed JSON), so characters are bytes
   if (size > BACKUP_MAX_FILE_BYTES) throw new BackupError("too-large-backup", { size });
   return file;
 }
@@ -228,8 +348,9 @@ function validateHeader(r: Record<string, unknown>, now: number): Uint8Array {
   return salt;
 }
 
-interface Parsed { header: EnvelopeHeader; headerBytes: Uint8Array; salt: Uint8Array; iv: Uint8Array; ct: Uint8Array }
+interface Parsed { header: EnvelopeHeader; headerBytes: Uint8Array; salt: Uint8Array; iv: Uint8Array; ctText: string }
 
+/** Every structural check except decoding the ciphertext, which the caller does (in steps when opening). */
 function parseEnvelope(fileText: string, now: number): Parsed {
   if (typeof fileText !== "string") throw new BackupError("format");
   const size = utf8Bytes(fileText);
@@ -244,19 +365,21 @@ function parseEnvelope(fileText: string, now: number): Parsed {
 
   const headerBytes = fromB64u(o.h);
   const iv = fromB64u(o.iv);
-  const ct = fromB64u(o.ct);
+  b64uTarget(o.ct); // the ciphertext's type and length rule, before anything else is decoded
   if (headerBytes.length > HEADER_MAX_BYTES) throw new BackupError("format");
   let h: unknown;
   try { h = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(headerBytes)); } catch { throw new BackupError("format"); }
   if (typeof h !== "object" || h === null || Array.isArray(h)) throw new BackupError("format");
   const salt = validateHeader(h as Record<string, unknown>, now);
-  if (iv.length !== 12 || ct.length < 16) throw new BackupError("format");
-  return { header: h as unknown as EnvelopeHeader, headerBytes, salt, iv, ct };
+  if (iv.length !== 12) throw new BackupError("format");
+  return { header: h as unknown as EnvelopeHeader, headerBytes, salt, iv, ctText: o.ct as string };
 }
 
 /** Every structural check, no passphrase and no key derivation. */
 export function readBackupHeader(fileText: string, now: number = Date.now()): EnvelopeHeader {
-  return parseEnvelope(fileText, now).header;
+  const p = parseEnvelope(fileText, now);
+  if (fromB64u(p.ctText).length < 16) throw new BackupError("format");
+  return p.header;
 }
 
 export async function openBackup(
@@ -264,7 +387,10 @@ export async function openBackup(
   passphrase: string,
   now: number = Date.now(),
 ): Promise<{ header: EnvelopeHeader; plain: string }> {
-  const { header, headerBytes, salt, iv, ct } = parseEnvelope(fileText, now);
+  const { header, headerBytes, salt, iv, ctText } = parseEnvelope(fileText, now);
+  const tick = cooperative();
+  const ct = await decodeB64u(ctText, tick);
+  if (ct.length < 16) throw new BackupError("format");
   const pass = checkPassphrase(passphrase, OPEN_MIN_PASSPHRASE_CHARS);
   let body: Uint8Array;
   try {
@@ -274,20 +400,19 @@ export async function openBackup(
   } catch {
     throw new BackupError("decrypt");
   }
+  let chunks: Uint8Array[];
   if (header.zip === "gzip") {
     if (typeof globalThis.DecompressionStream !== "function") throw new BackupError("unsupported");
     try {
-      body = concat(await pipeBytes(body, new DecompressionStream("gzip"), BACKUP_MAX_PLAIN_BYTES));
+      chunks = await pipeBytes(body, new DecompressionStream("gzip"), BACKUP_MAX_PLAIN_BYTES, tick);
     } catch (e) {
       if (e instanceof BackupError) throw e;
       throw new BackupError("format");
     }
   } else if (body.length > BACKUP_MAX_PLAIN_BYTES) {
     throw new BackupError("too-large-file", { size: body.length });
+  } else {
+    chunks = [body];
   }
-  try {
-    return { header, plain: new TextDecoder("utf-8", { fatal: true }).decode(body) };
-  } catch {
-    throw new BackupError("format");
-  }
+  return { header, plain: await decodeText(chunks, tick) };
 }

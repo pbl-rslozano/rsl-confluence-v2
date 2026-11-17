@@ -103,6 +103,11 @@ async function list<T>(source: unknown, max: number, name: string, ok: (x: unkno
 export async function parsePayload(text: string, header: EnvelopeHeader, limits = PAYLOAD_LIMITS): Promise<ParsedPayload> {
   let raw: unknown;
   try { raw = JSON.parse(text); } catch { throw new BackupError("format"); }
+  return readPayload(raw, header, limits);
+}
+
+/** Validates an already parsed payload (plain data) and sanitises every record, yielding to the event loop as it goes. */
+export async function readPayload(raw: unknown, header: EnvelopeHeader, limits = PAYLOAD_LIMITS): Promise<ParsedPayload> {
   if (!isObj(raw)) throw new BackupError("format");
   if (raw.format !== PAYLOAD_FORMAT || raw.schema !== PAYLOAD_SCHEMA) throw schema("version");
   if (raw.createdAt !== header.createdAt) throw schema("createdAt");

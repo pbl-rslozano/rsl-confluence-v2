@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { sealBackup, openBackup, readBackupHeader, BackupError } from "./backup-crypto.ts";
-import { buildPayload, parsePayload, PAYLOAD_FORMAT, PAYLOAD_SCHEMA, PAYLOAD_LIMITS } from "./backup-payload.ts";
+import { buildPayload, buildPayloadText, parsePayload, readPayload, PAYLOAD_FORMAT, PAYLOAD_SCHEMA, PAYLOAD_LIMITS } from "./backup-payload.ts";
 import { createBackupFile, openBackupFile, applyRestore } from "./backup-service.ts";
 import { createLedgerStore, sanitizePreregistration, sanitizeTrial, sanitizeOutcomeDoc, sanitizeUniverseDoc, sanitizeGapDoc, PREREG_MIN_DAYS } from "./signal-ledger.ts";
 import { createPaperStore, memoryPaperPort, sanitizeJournalEntry, sanitizeTradeNote, paperNoteId } from "./paper-store.ts";
@@ -1050,4 +1050,41 @@ test("I-1 sanitisers refuse hostile outcome, universe, gap and note records with
   assert.equal(plan.notes.rejected, 2);
   assert.equal(plan.outcomes.notKept, 1, "the good outcome's row is not on B: not kept");
   assert.equal(await snap(B), before);
+});
+
+/* ---- final review (M-1): the payload loops yield to the event loop ---- */
+/** The longest stretch (ms) in which a 5 ms timer could not run while `fn` ran: the longest main-thread task. */
+async function maxBlockMs(fn) {
+  let max = 0;
+  let last = performance.now();
+  const iv = setInterval(() => { const n = performance.now(); max = Math.max(max, n - last); last = n; }, 5);
+  try { await fn(); } finally { clearInterval(iv); }
+  return Math.max(max, performance.now() - last);
+}
+
+test("M-1 buildPayloadText gives exactly buildPayload's text", async () => {
+  const { A } = await richDevice();
+  const made = await createBackupFile(A.deps, PASS);
+  const { plain, header } = await openBackup(made.text, PASS);
+  const parsed = await parsePayload(plain, header);
+  const { format: _f, schema: _s, ...parts } = parsed.payload;
+  assert.equal(await buildPayloadText(parts), buildPayload(parts));
+  assert.equal(await buildPayloadText(parts), plain);
+  const empty = emptyParts(NOW);
+  assert.equal(await buildPayloadText(empty), buildPayload(empty));
+});
+
+test("M-1 building and sanitising a 100,000-row payload never holds the event loop for 200 ms (the one JSON.parse aside)", async () => {
+  const rows = mkRows(100, 1000);
+  const parts = { ...emptyParts(NOW), ledger: { ...EMPTY_LEDGER, rows } };
+  let text = "";
+  const build = await maxBlockMs(async () => { text = await buildPayloadText(parts); });
+  const header = readBackupHeader(await fileOf(emptyParts(NOW)));
+  const raw = JSON.parse(text);
+  let parsed;
+  const sanitise = await maxBlockMs(async () => { parsed = await readPayload(raw, header); });
+  assert.equal(parsed.payload.ledger.rows.length, 100_000);
+  console.log(`# M-1 longest task: build ${build.toFixed(0)} ms, sanitise ${sanitise.toFixed(0)} ms (100,000 rows, ${(text.length / 1048576).toFixed(1)} MB)`);
+  assert.ok(build < 200, `building held the event loop for ${build.toFixed(0)} ms`);
+  assert.ok(sanitise < 200, `sanitising held the event loop for ${sanitise.toFixed(0)} ms`);
 });
