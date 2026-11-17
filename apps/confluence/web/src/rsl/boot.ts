@@ -26,7 +26,8 @@ import { CATALOGS } from "./i18n/catalogs";
 import { readLegacyPreferences } from "@/lib/preferences-store";
 import { setCoinsphNativeGet } from "@/lib/coinsph";
 import { setRelayNativeGet } from "@/lib/native-relay";
-import { isAllowedNativeUrl } from "@/lib/public-hosts";
+import { isAllowedNativeUrl, isAllowedBackupUrl, isAllowedSignInUrl } from "@/lib/public-hosts";
+import { setBackupNativeRequest, setShellOAuth } from "@/lib/backup-http";
 import { registerShellFullscreen } from "@/lib/shell-fullscreen";
 
 export interface Adapters {
@@ -43,6 +44,10 @@ export interface Adapters {
   makeNativeGet?: (isAllowed: (url: string) => boolean) => import("@/lib/coinsph").NativeGet;
   /** v2.7 (WP14.3): native help for the chart's full screen (window on desktop, status bar on phones). */
   fullscreen?: import("@/lib/shell-fullscreen").ShellFullscreen;
+  /** v2.8 (WP28): native HTTP for encrypted cloud backup, fenced by the backup allowlist. */
+  makeNativeRequest?: (isAllowed: (url: string) => boolean) => import("@/lib/backup-http").BackupHttp;
+  /** v2.8 (WP28): the shell's sign-in broker (desktop loopback, phone app link). */
+  makeOAuth?: (isSignIn: (url: string) => boolean) => import("@/lib/backup-http").ShellOAuth;
 }
 
 export interface BootResult {
@@ -174,6 +179,9 @@ export async function loadAdapters(): Promise<Adapters> {
   setCoinsphNativeGet(adapters.makeNativeGet ? adapters.makeNativeGet(isAllowedNativeUrl) : null);
   // v2.8 (WP26): Upbit's CORS is unreliable; the generic relay reaches its read paths the same way.
   setRelayNativeGet(adapters.makeNativeGet ? adapters.makeNativeGet(isAllowedNativeUrl) : null);
+  // v2.8 (WP28): encrypted cloud backup. Native HTTP and the OAuth redirect broker, each behind its allowlist.
+  setBackupNativeRequest(adapters.makeNativeRequest ? adapters.makeNativeRequest(isAllowedBackupUrl) : null);
+  setShellOAuth(adapters.makeOAuth ? adapters.makeOAuth(isAllowedSignInUrl) : null);
   registerShellFullscreen(adapters.fullscreen);
   return adapters;
 }

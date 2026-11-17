@@ -10,6 +10,9 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { fetch as httpFetch } from '@tauri-apps/plugin-http';
+import { invoke } from '@tauri-apps/api/core';
+import { makeNativeRequest } from './native-request.js';
+import { createLoopbackOAuth } from './oauth.js';
 import { fromTauriSql } from '@rsl/core-kit/core/rsl-storage.js';
 
 export const DB_URL = 'sqlite:rsl-conf.db';
@@ -33,6 +36,9 @@ export async function createAdapters() {
   return {
     shell: 'tauri',
     makeNativeGet,
+    /** v2.8 (WP28): backup HTTP behind the backup allowlist, and the loopback sign-in broker. */
+    makeNativeRequest: (isAllowed) => makeNativeRequest(isAllowed, httpFetch),
+    makeOAuth: (isSignIn) => createLoopbackOAuth({ invoke, openUrl, isSignIn }),
     /** v2.5: native window chrome follows the app theme (needs core:window:allow-set-theme). */
     theme: {
       // null = follow the OS (System preference); a forced theme also forces the webview's prefers-color-scheme.
