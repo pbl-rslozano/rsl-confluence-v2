@@ -5,12 +5,11 @@
 // series with Classic exactly as the app does, and writes the numbers as JSON.
 import { writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import { engineConfigId, behaviourFingerprint, fingerprintSeries, ENGINE_VERSION } from "./engine-config.ts";
 import { scoreSeries, toLedgerRow } from "./scan-pipeline.ts";
 import { measureOutcome, buildReport, costsFor, DEFAULT_HORIZONS } from "./ledger-metrics.ts";
-import { MODELS, INTERVALS, WINDOWS, noiseCell, measureWalks } from "./noise-fixtures.mjs";
-
-const H = 3600e3;
+import { H, MODELS, INTERVALS, WINDOWS, noiseCell, measureWalks } from "./noise-fixtures.mjs";
 
 /** Numbers to 6 significant digits; non-finite values become null (JSON has no NaN). */
 const r6 = (x) => (typeof x === "number" && Number.isFinite(x) ? Number(x.toPrecision(6)) : null);
@@ -122,4 +121,5 @@ function main() {
   writeFileSync(out, JSON.stringify(evidence, null, 2) + "\n");
   console.log(`wrote ${out}`);
 }
-main();
+// Only the entry point runs the CLI, so Task 10 and the tests can import classicMetrics.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
