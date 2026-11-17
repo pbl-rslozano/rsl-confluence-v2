@@ -523,12 +523,12 @@ async function ds1Snapshot() {
 //          §3.6  drawdown badge and RESET — only while that lock is active        [data-testid=paper-lock-drawdown], [data-testid=paper-drawdown]
 //          §3.7  the risk > 1 % warning (text inside the proposal box)            [data-testid=paper-warning]
 //   detail §3.8  "View on [exchange]" (WP26, end of the sheet, below the compared region)   [data-testid=view-on-exchange]
-//          §3.1  Scenarios (WP22): not built yet — add its selector with WP22.
+//          §3.1  "Scenarios (simulation)" (WP22, collapsed, right after the Pattern panel)  [data-testid=scenarios-section]
 //   ledger §3.4  collapsed Scenario check at the end (WP22): not built yet — add its selector with WP22.
 // §3.5 block reasons and §3.7 text inside existing boxes need no exclusion (text is masked). Never add a selector for
 // anything that is not on the §3 list.
 const DS2_ALLOWED = {
-  detail: ['[data-testid="view-on-exchange"]'],
+  detail: ['[data-testid="view-on-exchange"]', '[data-testid="scenarios-section"]'],
   paper: ['[data-testid="paper-more-limits"]', '[data-testid="paper-more-stats"]', '[data-testid="paper-add-note"]', '[data-testid="paper-lock-drawdown"]', '[data-testid="paper-drawdown"]', '[data-testid="paper-warning"]'],
   ledger: [],
 };
@@ -2553,6 +2553,258 @@ async function hdPinnedBoxes(w, h, lang) {
       colOff.th === 0 && colOff.td === 0 && !defaults.checked && defaults.pulse === "three" && head === "Fund rank"
         && nums.length >= 3 && ethCell === "1" && btcCell === String(Math.max(...nums)) && stockCells.length > 0 && stockCells.every((x) => x === "—"),
       { colOff, defaults, head, nums: nums.length, ethCell, btcCell, stockCells });
+  }
+
+  /* ===== v2.8 WP22 (Scenarios): the collapsed section in the detail sheet ===== */
+  /* acceptance-ids: SC-1, SC-2, SC-6 */
+  {
+    const c = await newContext(browser);
+    await mockExchanges(c);
+    // SOL: only 250 closed bars of the chart timeframe (the daily series is untouched), so its section has not enough history.
+    await c.route(/^https:\/\/data-api\.binance\.vision\/api\/v3\/klines/, async (route) => {
+      const u = new URL(route.request().url());
+      if (u.searchParams.get("symbol") !== "SOLUSDT" || u.searchParams.get("interval") === "1d") return route.fallback();
+      return route.fulfill({ status: 200, headers: { "access-control-allow-origin": "*", "content-type": "application/json" }, body: JSON.stringify(klines("SOLUSDT", 250, stepOf(u))) });
+    });
+    const p = await c.newPage();
+    await p.goto(BASE, { waitUntil: "domcontentloaded" });
+    await completeFirstRun(p);
+    await waitRows(p);
+    await p.getByRole("button", { name: /^BTC/ }).first().click();
+    const chart = p.getByTestId("price-chart");
+    await chart.waitFor({ timeout: 15000 });
+    const section = p.getByTestId("scenarios-section");
+    await section.waitFor({ timeout: 10000 }).catch(() => null);
+    const toggle = p.getByTestId("scenarios-toggle");
+    await p.waitForTimeout(500);
+    const rest = {
+      sections: await section.count(),
+      afterPattern: await section.evaluate((el) => /Historical analogues/.test(el.previousElementSibling?.textContent ?? "")).catch(() => false),
+      expanded: await toggle.getAttribute("aria-expanded").catch(() => null),
+      controls: await toggle.getAttribute("aria-controls").catch(() => null),
+      body: await p.locator("#scenarios-body").count(),
+      sim: await chart.locator("[data-sim]").count(),
+      controlsRow: await chart.getByTestId("projection-controls").count(),
+      allowed: DS2_ALLOWED.detail.includes('[data-testid="scenarios-section"]'),
+    };
+    record("SC-1", "Scenarios section sits after the Pattern panel, collapsed by default, nothing computed or drawn at rest",
+      rest.sections === 1 && rest.afterPattern && rest.expanded === "false" && rest.controls === "scenarios-body" && rest.body === 0 && rest.sim === 0 && rest.controlsRow === 0 && rest.allowed, rest);
+
+    // The simulation runs in the report worker (created lazily by the first request; the ledger was not opened here).
+    const workersAfter = [];
+    p.on("worker", (w) => workersAfter.push(w.url()));
+    await toggle.click();
+    const table = p.getByTestId("scenarios-table");
+    await table.waitFor({ timeout: 30000 }).catch(() => null);
+    const read = async () => p.evaluate(() => {
+      const tb = document.querySelector('[data-testid="scenarios-table"]');
+      const rows = [...document.querySelectorAll("[data-scenario]")].map((r) => ({ id: r.getAttribute("data-scenario"), p: Number(r.getAttribute("data-p")), cells: [...r.querySelectorAll("td,th")].map((x) => x.textContent.trim()) }));
+      const sample = document.querySelector('[data-testid="scenarios-sample"]');
+      return { h: tb?.getAttribute("data-h") ?? null, rows, neff: sample ? Number(sample.getAttribute("data-neff")) : NaN, sampleText: sample?.textContent ?? null, explain: document.querySelector('[data-testid="scenarios-explain"]')?.textContent ?? null };
+    });
+    const six = await read();
+    const header = await p.getByTestId("scenarios-header").textContent().catch(() => null);
+    const expandedNow = await toggle.getAttribute("aria-expanded");
+    const sum = six.rows.reduce((a, r) => a + r.p, 0);
+    // Each row: odds, Wilson range, cases and base rate (percent with one decimal, never "-0.0").
+    const rowsOk = (x) => x.rows.length === 3 && Math.abs(x.rows.reduce((a, r) => a + r.p, 0) - 1) <= 0.002 && x.rows.every((r) => r.cells.length === 5 && /^\d+\.\d %$/.test(r.cells[1]) && /^\d+\.\d–\d+\.\d %$/.test(r.cells[2]) && /^\d+$/.test(r.cells[3]) && /^\d+\.\d %$/.test(r.cells[4]));
+    const h = p.getByTestId("scenarios-h");
+    await h.getByRole("radio", { name: "24 bars" }).click();
+    await p.locator('[data-testid="scenarios-table"][data-h="24"]').waitFor({ timeout: 30000 }).catch(() => null);
+    const tf = await read();
+    // 6 → 24 → 6 within 100 ms: the last request wins, an earlier result is discarded by its key.
+    await p.evaluate(() => new Promise((ok) => {
+      const btn = (n) => [...document.querySelectorAll('[data-testid="scenarios-h"] [role="radio"]')].find((b) => b.textContent.trim() === `${n} bars`);
+      btn(6).click(); setTimeout(() => { btn(24).click(); setTimeout(() => { btn(6).click(); ok(); }, 40); }, 40);
+    }));
+    await p.locator('[data-testid="scenarios-table"][data-h="6"]').waitFor({ timeout: 30000 }).catch(() => null);
+    await p.waitForTimeout(1500);
+    const quick = await read();
+    record("SC-2", "Expanded: fixed header, three scenarios with odds, Wilson range, cases, effective sample and base rate, explanation without placeholders; 24-bar horizon has the smaller sample; a quick horizon switch never shows a stale result",
+      expandedNow === "true" && header === "Possible scenarios from past data — not a forecast." && six.h === "6" && rowsOk(six) && six.neff > 0 && /effective sample/.test(six.sampleText || "")
+        && !!six.explain && six.explain.trim().length > 0 && !/[{}]/.test(six.explain) && tf.h === "24" && rowsOk(tf) && tf.neff < six.neff && quick.h === "6" && quick.neff === six.neff && workersAfter.length >= 1,
+      { header, workers: workersAfter.length, six: { h: six.h, rows: six.rows, sum, neff: six.neff, sample: six.sampleText, explain: (six.explain || "").slice(0, 160) }, tf: { h: tf.h, neff: tf.neff, rows: tf.rows.map((r) => r.cells.join(" | ")) }, quick: { h: quick.h, neff: quick.neff } });
+    await p.keyboard.press("Escape");
+    await p.waitForFunction(() => !document.querySelector('[role="dialog"]'), null, { timeout: 10000 }).catch(() => null);
+
+    await p.getByRole("button", { name: /^SOL/ }).first().click();
+    await p.getByTestId("price-chart").waitFor({ timeout: 15000 });
+    const solBars = await p.locator('[role="dialog"]').first().textContent().then((t) => (t.match(/([\d,]+) closed bars/) || [])[1] ?? null);
+    await p.getByTestId("scenarios-toggle").click();
+    const na = p.getByTestId("scenarios-na");
+    await na.waitFor({ timeout: 15000 }).catch(() => null);
+    const naText = await na.textContent().catch(() => null);
+    const sol = { solBars, naText, show: await p.getByTestId("scenarios-show").count(), table: await p.getByTestId("scenarios-table").count() };
+    record("SC-6", "Short history (250 bars): the expanded section says \"Scenarios: not enough history (needs at least 300 closed bars).\" with no table and no Show on chart",
+      naText === "Scenarios: not enough history (needs at least 300 closed bars)." && sol.show === 0 && sol.table === 0, sol);
+    await c.close();
+  }
+
+  /* ===== v2.8 WP22 (Scenarios): Show on chart, Play, fullscreen / zoom / Heikin-Ashi ===== */
+  /* acceptance-ids: SC-3, SC-4, SC-5 */
+  {
+    const c = await newContext(browser);
+    await mockExchanges(c);
+    const p = await c.newPage();
+    await p.goto(BASE, { waitUntil: "domcontentloaded" });
+    await completeFirstRun(p);
+    await waitRows(p);
+    await p.getByRole("button", { name: /^BTC/ }).first().click();
+    const chart = p.getByTestId("price-chart");
+    await chart.waitFor({ timeout: 15000 });
+    const svg = chart.locator("svg").first();
+    await p.mouse.move(1, 1);
+    await p.waitForTimeout(500);
+    const svgAtRest = await svg.evaluate((e) => e.outerHTML);
+    await p.getByTestId("scenarios-toggle").click();
+    await p.getByTestId("scenarios-table").waitFor({ timeout: 30000 }).catch(() => null);
+    const svgExpanded = await svg.evaluate((e) => e.outerHTML);
+    const show = p.getByTestId("scenarios-show");
+    // Long tasks are watched from Show on chart to the end of Play (Review Focus 5).
+    await p.evaluate(() => { window.__lt = []; try { new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__lt.push(Math.round(e.duration)); }).observe({ type: "longtask" }); } catch { window.__lt = null; } });
+    await show.click();
+    await chart.locator('[data-sim="candle"]').first().waitFor({ timeout: 15000 }).catch(() => null);
+    const candleY = () => chart.locator('[data-sim="candle"] rect').evaluateAll((els) => els.map((e) => e.getAttribute("y")).join(","));
+    const drawn = {
+      pressed: await show.getAttribute("aria-pressed"),
+      showText: await show.textContent(),
+      bands: await chart.locator('[data-sim="band"]').count(),
+      median: await chart.locator('[data-sim="median"]').count(),
+      label: await chart.locator('[data-sim="label"]').textContent().catch(() => null),
+      now: await chart.locator('[data-sim="now"]').count(),
+      candles: await chart.locator('[data-sim="candle"]').count(),
+      hollow: await chart.locator('[data-sim="candle"] rect').evaluateAll((els) => els.length > 0 && els.every((e) => e.getAttribute("fill") === "none" && !!e.getAttribute("stroke-dasharray"))),
+      tabs: await chart.getByRole("tab").count(),
+    };
+    const y0 = await candleY();
+    const other = chart.locator('[role="tab"][aria-selected="false"]:not([disabled])').first();
+    const otherId = await other.getAttribute("data-tab").catch(() => null);
+    if (otherId) await other.click();
+    await p.waitForTimeout(200);
+    const y1 = await candleY();
+    await show.click();
+    await chart.locator("[data-sim]").first().waitFor({ state: "detached", timeout: 10000 }).catch(() => null);
+    await p.mouse.move(1, 1);
+    const svgOff = await svg.evaluate((e) => e.outerHTML);
+    record("SC-3", "Show on chart: two band polygons, dotted median, SIMULATED label, now marker and six hollow dashed candles; tabs switch the path; turning it off restores the exact default chart",
+      svgExpanded === svgAtRest && drawn.pressed === "true" && drawn.showText === "Hide from chart" && drawn.bands === 2 && drawn.median === 1 && drawn.label === "SIMULATED" && drawn.now === 1 && drawn.candles === 6 && drawn.hollow
+        && drawn.tabs === 3 && !!otherId && y1 !== y0 && (await show.getAttribute("aria-pressed")) === "false" && svgOff === svgAtRest,
+      { ...drawn, otherId, tabChanged: y1 !== y0, expandedSame: svgExpanded === svgAtRest, offSame: svgOff === svgAtRest, len: [svgAtRest.length, svgOff.length] });
+
+    // SC-4 — Play at H = 24: one candle per ~250 ms from 0 to 24; Pause holds; Replay at the end.
+    await p.getByTestId("scenarios-h").getByRole("radio", { name: "24 bars" }).click();
+    await p.locator('[data-testid="scenarios-table"][data-h="24"]').waitFor({ timeout: 30000 }).catch(() => null);
+    await show.click();
+    await p.waitForFunction(() => document.querySelectorAll('[data-sim="candle"]').length === 24, null, { timeout: 15000 }).catch(() => null);
+    const play = chart.getByTestId("projection-play");
+    const labelAtRest = await play.textContent();
+    const samples = await p.evaluate(() => new Promise((ok) => {
+      const count = () => document.querySelectorAll('[data-sim="candle"]').length;
+      document.querySelector('[data-testid="projection-play"]').click();
+      const out = [];
+      const t0 = performance.now();
+      const id = setInterval(() => {
+        const n = count();
+        out.push([Math.round(performance.now() - t0), n]);
+        if (n >= 24 || performance.now() - t0 > 24 * 250 + 1000) { clearInterval(id); ok(out); }
+      }, 100);
+    }));
+    const counts = samples.map((s) => s[1]);
+    const incs = [];
+    for (let i = 1; i < samples.length; i++) if (samples[i][1] > samples[i - 1][1]) incs.push(samples[i][0]);
+    const gaps = incs.slice(1).map((t, i) => t - incs[i]);
+    const rising = counts.every((n, i) => i === 0 || n >= counts[i - 1]);
+    await p.waitForTimeout(150);
+    const labelEnd = await play.textContent();
+    // Replay restarts from 0; Pause mid-way holds the count for 600 ms; Play resumes from it.
+    await play.click();
+    await p.waitForFunction(() => document.querySelectorAll('[data-sim="candle"]').length >= 6, null, { timeout: 10000 }).catch(() => null);
+    const labelPlaying = await play.textContent();
+    await play.click();
+    const held0 = await chart.locator('[data-sim="candle"]').count();
+    const labelPaused = await play.textContent();
+    await p.waitForTimeout(600);
+    const held1 = await chart.locator('[data-sim="candle"]').count();
+    await play.click();
+    await p.waitForTimeout(400);
+    const resumed = await chart.locator('[data-sim="candle"]').count();
+    await p.waitForFunction(() => document.querySelectorAll('[data-sim="candle"]').length === 24, null, { timeout: 15000 }).catch(() => null);
+    await p.waitForTimeout(300);
+    const labelEnd2 = await play.textContent();
+    const longTasks = await p.evaluate(() => window.__lt);
+    // Reduced motion: Play shows all 24 at once.
+    const c2 = await newContext(browser, { reducedMotion: "reduce" });
+    await mockExchanges(c2);
+    const p2 = await c2.newPage();
+    await p2.goto(BASE, { waitUntil: "domcontentloaded" });
+    await completeFirstRun(p2);
+    await waitRows(p2);
+    await p2.getByRole("button", { name: /^BTC/ }).first().click();
+    await p2.getByTestId("price-chart").waitFor({ timeout: 15000 });
+    await p2.getByTestId("scenarios-toggle").click();
+    await p2.getByTestId("scenarios-table").waitFor({ timeout: 30000 }).catch(() => null);
+    await p2.getByTestId("scenarios-h").getByRole("radio", { name: "24 bars" }).click();
+    await p2.locator('[data-testid="scenarios-table"][data-h="24"]').waitFor({ timeout: 30000 }).catch(() => null);
+    await p2.getByTestId("scenarios-show").click();
+    await p2.getByTestId("projection-play").waitFor({ timeout: 15000 }).catch(() => null);
+    const reduced = await p2.evaluate(() => new Promise((ok) => {
+      const count = () => document.querySelectorAll('[data-sim="candle"]').length;
+      document.querySelector('[data-testid="projection-play"]').click();
+      const out = [];
+      const id = setInterval(() => { out.push(count()); if (out.length >= 8) { clearInterval(id); ok(out); } }, 100);
+    }));
+    const reducedLabel = await p2.getByTestId("projection-play").textContent().catch(() => null);
+    await c2.close();
+    const sc4 = { labelAtRest, first: counts[0], last: counts[counts.length - 1], tEnd: samples[samples.length - 1]?.[0], rising, minGap: Math.min(...gaps), n: samples.length, labelEnd, labelPlaying, labelPaused, held: [held0, held1], resumed, labelEnd2, longTasks, reduced, reducedLabel };
+    record("SC-4", "Play draws the 24 simulated candles one at a time (~250 ms each, never backwards), Pause holds the count, Play resumes and Replay shows at the end; no long task ≥ 200 ms; reduced motion shows all 24 at once",
+      labelAtRest === "▶ Play" && counts[0] === 0 && sc4.last === 24 && sc4.tEnd <= 24 * 250 + 1000 && rising && gaps.length > 0 && sc4.minGap >= 150
+        && labelEnd === "Replay" && labelPlaying === "Pause" && labelPaused === "▶ Play" && held0 > 0 && held0 < 24 && held1 === held0 && resumed > held0 && labelEnd2 === "Replay"
+        && Array.isArray(longTasks) && longTasks.every((d) => d < 200) && reduced.every((n) => n === 24) && reducedLabel === "Replay",
+      sc4);
+
+    // SC-5 — fullscreen, zoomed out (bucketed simulated candles) and Heikin-Ashi; everything off gives the default SVG back.
+    await svg.focus();
+    await p.keyboard.press("f");
+    await p.waitForTimeout(500);
+    const fsMode = await chart.getAttribute("data-fullscreen");
+    const fsLabel = await chart.locator('[data-sim="label"]').isVisible().catch(() => false);
+    await p.keyboard.press("Escape");
+    await p.waitForTimeout(400);
+    const zoomOut = chart.getByRole("button", { name: "Zoom out" });
+    let readout = "";
+    for (let i = 0; i < 8 && !/bars per candle/.test(readout); i++) {
+      if (await zoomOut.isDisabled()) break;
+      await zoomOut.click();
+      await p.waitForTimeout(150);
+      readout = (await chart.getByTestId("chart-readout").textContent().catch(() => "")) ?? "";
+    }
+    const bucketed = await chart.locator('[data-sim="candle"]').count();
+    await chart.getByRole("button", { name: "Indicators", exact: true }).click();
+    const ha = chart.getByRole("checkbox", { name: "Heikin-Ashi (display only)", exact: true });
+    await ha.check();
+    await p.waitForTimeout(300);
+    const haOn = {
+      sim: await chart.locator('[data-sim="candles"][data-ha="1"]').count(),
+      real: await chart.locator('[data-testid="price-candles"][data-ha="1"]').count(),
+      readout: /HA O/.test((await chart.getByTestId("chart-readout").textContent().catch(() => "")) ?? ""),
+    };
+    await ha.uncheck();
+    await chart.getByRole("button", { name: "Indicators", exact: true }).click();
+    await show.click();
+    await chart.getByRole("button", { name: "Reset view" }).click();
+    await chart.locator("[data-sim]").first().waitFor({ state: "detached", timeout: 10000 }).catch(() => null);
+    await p.mouse.move(1, 1);
+    await p.waitForTimeout(300);
+    // Full screen re-applies the svg's inline style, which only changes the serialised order of its declarations:
+    // both captures are compared with each style attribute's declarations sorted (everything else byte for byte).
+    const canon = (e) => { const c = e.cloneNode(true); for (const el of [c, ...c.querySelectorAll("[style]")]) { const st = el.getAttribute("style"); if (st !== null) el.setAttribute("style", st.split(";").map((d) => d.trim()).filter(Boolean).sort().join("; ")); } return c.outerHTML; };
+    await p.evaluate(`window.__scCanon = ${canon}`);
+    const svgBack = await svg.evaluate((e) => window.__scCanon(e));
+    const svgRestCanon = await p.evaluate((html) => { const d = document.createElement("div"); d.innerHTML = html; return window.__scCanon(d.firstElementChild); }, svgAtRest);
+    record("SC-5", "Projection with full screen (SIMULATED label visible), zoomed out to bucketed candles (1–24 drawn) and Heikin-Ashi (simulated and real candles, readout shows HA O); turning everything off gives the default SVG back",
+      fsMode !== "off" && fsLabel && /bars per candle/.test(readout) && bucketed >= 1 && bucketed <= 24 && haOn.sim === 1 && haOn.real === 1 && haOn.readout && svgBack === svgRestCanon,
+      { fsMode, fsLabel, readout: readout.slice(0, 60), bucketed, haOn, back: svgBack === svgRestCanon, len: [svgRestCanon.length, svgBack.length] });
+    await c.close();
   }
 
   /* ===== v2.8 WP27: smooth loading — progressive rows; layout at rest unchanged ===== */

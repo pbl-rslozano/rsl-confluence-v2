@@ -14,7 +14,7 @@ import { OPTIN_IDS } from "@/lib/chart-optin-store";
 import { useMediaQuery } from "@/lib/use-media-query";
 import {
   type ChartProjection, type PlayAction, type PlayState, SC_PLAY_MS,
-  bandsAtSlots, bucketBars, bucketForward, heikinAshi, playLabel, playReducer, plotFrac, plotSpan, projectionSlots,
+  bandsAtSlots, bucketBars, bucketForward, heikinAshi, initialTab, playLabel, playReducer, plotFrac, plotSpan, projectionSlots,
 } from "@/lib/chart-geometry";
 import type { Scenario } from "@/lib/scenarios";
 import { disagreement, ribbonStyle } from "@/lib/fund-trend";
@@ -71,7 +71,10 @@ interface Props {
   fundRankLabel?: string;
   /** v2.8 (WP21): index range [from, to) of the candles in view, reported while the panel is on (the page scores those bars). */
   onPanelRange?: (from: number, to: number) => void;
-  /** v2.8 (WP22): simulated scenarios drawn after the newest bar. Display only; drawn while the view includes the newest bar. */
+  /**
+   * v2.8 (WP22): simulated scenarios drawn after the newest bar. Display only; drawn while the view includes the newest bar.
+   * The caller must memoise this object: a new object (same content or not) resets the tab and the Play state.
+   */
   projection?: ChartProjection;
 }
 
@@ -641,7 +644,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
     );
   }, [model, priceH, t]);
 
-  const activeTab: Scenario | null = projection ? (tab ?? projection.initial) : null;
+  const activeTab: Scenario | null = projection ? (tab ?? initialTab(projection)) : null;
   const simCandles = useMemo(() => {
     if (!model || !model.sim) return null;
     const path = model.sim.paths.find((p) => p.id === activeTab);

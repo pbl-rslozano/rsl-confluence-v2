@@ -110,3 +110,10 @@ export interface ChartProjection {
   paths: { id: Scenario; label: string; candles: Ohlc[] }[];
   initial: Scenario;
 }
+
+/** The tab shown first: `initial`, or the first path with candles when `initial`'s path is empty (else `initial`). */
+export function initialTab(p: ChartProjection): Scenario {
+  const named = p.paths.find((x) => x.id === p.initial);
+  if (named && named.candles.length > 0) return p.initial;
+  return p.paths.find((x) => x.candles.length > 0)?.id ?? p.initial;
+}

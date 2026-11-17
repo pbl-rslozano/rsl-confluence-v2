@@ -15,6 +15,8 @@ import {
 } from "./scenarios.ts";
 import { FT_MAX_STALE_MS } from "./fund-trend.ts";
 import { applyFundTrend } from "./scan-record.ts";
+import { buildReport, ftSign } from "./ledger-metrics.ts";
+import { handleWorkerRequest } from "./report-handlers.ts";
 
 let passed = 0;
 let failed = 0;
@@ -429,6 +431,50 @@ test("scenarioFields rounds and orders", () => {
 test("scenarioFields below 300 bars -> nulls", () => {
   const ctx = { pair: "BTCUSDT", tf: "1h", intervalMs: H };
   assert.deepEqual(scenarioFields(series(299), flatFt(299, 20), ctx), { scb: null, scp: null });
+});
+
+
+// ---- Task 5: report-worker handler (Review Focus 1) ----
+test("the worker handler returns what the main thread computes", () => {
+  const { daily, bars } = ftFixture(800, 1);
+  const req = { pair: "BTCUSDT", tf: "1h", intervalMs: H, bars, daily, horizon: 6 };
+  const out = handleWorkerRequest({ kind: "scenarios", id: 7, req: structuredClone(req) });
+  assert.equal(out.id, 7);
+  assert.equal(out.error, undefined);
+  assert.ok(out.scenarios && !("na" in out.scenarios));
+  assert.deepEqual(out.scenarios, runScenarios(req));
+  const short = handleWorkerRequest({ kind: "scenarios", id: 8, req: { ...req, bars: bars.slice(0, 299) } });
+  assert.deepEqual(short, { id: 8, scenarios: { na: "history" } });
+});
+
+test("a report message without kind still builds the report", () => {
+  const t0 = Date.UTC(2025, 0, 1);
+  const rows = []; const outs = [];
+  for (let i = 0; i < 30; i++) {
+    const m = i % 3 === 0 ? 1 : 0;
+    const r = { id: String(i), cfg: "x", ev: "1", app: "t", src: "binance", tf: "1h", pair: `P${i % 5}USDT`, ac: "crypto", t: t0 + Math.floor(i / 5) * H, tc: 0, rec: 0, c: 1, sc: m ? 60 : 0, m, st: m ? 1 : 0, sup: 0, lv: 0, v: 18, bu: 0, be: 0, er: 0.2, bl: [0, 0, 0, 0], rk: 0, qv: 0, rd: 0, rc: 0, wb: 1000, live: 1 };
+    rows.push(r);
+    outs.push({ row: r, horizon: 1, gross: m ? 0.01 : -0.002, net: m ? 0.007 : -0.002, mfe: 0, mae: 0, fundingLong: 0 });
+  }
+  const msg = { id: 3, rows, outcomes: [[1, outs]], costBps: 30, trials: 1, intervalMs: H, momentum: [["0", 1]] };
+  const out = handleWorkerRequest(structuredClone(msg));
+  const mom = new Map(msg.momentum);
+  const want = buildReport(rows, new Map(msg.outcomes), 30, 1, H, { momentumOf: (r) => mom.get(r.id) ?? 0, fundTrendOf: ftSign });
+  assert.equal(out.id, 3);
+  assert.equal(out.error, undefined);
+  assert.deepEqual(out.report, want);
+});
+
+test("a throwing request becomes an error, never a throw", () => {
+  const req = { pair: "BTCUSDT", tf: "1h", intervalMs: H, bars: null, daily: null, horizon: 6 };
+  let out;
+  assert.doesNotThrow(() => { out = handleWorkerRequest({ kind: "scenarios", id: 9, req }); });
+  assert.equal(out.id, 9);
+  assert.equal(typeof out.error, "string");
+  assert.equal(out.scenarios, undefined);
+  const bad = handleWorkerRequest({ id: 10, rows: null, outcomes: null, costBps: 0, trials: 1, intervalMs: H, momentum: null });
+  assert.equal(bad.id, 10);
+  assert.equal(typeof bad.error, "string");
 });
 
 console.log(`\nscenarios: ${passed} passed, ${failed} failed`);

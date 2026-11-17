@@ -120,6 +120,8 @@ import { DerivativesPanel } from "@/components/derivatives-panel";
 import type { DerivativeSnapshot } from "@/lib/derivatives-context";
 import { ChartReplay } from "@/components/chart-replay";
 import { PriceChart } from "@/components/price-chart";
+import { ScenarioSection } from "@/components/scenario-panel";
+import type { ChartProjection } from "@/lib/chart-geometry";
 import { exchangeUrl } from "@/lib/exchange-links";
 import { BEST, baseOf as pairBase, normalizeQuoteMode, quoteModesFor, stableQuote, type DepegReading, type PriceCurrency } from "@/lib/quotes";
 import { autoCurrency, BANDS, cachedCurrencies, cachedTable, canConvert, convert, impliedUsdtPremiumPct, isStale, loadCurrencies, PEGS, priceDisplay, rateKind, refreshRates, usdtDeviationPct, type FiatCurrency, type FxTable } from "@/lib/fx-rates";
@@ -603,6 +605,8 @@ export default function Home() {
   const [ledgerOpen, setLedgerOpen] = useState(false);
   const [paperOpen, setPaperOpen] = useState(false);
   const [chartReplay, setChartReplay] = useState(false);
+  /** v2.8 (WP22): the Scenarios section's simulated paths on the chart (memoised by the section; null = not shown). */
+  const [projection, setProjection] = useState<ChartProjection | null>(null);
   const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
   // v2.5 (restores build 20261101): "Expand list" hides the control header and informational
   // notes so the asset table gets the screen (mainly for phones). Alerts and the footer stay.
@@ -2308,7 +2312,7 @@ export default function Home() {
       <RadarHost port={rsl.port} depeg={scanMeta.depeg} depegSource={scanMeta.source} depegAt={scanMeta.depegAt} recordRadar={recordRadar} providerLink={providerLink} />
 
       {/* ---------- Detail modal ---------- */}
-      <Dialog open={!!detailAsset} onOpenChange={(o) => { if (!o) { setChartReplay(false); setDetailAsset(null); } }}>
+      <Dialog open={!!detailAsset} onOpenChange={(o) => { if (!o) { setChartReplay(false); setDetailAsset(null); setProjection(null); } }}>
         <DialogContent
           className="w-[min(100vw-1.5rem,56rem)] max-w-[min(100vw-1.5rem,56rem)] max-h-[92dvh] overflow-y-auto overflow-x-hidden border-zinc-800 bg-zinc-900 p-4 text-zinc-100 sm:p-5"
         >
@@ -2402,6 +2406,7 @@ export default function Home() {
                   panelNote={panelNote}
                   fundRankLabel={detailFundRank}
                   onPanelRange={onPanelRange}
+                  projection={projection ?? undefined}
                 />
               ) : (
                 <div className="flex h-32 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950/50 text-sm text-zinc-500">
@@ -2414,6 +2419,7 @@ export default function Home() {
               <ReversalPanel r={detailAsset.reversal} />
 
               <PatternPanel pattern={detailAsset.pattern} />
+              <ScenarioSection asset={detailAsset} formatPrice={showPrice} onProjection={setProjection} />
 
               <BlocPanel c={detailAsset.confluence} />
               {detailAsset.context && <ContextPanel x={detailAsset.context} />}

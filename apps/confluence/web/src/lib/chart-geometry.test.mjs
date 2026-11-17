@@ -2,7 +2,7 @@
 // Run: node --experimental-strip-types --no-warnings --test src/lib/chart-geometry.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bucketBars, bucketForward, heikinAshi, projectionSlots, bandsAtSlots, playReducer, playLabel, plotSpan, plotFrac, SC_PLAY_MS } from "./chart-geometry.ts";
+import { bucketBars, bucketForward, heikinAshi, projectionSlots, bandsAtSlots, playReducer, playLabel, plotSpan, plotFrac, initialTab, SC_PLAY_MS } from "./chart-geometry.ts";
 
 function bars(n) {
   const out = [];
@@ -125,4 +125,13 @@ test("plotSpan / plotFrac: pointer maths with a projection", () => {
   assert.equal(plotFrac(-4, span), 0);
   // No projection: unchanged.
   assert.equal(plotFrac(344, plotSpan(chartW, chartW / bars, bars, false)), 0.5);
+});
+
+test("initialTab: the named scenario, or the first with candles when its path is empty", () => {
+  const c = [{ open: 1, high: 2, low: 0.5, close: 1.5 }];
+  const proj = (initial, lens) => ({ horizon: 1, bands: [], initial, paths: ["continue", "pause", "reverse"].map((id, i) => ({ id, label: id, candles: lens[i] ? c : [] })) });
+  assert.equal(initialTab(proj("pause", [1, 1, 1])), "pause");
+  assert.equal(initialTab(proj("continue", [0, 0, 1])), "reverse");
+  assert.equal(initialTab(proj("reverse", [0, 1, 0])), "pause");
+  assert.equal(initialTab(proj("pause", [0, 0, 0])), "pause"); // nothing drawable: keep the named tab
 });
