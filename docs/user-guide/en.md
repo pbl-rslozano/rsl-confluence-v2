@@ -278,9 +278,9 @@ The chart toolbar has **+** (zoom in), **−** (zoom out), **Reset**, **Full scr
 A falling market is harder to read than a rising one for many people, and traders check a chart's symmetry by flipping it. **Reflect view** mirrors the price pane vertically: the price axis runs high to low, so a fall is drawn as a rise. It is display only.
 - Turn it on with **Reflect view (mirror the price axis)** in **Indicators** (off by default), or press **I** while the chart has focus. The state is remembered per device; **Reset to defaults** in the same menu turns it off.
 - A **Reflected** badge sits on the price pane, also in full screen and in screenshots, so a mirrored chart is never mistaken for a normal one.
-- Axis labels and the readout still show real prices. Every layer of the price pane (candles, averages, Bollinger bands, VWAP, levels, gaps, the Fund trend ribbon, the scenario fan) uses the same mirrored axis.
+- Axis labels and the readout still show real prices. Every layer of the price pane (candles, averages, Bollinger bands, VWAP, levels, gaps, the scenario fan) uses the same mirrored axis.
 - Candles keep their **real colours and real prices**: a rising candle is still green. The crosshair stays on the hovered candle's close and the readout keeps the real open, high, low and close.
-- **MACD and volume are not flipped.** The **Fund trend panel is flipped** together with price.
+- **MACD and volume are not flipped.** The **Fund trend ribbon** stays at the bottom of the price pane and is not flipped, and neither are the disagreement marks. The **Fund trend panel is flipped** together with price.
 - Turning it off restores the normal drawing exactly. It never reaches a score, an alert, the paper rules or the Radar.
 
 ![Analysis sections: trend and reversal, historical pattern, bloc scores and context.](images/detail-analysis.webp)
