@@ -153,7 +153,10 @@ export const BACKUP_SIGN_IN_URLS = Object.freeze([
   "https://my.pcloud.com/oauth2/authorize*",
 ] as const);
 
-/** pCloud serves one account from one of two API hosts (US, EU); the app asks the user which. */
+/**
+ * pCloud serves one account from one of two API hosts (US, EU). The host is not chosen by the user: it comes from the
+ * sign-in response (the `hostname` field of the return), and only these two values are accepted.
+ */
 export const PCLOUD_API_HOSTS = Object.freeze(["api.pcloud.com", "eapi.pcloud.com"] as const);
 
 /**

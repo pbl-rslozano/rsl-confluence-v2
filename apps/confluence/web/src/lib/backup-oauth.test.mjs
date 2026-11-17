@@ -13,7 +13,7 @@ import {
   readBackupConfig, BUILD_BACKUP_CONFIG, availability, PROVIDER_NAMES, HOSTED_ORIGIN, WEB_REDIRECT, LOOPBACK_PORT,
   LOOPBACK_REDIRECT, APP_LINK_PATH, APP_LINK_REDIRECT,
 } from "./backup-providers.ts";
-import { webBackupHttp, backupHttp, setBackupNativeRequest, setShellOAuth, shellOAuth } from "./backup-http.ts";
+import { webBackupHttp, webBackupHttpWith, backupHttp, setBackupNativeRequest, setShellOAuth, shellOAuth, BACKUP_HEADERS_TIMEOUT_MS, BACKUP_MIN_BYTES_PER_SEC } from "./backup-http.ts";
 import { getSession, setSession, clearSession, clearAllSessions } from "./backup-session.ts";
 import {
   createPkce, randomState, authUrl, parseCallback, exchangeCode, beginWebSignIn, consumeWebCallback, completeWebSignIn,
@@ -818,7 +818,7 @@ test("webBackupHttp: no credentials, no redirects, lower-cased headers, refuses 
       assert.deepEqual(r, { status: 200, headers: { "content-type": "text/plain", "x-fake": "1" }, text: "hello" });
       const init = calls[0].init;
       assert.equal(init.credentials, "omit");
-      assert.equal(init.redirect, "error");
+      assert.equal(init.redirect, "manual", "a redirect is never followed (it is answered as a refusal, see M-3)");
       assert.equal(init.cache, "no-store");
       assert.equal(init.referrerPolicy, "no-referrer");
       assert.equal(init.method, "PUT");
@@ -1036,4 +1036,65 @@ test("the desktop adapter's relayed pCloud result is accepted by the web core pa
   const back = await oauth.authorize("https://my.pcloud.com/oauth2/authorize?client_id=x", { redirectUri: LOOPBACK_REDIRECT, relayFragment: true, timeoutMs: 1000 });
   const r = parseCallback(back, { provider: "pcloud", redirectUri: LOOPBACK_REDIRECT, state: "st_1" });
   assert.deepEqual(r, { kind: "token", token: "tok_abcdefgh12345678", apiHost: "eapi.pcloud.com" });
+});
+
+/* ---- final review M-3: one deadline and one redirect code on every shell ---- */
+async function rejectErr(p, code) {
+  try { await p; } catch (e) {
+    assert.ok(e instanceof BackupError && e.code === code, `expected BackupError(${code}), got ${e?.code ?? e}`);
+    return e;
+  }
+  assert.fail(`expected BackupError(${code})`);
+}
+test("M-3 a redirect is the same error on every shell: http with code 3xx, never followed", async () => {
+  for (const make of [
+    () => ({ type: "opaqueredirect", status: 0, headers: new Headers(), text: async () => "" }),
+    () => new Response(null, { status: 302, headers: { location: "https://evil.example/x" } }),
+    () => new Response(null, { status: 308 }),
+  ]) {
+    await withFetch(make, async (calls) => {
+      const e = await rejectErr(webBackupHttp({ method: "GET", url: GOOD_URL }), "http");
+      assert.equal(e.detail.status, "3xx");
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].init.redirect, "manual");
+    });
+  }
+  try {
+    for (const status of [301, 302, 303, 307, 308]) {
+      setBackupNativeRequest(async () => ({ status, headers: { location: "https://evil.example/x" }, text: "" }));
+      const e = await rejectErr(backupHttp()({ method: "GET", url: GOOD_URL }), "http");
+      assert.equal(e.detail.status, "3xx", `native ${status}`);
+    }
+  } finally {
+    setBackupNativeRequest(null);
+  }
+});
+
+test("M-3 the web path has the native deadline: 15 s to the headers (plus the upload at the minimum rate), then a body deadline by size", async () => {
+  const native = ["tauri", "capacitor"].map((shell) => readFileSync(join(process.cwd(), "..", "..", "..", "packages", "adapters", shell, "native-request.js"), "utf8"));
+  for (const src of native) assert.match(src, /connectTimeout: 15000/);
+  assert.equal(BACKUP_HEADERS_TIMEOUT_MS, 15000);
+  assert.equal(BACKUP_MIN_BYTES_PER_SEC, 64 * 1024);
+  const fast = webBackupHttpWith({ headersMs: 40, bytesPerSecond: 1000 });
+  const later = (ms, v, signal) => new Promise((resolve, reject) => {
+    const id = setTimeout(() => resolve(v), ms);
+    signal?.addEventListener("abort", () => { clearTimeout(id); reject(new DOMException("aborted", "AbortError")); }, { once: true });
+  });
+  // no headers at all: timeout
+  await withFetch((_u, init) => later(10_000, null, init.signal), async () => { await rejectsCode(fast({ method: "GET", url: GOOD_URL }), "timeout"); });
+  // an upload gets its size on top: 40 ms + 100 bytes at 1,000 B/s = 140 ms; headers at 90 ms are in time
+  const ok = (ms, cl, textMs, signal) => later(ms, { status: 200, headers: new Headers(cl === null ? {} : { "content-length": String(cl) }), text: () => later(textMs, "body", signal) }, signal);
+  await withFetch((_u, init) => ok(90, 4, 0, init.signal), async () => {
+    assert.equal((await fast({ method: "PUT", url: GOOD_URL, body: "x".repeat(100) })).text, "body");
+  });
+  await withFetch((_u, init) => ok(90, 4, 0, init.signal), async () => { await rejectsCode(fast({ method: "GET", url: GOOD_URL }), "timeout"); });
+  // the body: 40 ms + 50 bytes at 1,000 B/s = 90 ms; a body that takes 300 ms times out
+  await withFetch((_u, init) => ok(0, 50, 300, init.signal), async () => { await rejectsCode(fast({ method: "GET", url: GOOD_URL }), "timeout"); });
+  await withFetch((_u, init) => ok(0, 50, 20, init.signal), async () => { assert.equal((await fast({ method: "GET", url: GOOD_URL })).text, "body"); });
+  // no Content-Length: the body may take as long as a 20 MB file would
+  await withFetch((_u, init) => ok(0, null, 300, init.signal), async () => { assert.equal((await fast({ method: "GET", url: GOOD_URL })).text, "body"); });
+  // the caller's own abort is still "cancelled"
+  const ctl = new AbortController();
+  setTimeout(() => ctl.abort(), 10);
+  await withFetch((_u, init) => later(10_000, null, init.signal), async () => { await rejectsCode(fast({ method: "GET", url: GOOD_URL, signal: ctl.signal }), "cancelled"); });
 });

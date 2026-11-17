@@ -147,15 +147,31 @@ async function readBytes(request, limit) {
 }
 
 /**
- * Answers before the body has been read, then discards (never buffers) up to REFUSE_DRAIN_BYTES of what the client is
- * still sending, so it receives this answer and not a connection reset (a 20 MB upload whose socket is closed half
- * way often reports "fetch failed"; that includes `Connection: close`, which Node honours by closing at once). A
- * client that sends more than the budget is cut off.
+ * Refuses a request whose body has not been read. The body is discarded (never buffered) up to REFUSE_DRAIN_BYTES and
+ * the answer is sent once it has all arrived, so the client receives this answer and not a connection reset: Node closes
+ * a `Connection: close` socket as soon as the answer is sent, and a 20 MB upload still being written then fails with
+ * EPIPE / "fetch failed" (final review M-8). A request without a body is answered at once. A client that sends more
+ * than the budget is answered and cut off.
  */
 function refuseUnread(request, response, status, payload, origin) {
-  sendJson(response, status, payload, origin);
+  const declared = Number(request.headers["content-length"]);
+  const hasBody = (Number.isFinite(declared) && declared > 0) || request.headers["transfer-encoding"] !== undefined;
+  if (!hasBody || request.readableEnded) {
+    sendJson(response, status, payload, origin);
+    return;
+  }
   let drained = 0;
-  request.on("data", (chunk) => { drained += chunk.length; if (drained >= REFUSE_DRAIN_BYTES) request.destroy(); });
+  let answered = false;
+  const answer = () => {
+    if (answered) return;
+    answered = true;
+    sendJson(response, status, payload, origin);
+  };
+  request.on("data", (chunk) => {
+    drained += chunk.length;
+    if (drained >= REFUSE_DRAIN_BYTES) { answer(); request.destroy(); }
+  });
+  request.on("end", answer);
   request.on("error", () => {});
 }
 
@@ -275,12 +291,14 @@ function validateCredentials(value) {
 const server = createServer(async (request, response) => {
   const origin = request.headers.origin || "";
 
+  // Final review M-8: these refusals come before any body is read, so they drain it (bounded) like the /backup/upload
+  // refusals; a client in the middle of a 20 MB upload then sees the 401/403 and not a reset.
   if (!allowedHost(request.headers.host)) {
-    sendJson(response, 403, { error: "Invalid Host header." }, origin);
+    refuseUnread(request, response, 403, { error: "Invalid Host header." }, origin);
     return;
   }
   if (!allowedOrigin(origin)) {
-    sendJson(response, 403, { error: "Origin is not allowed by the local gateway." }, origin);
+    refuseUnread(request, response, 403, { error: "Origin is not allowed by the local gateway." }, origin);
     return;
   }
   if (request.method === "OPTIONS") {
@@ -289,7 +307,7 @@ const server = createServer(async (request, response) => {
     return;
   }
   if (!tokenMatches(request.headers.authorization)) {
-    sendJson(response, 401, { error: "Missing or invalid gateway token. Copy it from the gateway console." }, origin);
+    refuseUnread(request, response, 401, { error: "Missing or invalid gateway token. Copy it from the gateway console." }, origin);
     return;
   }
 

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const PORT = 18787 + Math.floor(Math.random() * 500);
@@ -201,6 +201,51 @@ test("backup routes end to end against a fake S3 (no network): connect, upload, 
     }, "", ["--import", pathToFileURL(preload).href]);
   } finally {
     delete process.env.FAKE_OTHER_BUCKETS;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Final review M-8: an upload refused before its body is read (token, Host, Origin, and the /backup/upload refusals) gets
+// its answer, not a reset.
+test("M-8 a 20 MB upload refused for its token, Origin, Host or profile receives its answer, not a connection reset", async () => {
+  // The client runs in its own process (inside this test process the race does not show): 20 MB POSTs written in one go
+  // with `Connection: close`, where Node closes the socket as soon as the answer is sent and a body still arriving is reset.
+  const dir = mkdtempSync(join(tmpdir(), "confluence-gateway-m8-"));
+  const client = join(dir, "client.mjs");
+  writeFileSync(client, `
+    import { request } from "node:http";
+    const [port, token, name] = process.argv.slice(2);
+    const body = Buffer.alloc(20 * 1024 * 1024, 0x61);
+    const post = (headers) => new Promise((resolve) => {
+      const req = request({ host: "127.0.0.1", port: Number(port), method: "POST", path: "/backup/upload?profile=none&name=" + name, headers: { "content-length": body.length, ...headers } }, (res) => { res.resume(); res.on("end", () => resolve(res.statusCode)); });
+      req.on("error", (e) => resolve("reset:" + e.code));
+      req.end(body);
+    });
+    const origin = "http://127.0.0.1:8770";
+    const cases = {
+      token: { origin, authorization: "Bearer wrong-token" },
+      origin: { origin: "https://evil.example", authorization: "Bearer " + token },
+      host: { host: "evil.example:8787", origin, authorization: "Bearer " + token },
+      profile: { origin, authorization: "Bearer " + token },
+    };
+    const out = {};
+    for (const close of [true, false]) for (let round = 0; round < 6; round++) for (const [k, h] of Object.entries(cases)) {
+      const key = k + (close ? " close " : " keep-alive ") + (await post(close ? { ...h, connection: "close" } : h));
+      out[key] = (out[key] ?? 0) + 1;
+    }
+    console.log(JSON.stringify(out));
+  `);
+  try {
+    await withServer(async () => {
+      const r = spawnSync(process.execPath, [client, String(PORT), TOKEN, NAME], { encoding: "utf8", timeout: 120_000 });
+      const seen = JSON.parse(r.stdout.trim().split("\n").pop());
+      const want = {};
+      for (const [k, status] of [["token", 401], ["origin", 403], ["host", 403], ["profile", 409]]) for (const c of ["close", "keep-alive"]) want[`${k} ${c} ${status}`] = 6;
+      assert.deepEqual(seen, want);
+      const viaFetch = await fetch(`http://127.0.0.1:${PORT}/backup/upload?profile=none&name=${NAME}`, { method: "POST", headers: { ...authHeaders, Authorization: "Bearer wrong-token" }, body: Buffer.alloc(MB20, 0x61) }).then((x) => x.status, () => "reset");
+      assert.equal(viaFetch, 401);
+    });
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });

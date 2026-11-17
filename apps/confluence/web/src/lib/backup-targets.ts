@@ -235,7 +235,9 @@ export function onedriveTarget(s: ProviderSession, http: BackupHttp, deps: { dow
     async list(signal) {
       const res = await send(c, {
         method: "GET",
-        url: GRAPH + "/me/drive/special/approot/children?$select=id,name,size,lastModifiedDateTime&$top=200",
+        // Final review M-7: newest first on Graph's side ("$orderby" is supported for listing children), so the newest
+        // backup is always on the first page even with more than 200 files; the client sorts again (newestFirst).
+        url: GRAPH + "/me/drive/special/approot/children?$select=id,name,size,lastModifiedDateTime&$orderby=lastModifiedDateTime%20desc&$top=200",
         headers: authHeaders(c),
         signal,
       });

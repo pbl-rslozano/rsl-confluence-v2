@@ -473,3 +473,28 @@ test("an empty token is a session error and sends nothing", async () => {
   await assert.rejects(gdriveTarget({ token: "", expiresAt: null }, f.http).list(), (e) => e.code === "session");
   assert.equal(f.reqs.length, 0);
 });
+
+/* ---- final review M-7: the OneDrive listing never hides the newest backup ---- */
+test("M-7 the OneDrive listing asks Graph for the newest first, so 250 old backups never hide the newest", async () => {
+  const all = Array.from({ length: 250 }, (_, i) => {
+    const at = new Date(Date.UTC(2026, 9, 1) + i * 3_600_000);
+    const iso = at.toISOString();
+    const name = `confluence-backup-${iso.slice(0, 4)}${iso.slice(5, 7)}${iso.slice(8, 10)}T${iso.slice(11, 13)}${iso.slice(14, 16)}${iso.slice(17, 19)}Z.json`;
+    return { id: `OD${i}!${100 + i}`, name, size: 1000, lastModifiedDateTime: iso };
+  });
+  const reqs = [];
+  const http = async (r) => {
+    reqs.push(r);
+    const u = new URL(r.url);
+    const top = Number(u.searchParams.get("$top") ?? 200);
+    // Graph returns one page of `top`; without an order the page is the oldest items (insertion order here).
+    const ordered = u.searchParams.get("$orderby") === "lastModifiedDateTime desc" ? [...all].reverse() : all;
+    return json(200, { value: ordered.slice(0, top), "@odata.nextLink": "https://graph.microsoft.com/v1.0/next" });
+  };
+  const list = await onedriveTarget(sess(), http).list();
+  assert.equal(list[0].name, all.at(-1).name, "the newest backup is listed first");
+  assert.ok(list.every((f, i) => i === 0 || list[i - 1].modifiedAt >= f.modifiedAt));
+  assert.equal(reqs.length, 1);
+  assert.ok(isAllowedBackupUrl(reqs[0].url));
+  assert.match(reqs[0].url, /[?&]\$orderby=lastModifiedDateTime%20desc(&|$)/);
+});
