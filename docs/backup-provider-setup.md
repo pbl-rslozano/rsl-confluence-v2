@@ -22,6 +22,8 @@ The web and phone apps show "Desktop app only" for Google Drive (ADR-0019), so o
 1. In the Google Cloud console, create a project.
 2. Enable the Google Drive API for it.
 3. Configure the OAuth consent screen. Add the one scope `https://www.googleapis.com/auth/drive.appdata` and no other.
+   An External app in Testing status lets only listed test users sign in, so add your own Google account as a test user.
+   Otherwise the first sign-in is blocked, which looks like the refusal in step 6 but is not.
 4. Create an OAuth client ID of type **Desktop app**. It accepts any loopback port, so `http://127.0.0.1:48787/callback`
    needs no separate entry.
 5. Copy the client ID into `RSL_BACKUP_GDRIVE_CLIENT_ID` (section 5).
@@ -29,23 +31,32 @@ The web and phone apps show "Desktop app only" for Google Drive (ADR-0019), so o
    without one: developer forum reports say so, while Google's documentation treats the desktop secret as
    non-confidential. After registering, try one Google sign-in in the desktop app.
    - It works: nothing more to do.
-   - Google refuses (`invalid_request` or `invalid_client` at the token step): Google Drive stays unavailable. Ask the
-     developer whether to allow Google's desktop "client secret" as a public build variable. That needs a spec
-     exception, because the build currently carries no secret.
+   - Google refuses (`invalid_request` or `invalid_client` at the token step): Google Drive stays unavailable. Decide
+     whether to allow Google's desktop "client secret" as a public build variable, and record a spec exception if you
+     do, because the build currently carries no secret.
 
 ## 3. Microsoft OneDrive
 
 1. Open the Entra admin centre, App registrations, New registration.
 2. Supported account types: accounts in any organisational directory and personal Microsoft accounts (the `common`
    endpoint).
-3. Authentication, add these platforms:
+3. Authentication, add these platforms in the portal:
    - **Single-page application**, redirect URI: the web URI from section 1.
-   - **Mobile and desktop applications**, redirect URIs: `http://127.0.0.1:48787/callback` and the phone URI from
-     section 1.
-4. API permissions, add the delegated Microsoft Graph permission `Files.ReadWrite.AppFolder`. Nothing else.
-5. Do not create a client secret.
-6. Copy the Application (client) ID into `RSL_BACKUP_ONEDRIVE_CLIENT_ID`.
-7. **Restore is off for OneDrive until its download host is verified and added.** That is the manual check in
+   - **Mobile and desktop applications**, redirect URI: the phone URI from section 1.
+4. Add the desktop loopback URI through the manifest. General guidance from Microsoft's documentation (not read from this
+   repo): the portal's Redirect URIs box cannot add an `http` loopback URI that uses `127.0.0.1`; it has to be added by
+   editing `replyUrlsWithType` in the app manifest. Microsoft documents the "port is ignored" rule only for `localhost`,
+   so the port is registered explicitly here. Source: Microsoft Learn, "Redirect URI (reply URL) outline and
+   restrictions", https://learn.microsoft.com/entra/identity-platform/reply-url. Open the app's Manifest page and add
+   an entry like this to `replyUrlsWithType`, keeping the entries already there:
+   ```json
+   { "url": "http://127.0.0.1:48787/callback", "type": "InstalledClient" }
+   ```
+   Save, then confirm against the current portal (section 8, item 5) that this still works.
+5. API permissions, add the delegated Microsoft Graph permission `Files.ReadWrite.AppFolder`. Nothing else.
+6. Do not create a client secret.
+7. Copy the Application (client) ID into `RSL_BACKUP_ONEDRIVE_CLIENT_ID`.
+8. **Restore is off for OneDrive until its download host is verified and added.** That is the manual check in
    section 8. Backup and listing work before then.
 
 ## 4. pCloud
@@ -69,9 +80,8 @@ The web and phone apps show "Desktop app only" for Google Drive (ADR-0019), so o
    `NEXT_PUBLIC_RSL_BACKUP_ONEDRIVE_CLIENT_ID` and `NEXT_PUBLIC_RSL_BACKUP_PCLOUD_CLIENT_ID`. You do not set those names
    in the repository.
 3. For a local build, export the `NEXT_PUBLIC_RSL_BACKUP_...` names above in your shell before `pnpm build:pwa`.
-4. An empty or malformed ID keeps that provider "Not set up yet". Check the shape against what the provider shows:
-   a Google ID ends in `.apps.googleusercontent.com`, a Microsoft ID is a GUID, a pCloud ID is letters and digits only.
-5. Example shape only (fake): `123456789012-abcdefghijklmnopqrstuvwxyz012345.apps.googleusercontent.com`.
+4. The app checks the format of each ID. A malformed ID keeps that provider "Not set up yet", so if a provider stays
+   that way after a build, re-copy the ID exactly as the provider shows it.
 
 ## 6. Phone app link (optional)
 
@@ -90,7 +100,7 @@ by default.
      The build sets that setting itself.
 4. **iOS:** the provisioning profile needs the "Associated Domains" capability ticked for the app ID in the Apple
    Developer site. Without it the signed build is rejected or the link never verifies.
-5. Confirm on each phone:
+5. Confirm on each phone (general practice, not read from this repo):
    - Both files open in a browser at `https://<hosted origin>/.well-known/...` and show your identifiers.
    - Android: install the release build, then check Settings, Apps, the app, Open by default: the hosted address is
      listed and allowed. `adb shell pm get-app-links <app id>` should show it as verified.
@@ -133,9 +143,13 @@ host or the provider, amend ADR-0003, and update the user guide.
 4. **OneDrive download origin.** OneDrive may answer a download with a redirect to a pre-authenticated file host. The
    restore message names the host it was refused at.
    - Check: run a restore and read the host in that message.
-   - On success: add that origin to `ONEDRIVE_DOWNLOAD_ORIGINS`, then to `CSP_HOSTS` and `BACKUP_NATIVE_URLS`, with an
-     ADR-0003 amendment (release check R16 verifies both lists). Until then OneDrive restore stays off.
+   - On success: this is a developer change, requested through an ADR-0003 amendment. The origin goes into
+     `ONEDRIVE_DOWNLOAD_ORIGINS`, `CSP_HOSTS` and `BACKUP_NATIVE_URLS`, and the Tauri http scope, the `_redirects` and
+     launcher rows and the egress manifest must match. The developer re-runs `node tools/release-check.mjs` until R16
+     passes. Until then OneDrive restore stays off.
 5. **Sign-in on every platform:** Windows, macOS, Linux, Android and iPhone. Sign in, back up, list and restore with a
-   throwaway test passphrase.
+   throwaway test passphrase. For OneDrive on desktop, also confirm the sign-in returns to the app on port 48787 and that
+   Entra accepted the manifest entry from section 3 step 4. If Entra rejects it or the sign-in does not return, do not
+   change the doc: this is a code or port decision for the developer.
 6. **Each provider's API terms and limits.** Read them for a personal single-user backup of a small file, and confirm
    the use is allowed.

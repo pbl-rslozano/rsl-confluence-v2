@@ -25,21 +25,24 @@ const LOOPBACK_REDIRECT = grab(providers, /export const LOOPBACK_REDIRECT = "([^
 const APP_LINK_PATH = grab(providers, /export const APP_LINK_PATH = "([^"]+)"/, "APP_LINK_PATH");
 
 test("the three redirect URIs are in the doc", () => {
-  for (const uri of [UPDATE_ORIGIN + "/", LOOPBACK_REDIRECT, UPDATE_ORIGIN + APP_LINK_PATH]) {
-    assert.ok(DOC.includes(uri), `redirect URI missing: ${uri}`);
+  const rows = DOC.split("\n").filter((l) => l.startsWith("|"));
+  for (const [where, uri] of [["Web", UPDATE_ORIGIN + "/"], ["Desktop", LOOPBACK_REDIRECT], ["Phone", UPDATE_ORIGIN + APP_LINK_PATH]]) {
+    assert.ok(rows.some((r) => r.includes(where) && r.includes("`" + uri + "`")), `redirect URI row missing: ${where} ${uri}`);
   }
+  assert.ok(DOC.includes('"url": "' + LOOPBACK_REDIRECT + '"'), "manifest example for the loopback URI missing");
 });
 
-test("every NEXT_PUBLIC_ build variable read by the code, and the repository variables, are named", () => {
+test("every build variable, and every repository variable the release workflow maps, is named", () => {
   const names = [...new Set([...providers.matchAll(/\b(NEXT_PUBLIC_RSL_[A-Z0-9_]+)/g)].map((m) => m[1]))];
   assert.ok(names.length >= 4, "expected the client-ID and app-link variables in backup-providers.ts");
-  for (const n of names) {
-    assert.ok(DOC.includes(n), `build variable missing: ${n}`);
-    assert.ok(DOC.includes(n.replace(/^NEXT_PUBLIC_/, "")), `repository variable missing: ${n.replace(/^NEXT_PUBLIC_/, "")}`);
-  }
+  for (const n of names) assert.ok(DOC.includes(n), `build variable missing: ${n}`);
+  const workflow = read(".github/workflows/release.yml");
+  const repoVars = [...new Set([...workflow.matchAll(/vars\.(RSL_[A-Z0-9_]+)/g)].map((m) => m[1]))];
+  for (const n of names) assert.ok(repoVars.includes(n.replace(/^NEXT_PUBLIC_/, "")), `release.yml does not map ${n} from a vars.* entry`);
+  for (const n of repoVars) assert.ok(DOC.includes(n), `repository variable missing: ${n}`);
   const appLink = read("tools/app-link-files.mjs");
   for (const n of [...new Set([...appLink.matchAll(/env\.(RSL_[A-Z0-9_]+)/g)].map((m) => m[1]))]) {
-    assert.ok(DOC.includes(n), `app-link variable missing: ${n}`);
+    assert.ok(repoVars.includes(n) && DOC.includes(n), `app-link variable missing: ${n}`);
   }
 });
 
@@ -50,7 +53,8 @@ test("both scopes from the auth URLs are in the doc", () => {
   assert.ok(DOC.includes(onedrive), "OneDrive scope missing");
 });
 
-test("it names the deferred download-origin list and the pCloud folder", () => {
+test("it cites the Microsoft redirect-URI page and names the deferred download-origin list and the pCloud folder", () => {
+  assert.ok(DOC.includes("learn.microsoft.com/entra/identity-platform/reply-url") && DOC.includes("replyUrlsWithType"));
   assert.ok(DOC.includes("ONEDRIVE_DOWNLOAD_ORIGINS"));
   assert.ok(read("apps/confluence/web/src/lib/public-hosts.ts").includes("ONEDRIVE_DOWNLOAD_ORIGINS"));
   const folder = decodeURIComponent(grab(read("apps/confluence/web/src/lib/backup-targets.ts"), /const FOLDER = "([^"]+)"/, "FOLDER"));
