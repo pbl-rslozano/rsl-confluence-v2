@@ -9,7 +9,8 @@
  */
 import type { LedgerRow } from "./ledger-metrics";
 import type { Kline } from "./indicators";
-import { applyFundTrend } from "./scan-record";
+import { applyFundTrend, applyScenariosAsync, snapshotDaily } from "./scan-record";
+import { yieldToMain } from "./yield-main";
 
 export const FEED_WAIT_MS = 90_000;
 
@@ -59,21 +60,51 @@ export interface LiveWriteOptions<R> {
    * data source, e.g. the hosted build) -> ft null.
    */
   dailyOf?: (symbol: string) => Kline[];
+  /** v2.8 (WP22): the closed bars of a pair (the scan's own). With `intervalMs`, each row gets scb/scp from the 1,000 bars ending at its bar. */
+  barsOf?: (pair: string) => Kline[] | undefined;
+  intervalMs?: number;
   timeoutMs?: number;
   timers?: GateTimers;
+  /** v2.8 (final review C1): the yield between chunks of scenario work (default yieldToMain; tests may pass their own). */
+  pause?: () => Promise<void>;
 }
 
-/** Non-crypto rows write at once; crypto rows wait for the feed (≤ 90 s, or an abort), take ft from it, then write. Never drops a row. */
+/**
+ * Non-crypto rows write at once (after their scenario fields); crypto rows wait for the feed (≤ 90 s, or an abort), take ft from it,
+ * then write. Never drops a row. v2.8 (final review C1): the scenario fields run in chunks with a yield between them
+ * (applyScenariosAsync), so a scan of 200 pairs is not one long main-thread block; the non-crypto write is still issued before the
+ * crypto write, and an abort still writes (the scenario work for rows already scored is finished, not dropped).
+ */
 export async function writeLiveRows<R extends { ac: string; pair: string; t: number; tc: number; ft?: number | null }>(rows: R[], o: LiveWriteOptions<R>): Promise<number> {
   const crypto = rows.filter((r) => r.ac === "crypto");
   const others = rows.filter((r) => r.ac !== "crypto");
   const writes: Promise<number>[] = [];
-  if (others.length) writes.push(o.write(others));
+  const scenarios = o.barsOf !== undefined && o.intervalMs !== undefined;
+  const pause = o.pause ?? yieldToMain;
+  // Settles once the non-crypto write has been issued (at once when there is none), so the crypto write never overtakes it.
+  let othersIssued: Promise<void> = Promise.resolve();
+  if (others.length) {
+    let issued!: () => void;
+    othersIssued = new Promise<void>((r) => { issued = r; });
+    writes.push((async () => {
+      try {
+        if (scenarios) await applyScenariosAsync(others as unknown as LedgerRow[], o.barsOf!, undefined, o.intervalMs!, pause);
+      } catch { /* per-row failures are already nulls; never block the write */ }
+      try { return o.write(others); } finally { issued(); }
+    })());
+  }
   if (crypto.length) {
     writes.push((async () => {
       await waitForFeed(o.settled, { signal: o.signal, timeoutMs: o.timeoutMs, timers: o.timers });
-      if (o.dailyOf) applyFundTrend(crypto as unknown as LedgerRow[], o.dailyOf);
+      // One read of each pair's daily bars: ft and the scenario states use the same snapshot across the yields below.
+      const dailyOf = o.dailyOf ? snapshotDaily(o.dailyOf) : undefined;
+      if (dailyOf) applyFundTrend(crypto as unknown as LedgerRow[], dailyOf);
       else for (const r of crypto) r.ft = null;
+      // After ft: the signal bar's state is the row's own ft; earlier bars use the same daily bars.
+      try {
+        if (scenarios) await applyScenariosAsync(crypto as unknown as LedgerRow[], o.barsOf!, dailyOf, o.intervalMs!, pause);
+      } catch { /* as above */ }
+      await othersIssued;
       return o.write(crypto);
     })());
   }

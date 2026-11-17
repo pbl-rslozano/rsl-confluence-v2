@@ -10,6 +10,13 @@ import { shellFullscreen } from "@/lib/shell-fullscreen";
 import { formatAxisTicks } from "@/lib/money";
 import { useRsl } from "@/rsl/RslContext";
 import { clearChartOptIn, useChartOptIn } from "@/lib/chart-optin";
+import { OPTIN_IDS } from "@/lib/chart-optin-store";
+import { useMediaQuery } from "@/lib/use-media-query";
+import {
+  type ChartProjection, type PlayAction, type PlayState, SC_PLAY_MS,
+  bandsAtSlots, bucketBars, bucketForward, heikinAshi, initialTab, playLabel, playReducer, plotFrac, plotSpan, priceY, projectionSlots, spanRect,
+} from "@/lib/chart-geometry";
+import type { Scenario } from "@/lib/scenarios";
 import { disagreement, ribbonStyle } from "@/lib/fund-trend";
 
 /**
@@ -64,12 +71,20 @@ interface Props {
   fundRankLabel?: string;
   /** v2.8 (WP21): index range [from, to) of the candles in view, reported while the panel is on (the page scores those bars). */
   onPanelRange?: (from: number, to: number) => void;
+  /**
+   * v2.8 (WP22): simulated scenarios drawn after the newest bar. Display only; drawn while the view includes the newest bar.
+   * The caller must memoise this object: a new object (same content or not) resets the tab and the Play state.
+   */
+  projection?: ChartProjection;
 }
 
 const PANEL_H = 96; // v2.8 (WP21): opt-in Fund trend pane below volume
 const PANEL_COLOURS = { score: "#60a5fa", trend: "#f472b6", size: "#a1a1aa" } as const;
 const RIBBON_H = 6;
 const RIBBON_COLOURS = { up: "#34d399", down: "#fb7185", grey: "#71717a" } as const;
+
+/** Indicators-menu labels of the opt-in rows. */
+const OPTIN_LABELS = { "fund-ribbon": "chart.fundRibbon", "fund-panel": "chart.fundPanel", "heikin-ashi": "chart.heikinAshi", reflect: "chart.reflect" } as const;
 
 const LAYERS = {
   "ema-fast": "Fast EMA",
@@ -134,19 +149,24 @@ function canUseNativeFullscreen(el: HTMLElement | null): boolean {
   return Boolean(document.fullscreenEnabled && typeof el.requestFullscreen === "function");
 }
 
-export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatAxis, convertPrice, fundTrend, fundTrendNote, fundSize, panelScores, panelNote, fundRankLabel, onPanelRange }: Props) {
+export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatAxis, convertPrice, fundTrend, fundTrendNote, fundSize, panelScores, panelNote, fundRankLabel, onPanelRange, projection }: Props) {
   // M7: the hatch pattern id is unique per chart (two charts mounted at once, e.g. fullscreen plus sheet, must not share it).
   const hatchId = `ft-hatch-${useId().replace(/[^A-Za-z0-9_-]/g, "")}`;
   const { t } = useRsl();
   const optIns = useChartOptIn();
   const showRibbon = optIns.has("fund-ribbon");
   const showPanel = optIns.has("fund-panel");
+  const showHa = optIns.has("heikin-ashi");
+  const reflect = optIns.has("reflect");
+  const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
   const total = klines.length;
   const [view, setView] = useState<ChartView>(() => initialView(total, visible));
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const [settings, setSettings] = useState(readSettings);
   const [menuOpen, setMenuOpen] = useState(false);
   const [full, setFull] = useState<FullMode>("off");
+  const [tab, setTab] = useState<Scenario | null>(null);
+  const [play, setPlay] = useState<PlayState>(() => ({ count: projection?.horizon ?? 0, playing: false, started: false }));
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const shellFsRef = useRef(false); // true only while THIS chart asked the shell for full screen
@@ -305,30 +325,41 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
     }
     if (!hidden.includes("vwap")) series.push({ id: "vwap", values: vwap, color: "#22d3ee", label: "VWAP (visible)", dashed: true });
 
+    // Review #6: never draw more than one candle per 1.5 px. Buckets of k bars become one OHLC
+    // candle (volume summed); overlays and MACD are sampled at each bucket's last bar.
+    const k = Math.max(1, Math.ceil(slice.length / Math.max(40, Math.floor(chartW / 1.5))));
+
+    // v2.8 (WP22): Heikin-Ashi (opt-in, display only) runs on the full series, then is sliced and bucketed like the real bars.
+    const haAll = showHa ? heikinAshi(klines) : null;
+    const haSlice = haAll ? haAll.slice(start, v.end) : null;
+    // v2.8 (WP22): the projection is drawn only while the view includes the newest bar.
+    const simOn = !!projection && v.end === total && projection.horizon > 0;
+    const lastHa = haAll ? haAll[haAll.length - 1] : undefined;
+    const simPaths = simOn
+      ? projection.paths.map((p) => ({ id: p.id, label: p.label, candles: showHa && p.candles.length ? heikinAshi(p.candles, lastHa) : p.candles }))
+      : null;
+
     let [lo, hi] = extent((function* () { for (const c of slice) { yield c.low; yield c.high; } })());
     const [olo, ohi] = extent((function* () {
       if (showBollinger) { yield* bbUpper; yield* bbLower; }
       for (const s of series) yield* s.values;
+      if (haSlice) for (const c of haSlice) { yield c.low; yield c.high; }
+      if (simOn) {
+        for (const b of projection.bands.slice(0, projection.horizon)) { yield b.p025; yield b.p975; }
+        for (const p of simPaths!) for (const c of p.candles) { yield c.low; yield c.high; }
+      }
     })());
     lo = Math.min(lo, olo);
     hi = Math.max(hi, ohi);
     const pad = (hi - lo) * 0.06 || Math.abs(hi) * 0.06 || 1;
     lo -= pad;
     hi += pad;
-    const y = (price: number) => PAD_T + (1 - (price - lo) / (hi - lo)) * priceH;
+    const y = (price: number) => priceY(price, { lo, hi, top: PAD_T, height: priceH, reflect });
 
-    // Review #6: never draw more than one candle per 1.5 px. Buckets of k bars become one OHLC
-    // candle (volume summed); overlays and MACD are sampled at each bucket's last bar.
-    const k = Math.max(1, Math.ceil(slice.length / Math.max(40, Math.floor(chartW / 1.5))));
     const fullHist = macdHistogram(klines).slice(start, v.end);
-    const bucketEnds: number[] = [];
-    for (let e = slice.length - 1; e >= 0; e -= k) bucketEnds.unshift(e);
-    const bars = k === 1 ? slice : bucketEnds.map((e) => {
-      const b = slice.slice(Math.max(0, e - k + 1), e + 1);
-      let hi2 = -Infinity, lo2 = Infinity, vol2 = 0;
-      for (const c of b) { if (c.high > hi2) hi2 = c.high; if (c.low < lo2) lo2 = c.low; vol2 += c.volume; }
-      return { time: b[0].time, open: b[0].open, high: hi2, low: lo2, close: b[b.length - 1].close, volume: vol2 };
-    });
+    const { bars, ends: bucketEnds } = bucketBars(slice, k);
+    // Heikin-Ashi candles at each drawn bar (same buckets as the real bars; volume/time are carried only to reuse bucketBars).
+    const haBars = haSlice ? bucketBars(haSlice.map((c, i) => ({ ...c, time: slice[i].time, volume: slice[i].volume })), k).bars : null;
     const sample = (arr: number[]) => (k === 1 ? arr : bucketEnds.map((e) => arr[e]));
     const bbU = sample(bbUpper), bbL = sample(bbLower);
     for (const s2 of series) s2.values = sample(s2.values);
@@ -354,7 +385,8 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
       })
       : null;
 
-    const step = chartW / bars.length;
+    const slots = simOn ? projectionSlots(projection.horizon, k) : 0;
+    const step = chartW / (bars.length + slots);
     const x = (i: number) => PAD_L + i * step + step / 2;
     const bodyW = Math.max(1, step * 0.62);
 
@@ -379,13 +411,14 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
       const idx = Math.floor((i / (nTimeTicks - 1)) * (bars.length - 1));
       timeTicks.push({ x: x(idx), label: fmtTime(bars[idx].time) });
     }
-    return { slice: bars, perBar: k, x, y, bodyW, step, bbUpper: bbU, bbLower: bbL, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series, ribbon, panel, marks };
-  }, [klines, start, v.end, hidden, periods, showBollinger, showMacd, priceH, chartW, formatAxis, convertPrice, showRibbon, fundTrend, showPanel, fundSize, panelScores]);
+    const sim = simOn ? { slots, paths: simPaths!, bands: bandsAtSlots(projection.bands.slice(0, projection.horizon), k), anchor: bars[bars.length - 1].close } : null;
+    return { slice: bars, ha: haBars, sim, perBar: k, x, y, bodyW, step, bbUpper: bbU, bbLower: bbL, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series, ribbon, panel, marks };
+  }, [klines, start, v.end, hidden, periods, showBollinger, showMacd, priceH, chartW, formatAxis, convertPrice, showRibbon, fundTrend, showPanel, fundSize, panelScores, showHa, projection, reflect]);
 
   /* Static layers are memoised: moving the pointer re-renders only the crosshair and readout (review #6). */
   const layers = useMemo(() => {
     if (!model) return null;
-    const { slice, x, y, bodyW, step, bbUpper, bbLower, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series, ribbon, panel, marks } = model;
+    const { slice, ha, x, y, bodyW, step, bbUpper, bbLower, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series, ribbon, panel, marks } = model;
     const panelTop = volTop + (showVolume ? VOL_H : 0);
     const viewH = panelTop + (panel ? PANEL_H : 0) + PAD_B;
     let bandPath = "";
@@ -467,16 +500,15 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
               Volume
             </text>
           </g>}
-          <g data-testid="price-candles">
-            {slice.map((c, i) => {
+          <g data-testid="price-candles" data-ha={ha ? "1" : undefined}>
+            {(ha ?? slice).map((c, i) => {
               const color = c.close >= c.open ? "#34d399" : "#fb7185";
               const wickX = x(i);
-              const bodyTop = y(Math.max(c.open, c.close));
-              const bodyBot = y(Math.min(c.open, c.close));
+              const body = spanRect(y(c.open), y(c.close));
               return (
                 <g key={`c${i}`}>
                   <line x1={wickX} y1={y(c.high)} x2={wickX} y2={y(c.low)} stroke={color} strokeWidth={1} />
-                  <rect x={wickX - bodyW / 2} y={bodyTop} width={bodyW} height={Math.max(1, bodyBot - bodyTop)}
+                  <rect x={wickX - bodyW / 2} y={body.y} width={bodyW} height={Math.max(1, body.h)}
                     fill={color} opacity={0.85} />
                 </g>
               );
@@ -510,8 +542,9 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
           </g>}
           {panel && (() => {
             const inTop = panelTop + 18, inBot = panelTop + PANEL_H - 6, span = inBot - inTop;
-            const yScore = (val: number) => inBot - ((Math.max(-100, Math.min(100, val)) + 100) / 200) * span;
-            const ySize = (val: number) => inBot - (Math.max(0, Math.min(200, val)) / 200) * span;
+            const yScore = (val: number) => { const f = ((Math.max(-100, Math.min(100, val)) + 100) / 200) * span; return reflect ? inTop + f : inBot - f; };
+            const ySize = (val: number) => { const f = (Math.max(0, Math.min(200, val)) / 200) * span; return reflect ? inTop + f : inBot - f; };
+            const yBase = reflect ? inTop : inBot; // the size area's baseline (0 %)
             // Runs of consecutive non-null values; a lone point is drawn as a dot.
             const runs = (vals: (number | null)[], f: (n: number) => number) => {
               let d = "";
@@ -541,9 +574,9 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
                 let j = i;
                 while (j + 1 < panel.size.length && panel.size[j + 1] != null && Number.isFinite(panel.size[j + 1] as number)) j++;
                 const x0 = x(i) - step / 2, x1 = x(j) + step / 2;
-                areaD += `M${x0.toFixed(1)},${inBot.toFixed(1)}`;
+                areaD += `M${x0.toFixed(1)},${yBase.toFixed(1)}`;
                 for (let q = i; q <= j; q++) areaD += `L${(q === i ? x0 : x(q)).toFixed(1)},${ySize(panel.size[q] as number).toFixed(1)}L${(q === j ? x1 : x(q)).toFixed(1)},${ySize(panel.size[q] as number).toFixed(1)}`;
-                areaD += `L${x1.toFixed(1)},${inBot.toFixed(1)}Z`;
+                areaD += `L${x1.toFixed(1)},${yBase.toFixed(1)}Z`;
                 i = j;
               }
             }
@@ -568,8 +601,8 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
                 {[100, 0, -100].map((tick) => (
                   <text key={tick} x={viewW - PAD_R + 6} y={yScore(tick) + 3} fill="var(--color-zinc-500)" fontSize={10} fontFamily={mono}>{tick > 0 ? "+" : tick < 0 ? "−" : ""}{Math.abs(tick)}</text>
                 ))}
-                <text x={PAD_L + 4} y={inTop + 9} fill={PANEL_COLOURS.size} opacity={0.8} fontSize={9} fontFamily={mono}>200 %</text>
-                <text x={PAD_L + 4} y={inBot - 2} fill={PANEL_COLOURS.size} opacity={0.8} fontSize={9} fontFamily={mono}>0 %</text>
+                <text x={PAD_L + 4} y={reflect ? ySize(200) - 2 : inTop + 9} fill={PANEL_COLOURS.size} opacity={0.8} fontSize={9} fontFamily={mono}>200 %</text>
+                <text data-fund-label="size0" x={PAD_L + 4} y={reflect ? ySize(0) + 9 : inBot - 2} fill={PANEL_COLOURS.size} opacity={0.8} fontSize={9} fontFamily={mono}>0 %</text>
               </g>
             );
           })()}
@@ -580,20 +613,93 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
           ))}
       </>
     );
-  }, [model, showBollinger, showMacd, showVolume, viewW, chartW, t, fundRankLabel]);
+  }, [model, showBollinger, showMacd, showVolume, viewW, chartW, t, fundRankLabel, reflect]);
+
+  /* v2.8 (WP22): projection. Static part (area, bands, median, "now", label) is memoised apart from the
+     candles, which change with the tab and the Play state only. */
+  const simStatic = useMemo(() => {
+    if (!model || !model.sim) return null;
+    const { slice, x, y } = model;
+    const { bands, anchor } = model.sim;
+    const n = slice.length;
+    const x0 = x(n - 1), y0 = y(anchor);
+    const pt = (px: number, py: number) => `${px.toFixed(1)},${py.toFixed(1)}`;
+    const poly = (lo: (b: (typeof bands)[number]) => number, hi: (b: (typeof bands)[number]) => number) => {
+      let d = `M${pt(x0, y0)}`;
+      bands.forEach((b, j) => { d += ` L${pt(x(n + j), y(hi(b)))}`; });
+      for (let j = bands.length - 1; j >= 0; j--) d += ` L${pt(x(n + j), y(lo(bands[j])))}`;
+      return d + " Z";
+    };
+    const median = [pt(x0, y0), ...bands.map((b, j) => pt(x(n + j), y(b.p50)))].join(" ");
+    const nowX = PAD_L + n * model.step;
+    const labelX = PAD_L + (n + model.sim.slots / 2) * model.step;
+    return (
+      <g data-sim="area" pointerEvents="none">
+        <path data-sim="band" data-band="95" d={poly((b) => b.p025, (b) => b.p975)} fill="#22d3ee" opacity={0.1} pointerEvents="none" />
+        <path data-sim="band" data-band="68" d={poly((b) => b.p16, (b) => b.p84)} fill="#22d3ee" opacity={0.18} pointerEvents="none" />
+        <polyline data-sim="median" points={median} fill="none" stroke="#22d3ee" strokeWidth={1.5} strokeDasharray="1 3" strokeLinecap="round" pointerEvents="none" />
+        <line data-sim="now" x1={nowX} y1={PAD_T} x2={nowX} y2={PAD_T + priceH} stroke="var(--color-zinc-500)" strokeWidth={1} strokeDasharray="4 3" pointerEvents="none" />
+        <text x={nowX - 4} y={PAD_T + priceH - 4} textAnchor="end" fill="var(--color-zinc-400)" fontSize={10} fontFamily="ui-monospace, monospace" pointerEvents="none">{t("sc.now")}</text>
+        <text data-sim="label" x={labelX} y={PAD_T + 12} textAnchor="middle" fill="#22d3ee" opacity={0.85} fontSize={10} fontFamily="ui-monospace, monospace" pointerEvents="none">{t("sc.simulated")}</text>
+      </g>
+    );
+  }, [model, priceH, t]);
+
+  const activeTab: Scenario | null = projection ? (tab ?? initialTab(projection)) : null;
+  const simCandles = useMemo(() => {
+    if (!model || !model.sim) return null;
+    const path = model.sim.paths.find((p) => p.id === activeTab);
+    if (!path || path.candles.length === 0) return null;
+    const { x, y, bodyW, slice, perBar, ha } = model;
+    const drawn = bucketForward(path.candles.slice(0, play.count), perBar);
+    return (
+      <g data-sim="candles" data-ha={ha ? "1" : undefined} pointerEvents="none">
+        {drawn.map((c, j) => {
+          const up = c.close >= c.open;
+          const color = up ? "#34d399" : "#fb7185";
+          const cx = x(slice.length + j);
+          const body = spanRect(y(c.open), y(c.close));
+          return (
+            <g key={j} data-sim="candle" data-i={j} pointerEvents="none">
+              <line x1={cx} y1={y(c.high)} x2={cx} y2={y(c.low)} stroke={color} strokeWidth={1} strokeDasharray="2 2" />
+              <rect x={cx - bodyW / 2} y={body.y} width={bodyW} height={Math.max(1, body.h)} fill="none" stroke={color} strokeWidth={1} strokeDasharray="3 2" />
+            </g>
+          );
+        })}
+      </g>
+    );
+  }, [model, activeTab, play.count]);
+
+  // A new projection starts again with every candle shown and the first tab.
+  const horizon = projection?.horizon ?? 0;
+  const [seenProjection, setSeenProjection] = useState(projection);
+  if (seenProjection !== projection) {
+    setSeenProjection(projection);
+    setTab(null);
+    setPlay({ count: horizon, playing: false, started: false });
+  }
+  const act = useCallback((a: PlayAction) => setPlay((cur) => playReducer(cur, a, horizon, reduced)), [horizon, reduced]);
+  useEffect(() => {
+    if (!play.playing) return;
+    const id = setInterval(() => act("tick"), SC_PLAY_MS);
+    return () => clearInterval(id);
+  }, [play.playing, act, activeTab, projection]);
 
   /* ---------------- input ---------------- */
   const viewRef = useRef(v);
   const fullRef = useRef(full);
-  useEffect(() => { viewRef.current = v; fullRef.current = full; });
+  // Pixel span of the real bars: the whole plot, or less while the projection takes slots on the right.
+  const span = model ? plotSpan(chartW, model.step, model.slice.length, !!model.sim) : chartW;
+  const spanRef = useRef(span);
+  useEffect(() => { viewRef.current = v; fullRef.current = full; spanRef.current = span; });
   /** Pointer X → fraction across the plot area (0 left … 1 right). */
   const fracAt = useCallback((clientX: number): number => {
     const svg = svgRef.current;
     if (!svg) return 1;
     const rect = svg.getBoundingClientRect();
     const scale = rect.width / viewW;
-    return Math.max(0, Math.min(1, (clientX - rect.left - PAD_L * scale) / (chartW * scale)));
-  }, [viewW, chartW]);
+    return plotFrac((clientX - rect.left) / scale - PAD_L, span);
+  }, [viewW, span]);
   const zoomBy = useCallback((factor: number, frac = 1) => setView((cur) => zoomView(cur, total, factor, frac)), [total]);
   const resetView = useCallback(() => { setView(initialView(total, visible)); setHoverIdx(null); }, [total, visible]);
 
@@ -658,7 +764,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
       if (!g.moved && Math.abs(dx) < 6) { if (e.pointerType === "mouse") hoverAt(e.clientX); return; }
       g.moved = true;
       const svg = svgRef.current;
-      const widthPx = svg ? (svg.getBoundingClientRect().width * chartW) / viewW : chartW;
+      const widthPx = svg ? (svg.getBoundingClientRect().width * spanRef.current) / viewW : spanRef.current;
       setView(panView(g.startView, total, -(dx / Math.max(1, widthPx)) * g.startView.count));
       return;
     }
@@ -730,6 +836,22 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
         </button>
         <span className="ms-auto font-mono text-[11px] text-zinc-500" data-testid="chart-bars">{v.count} / {total} bars</span>
       </div>
+      {projection && (
+        <div className="mb-2 flex flex-wrap items-center gap-1.5" data-testid="projection-controls">
+          <div role="tablist" aria-label={t("sc.tabs")} className="flex flex-wrap items-center gap-1.5">
+            {projection.paths.map((p) => (
+              <button key={p.id} type="button" role="tab" data-tab={p.id} aria-selected={p.id === activeTab}
+                disabled={p.candles.length === 0}
+                className={`${btn} ${p.id === activeTab ? "border-cyan-400 text-cyan-200" : ""}`}
+                onClick={() => { setTab(p.id); act("reset"); }}>{p.label}</button>
+            ))}
+          </div>
+          <button type="button" className={btn} data-testid="projection-play"
+            onClick={() => act(play.playing ? "pause" : "play")}>
+            {t(playLabel(play, horizon))}
+          </button>
+        </div>
+      )}
       {menuOpen && (
         <fieldset className="mb-2 grid gap-2 rounded border border-zinc-700 p-2 text-sm text-zinc-200 sm:grid-cols-2">
           <legend>Chart indicators</legend>
@@ -772,11 +894,11 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
               </div>
             );
           })}
-          {(["fund-ribbon", "fund-panel"] as const).map((id) => (
+          {OPTIN_IDS.map((id) => (
             <div key={id} className="flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-2">
                 <input type="checkbox" checked={optIns.has(id)} onChange={(event) => optIns.set(id, event.target.checked)} />
-                {t(id === "fund-ribbon" ? "chart.fundRibbon" : "chart.fundPanel")}
+                {t(OPTIN_LABELS[id])}
               </label>
             </div>
           ))}
@@ -789,6 +911,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
         ref={svgRef}
         viewBox={`0 0 ${viewW} ${viewH}`}
         className="w-full select-none"
+        data-reflect={reflect ? "1" : undefined}
         style={{
           aspectRatio: size ? undefined : `${viewW} / ${viewH}`,
           height: size ? viewH : undefined,
@@ -796,7 +919,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
         }}
         role="img"
         tabIndex={0}
-        aria-label={`Interactive candlestick chart with ${slice.length} of ${total} candles. Arrow keys inspect candles, Shift+arrows pan, plus and minus zoom, 0 resets, F toggles full screen.`}
+        aria-label={`Interactive candlestick chart with ${slice.length} of ${total} candles. Arrow keys inspect candles, Shift+arrows pan, plus and minus zoom, 0 resets, F toggles full screen, I reflects the price axis.`}
         onKeyDown={(event) => {
           const k = event.key;
           if (k === "ArrowLeft" && event.shiftKey) { event.preventDefault(); setView(panView(v, total, -Math.max(1, Math.round(v.count / 10)))); }
@@ -808,6 +931,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
           else if (k === "+" || k === "=") { event.preventDefault(); zoomBy(1.25); }
           else if (k === "-" || k === "_") { event.preventDefault(); zoomBy(0.8); }
           else if (k === "0") { event.preventDefault(); resetView(); }
+          else if (k === "i" || k === "I") { event.preventDefault(); optIns.set("reflect", !optIns.has("reflect")); }
           else if (k === "f" || k === "F") { event.preventDefault(); if (isFull) exitFull(); else void enterFull(); }
         }}
         onMouseLeave={() => { if (gesture.current.kind === "none") setHoverIdx(null); }}
@@ -818,6 +942,14 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
         onDoubleClick={resetView}
       >
         {layers}
+        {reflect && (
+          <g data-testid="reflect-badge" pointerEvents="none">
+            <rect x={PAD_L + 4} y={PAD_T + 4} width={72} height={16} rx={3} fill="var(--color-zinc-900)" stroke="var(--color-zinc-600)" strokeWidth={1} opacity={0.9} />
+            <text x={PAD_L + 40} y={PAD_T + 15.5} textAnchor="middle" fill="var(--color-zinc-300)" fontSize={10} fontFamily="ui-monospace, monospace">{t("chart.reflected")}</text>
+          </g>
+        )}
+        {simStatic}
+        {simCandles}
         {hover && (
           <g>
             <line x1={x(activeIdx)} y1={PAD_T} x2={x(activeIdx)} y2={plotBottom} stroke="var(--color-zinc-600)" strokeWidth={1} strokeDasharray="3 3" />
@@ -853,6 +985,12 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
             <span className="text-zinc-500">H</span><span className="text-emerald-400">{formatPrice(hover.high)}</span>
             <span className="text-zinc-500">L</span><span className="text-rose-400">{formatPrice(hover.low)}</span>
             <span className="text-zinc-500">C</span><span>{formatPrice(hover.close)}</span>
+            {model.ha && <>
+              <span className="text-zinc-500">HA O</span><span>{formatPrice(model.ha[activeIdx].open)}</span>
+              <span className="text-zinc-500">H</span><span>{formatPrice(model.ha[activeIdx].high)}</span>
+              <span className="text-zinc-500">L</span><span>{formatPrice(model.ha[activeIdx].low)}</span>
+              <span className="text-zinc-500">C</span><span>{formatPrice(model.ha[activeIdx].close)}</span>
+            </>}
             <span className="text-zinc-500">V</span><span>{fmtVol(hover.volume)}</span>
             {showMacd && <><span className="text-zinc-500">H</span><span className={(histogram[activeIdx]?.histogram ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}>{fmtSigned(histogram[activeIdx]?.histogram)}</span></>}
           </div>

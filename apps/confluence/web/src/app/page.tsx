@@ -104,7 +104,7 @@ import {
 } from "@/lib/market-client";
 import { COINSPH_MIN_REFRESH_MS, COINSPH_MIN_USD_TURNOVER } from "@/lib/coinsph";
 import { healthFromError, healthFromScan, type SourceHealth } from "@/lib/source-health";
-import { catchUpContext, enrichCatchUp, liveRow, scanShared, type ScanRecordContext, type ScanSeries } from "@/lib/scan-record";
+import { catchUpContext, enrichCatchUpAsync, liveRow, scanShared, type ScanRecordContext, type ScanSeries } from "@/lib/scan-record";
 import {
   DEFAULT_APP_PREFERENCES,
   loadAppPreferences,
@@ -120,6 +120,8 @@ import { DerivativesPanel } from "@/components/derivatives-panel";
 import type { DerivativeSnapshot } from "@/lib/derivatives-context";
 import { ChartReplay } from "@/components/chart-replay";
 import { PriceChart } from "@/components/price-chart";
+import { ScenarioSection } from "@/components/scenario-panel";
+import type { ChartProjection } from "@/lib/chart-geometry";
 import { exchangeUrl } from "@/lib/exchange-links";
 import { BEST, baseOf as pairBase, normalizeQuoteMode, quoteModesFor, stableQuote, type DepegReading, type PriceCurrency } from "@/lib/quotes";
 import { autoCurrency, BANDS, cachedCurrencies, cachedTable, canConvert, convert, impliedUsdtPremiumPct, isStale, loadCurrencies, PEGS, priceDisplay, rateKind, refreshRates, usdtDeviationPct, type FiatCurrency, type FxTable } from "@/lib/fx-rates";
@@ -603,6 +605,8 @@ export default function Home() {
   const [ledgerOpen, setLedgerOpen] = useState(false);
   const [paperOpen, setPaperOpen] = useState(false);
   const [chartReplay, setChartReplay] = useState(false);
+  /** v2.8 (WP22): the Scenarios section's simulated paths on the chart (memoised by the section; null = not shown). */
+  const [projection, setProjection] = useState<ChartProjection | null>(null);
   const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
   // v2.5 (restores build 20261101): "Expand list" hides the control header and informational
   // notes so the asset table gets the screen (mainly for phones). Alerts and the footer stay.
@@ -1189,8 +1193,12 @@ export default function Home() {
       const newestClosed = prepared.reduce((m, p) => (p.fresh && p.kl.length ? Math.max(m, p.kl[p.kl.length - 1].time) : m), 0);
       // v2.8 (WP21): crypto rows wait for this scan's Fund trend feed (<= 90 s; an abort writes at once) so ft is not lost for good; others write at once.
       const universeSnap = data.universe ? { t: newestClosed, list: data.universe } : undefined;
+      // v2.8 (WP22): the scenario fields (scb/scp) come from this scan's own closed bars, the last 1,000 ending at each row's bar.
+      const klinesByPair = new Map(out.map((r) => [r.pair, r.klines] as const));
       const liveWrite = ledgerRows.length
         ? writeLiveRows(ledgerRows, {
+            barsOf: (pair) => klinesByPair.get(pair),
+            intervalMs: data.intervalMs,
             write: (rs) => ledgerStore.record(rs, universeSnap).catch(() => 0),
             settled: feedSettled,
             signal: feed.signal,
@@ -1239,12 +1247,17 @@ export default function Home() {
                 // Same queue and abort signal as the post-scan feed: never two runs at once, and a new scan or source switch stops it.
                 if (cryptoRows.length) await fundQueueRef.current.enqueue(() => loadFundTrends(source, cryptoRows, Date.now(), { signal: feed.signal }), feed.signal);
               } catch { /* aborted, halted or unavailable: those rows log ft null (still written) */ }
-              catchUpCtx = { ...recordCtx, dailyOf: (symbol) => cachedDailyBars(source, symbol) };
+              // One read of the daily cache for every pending pair, now (as when this loop ran in one block): the yields below
+              // cannot let a later feed refresh change the values of the pairs still to come.
+              const dailySnap = new Map(pending.map((j) => [j.pair, cachedDailyBars(source, j.pair)] as const));
+              catchUpCtx = { ...recordCtx, dailyOf: (symbol) => dailySnap.get(symbol) ?? cachedDailyBars(source, symbol) };
             }
             for (const j of pending) {
               const r = byKey.get(j.job.key);
               if (!r || r.error) continue; // cursor not advanced: retried next scan (review C5)
-              rowsToAdd.push(...enrichCatchUp(r.catchUpRows ?? [], j.kl, catchUpCtx, shared));
+              // v2.8 (final review C1): the same rows and values as enrichCatchUp, with a yield every few rows of scenario work, so
+              // 100 pairs x 48 rows never freeze the page. The rows still go to the ledger in this order, in one write, after the loop.
+              rowsToAdd.push(...(await enrichCatchUpAsync(r.catchUpRows ?? [], j.kl, catchUpCtx, shared)));
               if (r.gap) void ledgerStore.addGap(source, tf, j.pair, r.gap);
               done[j.pair] = j.kl[j.kl.length - 1].time;
             }
@@ -2308,7 +2321,7 @@ export default function Home() {
       <RadarHost port={rsl.port} depeg={scanMeta.depeg} depegSource={scanMeta.source} depegAt={scanMeta.depegAt} recordRadar={recordRadar} providerLink={providerLink} />
 
       {/* ---------- Detail modal ---------- */}
-      <Dialog open={!!detailAsset} onOpenChange={(o) => { if (!o) { setChartReplay(false); setDetailAsset(null); } }}>
+      <Dialog open={!!detailAsset} onOpenChange={(o) => { if (!o) { setChartReplay(false); setDetailAsset(null); setProjection(null); } }}>
         <DialogContent
           className="w-[min(100vw-1.5rem,56rem)] max-w-[min(100vw-1.5rem,56rem)] max-h-[92dvh] overflow-y-auto overflow-x-hidden border-zinc-800 bg-zinc-900 p-4 text-zinc-100 sm:p-5"
         >
@@ -2402,6 +2415,7 @@ export default function Home() {
                   panelNote={panelNote}
                   fundRankLabel={detailFundRank}
                   onPanelRange={onPanelRange}
+                  projection={projection ?? undefined}
                 />
               ) : (
                 <div className="flex h-32 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950/50 text-sm text-zinc-500">
@@ -2414,6 +2428,7 @@ export default function Home() {
               <ReversalPanel r={detailAsset.reversal} />
 
               <PatternPanel pattern={detailAsset.pattern} />
+              <ScenarioSection asset={detailAsset} formatPrice={showPrice} onProjection={setProjection} />
 
               <BlocPanel c={detailAsset.confluence} />
               {detailAsset.context && <ContextPanel x={detailAsset.context} />}

@@ -24,6 +24,26 @@ export const FT_DISAGREE_SCORE = 55;
 export const FT_DISAGREE_FT = 25;
 
 const DAY_MS = 86_400_000;
+/** The newest daily bar used for a row must have closed no more than this long before the row's own bar close. */
+export const FT_MAX_STALE_MS = 36 * 3_600_000;
+
+/** Newest daily bar whose close is at or before `closeTime` (daily ascending), or null. */
+export function newestClosedDaily(daily: Kline[], closeTime: number): Kline | null {
+  let lo = 0, hi = daily.length; // first index whose close is after closeTime
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (daily[mid].time + DAY_MS <= closeTime) lo = mid + 1; else hi = mid; }
+  return lo > 0 ? daily[lo - 1] : null;
+}
+
+/**
+ * The one staleness rule: a Fund trend value is kept only when the newest closed daily bar used closed no more than
+ * FT_MAX_STALE_MS before `closeTime` (a halted feed must not give old values to newer bars). Shared by the ledger
+ * catch-up (applyFundTrend) and the Scenarios sheet (ftAtBars), so their values agree.
+ */
+export function freshFt(v: number | null | undefined, daily: Kline[], closeTime: number): number | null {
+  if (typeof v !== "number") return null;
+  const newest = newestClosedDaily(daily, closeTime);
+  return newest !== null && closeTime - (newest.time + DAY_MS) <= FT_MAX_STALE_MS ? v : null;
+}
 const SIGMA_FLOOR = 1e-8;
 const SEED_RETURNS = 60;
 

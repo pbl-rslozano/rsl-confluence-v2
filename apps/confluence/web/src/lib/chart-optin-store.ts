@@ -7,7 +7,7 @@
  * `useChartOptIn()` user through a tiny subscription; other tabs through the `storage` event.
  */
 export const OPTIN_KEY = "ct-chart-optin-v1";
-export const OPTIN_IDS = ["fund-ribbon", "fund-panel"] as const;
+export const OPTIN_IDS = ["fund-ribbon", "fund-panel", "heikin-ashi", "reflect"] as const;
 export type ChartOptIn = (typeof OPTIN_IDS)[number];
 
 const NONE: readonly ChartOptIn[] = Object.freeze([]) as readonly ChartOptIn[];

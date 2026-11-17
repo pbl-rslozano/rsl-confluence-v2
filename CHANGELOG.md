@@ -1,7 +1,7 @@
-# v2.8.0 — in progress, Steps 1 to 4b (not released; app still reports v2.7.0)
+# v2.8.0 — in progress, Steps 1 to 5 (not released; app still reports v2.7.0)
 
-Steps 1 to 4b of the v2.8 plan (`docs/superpowers/specs/2026-11-15-v2.8-architecture-design.md`): safety fixes, licence
-credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (Step 2); Fund trend (Step 3); Market radar part 1 (Step 4a) and part 2 (Step 4b); Fear & Greed widget (WP29); two-line header at ≥ 1280 px (owner decision, 16 Nov 2026). Engine 2.4.0 (`5c30b5c39f5ba3f2`);
+Steps 1 to 5 of the v2.8 plan (`docs/superpowers/specs/2026-11-15-v2.8-architecture-design.md`): safety fixes, licence
+credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (Step 2); Fund trend (Step 3); Market radar part 1 (Step 4a) and part 2 (Step 4b); Scenarios and Reflect view (Step 5); Fear & Greed widget (WP29); two-line header at ≥ 1280 px (owner decision, 16 Nov 2026). Engine 2.4.0 (`5c30b5c39f5ba3f2`);
 ledger rows of engine 2.3.0 stay and are reported separately.
 
 - **Two-line header (owner decision 16 Nov 2026, spec §3 item 9):** at 1280 px and wider the header's control ribbon
@@ -23,6 +23,15 @@ ledger rows of engine 2.3.0 stay and are reported separately.
   and `poweredBy()` follows the identity skill's footer form; the Coffee Kit shows `1.1.0` (its data is unchanged); backups
   record the same stamp in `appVersion`; the user guide, README, release check R19 and the SBOM component use it too.
   Guard: `tools/semver-stamp.test.mjs`, kit tests, `KIT-MANIFEST.sha256` regenerated (R4). Past entries keep their old format.
+- **Scenarios, Heikin-Ashi and Reflect view (WP22 + WP24, Step 5):** a collapsed **Scenarios (simulation)** section after the Pattern
+  panel: 200 direction-neutral paths of 6-candle blocks from the coin's own past (volatility within ±15 points, widening to ±30
+  then all bars), 6- and 24-bar horizons, 2.5–97.5 and 16–84 % bands, odds for Continue / Pause / Reverse (Up / Range / Down on a flat
+  trend) from the Fund trend state with n_eff ≥ 20 and an overall-odds fallback, Wilson ranges, base rates and a rule-based
+  explanation in 18 languages; **Show on chart** draws the fan and hollow dashed simulated candles with Play. "Possible scenarios
+  from past data — not a forecast." Opt-in **Heikin-Ashi** (display only) and **Reflect view** (mirrors the price axis; key **I**;
+  "Reflected" badge) in the Indicators menu. Ledger fields `scb` and `scp` (13 CSV columns, strict import, official H = 6 run on
+  the last 1,000 bars, logged and never scored) and a collapsed **Scenario check** (band coverage against 68 / 95 %, three-outcome
+  Brier against the base rate). No new host, no new dependency; engine 2.4.0 unchanged. ADR-0016; acceptance SC-1…SC-7, RV-1…RV-3.
 - **Paper safety (WP19):** 10% drawdown lock (Stop + close all at the next open of each chart; pending positions cancelled;
   typed RESET restarts the 10% from current equity, disabled while closes are pending); open losses count in the daily and
   weekly locks; no loosening while a lock is active; costs inside the risk budget (a clean stop-out ≈ −1 R); event

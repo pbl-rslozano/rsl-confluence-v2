@@ -55,7 +55,8 @@ const VARS = { version: "2.5.2", build: "20261108", size: "19.4 MB", event: "FOM
   pctl: 99, chg: "+1.00 %", share: 60, asia: 30, europe: 30, us: 40, venue: "Coinbase", z: "3.4", usd: "$1.2B", label: "Live ETF flows", long: "1,000", short: "500", net: "+500", delta: "+50", rejected: 1, duplicates: 0, level: "Severe", reference: "USDT", min: 1, max: 6,
   median: "$40K", mult: "3.4", longPct: 62, have: 12,
   amount: "1.2K", symbol: "USDT", from: "Binance", to: "unknown wallet", chain: "ethereum", // v2.8 (+ Step 4b liquidations, large transfers)
-  current: "System", next: "Light" }; // v2.8 header (owner decision 16 Nov 2026): theme.cycle
+  current: "System", next: "Light", // v2.8 header (owner decision 16 Nov 2026): theme.cycle
+  ft: "+40", bloc: "trend", hi: "$103.00", lo: "$97.00", when: "10:00", fr: "0.010 %", bp: "0.250 %", neff: 100, cases: 120, b: "0.612" }; // v2.8 Step 5 (WP22): scenario explanation and sheet
 const PROTECTED = ["BTC", "ETH", "SQLite", "IndexedDB", "localStorage", "JSON", "PNG", "JPEG", "SVG", "Bybit", "A–Z", "Coins.ph", "USDT", "SHA-256"]; // v2.6: +Coins.ph, USDT, SHA-256
 const wanted = process.argv.slice(2);
 const codes = wanted.length ? wanted : readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => f.replace(".json", ""));
