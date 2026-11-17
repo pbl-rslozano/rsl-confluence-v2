@@ -1,0 +1,2932 @@
+{
+  "what": "WP23 Task 4 rework: noise distribution of the v2 inputs' z per divisor option, and the bloc mean, gain grid and drift per candidate table",
+  "set": {
+    "models": [
+      "gauss",
+      "t3",
+      "garch"
+    ],
+    "intervals": [
+      "1h",
+      "4h",
+      "1d"
+    ],
+    "windows": 300,
+    "seedOffset": 50,
+    "bars": "last 300 of 1000"
+  },
+  "clippedMeans": "share of |z| >= 0.999",
+  "selfCheckWindows": 27,
+  "inputs": {
+    "1h": {
+      "sma": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.464719,
+          "median": 0.9222,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.466104,
+          "median": 0.9227,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "ema": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.0988,
+          "median": 0.4141,
+          "q90": 0.9956,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.419611,
+          "median": 0.8353,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "macd": {
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.340196,
+          "median": 0.7032,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "adx": {
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.416196,
+          "median": 0.8324,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "psar": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.772581,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.393659,
+          "median": 0.8671,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "ichimoku": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.761389,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.504081,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "supertrend": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.888067,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.597652,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "rsi": {
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.42303,
+          "median": 0.8455,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "stochastic": {
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.521922,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "cci": {
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.400659,
+          "median": 0.8495,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "williams": {
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.521922,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "ao": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.534796,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.412856,
+          "median": 0.8201,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "mfi": {
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.386881,
+          "median": 0.7849,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "bollinger": {
+        "band": {
+          "n": 270000,
+          "clipped": 0.120881,
+          "median": 0.5563,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.362081,
+          "median": 0.7377,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "keltner": {
+        "band": {
+          "n": 270000,
+          "clipped": 0.0821519,
+          "median": 0.3987,
+          "q90": 0.9478,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.371211,
+          "median": 0.7513,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "vwap": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.35117,
+          "median": 0.7061,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.327567,
+          "median": 0.6581,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "obv": {
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.375807,
+          "median": 0.765,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "cmf": {
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.405033,
+          "median": 0.8135,
+          "q90": 1,
+          "q99": 1
+        }
+      }
+    },
+    "4h": {
+      "sma": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.461422,
+          "median": 0.9145,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.465,
+          "median": 0.9202,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "ema": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.101744,
+          "median": 0.4098,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.416133,
+          "median": 0.8254,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "macd": {
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.337944,
+          "median": 0.6994,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "adx": {
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.41563,
+          "median": 0.8285,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "psar": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.772141,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.392152,
+          "median": 0.8645,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "ichimoku": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.761315,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.505744,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "supertrend": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.887378,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.594911,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "rsi": "dropped",
+      "stochastic": "dropped",
+      "cci": {
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.401663,
+          "median": 0.8494,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "williams": "dropped",
+      "ao": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.528833,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.408867,
+          "median": 0.8111,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "mfi": "dropped",
+      "bollinger": {
+        "band": {
+          "n": 270000,
+          "clipped": 0.12017,
+          "median": 0.5541,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.359948,
+          "median": 0.7259,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "keltner": {
+        "band": {
+          "n": 270000,
+          "clipped": 0.0843667,
+          "median": 0.3936,
+          "q90": 0.9529,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.369019,
+          "median": 0.7432,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "vwap": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.218319,
+          "median": 0.5065,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.269407,
+          "median": 0.555,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "obv": {
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.377652,
+          "median": 0.7642,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "cmf": {
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.402785,
+          "median": 0.8074,
+          "q90": 1,
+          "q99": 1
+        }
+      }
+    },
+    "1d": {
+      "sma": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.461048,
+          "median": 0.9134,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.463426,
+          "median": 0.9174,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "ema": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.0978185,
+          "median": 0.4096,
+          "q90": 0.9929,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.412459,
+          "median": 0.819,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "macd": {
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.337207,
+          "median": 0.6898,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "adx": {
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.413844,
+          "median": 0.8282,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "psar": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.770352,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.389663,
+          "median": 0.8525,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "ichimoku": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.765611,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.505715,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "supertrend": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.888067,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.568241,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "rsi": "dropped",
+      "stochastic": "dropped",
+      "cci": {
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.400115,
+          "median": 0.8475,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "williams": "dropped",
+      "ao": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.526785,
+          "median": 1,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.40477,
+          "median": 0.8035,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "mfi": "dropped",
+      "bollinger": {
+        "band": {
+          "n": 270000,
+          "clipped": 0.121152,
+          "median": 0.5527,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.356041,
+          "median": 0.7186,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "keltner": {
+        "band": {
+          "n": 270000,
+          "clipped": 0.0826259,
+          "median": 0.3935,
+          "q90": 0.9482,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.364193,
+          "median": 0.7333,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "vwap": {
+        "atr14": {
+          "n": 270000,
+          "clipped": 0.473256,
+          "median": 0.9395,
+          "q90": 1,
+          "q99": 1
+        },
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.362519,
+          "median": 0.7317,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "obv": {
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.376881,
+          "median": 0.7625,
+          "q90": 1,
+          "q99": 1
+        }
+      },
+      "cmf": {
+        "sigma100": {
+          "n": 270000,
+          "clipped": 0.404374,
+          "median": 0.8129,
+          "q90": 1,
+          "q99": 1
+        }
+      }
+    }
+  },
+  "tables": {
+    "current": {
+      "sigma100": [],
+      "mean": {
+        "1h": {
+          "n": 270000,
+          "clipped": 0.000225926,
+          "median": 0.2463,
+          "q90": 0.4731,
+          "q99": 0.7579
+        },
+        "4h": {
+          "n": 270000,
+          "clipped": 0.00592963,
+          "median": 0.5312,
+          "q90": 0.9073,
+          "q99": 0.9938
+        },
+        "1d": {
+          "n": 270000,
+          "clipped": 0.0083037,
+          "median": 0.5795,
+          "q90": 0.9305,
+          "q99": 0.9974
+        }
+      },
+      "blocMedian": {
+        "1h": {
+          "trend": 0.5883,
+          "meanReversion": 0.7778,
+          "breakout": 0.4875,
+          "flow": 0.643
+        },
+        "4h": {
+          "trend": 0.5848,
+          "meanReversion": null,
+          "breakout": 0.4844,
+          "flow": 0.5747
+        },
+        "1d": {
+          "trend": 0.5864,
+          "meanReversion": null,
+          "breakout": 0.4835,
+          "flow": 0.7206
+        }
+      },
+      "calibration": {
+        "chosen": {
+          "gain": 0.55,
+          "strongBand": 56
+        },
+        "cliff": {
+          "nextG": 0.6,
+          "nextWorstLabelled": 0.25,
+          "ratio": 4.6875
+        },
+        "cells": [
+          {
+            "model": "gauss",
+            "tf": "1h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "gauss",
+            "tf": "4h",
+            "labelled": 0.04,
+            "strong": 0
+          },
+          {
+            "model": "gauss",
+            "tf": "1d",
+            "labelled": 0.0533333,
+            "strong": 0
+          },
+          {
+            "model": "t3",
+            "tf": "1h",
+            "labelled": 0.00333333,
+            "strong": 0
+          },
+          {
+            "model": "t3",
+            "tf": "4h",
+            "labelled": 0.03,
+            "strong": 0
+          },
+          {
+            "model": "t3",
+            "tf": "1d",
+            "labelled": 0.05,
+            "strong": 0
+          },
+          {
+            "model": "garch",
+            "tf": "1h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "garch",
+            "tf": "4h",
+            "labelled": 0.0466667,
+            "strong": 0
+          },
+          {
+            "model": "garch",
+            "tf": "1d",
+            "labelled": 0.05,
+            "strong": 0
+          }
+        ],
+        "grid": [
+          {
+            "g": 0.5,
+            "worstLabelled": 0,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.55,
+            "worstLabelled": 0.0533333,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.6,
+            "worstLabelled": 0.25,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.65,
+            "worstLabelled": 0.356667,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.7,
+            "worstLabelled": 0.41,
+            "worstStrong70": 0.0166667
+          },
+          {
+            "g": 0.75,
+            "worstLabelled": 0.466667,
+            "worstStrong70": 0.12
+          },
+          {
+            "g": 0.8,
+            "worstLabelled": 0.503333,
+            "worstStrong70": 0.22
+          },
+          {
+            "g": 0.85,
+            "worstLabelled": 0.553333,
+            "worstStrong70": 0.276667
+          },
+          {
+            "g": 0.9,
+            "worstLabelled": 0.586667,
+            "worstStrong70": 0.34
+          },
+          {
+            "g": 0.95,
+            "worstLabelled": 0.606667,
+            "worstStrong70": 0.376667
+          },
+          {
+            "g": 1,
+            "worstLabelled": 0.626667,
+            "worstStrong70": 0.42
+          },
+          {
+            "g": 1.05,
+            "worstLabelled": 0.65,
+            "worstStrong70": 0.44
+          },
+          {
+            "g": 1.1,
+            "worstLabelled": 0.663333,
+            "worstStrong70": 0.473333
+          },
+          {
+            "g": 1.15,
+            "worstLabelled": 0.673333,
+            "worstStrong70": 0.503333
+          },
+          {
+            "g": 1.2,
+            "worstLabelled": 0.693333,
+            "worstStrong70": 0.53
+          },
+          {
+            "g": 1.25,
+            "worstLabelled": 0.713333,
+            "worstStrong70": 0.54
+          },
+          {
+            "g": 1.3,
+            "worstLabelled": 0.733333,
+            "worstStrong70": 0.57
+          },
+          {
+            "g": 1.35,
+            "worstLabelled": 0.756667,
+            "worstStrong70": 0.593333
+          },
+          {
+            "g": 1.4,
+            "worstLabelled": 0.773333,
+            "worstStrong70": 0.616667
+          },
+          {
+            "g": 1.45,
+            "worstLabelled": 0.783333,
+            "worstStrong70": 0.626667
+          },
+          {
+            "g": 1.5,
+            "worstLabelled": 0.79,
+            "worstStrong70": 0.646667
+          },
+          {
+            "g": 1.55,
+            "worstLabelled": 0.796667,
+            "worstStrong70": 0.656667
+          },
+          {
+            "g": 1.6,
+            "worstLabelled": 0.796667,
+            "worstStrong70": 0.666667
+          },
+          {
+            "g": 1.65,
+            "worstLabelled": 0.796667,
+            "worstStrong70": 0.686667
+          },
+          {
+            "g": 1.7,
+            "worstLabelled": 0.8,
+            "worstStrong70": 0.706667
+          },
+          {
+            "g": 1.75,
+            "worstLabelled": 0.803333,
+            "worstStrong70": 0.723333
+          },
+          {
+            "g": 1.8,
+            "worstLabelled": 0.813333,
+            "worstStrong70": 0.736667
+          },
+          {
+            "g": 1.85,
+            "worstLabelled": 0.816667,
+            "worstStrong70": 0.75
+          },
+          {
+            "g": 1.9,
+            "worstLabelled": 0.823333,
+            "worstStrong70": 0.75
+          },
+          {
+            "g": 1.95,
+            "worstLabelled": 0.823333,
+            "worstStrong70": 0.75
+          },
+          {
+            "g": 2,
+            "worstLabelled": 0.823333,
+            "worstStrong70": 0.756667
+          },
+          {
+            "g": 2.05,
+            "worstLabelled": 0.823333,
+            "worstStrong70": 0.756667
+          },
+          {
+            "g": 2.1,
+            "worstLabelled": 0.833333,
+            "worstStrong70": 0.76
+          },
+          {
+            "g": 2.15,
+            "worstLabelled": 0.833333,
+            "worstStrong70": 0.773333
+          },
+          {
+            "g": 2.2,
+            "worstLabelled": 0.833333,
+            "worstStrong70": 0.773333
+          },
+          {
+            "g": 2.25,
+            "worstLabelled": 0.833333,
+            "worstStrong70": 0.773333
+          },
+          {
+            "g": 2.3,
+            "worstLabelled": 0.833333,
+            "worstStrong70": 0.786667
+          },
+          {
+            "g": 2.35,
+            "worstLabelled": 0.836667,
+            "worstStrong70": 0.796667
+          },
+          {
+            "g": 2.4,
+            "worstLabelled": 0.846667,
+            "worstStrong70": 0.8
+          },
+          {
+            "g": 2.45,
+            "worstLabelled": 0.853333,
+            "worstStrong70": 0.803333
+          },
+          {
+            "g": 2.5,
+            "worstLabelled": 0.863333,
+            "worstStrong70": 0.803333
+          },
+          {
+            "g": 2.55,
+            "worstLabelled": 0.87,
+            "worstStrong70": 0.803333
+          },
+          {
+            "g": 2.6,
+            "worstLabelled": 0.87,
+            "worstStrong70": 0.806667
+          },
+          {
+            "g": 2.65,
+            "worstLabelled": 0.87,
+            "worstStrong70": 0.81
+          },
+          {
+            "g": 2.7,
+            "worstLabelled": 0.873333,
+            "worstStrong70": 0.813333
+          },
+          {
+            "g": 2.75,
+            "worstLabelled": 0.873333,
+            "worstStrong70": 0.82
+          },
+          {
+            "g": 2.8,
+            "worstLabelled": 0.886667,
+            "worstStrong70": 0.82
+          },
+          {
+            "g": 2.85,
+            "worstLabelled": 0.89,
+            "worstStrong70": 0.82
+          },
+          {
+            "g": 2.9,
+            "worstLabelled": 0.89,
+            "worstStrong70": 0.82
+          },
+          {
+            "g": 2.95,
+            "worstLabelled": 0.893333,
+            "worstStrong70": 0.82
+          },
+          {
+            "g": 3,
+            "worstLabelled": 0.893333,
+            "worstStrong70": 0.82
+          }
+        ]
+      },
+      "drift": {
+        "windows": 100,
+        "labelled": 33,
+        "buy": 33,
+        "strong": 0
+      }
+    },
+    "trend5": {
+      "sigma100": [
+        "sma",
+        "ema",
+        "psar",
+        "ichimoku",
+        "supertrend"
+      ],
+      "mean": {
+        "1h": {
+          "n": 270000,
+          "clipped": 0.000233333,
+          "median": 0.2516,
+          "q90": 0.4767,
+          "q99": 0.7557
+        },
+        "4h": {
+          "n": 270000,
+          "clipped": 0.0099037,
+          "median": 0.5382,
+          "q90": 0.9112,
+          "q99": 0.9988
+        },
+        "1d": {
+          "n": 270000,
+          "clipped": 0.013763,
+          "median": 0.5868,
+          "q90": 0.9321,
+          "q99": 1
+        }
+      },
+      "blocMedian": {
+        "1h": {
+          "trend": 0.6036,
+          "meanReversion": 0.7778,
+          "breakout": 0.4875,
+          "flow": 0.643
+        },
+        "4h": {
+          "trend": 0.5988,
+          "meanReversion": null,
+          "breakout": 0.4844,
+          "flow": 0.5747
+        },
+        "1d": {
+          "trend": 0.5968,
+          "meanReversion": null,
+          "breakout": 0.4835,
+          "flow": 0.7206
+        }
+      },
+      "calibration": {
+        "chosen": {
+          "gain": 0.5,
+          "strongBand": 56
+        },
+        "cliff": {
+          "nextG": 0.55,
+          "nextWorstLabelled": 0.0666667,
+          "ratio": null
+        },
+        "cells": [
+          {
+            "model": "gauss",
+            "tf": "1h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "gauss",
+            "tf": "4h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "gauss",
+            "tf": "1d",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "t3",
+            "tf": "1h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "t3",
+            "tf": "4h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "t3",
+            "tf": "1d",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "garch",
+            "tf": "1h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "garch",
+            "tf": "4h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "garch",
+            "tf": "1d",
+            "labelled": 0,
+            "strong": 0
+          }
+        ],
+        "grid": [
+          {
+            "g": 0.5,
+            "worstLabelled": 0,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.55,
+            "worstLabelled": 0.0666667,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.6,
+            "worstLabelled": 0.266667,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.65,
+            "worstLabelled": 0.356667,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.7,
+            "worstLabelled": 0.406667,
+            "worstStrong70": 0.0266667
+          },
+          {
+            "g": 0.75,
+            "worstLabelled": 0.47,
+            "worstStrong70": 0.123333
+          },
+          {
+            "g": 0.8,
+            "worstLabelled": 0.506667,
+            "worstStrong70": 0.223333
+          },
+          {
+            "g": 0.85,
+            "worstLabelled": 0.566667,
+            "worstStrong70": 0.283333
+          },
+          {
+            "g": 0.9,
+            "worstLabelled": 0.59,
+            "worstStrong70": 0.34
+          },
+          {
+            "g": 0.95,
+            "worstLabelled": 0.616667,
+            "worstStrong70": 0.386667
+          },
+          {
+            "g": 1,
+            "worstLabelled": 0.623333,
+            "worstStrong70": 0.416667
+          },
+          {
+            "g": 1.05,
+            "worstLabelled": 0.646667,
+            "worstStrong70": 0.446667
+          },
+          {
+            "g": 1.1,
+            "worstLabelled": 0.673333,
+            "worstStrong70": 0.476667
+          },
+          {
+            "g": 1.15,
+            "worstLabelled": 0.683333,
+            "worstStrong70": 0.51
+          },
+          {
+            "g": 1.2,
+            "worstLabelled": 0.7,
+            "worstStrong70": 0.53
+          },
+          {
+            "g": 1.25,
+            "worstLabelled": 0.723333,
+            "worstStrong70": 0.543333
+          },
+          {
+            "g": 1.3,
+            "worstLabelled": 0.75,
+            "worstStrong70": 0.57
+          },
+          {
+            "g": 1.35,
+            "worstLabelled": 0.763333,
+            "worstStrong70": 0.61
+          },
+          {
+            "g": 1.4,
+            "worstLabelled": 0.773333,
+            "worstStrong70": 0.62
+          },
+          {
+            "g": 1.45,
+            "worstLabelled": 0.786667,
+            "worstStrong70": 0.636667
+          },
+          {
+            "g": 1.5,
+            "worstLabelled": 0.786667,
+            "worstStrong70": 0.66
+          },
+          {
+            "g": 1.55,
+            "worstLabelled": 0.79,
+            "worstStrong70": 0.666667
+          },
+          {
+            "g": 1.6,
+            "worstLabelled": 0.793333,
+            "worstStrong70": 0.68
+          },
+          {
+            "g": 1.65,
+            "worstLabelled": 0.796667,
+            "worstStrong70": 0.706667
+          },
+          {
+            "g": 1.7,
+            "worstLabelled": 0.806667,
+            "worstStrong70": 0.716667
+          },
+          {
+            "g": 1.75,
+            "worstLabelled": 0.806667,
+            "worstStrong70": 0.73
+          },
+          {
+            "g": 1.8,
+            "worstLabelled": 0.806667,
+            "worstStrong70": 0.746667
+          },
+          {
+            "g": 1.85,
+            "worstLabelled": 0.813333,
+            "worstStrong70": 0.753333
+          },
+          {
+            "g": 1.9,
+            "worstLabelled": 0.82,
+            "worstStrong70": 0.756667
+          },
+          {
+            "g": 1.95,
+            "worstLabelled": 0.823333,
+            "worstStrong70": 0.756667
+          },
+          {
+            "g": 2,
+            "worstLabelled": 0.823333,
+            "worstStrong70": 0.756667
+          },
+          {
+            "g": 2.05,
+            "worstLabelled": 0.826667,
+            "worstStrong70": 0.76
+          },
+          {
+            "g": 2.1,
+            "worstLabelled": 0.83,
+            "worstStrong70": 0.763333
+          },
+          {
+            "g": 2.15,
+            "worstLabelled": 0.84,
+            "worstStrong70": 0.773333
+          },
+          {
+            "g": 2.2,
+            "worstLabelled": 0.84,
+            "worstStrong70": 0.783333
+          },
+          {
+            "g": 2.25,
+            "worstLabelled": 0.846667,
+            "worstStrong70": 0.786667
+          },
+          {
+            "g": 2.3,
+            "worstLabelled": 0.85,
+            "worstStrong70": 0.786667
+          },
+          {
+            "g": 2.35,
+            "worstLabelled": 0.856667,
+            "worstStrong70": 0.786667
+          },
+          {
+            "g": 2.4,
+            "worstLabelled": 0.856667,
+            "worstStrong70": 0.793333
+          },
+          {
+            "g": 2.45,
+            "worstLabelled": 0.856667,
+            "worstStrong70": 0.8
+          },
+          {
+            "g": 2.5,
+            "worstLabelled": 0.86,
+            "worstStrong70": 0.803333
+          },
+          {
+            "g": 2.55,
+            "worstLabelled": 0.86,
+            "worstStrong70": 0.803333
+          },
+          {
+            "g": 2.6,
+            "worstLabelled": 0.863333,
+            "worstStrong70": 0.806667
+          },
+          {
+            "g": 2.65,
+            "worstLabelled": 0.87,
+            "worstStrong70": 0.806667
+          },
+          {
+            "g": 2.7,
+            "worstLabelled": 0.87,
+            "worstStrong70": 0.813333
+          },
+          {
+            "g": 2.75,
+            "worstLabelled": 0.873333,
+            "worstStrong70": 0.82
+          },
+          {
+            "g": 2.8,
+            "worstLabelled": 0.873333,
+            "worstStrong70": 0.823333
+          },
+          {
+            "g": 2.85,
+            "worstLabelled": 0.873333,
+            "worstStrong70": 0.823333
+          },
+          {
+            "g": 2.9,
+            "worstLabelled": 0.876667,
+            "worstStrong70": 0.823333
+          },
+          {
+            "g": 2.95,
+            "worstLabelled": 0.883333,
+            "worstStrong70": 0.83
+          },
+          {
+            "g": 3,
+            "worstLabelled": 0.883333,
+            "worstStrong70": 0.83
+          }
+        ]
+      },
+      "drift": {
+        "windows": 100,
+        "labelled": 0,
+        "buy": 0,
+        "strong": 0
+      }
+    },
+    "measured": {
+      "sigma100": [
+        "psar",
+        "ichimoku",
+        "supertrend",
+        "ao"
+      ],
+      "mean": {
+        "1h": {
+          "n": 270000,
+          "clipped": 0.000225926,
+          "median": 0.2419,
+          "q90": 0.4707,
+          "q99": 0.7549
+        },
+        "4h": {
+          "n": 270000,
+          "clipped": 0.00574444,
+          "median": 0.5271,
+          "q90": 0.9017,
+          "q99": 0.9934
+        },
+        "1d": {
+          "n": 270000,
+          "clipped": 0.0079963,
+          "median": 0.5744,
+          "q90": 0.9243,
+          "q99": 0.997
+        }
+      },
+      "blocMedian": {
+        "1h": {
+          "trend": 0.5605,
+          "meanReversion": 0.7778,
+          "breakout": 0.4875,
+          "flow": 0.643
+        },
+        "4h": {
+          "trend": 0.5562,
+          "meanReversion": null,
+          "breakout": 0.4844,
+          "flow": 0.5747
+        },
+        "1d": {
+          "trend": 0.5547,
+          "meanReversion": null,
+          "breakout": 0.4835,
+          "flow": 0.7206
+        }
+      },
+      "calibration": {
+        "chosen": {
+          "gain": 0.55,
+          "strongBand": 56
+        },
+        "cliff": {
+          "nextG": 0.6,
+          "nextWorstLabelled": 0.243333,
+          "ratio": 4.5625
+        },
+        "cells": [
+          {
+            "model": "gauss",
+            "tf": "1h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "gauss",
+            "tf": "4h",
+            "labelled": 0.0366667,
+            "strong": 0
+          },
+          {
+            "model": "gauss",
+            "tf": "1d",
+            "labelled": 0.0533333,
+            "strong": 0
+          },
+          {
+            "model": "t3",
+            "tf": "1h",
+            "labelled": 0.00333333,
+            "strong": 0
+          },
+          {
+            "model": "t3",
+            "tf": "4h",
+            "labelled": 0.03,
+            "strong": 0
+          },
+          {
+            "model": "t3",
+            "tf": "1d",
+            "labelled": 0.05,
+            "strong": 0
+          },
+          {
+            "model": "garch",
+            "tf": "1h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "garch",
+            "tf": "4h",
+            "labelled": 0.0433333,
+            "strong": 0
+          },
+          {
+            "model": "garch",
+            "tf": "1d",
+            "labelled": 0.0466667,
+            "strong": 0
+          }
+        ],
+        "grid": [
+          {
+            "g": 0.5,
+            "worstLabelled": 0,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.55,
+            "worstLabelled": 0.0533333,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.6,
+            "worstLabelled": 0.243333,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.65,
+            "worstLabelled": 0.343333,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.7,
+            "worstLabelled": 0.4,
+            "worstStrong70": 0.0133333
+          },
+          {
+            "g": 0.75,
+            "worstLabelled": 0.453333,
+            "worstStrong70": 0.11
+          },
+          {
+            "g": 0.8,
+            "worstLabelled": 0.496667,
+            "worstStrong70": 0.21
+          },
+          {
+            "g": 0.85,
+            "worstLabelled": 0.546667,
+            "worstStrong70": 0.27
+          },
+          {
+            "g": 0.9,
+            "worstLabelled": 0.58,
+            "worstStrong70": 0.333333
+          },
+          {
+            "g": 0.95,
+            "worstLabelled": 0.6,
+            "worstStrong70": 0.37
+          },
+          {
+            "g": 1,
+            "worstLabelled": 0.62,
+            "worstStrong70": 0.413333
+          },
+          {
+            "g": 1.05,
+            "worstLabelled": 0.643333,
+            "worstStrong70": 0.436667
+          },
+          {
+            "g": 1.1,
+            "worstLabelled": 0.66,
+            "worstStrong70": 0.48
+          },
+          {
+            "g": 1.15,
+            "worstLabelled": 0.676667,
+            "worstStrong70": 0.496667
+          },
+          {
+            "g": 1.2,
+            "worstLabelled": 0.693333,
+            "worstStrong70": 0.513333
+          },
+          {
+            "g": 1.25,
+            "worstLabelled": 0.706667,
+            "worstStrong70": 0.533333
+          },
+          {
+            "g": 1.3,
+            "worstLabelled": 0.726667,
+            "worstStrong70": 0.553333
+          },
+          {
+            "g": 1.35,
+            "worstLabelled": 0.753333,
+            "worstStrong70": 0.586667
+          },
+          {
+            "g": 1.4,
+            "worstLabelled": 0.766667,
+            "worstStrong70": 0.61
+          },
+          {
+            "g": 1.45,
+            "worstLabelled": 0.776667,
+            "worstStrong70": 0.623333
+          },
+          {
+            "g": 1.5,
+            "worstLabelled": 0.786667,
+            "worstStrong70": 0.646667
+          },
+          {
+            "g": 1.55,
+            "worstLabelled": 0.79,
+            "worstStrong70": 0.66
+          },
+          {
+            "g": 1.6,
+            "worstLabelled": 0.79,
+            "worstStrong70": 0.666667
+          },
+          {
+            "g": 1.65,
+            "worstLabelled": 0.79,
+            "worstStrong70": 0.683333
+          },
+          {
+            "g": 1.7,
+            "worstLabelled": 0.793333,
+            "worstStrong70": 0.706667
+          },
+          {
+            "g": 1.75,
+            "worstLabelled": 0.8,
+            "worstStrong70": 0.723333
+          },
+          {
+            "g": 1.8,
+            "worstLabelled": 0.806667,
+            "worstStrong70": 0.74
+          },
+          {
+            "g": 1.85,
+            "worstLabelled": 0.813333,
+            "worstStrong70": 0.743333
+          },
+          {
+            "g": 1.9,
+            "worstLabelled": 0.813333,
+            "worstStrong70": 0.753333
+          },
+          {
+            "g": 1.95,
+            "worstLabelled": 0.816667,
+            "worstStrong70": 0.753333
+          },
+          {
+            "g": 2,
+            "worstLabelled": 0.816667,
+            "worstStrong70": 0.756667
+          },
+          {
+            "g": 2.05,
+            "worstLabelled": 0.823333,
+            "worstStrong70": 0.756667
+          },
+          {
+            "g": 2.1,
+            "worstLabelled": 0.83,
+            "worstStrong70": 0.756667
+          },
+          {
+            "g": 2.15,
+            "worstLabelled": 0.84,
+            "worstStrong70": 0.76
+          },
+          {
+            "g": 2.2,
+            "worstLabelled": 0.846667,
+            "worstStrong70": 0.763333
+          },
+          {
+            "g": 2.25,
+            "worstLabelled": 0.846667,
+            "worstStrong70": 0.773333
+          },
+          {
+            "g": 2.3,
+            "worstLabelled": 0.85,
+            "worstStrong70": 0.78
+          },
+          {
+            "g": 2.35,
+            "worstLabelled": 0.853333,
+            "worstStrong70": 0.79
+          },
+          {
+            "g": 2.4,
+            "worstLabelled": 0.856667,
+            "worstStrong70": 0.79
+          },
+          {
+            "g": 2.45,
+            "worstLabelled": 0.86,
+            "worstStrong70": 0.793333
+          },
+          {
+            "g": 2.5,
+            "worstLabelled": 0.86,
+            "worstStrong70": 0.793333
+          },
+          {
+            "g": 2.55,
+            "worstLabelled": 0.86,
+            "worstStrong70": 0.796667
+          },
+          {
+            "g": 2.6,
+            "worstLabelled": 0.86,
+            "worstStrong70": 0.803333
+          },
+          {
+            "g": 2.65,
+            "worstLabelled": 0.86,
+            "worstStrong70": 0.806667
+          },
+          {
+            "g": 2.7,
+            "worstLabelled": 0.86,
+            "worstStrong70": 0.813333
+          },
+          {
+            "g": 2.75,
+            "worstLabelled": 0.86,
+            "worstStrong70": 0.82
+          },
+          {
+            "g": 2.8,
+            "worstLabelled": 0.87,
+            "worstStrong70": 0.82
+          },
+          {
+            "g": 2.85,
+            "worstLabelled": 0.873333,
+            "worstStrong70": 0.823333
+          },
+          {
+            "g": 2.9,
+            "worstLabelled": 0.873333,
+            "worstStrong70": 0.823333
+          },
+          {
+            "g": 2.95,
+            "worstLabelled": 0.876667,
+            "worstStrong70": 0.826667
+          },
+          {
+            "g": 3,
+            "worstLabelled": 0.886667,
+            "worstStrong70": 0.826667
+          }
+        ]
+      },
+      "drift": {
+        "windows": 100,
+        "labelled": 33,
+        "buy": 33,
+        "strong": 0
+      }
+    },
+    "measured_vwap": {
+      "sigma100": [
+        "psar",
+        "ichimoku",
+        "supertrend",
+        "ao",
+        "vwap"
+      ],
+      "mean": {
+        "1h": {
+          "n": 270000,
+          "clipped": 0.000225926,
+          "median": 0.24,
+          "q90": 0.4698,
+          "q99": 0.7517
+        },
+        "4h": {
+          "n": 270000,
+          "clipped": 0.0063,
+          "median": 0.5294,
+          "q90": 0.905,
+          "q99": 0.9947
+        },
+        "1d": {
+          "n": 270000,
+          "clipped": 0.0079963,
+          "median": 0.56,
+          "q90": 0.9239,
+          "q99": 0.997
+        }
+      },
+      "blocMedian": {
+        "1h": {
+          "trend": 0.5605,
+          "meanReversion": 0.7778,
+          "breakout": 0.4875,
+          "flow": 0.6324
+        },
+        "4h": {
+          "trend": 0.5562,
+          "meanReversion": null,
+          "breakout": 0.4844,
+          "flow": 0.5823
+        },
+        "1d": {
+          "trend": 0.5547,
+          "meanReversion": null,
+          "breakout": 0.4835,
+          "flow": 0.6782
+        }
+      },
+      "calibration": {
+        "chosen": {
+          "gain": 0.55,
+          "strongBand": 56
+        },
+        "cliff": {
+          "nextG": 0.6,
+          "nextWorstLabelled": 0.24,
+          "ratio": 4.5
+        },
+        "cells": [
+          {
+            "model": "gauss",
+            "tf": "1h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "gauss",
+            "tf": "4h",
+            "labelled": 0.0366667,
+            "strong": 0
+          },
+          {
+            "model": "gauss",
+            "tf": "1d",
+            "labelled": 0.05,
+            "strong": 0
+          },
+          {
+            "model": "t3",
+            "tf": "1h",
+            "labelled": 0.00333333,
+            "strong": 0
+          },
+          {
+            "model": "t3",
+            "tf": "4h",
+            "labelled": 0.0333333,
+            "strong": 0
+          },
+          {
+            "model": "t3",
+            "tf": "1d",
+            "labelled": 0.05,
+            "strong": 0
+          },
+          {
+            "model": "garch",
+            "tf": "1h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "garch",
+            "tf": "4h",
+            "labelled": 0.0533333,
+            "strong": 0
+          },
+          {
+            "model": "garch",
+            "tf": "1d",
+            "labelled": 0.0466667,
+            "strong": 0
+          }
+        ],
+        "grid": [
+          {
+            "g": 0.5,
+            "worstLabelled": 0,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.55,
+            "worstLabelled": 0.0533333,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.6,
+            "worstLabelled": 0.24,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.65,
+            "worstLabelled": 0.34,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.7,
+            "worstLabelled": 0.39,
+            "worstStrong70": 0.0166667
+          },
+          {
+            "g": 0.75,
+            "worstLabelled": 0.43,
+            "worstStrong70": 0.11
+          },
+          {
+            "g": 0.8,
+            "worstLabelled": 0.49,
+            "worstStrong70": 0.206667
+          },
+          {
+            "g": 0.85,
+            "worstLabelled": 0.54,
+            "worstStrong70": 0.273333
+          },
+          {
+            "g": 0.9,
+            "worstLabelled": 0.573333,
+            "worstStrong70": 0.323333
+          },
+          {
+            "g": 0.95,
+            "worstLabelled": 0.596667,
+            "worstStrong70": 0.36
+          },
+          {
+            "g": 1,
+            "worstLabelled": 0.616667,
+            "worstStrong70": 0.396667
+          },
+          {
+            "g": 1.05,
+            "worstLabelled": 0.626667,
+            "worstStrong70": 0.426667
+          },
+          {
+            "g": 1.1,
+            "worstLabelled": 0.646667,
+            "worstStrong70": 0.466667
+          },
+          {
+            "g": 1.15,
+            "worstLabelled": 0.66,
+            "worstStrong70": 0.476667
+          },
+          {
+            "g": 1.2,
+            "worstLabelled": 0.67,
+            "worstStrong70": 0.503333
+          },
+          {
+            "g": 1.25,
+            "worstLabelled": 0.7,
+            "worstStrong70": 0.53
+          },
+          {
+            "g": 1.3,
+            "worstLabelled": 0.723333,
+            "worstStrong70": 0.536667
+          },
+          {
+            "g": 1.35,
+            "worstLabelled": 0.74,
+            "worstStrong70": 0.56
+          },
+          {
+            "g": 1.4,
+            "worstLabelled": 0.753333,
+            "worstStrong70": 0.59
+          },
+          {
+            "g": 1.45,
+            "worstLabelled": 0.763333,
+            "worstStrong70": 0.596667
+          },
+          {
+            "g": 1.5,
+            "worstLabelled": 0.783333,
+            "worstStrong70": 0.62
+          },
+          {
+            "g": 1.55,
+            "worstLabelled": 0.79,
+            "worstStrong70": 0.646667
+          },
+          {
+            "g": 1.6,
+            "worstLabelled": 0.79,
+            "worstStrong70": 0.666667
+          },
+          {
+            "g": 1.65,
+            "worstLabelled": 0.79,
+            "worstStrong70": 0.68
+          },
+          {
+            "g": 1.7,
+            "worstLabelled": 0.793333,
+            "worstStrong70": 0.686667
+          },
+          {
+            "g": 1.75,
+            "worstLabelled": 0.8,
+            "worstStrong70": 0.706667
+          },
+          {
+            "g": 1.8,
+            "worstLabelled": 0.8,
+            "worstStrong70": 0.72
+          },
+          {
+            "g": 1.85,
+            "worstLabelled": 0.803333,
+            "worstStrong70": 0.72
+          },
+          {
+            "g": 1.9,
+            "worstLabelled": 0.81,
+            "worstStrong70": 0.733333
+          },
+          {
+            "g": 1.95,
+            "worstLabelled": 0.81,
+            "worstStrong70": 0.75
+          },
+          {
+            "g": 2,
+            "worstLabelled": 0.813333,
+            "worstStrong70": 0.753333
+          },
+          {
+            "g": 2.05,
+            "worstLabelled": 0.823333,
+            "worstStrong70": 0.753333
+          },
+          {
+            "g": 2.1,
+            "worstLabelled": 0.823333,
+            "worstStrong70": 0.753333
+          },
+          {
+            "g": 2.15,
+            "worstLabelled": 0.823333,
+            "worstStrong70": 0.753333
+          },
+          {
+            "g": 2.2,
+            "worstLabelled": 0.826667,
+            "worstStrong70": 0.76
+          },
+          {
+            "g": 2.25,
+            "worstLabelled": 0.833333,
+            "worstStrong70": 0.766667
+          },
+          {
+            "g": 2.3,
+            "worstLabelled": 0.84,
+            "worstStrong70": 0.77
+          },
+          {
+            "g": 2.35,
+            "worstLabelled": 0.843333,
+            "worstStrong70": 0.776667
+          },
+          {
+            "g": 2.4,
+            "worstLabelled": 0.846667,
+            "worstStrong70": 0.783333
+          },
+          {
+            "g": 2.45,
+            "worstLabelled": 0.853333,
+            "worstStrong70": 0.786667
+          },
+          {
+            "g": 2.5,
+            "worstLabelled": 0.856667,
+            "worstStrong70": 0.79
+          },
+          {
+            "g": 2.55,
+            "worstLabelled": 0.856667,
+            "worstStrong70": 0.796667
+          },
+          {
+            "g": 2.6,
+            "worstLabelled": 0.86,
+            "worstStrong70": 0.8
+          },
+          {
+            "g": 2.65,
+            "worstLabelled": 0.86,
+            "worstStrong70": 0.806667
+          },
+          {
+            "g": 2.7,
+            "worstLabelled": 0.86,
+            "worstStrong70": 0.806667
+          },
+          {
+            "g": 2.75,
+            "worstLabelled": 0.86,
+            "worstStrong70": 0.81
+          },
+          {
+            "g": 2.8,
+            "worstLabelled": 0.863333,
+            "worstStrong70": 0.813333
+          },
+          {
+            "g": 2.85,
+            "worstLabelled": 0.863333,
+            "worstStrong70": 0.82
+          },
+          {
+            "g": 2.9,
+            "worstLabelled": 0.866667,
+            "worstStrong70": 0.82
+          },
+          {
+            "g": 2.95,
+            "worstLabelled": 0.873333,
+            "worstStrong70": 0.826667
+          },
+          {
+            "g": 3,
+            "worstLabelled": 0.876667,
+            "worstStrong70": 0.826667
+          }
+        ]
+      },
+      "drift": {
+        "windows": 100,
+        "labelled": 32,
+        "buy": 32,
+        "strong": 0
+      }
+    },
+    "trend5_ao_vwap": {
+      "sigma100": [
+        "sma",
+        "ema",
+        "psar",
+        "ichimoku",
+        "supertrend",
+        "ao",
+        "vwap"
+      ],
+      "mean": {
+        "1h": {
+          "n": 270000,
+          "clipped": 0.000233333,
+          "median": 0.2479,
+          "q90": 0.4755,
+          "q99": 0.7522
+        },
+        "4h": {
+          "n": 270000,
+          "clipped": 0.0112259,
+          "median": 0.5383,
+          "q90": 0.9139,
+          "q99": 1
+        },
+        "1d": {
+          "n": 270000,
+          "clipped": 0.0138259,
+          "median": 0.5694,
+          "q90": 0.9309,
+          "q99": 1
+        }
+      },
+      "blocMedian": {
+        "1h": {
+          "trend": 0.594,
+          "meanReversion": 0.7778,
+          "breakout": 0.4875,
+          "flow": 0.6324
+        },
+        "4h": {
+          "trend": 0.5892,
+          "meanReversion": null,
+          "breakout": 0.4844,
+          "flow": 0.5823
+        },
+        "1d": {
+          "trend": 0.5856,
+          "meanReversion": null,
+          "breakout": 0.4835,
+          "flow": 0.6782
+        }
+      },
+      "calibration": {
+        "chosen": {
+          "gain": 0.5,
+          "strongBand": 56
+        },
+        "cliff": {
+          "nextG": 0.55,
+          "nextWorstLabelled": 0.07,
+          "ratio": null
+        },
+        "cells": [
+          {
+            "model": "gauss",
+            "tf": "1h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "gauss",
+            "tf": "4h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "gauss",
+            "tf": "1d",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "t3",
+            "tf": "1h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "t3",
+            "tf": "4h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "t3",
+            "tf": "1d",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "garch",
+            "tf": "1h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "garch",
+            "tf": "4h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "garch",
+            "tf": "1d",
+            "labelled": 0,
+            "strong": 0
+          }
+        ],
+        "grid": [
+          {
+            "g": 0.5,
+            "worstLabelled": 0,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.55,
+            "worstLabelled": 0.07,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.6,
+            "worstLabelled": 0.26,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.65,
+            "worstLabelled": 0.35,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.7,
+            "worstLabelled": 0.393333,
+            "worstStrong70": 0.0266667
+          },
+          {
+            "g": 0.75,
+            "worstLabelled": 0.446667,
+            "worstStrong70": 0.123333
+          },
+          {
+            "g": 0.8,
+            "worstLabelled": 0.5,
+            "worstStrong70": 0.216667
+          },
+          {
+            "g": 0.85,
+            "worstLabelled": 0.556667,
+            "worstStrong70": 0.28
+          },
+          {
+            "g": 0.9,
+            "worstLabelled": 0.573333,
+            "worstStrong70": 0.333333
+          },
+          {
+            "g": 0.95,
+            "worstLabelled": 0.613333,
+            "worstStrong70": 0.37
+          },
+          {
+            "g": 1,
+            "worstLabelled": 0.623333,
+            "worstStrong70": 0.403333
+          },
+          {
+            "g": 1.05,
+            "worstLabelled": 0.633333,
+            "worstStrong70": 0.43
+          },
+          {
+            "g": 1.1,
+            "worstLabelled": 0.646667,
+            "worstStrong70": 0.463333
+          },
+          {
+            "g": 1.15,
+            "worstLabelled": 0.663333,
+            "worstStrong70": 0.49
+          },
+          {
+            "g": 1.2,
+            "worstLabelled": 0.683333,
+            "worstStrong70": 0.523333
+          },
+          {
+            "g": 1.25,
+            "worstLabelled": 0.706667,
+            "worstStrong70": 0.533333
+          },
+          {
+            "g": 1.3,
+            "worstLabelled": 0.736667,
+            "worstStrong70": 0.55
+          },
+          {
+            "g": 1.35,
+            "worstLabelled": 0.75,
+            "worstStrong70": 0.573333
+          },
+          {
+            "g": 1.4,
+            "worstLabelled": 0.76,
+            "worstStrong70": 0.593333
+          },
+          {
+            "g": 1.45,
+            "worstLabelled": 0.77,
+            "worstStrong70": 0.603333
+          },
+          {
+            "g": 1.5,
+            "worstLabelled": 0.79,
+            "worstStrong70": 0.633333
+          },
+          {
+            "g": 1.55,
+            "worstLabelled": 0.79,
+            "worstStrong70": 0.65
+          },
+          {
+            "g": 1.6,
+            "worstLabelled": 0.79,
+            "worstStrong70": 0.67
+          },
+          {
+            "g": 1.65,
+            "worstLabelled": 0.796667,
+            "worstStrong70": 0.693333
+          },
+          {
+            "g": 1.7,
+            "worstLabelled": 0.8,
+            "worstStrong70": 0.7
+          },
+          {
+            "g": 1.75,
+            "worstLabelled": 0.8,
+            "worstStrong70": 0.713333
+          },
+          {
+            "g": 1.8,
+            "worstLabelled": 0.806667,
+            "worstStrong70": 0.723333
+          },
+          {
+            "g": 1.85,
+            "worstLabelled": 0.806667,
+            "worstStrong70": 0.73
+          },
+          {
+            "g": 1.9,
+            "worstLabelled": 0.81,
+            "worstStrong70": 0.743333
+          },
+          {
+            "g": 1.95,
+            "worstLabelled": 0.813333,
+            "worstStrong70": 0.753333
+          },
+          {
+            "g": 2,
+            "worstLabelled": 0.816667,
+            "worstStrong70": 0.753333
+          },
+          {
+            "g": 2.05,
+            "worstLabelled": 0.82,
+            "worstStrong70": 0.756667
+          },
+          {
+            "g": 2.1,
+            "worstLabelled": 0.823333,
+            "worstStrong70": 0.76
+          },
+          {
+            "g": 2.15,
+            "worstLabelled": 0.826667,
+            "worstStrong70": 0.76
+          },
+          {
+            "g": 2.2,
+            "worstLabelled": 0.833333,
+            "worstStrong70": 0.766667
+          },
+          {
+            "g": 2.25,
+            "worstLabelled": 0.836667,
+            "worstStrong70": 0.77
+          },
+          {
+            "g": 2.3,
+            "worstLabelled": 0.84,
+            "worstStrong70": 0.78
+          },
+          {
+            "g": 2.35,
+            "worstLabelled": 0.853333,
+            "worstStrong70": 0.786667
+          },
+          {
+            "g": 2.4,
+            "worstLabelled": 0.853333,
+            "worstStrong70": 0.793333
+          },
+          {
+            "g": 2.45,
+            "worstLabelled": 0.853333,
+            "worstStrong70": 0.793333
+          },
+          {
+            "g": 2.5,
+            "worstLabelled": 0.853333,
+            "worstStrong70": 0.793333
+          },
+          {
+            "g": 2.55,
+            "worstLabelled": 0.853333,
+            "worstStrong70": 0.8
+          },
+          {
+            "g": 2.6,
+            "worstLabelled": 0.863333,
+            "worstStrong70": 0.8
+          },
+          {
+            "g": 2.65,
+            "worstLabelled": 0.866667,
+            "worstStrong70": 0.803333
+          },
+          {
+            "g": 2.7,
+            "worstLabelled": 0.866667,
+            "worstStrong70": 0.806667
+          },
+          {
+            "g": 2.75,
+            "worstLabelled": 0.866667,
+            "worstStrong70": 0.813333
+          },
+          {
+            "g": 2.8,
+            "worstLabelled": 0.87,
+            "worstStrong70": 0.816667
+          },
+          {
+            "g": 2.85,
+            "worstLabelled": 0.87,
+            "worstStrong70": 0.816667
+          },
+          {
+            "g": 2.9,
+            "worstLabelled": 0.87,
+            "worstStrong70": 0.82
+          },
+          {
+            "g": 2.95,
+            "worstLabelled": 0.873333,
+            "worstStrong70": 0.83
+          },
+          {
+            "g": 3,
+            "worstLabelled": 0.873333,
+            "worstStrong70": 0.83
+          }
+        ]
+      },
+      "drift": {
+        "windows": 100,
+        "labelled": 0,
+        "buy": 0,
+        "strong": 0
+      }
+    },
+    "all_sigma": {
+      "sigma100": [
+        "sma",
+        "ema",
+        "psar",
+        "ichimoku",
+        "supertrend",
+        "ao",
+        "bollinger",
+        "keltner",
+        "vwap"
+      ],
+      "mean": {
+        "1h": {
+          "n": 270000,
+          "clipped": 0.000488889,
+          "median": 0.3027,
+          "q90": 0.5,
+          "q99": 0.7798
+        },
+        "4h": {
+          "n": 270000,
+          "clipped": 0.024963,
+          "median": 0.6156,
+          "q90": 0.9574,
+          "q99": 1
+        },
+        "1d": {
+          "n": 270000,
+          "clipped": 0.0386852,
+          "median": 0.64,
+          "q90": 0.9775,
+          "q99": 1
+        }
+      },
+      "blocMedian": {
+        "1h": {
+          "trend": 0.594,
+          "meanReversion": 0.7778,
+          "breakout": 0.7405,
+          "flow": 0.6324
+        },
+        "4h": {
+          "trend": 0.5892,
+          "meanReversion": null,
+          "breakout": 0.7296,
+          "flow": 0.5823
+        },
+        "1d": {
+          "trend": 0.5856,
+          "meanReversion": null,
+          "breakout": 0.7221,
+          "flow": 0.6782
+        }
+      },
+      "calibration": {
+        "chosen": {
+          "gain": 0.5,
+          "strongBand": 56
+        },
+        "cliff": {
+          "nextG": 0.55,
+          "nextWorstLabelled": 0.126667,
+          "ratio": null
+        },
+        "cells": [
+          {
+            "model": "gauss",
+            "tf": "1h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "gauss",
+            "tf": "4h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "gauss",
+            "tf": "1d",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "t3",
+            "tf": "1h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "t3",
+            "tf": "4h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "t3",
+            "tf": "1d",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "garch",
+            "tf": "1h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "garch",
+            "tf": "4h",
+            "labelled": 0,
+            "strong": 0
+          },
+          {
+            "model": "garch",
+            "tf": "1d",
+            "labelled": 0,
+            "strong": 0
+          }
+        ],
+        "grid": [
+          {
+            "g": 0.5,
+            "worstLabelled": 0,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.55,
+            "worstLabelled": 0.126667,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.6,
+            "worstLabelled": 0.346667,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.65,
+            "worstLabelled": 0.416667,
+            "worstStrong70": 0
+          },
+          {
+            "g": 0.7,
+            "worstLabelled": 0.473333,
+            "worstStrong70": 0.0533333
+          },
+          {
+            "g": 0.75,
+            "worstLabelled": 0.53,
+            "worstStrong70": 0.26
+          },
+          {
+            "g": 0.8,
+            "worstLabelled": 0.576667,
+            "worstStrong70": 0.31
+          },
+          {
+            "g": 0.85,
+            "worstLabelled": 0.59,
+            "worstStrong70": 0.376667
+          },
+          {
+            "g": 0.9,
+            "worstLabelled": 0.616667,
+            "worstStrong70": 0.403333
+          },
+          {
+            "g": 0.95,
+            "worstLabelled": 0.63,
+            "worstStrong70": 0.446667
+          },
+          {
+            "g": 1,
+            "worstLabelled": 0.646667,
+            "worstStrong70": 0.476667
+          },
+          {
+            "g": 1.05,
+            "worstLabelled": 0.666667,
+            "worstStrong70": 0.506667
+          },
+          {
+            "g": 1.1,
+            "worstLabelled": 0.676667,
+            "worstStrong70": 0.516667
+          },
+          {
+            "g": 1.15,
+            "worstLabelled": 0.696667,
+            "worstStrong70": 0.543333
+          },
+          {
+            "g": 1.2,
+            "worstLabelled": 0.723333,
+            "worstStrong70": 0.57
+          },
+          {
+            "g": 1.25,
+            "worstLabelled": 0.736667,
+            "worstStrong70": 0.596667
+          },
+          {
+            "g": 1.3,
+            "worstLabelled": 0.76,
+            "worstStrong70": 0.603333
+          },
+          {
+            "g": 1.35,
+            "worstLabelled": 0.77,
+            "worstStrong70": 0.626667
+          },
+          {
+            "g": 1.4,
+            "worstLabelled": 0.773333,
+            "worstStrong70": 0.646667
+          },
+          {
+            "g": 1.45,
+            "worstLabelled": 0.78,
+            "worstStrong70": 0.656667
+          },
+          {
+            "g": 1.5,
+            "worstLabelled": 0.786667,
+            "worstStrong70": 0.673333
+          },
+          {
+            "g": 1.55,
+            "worstLabelled": 0.79,
+            "worstStrong70": 0.683333
+          },
+          {
+            "g": 1.6,
+            "worstLabelled": 0.796667,
+            "worstStrong70": 0.693333
+          },
+          {
+            "g": 1.65,
+            "worstLabelled": 0.803333,
+            "worstStrong70": 0.71
+          },
+          {
+            "g": 1.7,
+            "worstLabelled": 0.813333,
+            "worstStrong70": 0.723333
+          },
+          {
+            "g": 1.75,
+            "worstLabelled": 0.813333,
+            "worstStrong70": 0.73
+          },
+          {
+            "g": 1.8,
+            "worstLabelled": 0.813333,
+            "worstStrong70": 0.733333
+          },
+          {
+            "g": 1.85,
+            "worstLabelled": 0.82,
+            "worstStrong70": 0.746667
+          },
+          {
+            "g": 1.9,
+            "worstLabelled": 0.823333,
+            "worstStrong70": 0.75
+          },
+          {
+            "g": 1.95,
+            "worstLabelled": 0.823333,
+            "worstStrong70": 0.756667
+          },
+          {
+            "g": 2,
+            "worstLabelled": 0.826667,
+            "worstStrong70": 0.756667
+          },
+          {
+            "g": 2.05,
+            "worstLabelled": 0.833333,
+            "worstStrong70": 0.763333
+          },
+          {
+            "g": 2.1,
+            "worstLabelled": 0.836667,
+            "worstStrong70": 0.766667
+          },
+          {
+            "g": 2.15,
+            "worstLabelled": 0.843333,
+            "worstStrong70": 0.78
+          },
+          {
+            "g": 2.2,
+            "worstLabelled": 0.846667,
+            "worstStrong70": 0.786667
+          },
+          {
+            "g": 2.25,
+            "worstLabelled": 0.846667,
+            "worstStrong70": 0.793333
+          },
+          {
+            "g": 2.3,
+            "worstLabelled": 0.85,
+            "worstStrong70": 0.796667
+          },
+          {
+            "g": 2.35,
+            "worstLabelled": 0.85,
+            "worstStrong70": 0.796667
+          },
+          {
+            "g": 2.4,
+            "worstLabelled": 0.86,
+            "worstStrong70": 0.8
+          },
+          {
+            "g": 2.45,
+            "worstLabelled": 0.86,
+            "worstStrong70": 0.8
+          },
+          {
+            "g": 2.5,
+            "worstLabelled": 0.863333,
+            "worstStrong70": 0.8
+          },
+          {
+            "g": 2.55,
+            "worstLabelled": 0.863333,
+            "worstStrong70": 0.803333
+          },
+          {
+            "g": 2.6,
+            "worstLabelled": 0.866667,
+            "worstStrong70": 0.803333
+          },
+          {
+            "g": 2.65,
+            "worstLabelled": 0.87,
+            "worstStrong70": 0.806667
+          },
+          {
+            "g": 2.7,
+            "worstLabelled": 0.873333,
+            "worstStrong70": 0.813333
+          },
+          {
+            "g": 2.75,
+            "worstLabelled": 0.873333,
+            "worstStrong70": 0.82
+          },
+          {
+            "g": 2.8,
+            "worstLabelled": 0.876667,
+            "worstStrong70": 0.82
+          },
+          {
+            "g": 2.85,
+            "worstLabelled": 0.876667,
+            "worstStrong70": 0.826667
+          },
+          {
+            "g": 2.9,
+            "worstLabelled": 0.876667,
+            "worstStrong70": 0.83
+          },
+          {
+            "g": 2.95,
+            "worstLabelled": 0.886667,
+            "worstStrong70": 0.833333
+          },
+          {
+            "g": 3,
+            "worstLabelled": 0.89,
+            "worstStrong70": 0.833333
+          }
+        ]
+      },
+      "drift": {
+        "windows": 100,
+        "labelled": 0,
+        "buy": 0,
+        "strong": 0
+      }
+    }
+  }
+}
