@@ -19,6 +19,7 @@ import {
   createPkce, randomState, authUrl, parseCallback, exchangeCode, beginWebSignIn, consumeWebCallback, completeWebSignIn,
   signInShell, PENDING_KEY, purgeStalePending,
 } from "./backup-oauth.ts";
+import { pathToFileURL } from "node:url";
 import { UPDATE_ORIGIN } from "./update-channel.ts";
 import {
   BACKUP_NATIVE_URLS, BACKUP_SIGN_IN_URLS, PCLOUD_API_HOSTS, ONEDRIVE_DOWNLOAD_ORIGINS, urlAllowed, CSP_HOSTS,
@@ -1026,4 +1027,13 @@ test("M-4: a cancel after the redirect arrives stops the sign-in, and the signal
   ctl = new AbortController();
   await exchangeCode("gdrive", { clientId: FAKE_IDS.gdrive, code: "fake-code", verifier: "v".repeat(43), redirectUri: LOOPBACK_REDIRECT }, http, NOW, ctl.signal);
   assert.equal(http.calls[0].signal, ctl.signal);
+});
+
+test("the desktop adapter's relayed pCloud result is accepted by the web core parser (fragment shape)", async () => {
+  const { createLoopbackOAuth } = await import(pathToFileURL(join(process.cwd(), "../../../packages/adapters/tauri/oauth.js")).href);
+  const invoke = async (cmd) => (cmd === "oauth_loopback_wait" ? "/callback?access_token=tok_abcdefgh12345678&hostname=eapi.pcloud.com&state=st_1" : undefined);
+  const oauth = createLoopbackOAuth({ invoke, openUrl: async () => {}, isSignIn: isAllowedSignInUrl });
+  const back = await oauth.authorize("https://my.pcloud.com/oauth2/authorize?client_id=x", { redirectUri: LOOPBACK_REDIRECT, relayFragment: true, timeoutMs: 1000 });
+  const r = parseCallback(back, { provider: "pcloud", redirectUri: LOOPBACK_REDIRECT, state: "st_1" });
+  assert.deepEqual(r, { kind: "token", token: "tok_abcdefgh12345678", apiHost: "eapi.pcloud.com" });
 });

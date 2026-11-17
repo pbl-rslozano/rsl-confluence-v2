@@ -21,6 +21,9 @@ export function createLoopbackOAuth({ invoke, openUrl, isSignIn }) {
         await openUrl(url);
         const path = await invoke('oauth_loopback_wait', { timeoutMs: o.timeoutMs, relayFragment: Boolean(o.relayFragment) });
         if (aborted) throw new Error('cancelled');
+        // The relay moved pCloud's fragment into the query for the server. Hand the web core exactly what the
+        // provider sent: the fragment.
+        if (o.relayFragment) return ORIGIN + '/callback#' + String(path).replace(/^\/callback\?/, '');
         return ORIGIN + path;
       } catch (e) {
         if (aborted) throw new Error('cancelled');

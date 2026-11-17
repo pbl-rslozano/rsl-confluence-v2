@@ -79,3 +79,10 @@ test('native request refuses unlisted URLs, sends no redirects, caps size', asyn
   const bigText = { status: 200, headers: new Headers(), text: async () => 'x'.repeat(20 * 1024 * 1024 + 1) };
   await assert.rejects(makeNativeRequest(ok, mk(bigText))({ method: 'GET', url: 'https://www.googleapis.com/a' }), /too-large-file/);
 });
+
+test('a relayed pCloud result comes back as a fragment URL', async () => {
+  const invoke = async (cmd, args) => { if (cmd === 'oauth_loopback_wait') { assert.equal(args.relayFragment, true); return '/callback?access_token=tok_1&hostname=api.pcloud.com&state=st_1'; } };
+  const oauth = createLoopbackOAuth({ invoke, openUrl: async () => {}, isSignIn: (u) => u.startsWith('https://my.pcloud.com/') });
+  const back = await oauth.authorize('https://my.pcloud.com/oauth2/authorize?x=1', { ...O, relayFragment: true });
+  assert.equal(back, 'http://127.0.0.1:48787/callback#access_token=tok_1&hostname=api.pcloud.com&state=st_1');
+});
