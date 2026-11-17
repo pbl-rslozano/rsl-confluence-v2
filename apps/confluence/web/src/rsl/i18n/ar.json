@@ -298,7 +298,9 @@
     "sc.sample",
     "sc.showOnChart",
     "sc.hideFromChart",
-    "sc.sampleAll"
+    "sc.sampleAll",
+    "chart.reflect",
+    "chart.reflected"
   ],
   "app.subtitle": "ماسح توافق مؤشرات العملات المشفّرة",
   "ctx.page": "الماسح",
@@ -1053,5 +1055,7 @@
   "sc.sample": "{cases} لحظة سابقة مشابهة · العينة الفعلية {neff}",
   "sc.showOnChart": "عرض على الرسم البياني",
   "sc.hideFromChart": "إخفاء من الرسم البياني",
-  "sc.sampleAll": "{cases} لحظة سابقة (كل الشموع) · العينة الفعلية {neff}"
+  "sc.sampleAll": "{cases} لحظة سابقة (كل الشموع) · العينة الفعلية {neff}",
+  "chart.reflect": "عرض معكوس (عكس محور السعر)",
+  "chart.reflected": "معكوس"
 }

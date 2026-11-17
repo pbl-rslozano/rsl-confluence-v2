@@ -754,5 +754,7 @@
   "sc.sample": "{cases} मिलते-जुलते पिछले क्षण · प्रभावी नमूना {neff}",
   "sc.showOnChart": "चार्ट पर दिखाएँ",
   "sc.hideFromChart": "चार्ट से छिपाएँ",
-  "sc.sampleAll": "{cases} पिछले क्षण (सभी बार) · प्रभावी नमूना {neff}"
+  "sc.sampleAll": "{cases} पिछले क्षण (सभी बार) · प्रभावी नमूना {neff}",
+  "chart.reflect": "प्रतिबिंब दृश्य (मूल्य अक्ष उलटें)",
+  "chart.reflected": "प्रतिबिंबित"
 }

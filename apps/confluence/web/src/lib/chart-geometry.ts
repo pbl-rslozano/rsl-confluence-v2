@@ -117,3 +117,19 @@ export function initialTab(p: ChartProjection): Scenario {
   if (named && named.candles.length > 0) return p.initial;
   return p.paths.find((x) => x.candles.length > 0)?.id ?? p.initial;
 }
+
+/**
+ * The price pane's one y-mapping (Reflect view, WP24). Normal: high at the top. Reflected: low at the top.
+ * `top` is the pane's top (PAD_T), `height` its price height. Display only.
+ */
+export function priceY(price: number, g: { lo: number; hi: number; top: number; height: number; reflect: boolean }): number {
+  // Same value as top + (hi - price)·k (reflected: top + (price - lo)·k), written as a fraction of the span so the
+  // unreflected result is bit-for-bit the v2.7 expression and the two endpoints mirror exactly.
+  const f = (price - g.lo) / (g.hi - g.lo);
+  return g.reflect ? g.top + f * g.height : g.top + (1 - f) * g.height;
+}
+
+/** The box between two y values, whichever is higher on screen. */
+export function spanRect(a: number, b: number): { y: number; h: number } {
+  return { y: Math.min(a, b), h: Math.abs(a - b) };
+}

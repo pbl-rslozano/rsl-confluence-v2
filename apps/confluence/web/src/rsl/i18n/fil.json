@@ -754,5 +754,7 @@
   "sc.sample": "{cases} katulad na nakaraang sandali · epektibong sample {neff}",
   "sc.showOnChart": "Ipakita sa chart",
   "sc.hideFromChart": "Itago sa chart",
-  "sc.sampleAll": "{cases} nakaraang sandali (lahat ng bar) · epektibong sample {neff}"
+  "sc.sampleAll": "{cases} nakaraang sandali (lahat ng bar) · epektibong sample {neff}",
+  "chart.reflect": "Reflect view (baligtarin ang price axis)",
+  "chart.reflected": "Nakabaligtad"
 }

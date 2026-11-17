@@ -754,5 +754,7 @@
   "sc.sample": "{cases} benzer geçmiş an · etkin örneklem {neff}",
   "sc.showOnChart": "Grafikte göster",
   "sc.hideFromChart": "Grafikten gizle",
-  "sc.sampleAll": "{cases} geçmiş an (tüm mumlar) · etkin örneklem {neff}"
+  "sc.sampleAll": "{cases} geçmiş an (tüm mumlar) · etkin örneklem {neff}",
+  "chart.reflect": "Yansıtılmış görünüm (fiyat eksenini çevir)",
+  "chart.reflected": "Yansıtıldı"
 }

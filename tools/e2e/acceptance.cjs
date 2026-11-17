@@ -2807,6 +2807,143 @@ async function hdPinnedBoxes(w, h, lang) {
     await c.close();
   }
 
+  /* ===== v2.8 WP24: Reflect view (display only; one price y-mapping) ===== */
+  /* acceptance-ids: RV-1, RV-2, RV-3 */
+  {
+    const c = await newContext(browser);
+    await mockExchanges(c);
+    const p = await c.newPage();
+    await p.goto(BASE, { waitUntil: "domcontentloaded" });
+    await completeFirstRun(p);
+    await waitRows(p);
+    await p.getByRole("button", { name: /^BTC/ }).first().click();
+    const chart = p.getByTestId("price-chart");
+    await chart.waitFor({ timeout: 15000 });
+    const svg = chart.locator("svg").first();
+    await p.mouse.move(1, 1);
+    await p.waitForTimeout(500);
+    const svgDefault = await svg.evaluate((e) => e.outerHTML);
+    const REFLECT = "Reflect view (mirror the price axis)";
+    const reflectBox = () => chart.getByRole("checkbox", { name: REFLECT, exact: true });
+    const openMenu = () => chart.getByRole("button", { name: "Indicators", exact: true }).click();
+    const wicks = () => chart.locator('[data-testid="price-candles"] > g').evaluateAll((gs) => {
+      const w = (g) => { const l = g.querySelector("line"); return [Number(l.getAttribute("y1")), Number(l.getAttribute("y2"))]; };
+      return [w(gs[0]), w(gs[gs.length - 1])];
+    });
+    const bodyH = () => chart.locator('[data-testid="price-candles"] rect').evaluateAll((els) => els.map((e) => Number(e.getAttribute("height"))));
+    const boxes = (sel) => chart.locator(`[data-indicator="${sel}"] rect`).evaluateAll((els) => els.map((e) => ["x", "y", "width", "height"].map((a) => e.getAttribute(a)).join(",")).join("|"));
+    const readoutAt = async (n) => {
+      await svg.focus();
+      await p.keyboard.press("Home");
+      for (let i = 0; i < n; i++) await p.keyboard.press("ArrowRight");
+      await p.waitForTimeout(150);
+      return (await chart.getByTestId("chart-readout").textContent().catch(() => "")) ?? "";
+    };
+    const geom = await svg.evaluate((e) => { const vb = e.viewBox.baseVal; return { vbH: vb.height }; });
+
+    // Normal view numbers.
+    const wN = await wicks(), hN = await bodyH(), macdN = await boxes("macd"), volN = await boxes("volume");
+    const roN = await readoutAt(10);
+    await p.mouse.move(1, 1);
+    // Price pane geometry: PAD_T = 12, the price pane ends where the first lower pane starts.
+    const priceBottom = await chart.locator('[data-indicator="macd"] line').first().getAttribute("y1");
+    const PAD_T = 12;
+    const sumY = 2 * PAD_T + (Number(priceBottom) - PAD_T);
+
+    // RV-1
+    await openMenu();
+    await reflectBox().check();
+    await p.waitForTimeout(300);
+    await openMenu();
+    const wR = await wicks();
+    const mirrored = [0, 1].every((i) => [0, 1].every((j) => Math.abs(wR[i][j] - (sumY - wN[i][j])) <= 0.15));
+    const badge = chart.getByTestId("reflect-badge");
+    const badgeText = (await badge.textContent().catch(() => "")) ?? "";
+    const badgeVisible = await badge.isVisible().catch(() => false);
+    const attr = await svg.getAttribute("data-reflect");
+    await svg.focus();
+    await p.keyboard.press("f");
+    await p.waitForTimeout(500);
+    const badgeFull = await chart.getByTestId("reflect-badge").isVisible().catch(() => false);
+    await p.keyboard.press("Escape");
+    await p.waitForTimeout(400);
+
+    // RV-2 (reflected readings)
+    const hR = await bodyH(), macdR = await boxes("macd"), volR = await boxes("volume");
+    const roR = await readoutAt(10);
+    const bodiesSame = hN.length > 0 && hN.length === hR.length && hN.every((h, i) => Math.abs(h - hR[i]) <= 0.01);
+    // Simulated candles with Heikin-Ashi, normal and reflected.
+    await p.getByTestId("scenarios-toggle").click();
+    await p.getByTestId("scenarios-table").waitFor({ timeout: 30000 }).catch(() => null);
+    await p.getByTestId("scenarios-show").click();
+    await chart.locator('[data-sim="candle"]').first().waitFor({ timeout: 15000 }).catch(() => null);
+    await openMenu();
+    await chart.getByRole("checkbox", { name: "Heikin-Ashi (display only)", exact: true }).check();
+    await p.waitForTimeout(300);
+    const simH = () => chart.locator('[data-sim="candle"] rect').evaluateAll((els) => els.map((e) => Number(e.getAttribute("height"))));
+    const simR = await simH();
+    await reflectBox().uncheck();
+    await p.waitForTimeout(300);
+    const simN = await simH();
+    const simSame = simN.length === 6 && simN.length === simR.length && simN.every((h, i) => Math.abs(h - simR[i]) <= 0.01);
+    // Back to reflected for the key toggle check: I turns it on, then off again.
+    await openMenu();
+    await svg.focus();
+    await p.keyboard.press("i");
+    await p.waitForTimeout(300);
+    const keyOn = (await svg.getAttribute("data-reflect")) === "1" && (await badge.count()) === 1;
+    await p.keyboard.press("i");
+    await p.waitForTimeout(300);
+    const keyOff = (await svg.getAttribute("data-reflect")) === null && (await badge.count()) === 0;
+    record("RV-1", "Reflect view mirrors the first and last candle positions, the Reflected badge shows on the price pane and in full screen, and I toggles it",
+      mirrored && badgeVisible && badgeText === "Reflected" && attr === "1" && badgeFull && keyOn && keyOff, { wN, wR, sumY, badgeText, badgeVisible, attr, badgeFull, keyOn, keyOff, vbH: geom.vbH });
+    record("RV-2", "Reflect view keeps the real readout (candle 10 O/H/L/C identical), every candle body height, the MACD and volume boxes and the Heikin-Ashi simulated body heights unchanged",
+      roN.length > 0 && roN === roR && bodiesSame && macdN === macdR && volN === volR && simSame,
+      { roN: roN.slice(0, 80), roR: roR.slice(0, 80), bodiesSame, macd: macdN === macdR, vol: volN === volR, simN, simR });
+
+    // RV-3 — everything off and the view reset gives the default SVG back; the choice is remembered per device.
+    await chart.getByRole("checkbox", { name: "Heikin-Ashi (display only)", exact: true }).uncheck().catch(() => null);
+    const menuOpen = await reflectBox().count();
+    if (!menuOpen) await openMenu();
+    await chart.getByRole("checkbox", { name: "Heikin-Ashi (display only)", exact: true }).uncheck();
+    await p.getByTestId("scenarios-show").click();
+    await chart.locator("[data-sim]").first().waitFor({ state: "detached", timeout: 10000 }).catch(() => null);
+    await reflectBox().check();
+    await chart.getByRole("button", { name: "Zoom in" }).click();
+    await svg.focus();
+    await p.keyboard.press("Shift+ArrowLeft");
+    await p.waitForTimeout(200);
+    await reflectBox().uncheck();
+    await chart.getByRole("button", { name: "Reset view" }).click();
+    await openMenu();
+    await p.mouse.move(1, 1);
+    await p.waitForTimeout(400);
+    // This run went through full screen (RV-1), which only reorders the serialised declarations of the svg's inline
+    // style: both captures are compared with each style attribute's declarations sorted (the same comparator as SC-5).
+    const canon = (e) => { const c = e.cloneNode(true); for (const el of [c, ...c.querySelectorAll("[style]")]) { const st = el.getAttribute("style"); if (st !== null) el.setAttribute("style", st.split(";").map((d) => d.trim()).filter(Boolean).sort().join("; ")); } return c.outerHTML; };
+    await p.evaluate(`window.__rvCanon = ${canon}`);
+    const svgBack = await svg.evaluate((e) => window.__rvCanon(e));
+    const svgDefaultCanon = await p.evaluate((html) => { const d = document.createElement("div"); d.innerHTML = html; return window.__rvCanon(d.firstElementChild); }, svgDefault);
+    await openMenu();
+    await reflectBox().check();
+    const stored = await p.evaluate(() => { try { return localStorage.getItem("ct-chart-optin-v1"); } catch { return null; } });
+    await p.reload({ waitUntil: "domcontentloaded" });
+    await waitRows(p);
+    await p.getByRole("button", { name: /^BTC/ }).first().click();
+    await chart.waitFor({ timeout: 15000 });
+    await p.waitForTimeout(500);
+    const afterReload = await svg.getAttribute("data-reflect");
+    await openMenu();
+    await chart.getByRole("button", { name: "Reset to defaults" }).click();
+    await p.waitForTimeout(300);
+    const afterReset = await svg.getAttribute("data-reflect");
+    const storedReset = await p.evaluate(() => { try { return localStorage.getItem("ct-chart-optin-v1"); } catch { return null; } });
+    record("RV-3", "Reflect + Heikin-Ashi + projection with zoom and pan, then all off and Reset view, gives the default SVG back; Reflect is remembered across a reload (ct-chart-optin-v1) and Reset to defaults clears it",
+      svgBack === svgDefaultCanon && !!stored && stored.includes("reflect") && afterReload === "1" && afterReset === null && !(storedReset ?? "").includes("reflect"),
+      { back: svgBack === svgDefaultCanon, len: [svgDefaultCanon.length, svgBack.length], stored, afterReload, afterReset, storedReset });
+    await c.close();
+  }
+
   /* ===== v2.8 WP27: smooth loading — progressive rows; layout at rest unchanged ===== */
   /* acceptance-ids: PG-1, PG-2 */
   {

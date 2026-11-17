@@ -2,7 +2,7 @@
 // Run: node --experimental-strip-types --no-warnings --test src/lib/chart-geometry.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bucketBars, bucketForward, heikinAshi, projectionSlots, bandsAtSlots, playReducer, playLabel, plotSpan, plotFrac, initialTab, SC_PLAY_MS } from "./chart-geometry.ts";
+import { bucketBars, bucketForward, heikinAshi, projectionSlots, bandsAtSlots, playReducer, playLabel, plotSpan, plotFrac, initialTab, priceY, spanRect, SC_PLAY_MS } from "./chart-geometry.ts";
 
 function bars(n) {
   const out = [];
@@ -134,4 +134,29 @@ test("initialTab: the named scenario, or the first with candles when its path is
   assert.equal(initialTab(proj("continue", [0, 0, 1])), "reverse");
   assert.equal(initialTab(proj("reverse", [0, 1, 0])), "pause");
   assert.equal(initialTab(proj("pause", [0, 0, 0])), "pause"); // nothing drawable: keep the named tab
+});
+
+test("priceY is an exact mirror", () => {
+  const lo = 90, hi = 130, top = 12, height = 300, PAD_T = 12;
+  const n = { lo, hi, top, height, reflect: false }, r = { ...n, reflect: true };
+  assert.equal(priceY(lo, r), priceY(hi, n));
+  assert.equal(priceY(hi, r), priceY(lo, n));
+  let seed = 7;
+  const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
+  for (let i = 0; i < 1000; i++) {
+    const p = lo + rnd() * (hi - lo);
+    assert.ok(Math.abs(priceY(p, r) + priceY(p, n) - (2 * top + height)) < 1e-9);
+    assert.ok(Math.abs(priceY(p, n) - (PAD_T + (1 - (p - lo) / (hi - lo)) * height)) < 1e-9);
+  }
+});
+
+test("spanRect never collapses a reflected body", () => {
+  const g = { lo: 90, hi: 130, top: 12, height: 300, reflect: false };
+  const r = { ...g, reflect: true };
+  for (const [o, c] of [[100, 110], [110, 100], [105, 105], [91, 129]]) {
+    const a = spanRect(priceY(o, r), priceY(c, r)), b = spanRect(priceY(o, g), priceY(c, g));
+    assert.ok(Math.abs(a.h - b.h) < 1e-9);
+    assert.ok(a.h >= 0);
+    assert.equal(b.y, priceY(Math.max(o, c), g));
+  }
 });

@@ -14,7 +14,7 @@ import { OPTIN_IDS } from "@/lib/chart-optin-store";
 import { useMediaQuery } from "@/lib/use-media-query";
 import {
   type ChartProjection, type PlayAction, type PlayState, SC_PLAY_MS,
-  bandsAtSlots, bucketBars, bucketForward, heikinAshi, initialTab, playLabel, playReducer, plotFrac, plotSpan, projectionSlots,
+  bandsAtSlots, bucketBars, bucketForward, heikinAshi, initialTab, playLabel, playReducer, plotFrac, plotSpan, priceY, projectionSlots, spanRect,
 } from "@/lib/chart-geometry";
 import type { Scenario } from "@/lib/scenarios";
 import { disagreement, ribbonStyle } from "@/lib/fund-trend";
@@ -83,7 +83,7 @@ const PANEL_COLOURS = { score: "#60a5fa", trend: "#f472b6", size: "#a1a1aa" } as
 const RIBBON_H = 6;
 const RIBBON_COLOURS = { up: "#34d399", down: "#fb7185", grey: "#71717a" } as const;
 
-/** Indicators-menu labels of the opt-in rows. The `reflect` row is added with the Reflect view (Task 6). */
+/** Indicators-menu labels of the opt-in rows. */
 const OPTIN_LABELS = { "fund-ribbon": "chart.fundRibbon", "fund-panel": "chart.fundPanel", "heikin-ashi": "chart.heikinAshi", reflect: "chart.reflect" } as const;
 
 const LAYERS = {
@@ -157,6 +157,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
   const showRibbon = optIns.has("fund-ribbon");
   const showPanel = optIns.has("fund-panel");
   const showHa = optIns.has("heikin-ashi");
+  const reflect = optIns.has("reflect");
   const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
   const total = klines.length;
   const [view, setView] = useState<ChartView>(() => initialView(total, visible));
@@ -353,7 +354,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
     const pad = (hi - lo) * 0.06 || Math.abs(hi) * 0.06 || 1;
     lo -= pad;
     hi += pad;
-    const y = (price: number) => PAD_T + (1 - (price - lo) / (hi - lo)) * priceH;
+    const y = (price: number) => priceY(price, { lo, hi, top: PAD_T, height: priceH, reflect });
 
     const fullHist = macdHistogram(klines).slice(start, v.end);
     const { bars, ends: bucketEnds } = bucketBars(slice, k);
@@ -412,7 +413,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
     }
     const sim = simOn ? { slots, paths: simPaths!, bands: bandsAtSlots(projection.bands.slice(0, projection.horizon), k), anchor: bars[bars.length - 1].close } : null;
     return { slice: bars, ha: haBars, sim, perBar: k, x, y, bodyW, step, bbUpper: bbU, bbLower: bbL, histogram, histTop, histZero, histY, volY, volTop, ticks, timeTicks, series, ribbon, panel, marks };
-  }, [klines, start, v.end, hidden, periods, showBollinger, showMacd, priceH, chartW, formatAxis, convertPrice, showRibbon, fundTrend, showPanel, fundSize, panelScores, showHa, projection]);
+  }, [klines, start, v.end, hidden, periods, showBollinger, showMacd, priceH, chartW, formatAxis, convertPrice, showRibbon, fundTrend, showPanel, fundSize, panelScores, showHa, projection, reflect]);
 
   /* Static layers are memoised: moving the pointer re-renders only the crosshair and readout (review #6). */
   const layers = useMemo(() => {
@@ -503,12 +504,11 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
             {(ha ?? slice).map((c, i) => {
               const color = c.close >= c.open ? "#34d399" : "#fb7185";
               const wickX = x(i);
-              const bodyTop = y(Math.max(c.open, c.close));
-              const bodyBot = y(Math.min(c.open, c.close));
+              const body = spanRect(y(c.open), y(c.close));
               return (
                 <g key={`c${i}`}>
                   <line x1={wickX} y1={y(c.high)} x2={wickX} y2={y(c.low)} stroke={color} strokeWidth={1} />
-                  <rect x={wickX - bodyW / 2} y={bodyTop} width={bodyW} height={Math.max(1, bodyBot - bodyTop)}
+                  <rect x={wickX - bodyW / 2} y={body.y} width={bodyW} height={Math.max(1, body.h)}
                     fill={color} opacity={0.85} />
                 </g>
               );
@@ -542,8 +542,9 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
           </g>}
           {panel && (() => {
             const inTop = panelTop + 18, inBot = panelTop + PANEL_H - 6, span = inBot - inTop;
-            const yScore = (val: number) => inBot - ((Math.max(-100, Math.min(100, val)) + 100) / 200) * span;
-            const ySize = (val: number) => inBot - (Math.max(0, Math.min(200, val)) / 200) * span;
+            const yScore = (val: number) => { const f = ((Math.max(-100, Math.min(100, val)) + 100) / 200) * span; return reflect ? inTop + f : inBot - f; };
+            const ySize = (val: number) => { const f = (Math.max(0, Math.min(200, val)) / 200) * span; return reflect ? inTop + f : inBot - f; };
+            const yBase = reflect ? inTop : inBot; // the size area's baseline (0 %)
             // Runs of consecutive non-null values; a lone point is drawn as a dot.
             const runs = (vals: (number | null)[], f: (n: number) => number) => {
               let d = "";
@@ -573,9 +574,9 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
                 let j = i;
                 while (j + 1 < panel.size.length && panel.size[j + 1] != null && Number.isFinite(panel.size[j + 1] as number)) j++;
                 const x0 = x(i) - step / 2, x1 = x(j) + step / 2;
-                areaD += `M${x0.toFixed(1)},${inBot.toFixed(1)}`;
+                areaD += `M${x0.toFixed(1)},${yBase.toFixed(1)}`;
                 for (let q = i; q <= j; q++) areaD += `L${(q === i ? x0 : x(q)).toFixed(1)},${ySize(panel.size[q] as number).toFixed(1)}L${(q === j ? x1 : x(q)).toFixed(1)},${ySize(panel.size[q] as number).toFixed(1)}`;
-                areaD += `L${x1.toFixed(1)},${inBot.toFixed(1)}Z`;
+                areaD += `L${x1.toFixed(1)},${yBase.toFixed(1)}Z`;
                 i = j;
               }
             }
@@ -612,7 +613,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
           ))}
       </>
     );
-  }, [model, showBollinger, showMacd, showVolume, viewW, chartW, t, fundRankLabel]);
+  }, [model, showBollinger, showMacd, showVolume, viewW, chartW, t, fundRankLabel, reflect]);
 
   /* v2.8 (WP22): projection. Static part (area, bands, median, "now", label) is memoised apart from the
      candles, which change with the tab and the Play state only. */
@@ -657,12 +658,11 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
           const up = c.close >= c.open;
           const color = up ? "#34d399" : "#fb7185";
           const cx = x(slice.length + j);
-          const top = y(Math.max(c.open, c.close));
-          const bot = y(Math.min(c.open, c.close));
+          const body = spanRect(y(c.open), y(c.close));
           return (
             <g key={j} data-sim="candle" data-i={j} pointerEvents="none">
               <line x1={cx} y1={y(c.high)} x2={cx} y2={y(c.low)} stroke={color} strokeWidth={1} strokeDasharray="2 2" />
-              <rect x={cx - bodyW / 2} y={top} width={bodyW} height={Math.max(1, bot - top)} fill="none" stroke={color} strokeWidth={1} strokeDasharray="3 2" />
+              <rect x={cx - bodyW / 2} y={body.y} width={bodyW} height={Math.max(1, body.h)} fill="none" stroke={color} strokeWidth={1} strokeDasharray="3 2" />
             </g>
           );
         })}
@@ -894,7 +894,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
               </div>
             );
           })}
-          {OPTIN_IDS.filter((id) => id !== "reflect").map((id) => (
+          {OPTIN_IDS.map((id) => (
             <div key={id} className="flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-2">
                 <input type="checkbox" checked={optIns.has(id)} onChange={(event) => optIns.set(id, event.target.checked)} />
@@ -911,6 +911,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
         ref={svgRef}
         viewBox={`0 0 ${viewW} ${viewH}`}
         className="w-full select-none"
+        data-reflect={reflect ? "1" : undefined}
         style={{
           aspectRatio: size ? undefined : `${viewW} / ${viewH}`,
           height: size ? viewH : undefined,
@@ -918,7 +919,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
         }}
         role="img"
         tabIndex={0}
-        aria-label={`Interactive candlestick chart with ${slice.length} of ${total} candles. Arrow keys inspect candles, Shift+arrows pan, plus and minus zoom, 0 resets, F toggles full screen.`}
+        aria-label={`Interactive candlestick chart with ${slice.length} of ${total} candles. Arrow keys inspect candles, Shift+arrows pan, plus and minus zoom, 0 resets, F toggles full screen, I reflects the price axis.`}
         onKeyDown={(event) => {
           const k = event.key;
           if (k === "ArrowLeft" && event.shiftKey) { event.preventDefault(); setView(panView(v, total, -Math.max(1, Math.round(v.count / 10)))); }
@@ -930,6 +931,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
           else if (k === "+" || k === "=") { event.preventDefault(); zoomBy(1.25); }
           else if (k === "-" || k === "_") { event.preventDefault(); zoomBy(0.8); }
           else if (k === "0") { event.preventDefault(); resetView(); }
+          else if (k === "i" || k === "I") { event.preventDefault(); optIns.set("reflect", !optIns.has("reflect")); }
           else if (k === "f" || k === "F") { event.preventDefault(); if (isFull) exitFull(); else void enterFull(); }
         }}
         onMouseLeave={() => { if (gesture.current.kind === "none") setHoverIdx(null); }}
@@ -940,6 +942,12 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
         onDoubleClick={resetView}
       >
         {layers}
+        {reflect && (
+          <g data-testid="reflect-badge" pointerEvents="none">
+            <rect x={PAD_L + 4} y={PAD_T + 4} width={72} height={16} rx={3} fill="var(--color-zinc-900)" stroke="var(--color-zinc-600)" strokeWidth={1} opacity={0.9} />
+            <text x={PAD_L + 40} y={PAD_T + 15.5} textAnchor="middle" fill="var(--color-zinc-300)" fontSize={10} fontFamily="ui-monospace, monospace">{t("chart.reflected")}</text>
+          </g>
+        )}
         {simStatic}
         {simCandles}
         {hover && (

@@ -754,5 +754,7 @@
   "sc.sample": "{cases} momenti passati simili · campione effettivo {neff}",
   "sc.showOnChart": "Mostra sul grafico",
   "sc.hideFromChart": "Nascondi dal grafico",
-  "sc.sampleAll": "{cases} momenti passati (tutte le barre) · campione effettivo {neff}"
+  "sc.sampleAll": "{cases} momenti passati (tutte le barre) · campione effettivo {neff}",
+  "chart.reflect": "Vista speculare (inverti l'asse dei prezzi)",
+  "chart.reflected": "Speculare"
 }

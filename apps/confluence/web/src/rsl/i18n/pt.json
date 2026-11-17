@@ -754,5 +754,7 @@
   "sc.sample": "{cases} momentos passados semelhantes · amostra efetiva {neff}",
   "sc.showOnChart": "Mostrar no gráfico",
   "sc.hideFromChart": "Ocultar do gráfico",
-  "sc.sampleAll": "{cases} momentos passados (todas as barras) · amostra efetiva {neff}"
+  "sc.sampleAll": "{cases} momentos passados (todas as barras) · amostra efetiva {neff}",
+  "chart.reflect": "Vista espelhada (inverter o eixo de preço)",
+  "chart.reflected": "Espelhado"
 }

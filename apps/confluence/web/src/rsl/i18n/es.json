@@ -754,5 +754,7 @@
   "sc.sample": "{cases} momentos pasados similares · muestra efectiva {neff}",
   "sc.showOnChart": "Mostrar en el gráfico",
   "sc.hideFromChart": "Quitar del gráfico",
-  "sc.sampleAll": "{cases} momentos pasados (todas las velas) · muestra efectiva {neff}"
+  "sc.sampleAll": "{cases} momentos pasados (todas las velas) · muestra efectiva {neff}",
+  "chart.reflect": "Vista reflejada (invertir el eje de precio)",
+  "chart.reflected": "Reflejado"
 }

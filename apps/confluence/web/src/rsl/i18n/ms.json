@@ -754,5 +754,7 @@
   "sc.sample": "{cases} detik lalu yang serupa · sampel berkesan {neff}",
   "sc.showOnChart": "Tunjukkan pada carta",
   "sc.hideFromChart": "Sembunyikan daripada carta",
-  "sc.sampleAll": "{cases} detik lalu (semua bar) · sampel berkesan {neff}"
+  "sc.sampleAll": "{cases} detik lalu (semua bar) · sampel berkesan {neff}",
+  "chart.reflect": "Paparan cermin (terbalikkan paksi harga)",
+  "chart.reflected": "Dicerminkan"
 }
