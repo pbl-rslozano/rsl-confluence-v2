@@ -17,4 +17,4 @@
    - Android: `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
    - iOS: personal device install via Xcode with your Apple ID, or an Apple Business custom app if ever shared (no public App Store build).
 5. **Before the first shared release:** pin every `uses:` action to a full commit SHA.
-6. **Publish**: attach installers, `rsL-Confluence-v<ver>-2026-pwa.zip` + `.sha256`, and the SBOM. Keep keys offline; report only their location.
+6. **Publish**: attach installers, `rsL-Confluence-<ver>-pwa.zip` (e.g. `rsL-Confluence-2.7.0-pwa.zip`) + `.sha256`, and the SBOM. Keep keys offline; report only their location.

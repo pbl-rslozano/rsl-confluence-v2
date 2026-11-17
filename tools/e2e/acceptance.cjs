@@ -18,6 +18,8 @@ const argAfter = (flag) => (process.argv.includes(flag) ? process.argv[process.a
 const CAPTURE_DS1 = argAfter("--capture-ds1");
 const CAPTURE_DS2 = argAfter("--capture-ds2");
 const DS_ONLY = process.argv.includes("--ds-only");
+// v2.8 (header, owner decision 16 Nov 2026): `--hd-only` runs just HD-1 (two-line header control ribbon).
+const HD_ONLY = process.argv.includes("--hd-only");
 const OUT = path.join(__dirname, "evidence");
 fs.mkdirSync(OUT, { recursive: true });
 const AXE = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
@@ -302,6 +304,18 @@ async function completeFirstRun(page, { name = "rsLozano — Personal trading de
   await page.getByRole("button", { name: /^Finish$/ }).click();
   await page.waitForSelector(".rsl-brand-host .rsl-brand", { timeout: 15000 });
 }
+// v2.8 header (owner decision 16 Nov 2026, spec §3 item 9): at ≥ 1280 px the System / Light / Dark radios are one button
+// that cycles System → Light → Dark ([data-testid=theme-cycle], data-theme-current = the current choice); below 1280 px
+// the radios are unchanged. Chooses `name` through whichever control is shown, so each check reaches the same theme as
+// before (a choice that is already current clicks nothing, like clicking a checked radio).
+async function chooseTheme(p, name) {
+  const radio = p.getByRole("radio", { name });
+  if (await radio.isVisible().catch(() => false)) return radio.click();
+  const cycle = p.getByTestId("theme-cycle");
+  const want = name.toLowerCase();
+  for (let i = 0; i < 3 && (await cycle.getAttribute("data-theme-current")) !== want; i++) await cycle.click();
+  if ((await cycle.getAttribute("data-theme-current")) !== want) throw new Error(`theme ${name} not reached`);
+}
 async function waitRows(page) { await page.waitForFunction(() => document.querySelectorAll("tbody tr").length >= 4, null, { timeout: 20000 }); }
 
 /* ---------- v2.8 (WP27) DS-1 / DS-2: layout at rest vs v2.7.0 (spec §3 design-unchanged rule, "Guard") ---------- */
@@ -568,6 +582,202 @@ function dsCompare(base, now, prefix = "") {
   return diffs;
 }
 
+/* ---------- v2.8 HD-1: two-line header control ribbon at ≥ 1280 px (owner decision 16 Nov 2026, spec §3 item 9) ---------- */
+// The ribbon = the header's first row (brand block + every control). Controls = its visible buttons, comboboxes,
+// inputs and links (the brand block is not a control). Rows = control boxes grouped by their top edge (4 px tolerance).
+// Names come from Playwright's accessibility snapshot of the ribbon, so they are the accessible names a screen
+// reader announces. Pinned like DS-1: time zone Asia/Riyadh (Auto = SAR), en-US locale, dark colour scheme.
+const HD_RIBBON = '[data-testid="header-controls"], header > div.mx-auto > div:first-child';
+const HD_ROW_TOLERANCE_PX = 4;
+// "Before" = this branch's base build (2422d8d, WP29 Fear & Greed), measured with hdMeasure on 16 Nov 2026 before the
+// header change (ru and the 1024 px boxes added for the review the same day, measured from the same 2422d8d build). The reversal-alert count is live, so that one name is compared as <alerts>; the three theme radios
+// (≥ 1280 px only) are compared as one <theme> entry, which the cycling theme button must fill in the same place.
+const HD1_BEFORE = {
+  // [header height px, control rows] at 1024 × 768 and 390 × 844 (both stay exactly as before)
+  rows: { "1024x768": { en: [178, 3], de: [178, 3], ar: [163, 3], ru: [178, 3] }, "390x844": { en: [247, 3], de: [247, 3], ar: [247, 3], ru: [267, 3] } },
+  // at ≥ 1280 px before the change (for the record): 1280/1366 en+de 154 px, ar 159 px, 3 rows; 1440 de 3 rows; 1920 2 rows;
+  // ru 174 px/3 rows at 1280, 154 px/3 at 1366 and 1440, 116 px/2 at 1920 (ru added for review I1)
+  wide: { "1280x800": { en: [154, 3], de: [154, 3], ar: [159, 3] }, "1366x768": { en: [154, 3], de: [154, 3], ar: [159, 3] }, "1440x900": { en: [116, 2], de: [154, 3], ar: [121, 2] }, "1920x1080": { en: [116, 2], de: [116, 2], ar: [121, 2] } },
+  // [x, y, w, h, has title] of every shown header control at 1024 × 768 (review M1/M2), DOM order, measured by
+  // hdPinnedBoxes in the DS pinned environment (text masked) from the 2422d8d build; @env as in the DS baselines.
+  boxes1024: {
+    "@env": {"timeZone": "Asia/Riyadh", "languages": "en-US", "interXxxx12px": 27.844, "fontSubstitutes": "Cascadia Mono → JetBrains Mono"},
+    en: [[170, 8, 150, 36, 0], [326, 8, 150, 36, 0], [482, 8, 92, 36, 0], [580, 8, 128, 36, 0], [714, 8, 92, 36, 0], [812, 8, 96, 36, 0], [914, 10, 74, 32, 1], [12, 51, 46, 32, 0], [64, 51, 46, 32, 0], [116, 51, 74, 32, 0], [195, 51, 46, 32, 0], [247, 51, 128, 32, 0], [381, 51, 144, 32, 0], [531, 51, 46, 32, 0], [364, 89, 72, 32, 1], [442, 89, 72, 32, 0], [520, 89, 38, 32, 0], [564, 89, 38, 32, 1], [608, 89, 38, 32, 1], [652, 89, 38, 32, 0], [696, 89, 59, 32, 0], [761, 89, 38, 32, 1], [805, 89, 38, 32, 1], [852, 92, 26, 26, 1], [878, 92, 26, 26, 1], [904, 92, 26, 26, 1], [939, 89, 73, 32, 0]],
+    de: [[170, 8, 150, 36, 0], [326, 8, 150, 36, 0], [482, 8, 92, 36, 0], [580, 8, 128, 36, 0], [714, 8, 92, 36, 0], [812, 8, 96, 36, 0], [914, 10, 74, 32, 1], [12, 51, 46, 32, 0], [64, 51, 46, 32, 0], [116, 51, 74, 32, 0], [195, 51, 46, 32, 0], [247, 51, 128, 32, 0], [381, 51, 144, 32, 0], [531, 51, 46, 32, 0], [364, 89, 72, 32, 1], [442, 89, 72, 32, 0], [520, 89, 38, 32, 0], [564, 89, 38, 32, 1], [608, 89, 38, 32, 1], [652, 89, 38, 32, 0], [696, 89, 59, 32, 0], [761, 89, 38, 32, 1], [805, 89, 38, 32, 1], [852, 92, 26, 26, 1], [878, 92, 26, 26, 1], [904, 92, 26, 26, 1], [939, 89, 73, 32, 0]],
+    ar: [[698, 10, 150, 36, 0], [542, 10, 150, 36, 0], [444, 10, 92, 36, 0], [310, 10, 128, 36, 0], [212, 10, 92, 36, 0], [110, 10, 96, 36, 0], [29, 12, 75, 32, 1], [965, 56, 47, 32, 0], [913, 56, 47, 32, 0], [831, 56, 75, 32, 0], [778, 56, 47, 32, 0], [644, 56, 128, 32, 0], [494, 56, 144, 32, 0], [442, 56, 47, 32, 0], [591, 94, 73, 32, 1], [512, 94, 73, 32, 0], [468, 94, 38, 32, 0], [424, 94, 38, 32, 1], [380, 94, 38, 32, 1], [336, 94, 38, 32, 0], [271, 94, 59, 32, 0], [227, 94, 38, 32, 1], [183, 94, 38, 32, 1], [148, 97, 26, 26, 1], [122, 97, 26, 26, 1], [96, 97, 26, 26, 1], [12, 94, 75, 32, 0]],
+    ru: [[170, 8, 150, 36, 0], [326, 8, 150, 36, 0], [482, 8, 92, 36, 0], [580, 8, 128, 36, 0], [714, 8, 92, 36, 0], [812, 8, 96, 36, 0], [914, 10, 74, 32, 1], [12, 51, 46, 32, 0], [64, 51, 46, 32, 0], [116, 51, 74, 32, 0], [195, 51, 46, 32, 0], [247, 51, 128, 32, 0], [381, 51, 144, 32, 0], [531, 51, 46, 32, 0], [364, 89, 72, 32, 1], [442, 89, 72, 32, 0], [520, 89, 38, 32, 0], [564, 89, 38, 32, 1], [608, 89, 38, 32, 1], [652, 89, 38, 32, 0], [696, 89, 59, 32, 0], [761, 89, 38, 32, 1], [805, 89, 38, 32, 1], [852, 92, 26, 26, 1], [878, 92, 26, 26, 1], [904, 92, 26, 26, 1], [939, 89, 73, 32, 0]],
+  },
+
+  // accessible names in DOM (= keyboard) order: desktop = every width ≥ 640 px (identical at 1024–1920 px), phone = 390 px
+  names: {
+    desktop: {
+      en: ["combobox: Timeframe", "combobox: Data source", "combobox: Quote", "combobox: Asset class", "combobox: Universe size", "combobox: Display currency", "button: ⇄ Rate sources", "button: Watchlists", "button: Alert inbox", "button: Scoring profile · Default", "button: Saved scans", "textbox: Filter table", "textbox: Monitor specific assets", "button: Apply", "button: Personal — Workspace: rsLozano — Personal trading desk", "button: Auto", "button: <alerts>", "button: Ledger — Signal ledger (forward test)", "button: Paper — Paper trading", "button: API — Private API", "button: Language: English", "link: Contact developer", "button: About", "radio: System", "radio: Light", "radio: Dark", "button: Refresh"],
+      de: ["combobox: Zeitrahmen", "combobox: Datenquelle", "combobox: Quote-Währung", "combobox: Anlageklasse", "combobox: Anzahl Coins", "combobox: Anzeigewährung", "button: ⇄ Kursquellen", "button: Watchlists", "button: Alert inbox", "button: Scoring profile · Default", "button: Saved scans", "textbox: Tabelle filtern", "textbox: Bestimmte Assets überwachen", "button: Anwenden", "button: Personal — Arbeitsbereich: rsLozano — Personal trading desk", "button: Auto", "button: <alerts>", "button: Journal — Signaljournal (Forward-Test)", "button: Papier — Papierhandel", "button: API — Private API", "button: Sprache: Deutsch", "link: Entwickler kontaktieren", "button: Info", "radio: System", "radio: Hell", "radio: Dunkel", "button: Aktualisieren"],
+      ar: ["combobox: الإطار الزمني", "combobox: مصدر البيانات", "combobox: عملة التسعير", "combobox: فئة الأصول", "combobox: عدد الأصول", "combobox: عملة العرض", "button: ⇄ مصادر الأسعار", "button: Watchlists", "button: Alert inbox", "button: Scoring profile · Default", "button: Saved scans", "textbox: تصفية الجدول", "textbox: مراقبة أصول محددة", "button: تطبيق", "button: Personal — مساحة العمل: rsLozano — Personal trading desk", "button: تلقائي", "button: <alerts>", "button: السجل — سجل الإشارات (اختبار أمامي)", "button: تداول ورقي — التداول الورقي", "button: API — واجهة برمجية خاصة", "button: اللغة: العربية", "link: التواصل مع المطوّر", "button: حول", "radio: النظام", "radio: فاتح", "radio: داكن", "button: تحديث"],
+      ru: ["combobox: Таймфрейм", "combobox: Источник данных", "combobox: Валюта котировки", "combobox: Класс активов", "combobox: Число активов", "combobox: Валюта отображения", "button: ⇄ Источники курсов", "button: Watchlists", "button: Alert inbox", "button: Scoring profile · Default", "button: Saved scans", "textbox: Фильтр таблицы", "textbox: Мониторинг выбранных активов", "button: Применить", "button: Personal — Рабочее пространство: rsLozano — Personal trading desk", "button: Авто", "button: <alerts>", "button: Журнал — Журнал сигналов (форвард-тест)", "button: Бумажная — Бумажная торговля", "button: API — Приватный API", "button: Язык: Русский", "link: Связаться с разработчиком", "button: О программе", "radio: Системная", "radio: Светлая", "radio: Тёмная", "button: Обновить"],
+    },
+    phone: {
+      en: ["button: Personal — Workspace: rsLozano — Personal trading desk", "combobox: Timeframe", "combobox: Data source", "button: More controls", "button: Auto", "button: <alerts>", "button: Ledger — Signal ledger (forward test)", "button: Paper — Paper trading", "button: Language: English", "button: Refresh"],
+      de: ["button: Personal — Arbeitsbereich: rsLozano — Personal trading desk", "combobox: Zeitrahmen", "combobox: Datenquelle", "button: Weitere Steuerelemente", "button: Auto", "button: <alerts>", "button: Journal — Signaljournal (Forward-Test)", "button: Papier — Papierhandel", "button: Sprache: Deutsch", "button: Aktualisieren"],
+      ar: ["button: Personal — مساحة العمل: rsLozano — Personal trading desk", "combobox: الإطار الزمني", "combobox: مصدر البيانات", "button: المزيد من عناصر التحكم", "button: تلقائي", "button: <alerts>", "button: السجل — سجل الإشارات (اختبار أمامي)", "button: تداول ورقي — التداول الورقي", "button: اللغة: العربية", "button: تحديث"],
+      ru: ["button: Personal — Рабочее пространство: rsLozano — Personal trading desk", "combobox: Таймфрейм", "combobox: Источник данных", "button: Другие элементы", "button: Авто", "button: <alerts>", "button: Журнал — Журнал сигналов (форвард-тест)", "button: Бумажная — Бумажная торговля", "button: Язык: Русский", "button: Обновить"],
+    },
+  },
+};
+const HD1_ALERTS = { en: /reversal alert/, de: /Umkehr-Alarm/, ar: /انعكاس/, ru: /оповещени/, fr: /alertes? de retournement/ };
+const HD1_THEME = { en: "button: Theme: ", de: "button: Design: ", ar: "button: المظهر: ", ru: "button: Тема: ", fr: "button: Thème : " };
+// The wizard allows workspace short names of up to 24 characters (IdentityForm maxLength): the long-name runs use one.
+const HD1_LONG_SHORT_NAME = "Personal swing desk 2026";
+// Icon-only at ≥ 1280 px (owner list) + the bell: each needs a hover tooltip (title) equal to its accessible name.
+const HD1_ICON_ONLY = ['[data-testid="fx-sources-open"]', 'button[aria-label="Watchlists"]', 'button[aria-label="Alert inbox"]', 'button[aria-label="Saved scans"]',
+  "header button:has(svg.lucide-key-round)", "header a:has(svg.lucide-mail)", "header button:has(svg.lucide-info)", "header [aria-haspopup=listbox][aria-label]",
+  '[data-testid="theme-cycle"]', "header button:has(svg.lucide-bell)"];
+async function hdMeasure(browser, w, h, lang, { shot = null, extra = false, short = "Personal" } = {}) {
+  const mobile = w < 640;
+  const c = await newContext(browser, { viewport: { width: w, height: h }, timezoneId: DS_TIMEZONE, locale: DS_LOCALE, reducedMotion: "reduce", colorScheme: "dark", ...(mobile ? { hasTouch: true, isMobile: true } : {}) });
+  await mockExchanges(c);
+  const p = await c.newPage();
+  await p.goto(BASE, { waitUntil: "domcontentloaded" });
+  await completeFirstRun(p, { operator: "R", short });
+  if (lang !== "en") {
+    await p.getByRole("button", { name: /^Language:/ }).click();
+    await p.locator(`#rsl-lang-${lang}`).click();
+    await p.waitForFunction((l) => document.documentElement.lang === l, lang);
+  }
+  await waitRows(p);
+  await p.waitForFunction(() => !document.querySelector("header .animate-spin"), null, { timeout: 30000 }).catch(() => null);
+  await p.mouse.move(1, 1);
+  await p.waitForTimeout(150);
+  const m = await p.evaluate(({ sel, tol }) => {
+    const ribbon = document.querySelector(sel);
+    const rb = ribbon.getBoundingClientRect();
+    const rtl = document.documentElement.dir === "rtl";
+    const shown = (el) => { const r = el.getBoundingClientRect(); const st = getComputedStyle(el); return r.width > 0 && r.height > 0 && st.visibility !== "hidden"; };
+    const ctl = [...ribbon.querySelectorAll("button, [role=combobox], input, a[href]")]
+      .filter((el) => shown(el) && !el.closest(".rsl-brand-host") && !el.closest("section, [role=dialog], [role=listbox]"));
+    const tops = ctl.map((el) => Math.round(el.getBoundingClientRect().top)).sort((a, b) => a - b);
+    const rows = [];
+    for (const t of tops) if (!rows.length || t - rows[rows.length - 1] > tol) rows.push(t);
+    const rowOf = (el) => rows.filter((t) => Math.round(el.getBoundingClientRect().top) >= t).length - 1;
+    const overflow = [];
+    let order = true;
+    ctl.forEach((el, i) => {
+      const r = el.getBoundingClientRect();
+      const label = (el.getAttribute("aria-label") || el.textContent || el.getAttribute("placeholder") || el.tagName).trim().slice(0, 30);
+      if (r.left < rb.left - 1 || r.right > rb.right + 1 || r.right > innerWidth + 1 || r.left < -1) overflow.push(`${label}: box ${Math.round(r.left)}–${Math.round(r.right)} outside ${Math.round(rb.left)}–${Math.round(rb.right)}`);
+      for (const t of [el, ...el.querySelectorAll("span, bdi")]) {
+        if (t.tagName === "INPUT" || !shown(t) || t.clientWidth <= 2) continue; // screen-reader-only text is 1 px by design
+        const ts = getComputedStyle(t);
+        // A deliberate ellipsis (text-overflow, e.g. the workspace chip at ≥ 1280 px) is not an overflow: the full text
+        // stays in the DOM, so in the accessible name.
+        if (t.scrollWidth > t.clientWidth + 1 && ts.overflowX !== "visible" && ts.textOverflow !== "ellipsis") overflow.push(`${label}: text ${t.scrollWidth}>${t.clientWidth}`);
+      }
+      // Keyboard (DOM) order = visual order: the next control is further along the same row, or on a later row.
+      const n = ctl[i + 1];
+      if (n) {
+        const a = rowOf(el), b = rowOf(n), q = n.getBoundingClientRect();
+        if (b < a || (b === a && (rtl ? q.right > r.left + 1 : q.left < r.right - 1))) order = false;
+      }
+    });
+    if (document.scrollingElement.scrollWidth > innerWidth) overflow.push(`page scrolls sideways (${document.scrollingElement.scrollWidth} > ${innerWidth})`);
+    const header = document.querySelector("header").getBoundingClientRect();
+    const cycle = document.querySelector('[data-testid="theme-cycle"]');
+    // Every shown control's box [x, y, w, h] and whether it carries a native title (1/0), in DOM order.
+    const boxes = ctl.map((el) => { const r = el.getBoundingClientRect(); return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height), el.hasAttribute("title") ? 1 : 0]; });
+    return { header: Math.round(header.height), rows: rows.length, rowTops: rows, controls: ctl.length, overflow, order, themeCycle: !!cycle && shown(cycle), boxes };
+  }, { sel: HD_RIBBON, tol: HD_ROW_TOLERANCE_PX });
+  const snap = await p.locator(HD_RIBBON).first().ariaSnapshot();
+  const names = [];
+  for (const line of snap.split("\n")) {
+    const mm = line.match(/^\s*- '?(button|combobox|textbox|link|radio|searchbox)(?: "((?:[^"\\]|\\.)*)")?(?=[\s:'\[]|$)/);
+    if (!mm) continue;
+    const name = `${mm[1]}: ${(mm[2] || "").replace(/\\"/g, '"')}`;
+    names.push(mm[1] === "button" && HD1_ALERTS[lang].test(name) ? "button: <alerts>" : name);
+  }
+  if (shot) await p.screenshot({ path: shot });
+  let more = null;
+  if (extra) {
+    // Hover tooltips: every icon-only control has a title equal to its accessible name and shows no text.
+    const titles = await p.evaluate((sels) => sels.map((sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return { sel, missing: true };
+      // Shown text other than the ⇄ glyph (Rate sources) or the bell's count badge.
+      const vis = [...el.childNodes].some((n) => (n.nodeType === 3 && n.nodeValue.trim() && n.nodeValue.trim() !== "⇄") || (n.nodeType === 1 && n.tagName !== "svg" && !n.matches("svg") && n.getBoundingClientRect().width > 2 && n.textContent.trim() && !/^(\d+|⇄)$/.test(n.textContent.trim())));
+      // The Rate sources name keeps its leading ⇄ (unchanged since v2.7); its title is the text without the glyph.
+      const own = el.cloneNode(true); own.querySelectorAll('[aria-hidden="true"]').forEach((n) => n.remove()); // name text, as a screen reader reads it
+      return { sel, title: el.getAttribute("title") || "", label: (el.getAttribute("aria-label") || own.textContent).replace(/\s+/g, " ").trim().replace(/^⇄ /, ""), text: vis };
+    }), HD1_ICON_ONLY);
+    // Keyboard focus tooltip on every icon-only control: focus it by keyboard (a key press first, so :focus-visible
+    // applies), then a tooltip shows its name, and aria-describedby does not point at that same text (it would be read
+    // twice: "About, button, About").
+    const focusTips = [];
+    for (const sel of HD1_ICON_ONLY) {
+      const loc = p.locator(sel).first();
+      if (!(await loc.count())) { focusTips.push({ sel, missing: true }); continue; }
+      await p.keyboard.press("Shift");
+      await loc.focus();
+      await p.waitForTimeout(350);
+      focusTips.push(await loc.evaluate((el, sel) => {
+        const own = el.cloneNode(true); own.querySelectorAll('[aria-hidden="true"]').forEach((n) => n.remove());
+        const name = (el.getAttribute("aria-label") || own.textContent).replace(/\s+/g, " ").trim().replace(/^⇄ /, "");
+        const tip = [...document.querySelectorAll('[data-slot="tooltip-content"]')].map((t) => t.firstChild?.textContent?.trim() ?? t.textContent.trim()).join(" | ");
+        const described = (el.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean).map((id) => document.getElementById(id)?.textContent?.replace(/\s+/g, " ").trim() || "");
+        return { sel, name, tip, focused: document.activeElement === el, echo: described.some((d) => d && (d === name || d.replace(/^⇄ /, "") === name)) };
+      }, sel));
+      await p.evaluate(() => document.activeElement?.blur());
+      await p.waitForTimeout(100);
+    }
+    const focusTip = focusTips.find((f) => f.sel.includes("lucide-info")) || {};
+    // Theme button cycles System → Light → Dark → System; its name gives the current and the next theme.
+    const cycle = [];
+    for (let i = 0; i < 4 && (await p.getByTestId("theme-cycle").isVisible()); i++) {
+      const b = p.getByTestId("theme-cycle");
+      cycle.push({ current: await b.getAttribute("data-theme-current"), name: await b.getAttribute("aria-label"), theme: await p.evaluate(() => document.documentElement.dataset.theme) });
+      if (i < 3) { await b.click(); await p.waitForTimeout(150); }
+    }
+    more = { titles, focusTip, focusTips, cycle };
+  }
+  await c.close();
+  return { ...m, names, more };
+}
+
+// Review M1/M2 (CI fix): every header control's box and title state at 1024 × 768, measured in exactly the DS pinned
+// environment — dsBrowser() (DS_CHROMIUM_ARGS: no font hinting, no LCD text, sRGB), the DS time zone and locale,
+// dsPinFonts, text masked with the DS mask — so glyph advances and system fonts (the CI runner has Noto Naskh Arabic,
+// the container falls back to DejaVu Sans) cannot move a box. Masking keeps every text node and its structure (a text
+// run split into a separate node still shows as an extra flex item), only the glyphs become the same placeholder.
+// Returns [x, y, w, h, has title (1/0)] per shown control, in DOM order.
+async function hdPinnedBoxes(w, h, lang) {
+  const c = await newContext(await dsBrowser(), { viewport: { width: w, height: h }, timezoneId: DS_TIMEZONE, locale: DS_LOCALE });
+  const seen = [];
+  await mockExchanges(c, seen);
+  const p = await c.newPage();
+  await p.goto(BASE, { waitUntil: "domcontentloaded" });
+  await completeFirstRun(p, { operator: "R" });
+  if (lang !== "en") {
+    await p.getByRole("button", { name: /^Language:/ }).click();
+    await p.locator(`#rsl-lang-${lang}`).click();
+    await p.waitForFunction((l) => document.documentElement.lang === l, lang);
+  }
+  await waitRows(p);
+  await p.waitForFunction(() => !document.querySelector("header div.h-full.bg-gradient-to-r") && !document.querySelector("header .animate-spin"), null, { timeout: 30000 }).catch(() => null);
+  await dsQuiet(p, seen);
+  await p.mouse.move(1, 1);
+  await dsInstall(p);
+  const boxes = await p.evaluate((sel) => {
+    window.__ds.mask(document.querySelector("header"));
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    const ribbon = document.querySelector(sel);
+    const shown = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== "hidden"; };
+    return [...ribbon.querySelectorAll("button, [role=combobox], input, a[href]")]
+      .filter((el) => shown(el) && !el.closest(".rsl-brand-host") && !el.closest("section, [role=dialog], [role=listbox]"))
+      .map((el) => { const r = el.getBoundingClientRect(); return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height), el.hasAttribute("title") ? 1 : 0]; });
+  }, HD_RIBBON);
+  const env = await dsEnv(p);
+  await c.close();
+  return { boxes, env };
+}
+
 (async () => {
   const browser = await chromium.launch();
   if (CAPTURE_DS1 || CAPTURE_DS2) {
@@ -588,7 +798,7 @@ function dsCompare(base, now, prefix = "") {
     await browser.close();
     return;
   }
-  if (!DS_ONLY) {
+  if (!DS_ONLY && !HD_ONLY) {
   const requests = [];
 
   /* ===== A. First run, legacy migration, brand, CNR ===== */
@@ -830,7 +1040,7 @@ function dsCompare(base, now, prefix = "") {
   record("ID-8.7c", "No raw keys in any of the 18 languages", rawKeyLangs.length === 0, rawKeyLangs.join(",") || "none");
 
   // Light theme contrast
-  await page.getByRole("radio", { name: "Light" }).click();
+  await chooseTheme(page, "Light");
   await page.waitForTimeout(300);
   const metaL = await page.$eval(".rsl-brand-host .rsl-meta", (e) => { const cs = getComputedStyle(e); let bg = "rgb(255,255,255)"; let n = e; while (n) { const b = getComputedStyle(n).backgroundColor; if (b && !/rgba\(0, 0, 0, 0\)|transparent/.test(b)) { bg = b; break; } n = n.parentElement; } return { color: cs.color, bg }; });
   const crL = ratio(parseRgb(metaL.color), parseRgb(metaL.bg));
@@ -842,7 +1052,7 @@ function dsCompare(base, now, prefix = "") {
   // v2.5 (ADR-0011): the app bar follows the theme; on the light bar the wordmark uses the dark-ink gradient.
   const nameL = await page.$eval(".rsl-brand-host .rsl-app", (e) => getComputedStyle(e).backgroundImage.includes("14, 23, 38"));
   record("ID-8.3c", "Light theme: app bar is light and the wordmark uses the dark-ink gradient (ADR-0011)", nameL);
-  await page.getByRole("radio", { name: "Dark" }).click();
+  await chooseTheme(page, "Dark");
   await page.waitForTimeout(400); // let colour transitions settle before axe samples contrast
 
   // axe (builder §9.4-10)
@@ -935,8 +1145,8 @@ function dsCompare(base, now, prefix = "") {
     };
     const pickTheme = async (p, name) => {
       const radio = p.getByRole("radio", { name });
-      if (!(await radio.isVisible().catch(() => false))) await p.getByTestId("more-controls").click();
-      await radio.click();
+      if (!(await radio.isVisible().catch(() => false)) && !(await p.getByTestId("theme-cycle").isVisible().catch(() => false))) await p.getByTestId("more-controls").click();
+      await chooseTheme(p, name);
     };
     const T = { dark: true, light: true, frames: true, meta: true, contrast: true, system: true }; const ev = {};
     for (const [w, h, mobile] of [[390, 844, true], [1366, 768, false]]) {
@@ -1001,7 +1211,7 @@ function dsCompare(base, now, prefix = "") {
     await p.goto(BASE, { waitUntil: "domcontentloaded" });
     await completeFirstRun(p, { operator: "R" });
     await waitRows(p);
-    await p.getByRole("radio", { name: "Light" }).click();
+    await chooseTheme(p, "Light");
     await p.getByRole("button", { name: /^BTC/ }).first().click();
     await p.waitForSelector('[role="dialog"] svg line', { state: "attached" });
     const strokes = await p.evaluate(() => {
@@ -1031,7 +1241,7 @@ function dsCompare(base, now, prefix = "") {
       await p.goto(BASE, { waitUntil: "domcontentloaded" });
       await completeFirstRun(p, { operator: "R" });
       await waitRows(p);
-      await p.getByRole("radio", { name: theme }).click();
+      await chooseTheme(p, theme);
       await p.getByRole("button", { name: /^Language:/ }).click();
       await p.waitForSelector("#rsl-lang-list");
       const r = await p.evaluate(async (fam) => {
@@ -3320,17 +3530,86 @@ function dsCompare(base, now, prefix = "") {
         { open: { ...open, text: undefined }, below, gaugeOk, oneRequest, reloaded, collapsed, narrow, phone, stale, staleOk, oneRow, histOk, summary, unavailable, badText: (badText || "").slice(0, 120) });
     }
   }
-  } // end of the full run (skipped with --ds-only)
-  /* acceptance-ids: DS-1, DS-2 — layout at rest vs the v2.7.0-web baselines in tools/e2e/baselines/ */
-  {
+  } // end of the full run (skipped with --ds-only / --hd-only)
+  /* acceptance-ids: HD-1 — two-line header control ribbon at ≥ 1280 px (owner decision 16 Nov 2026, spec §3 item 9) */
+  if (!DS_ONLY) {
+    const ev = {}; const bad = []; let more = null;
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const runs = [];
+    for (const [w, h] of [[1280, 800], [1366, 768], [1440, 900], [1920, 1080], [1024, 768], [390, 844]]) for (const lang of ["en", "de", "ar", "ru"]) runs.push({ w, h, lang });
+    // Review I1: the longest workspace short name the wizard accepts must not push the ribbon to a third line.
+    for (const lang of ["ru", "de", "fr"]) runs.push({ w: 1280, h: 800, lang, short: HD1_LONG_SHORT_NAME });
+    for (const { w, h, lang, short } of runs) {
+      const key = `${w}x${h}`;
+      const id = `${key}-${lang}${short ? "-long" : ""}`;
+      const shot = !short && ((w === 1366 && (lang === "en" || lang === "ar")) || (w === 1280 && lang === "de")) ? path.join(OUT, `hd-1-${w}-${lang}.png`) : null;
+      const m = await hdMeasure(browser, w, h, lang, { shot, extra: w === 1366 && lang === "en" && !short, short });
+      if (process.env.HD_DUMP) console.log("HD_DUMP", id, JSON.stringify(m));
+      ev[id] = `${m.header}px/${m.rows}`;
+      if (m.overflow.length) bad.push(`${id} overflow: ${m.overflow.slice(0, 3).join("; ")}`);
+      if (!m.order) bad.push(`${id}: keyboard order differs from the visual order`);
+      if (short) {
+        if (m.rows !== 2) bad.push(`${id}: ${m.rows} rows with a ${short.length}-character workspace name (tops ${m.rowTops.join(",")})`);
+        // The chip shows the name cut with an ellipsis, but its accessible name keeps the full short name.
+        if (!m.names.some((n) => n.startsWith(`button: ${short} — `))) bad.push(`${id}: no workspace chip named "${short} — …"`);
+        continue;
+      }
+      if (w >= 1280) {
+        if (m.rows !== 2) bad.push(`${id}: ${m.rows} rows (tops ${m.rowTops.join(",")})`);
+        if (!m.themeCycle) bad.push(`${id}: no theme button`);
+        // Same controls, names and order as before; the three theme radios are one cycling theme button in their place.
+        const want = (HD1_BEFORE.names.desktop[lang] || []).filter((n, i, a) => !n.startsWith("radio: ") || !a[i - 1]?.startsWith("radio: ")).map((n) => (n.startsWith("radio: ") ? "<theme>" : n));
+        const got = m.names.map((n) => (n.startsWith(HD1_THEME[lang]) ? "<theme>" : n));
+        if (!same(got, want)) bad.push(`${id} names: missing [${want.filter((n) => !got.includes(n)).join("; ")}] new [${got.filter((n) => !want.includes(n)).join("; ")}]${want.every((n) => got.includes(n)) ? " (order)" : ""}`);
+      } else {
+        const [hh, rr] = HD1_BEFORE.rows[key]?.[lang] || [];
+        if (m.header !== hh || m.rows !== rr) bad.push(`${id}: header ${m.header}px/${m.rows} rows, before ${hh}px/${rr} rows`);
+        if (m.themeCycle) bad.push(`${id}: theme button shown below 1280 px`);
+        const want = HD1_BEFORE.names[w < 640 ? "phone" : "desktop"][lang];
+        if (!same(m.names, want)) bad.push(`${id} names changed: missing [${(want || []).filter((n) => !m.names.includes(n)).join("; ")}] new [${m.names.filter((n) => !(want || []).includes(n)).join("; ")}]`);
+        // Review M1/M2: below 1280 px every header control keeps its box (±1 px) and its title / no-title state.
+        if (w === 1024) {
+          const pinned = await hdPinnedBoxes(w, h, lang);
+          if (process.env.HD_DUMP) console.log("HD_DUMP_PINNED", id, JSON.stringify(pinned));
+          const envDiffs = dsEnvDiffs(HD1_BEFORE.boxes1024["@env"], pinned.env);
+          if (envDiffs.length) bad.push(`${id} pinned boxes: ${envDiffs.join("; ")}`);
+          const base = HD1_BEFORE.boxes1024[lang] || [];
+          if (base.length !== pinned.boxes.length) bad.push(`${id}: ${pinned.boxes.length} control boxes, before ${base.length}`);
+          base.forEach((b, i) => {
+            const n = pinned.boxes[i];
+            if (!n) return;
+            if (b.slice(0, 4).some((v, j) => Math.abs(v - n[j]) > 1)) bad.push(`${id} control ${i} (${m.names[i] || "?"}): box ${b.slice(0, 4).join(",")} → ${n.slice(0, 4).join(",")}`);
+            if (b[4] !== n[4]) bad.push(`${id} control ${i} (${m.names[i] || "?"}): title ${b[4] ? "removed" : "added"} below 1280 px`);
+          });
+        }
+      }
+      if (m.more) more = m.more;
+    }
+    if (!more) bad.push("1366 en: no tooltip / theme measurements");
+    else {
+      for (const t of more.titles) if (t.missing || !t.title || t.title !== t.label || t.text) bad.push(`icon button ${t.sel}: ${t.missing ? "missing" : `title "${t.title}" vs name "${t.label}"${t.text ? ", shows text" : ""}`}`);
+      // Review M6/M3: every icon-only control shows its name as a tooltip on keyboard focus, and is not described by it.
+      for (const f of more.focusTips) {
+        if (f.missing || !f.focused || f.tip !== f.name) bad.push(`focus tooltip ${f.sel}: ${f.missing ? "missing" : `tooltip "${f.tip}" vs name "${f.name}"${f.focused ? "" : " (not focused)"}`}`);
+        if (f.echo) bad.push(`focus tooltip ${f.sel}: aria-describedby repeats the name "${f.name}"`);
+      }
+      const seq = more.cycle.map((x) => x.current).join(">");
+      const names = more.cycle.map((x) => x.name);
+      if (seq !== "system>light>dark>system" || names[0] !== "Theme: System (next: Light)" || names[1] !== "Theme: Light (next: Dark)" || names[2] !== "Theme: Dark (next: System)" || more.cycle[1].theme !== "light" || more.cycle[2].theme !== "dark") bad.push(`theme cycle: ${JSON.stringify(more.cycle)}`);
+    }
+    record("HD-1", "Header control ribbon: exactly 2 rows at 1280/1366/1440/1920 px in en, de, ar and ru, and at 1280 px in ru/de/fr with a 24-character workspace name; every control kept with its accessible name in keyboard = visual order (theme radios → one button cycling System → Light → Dark); icon buttons have hover (title) and keyboard-focus tooltips, not announced twice; nothing overflows; at 1024 px every control box (±1 px, DS pinned environment, text masked) and title state unchanged; 1024 and 390 px header height, row count and names unchanged",
+      bad.length === 0, bad.length ? bad.slice(0, 14).join(" | ") : { rows: ev, theme: more.cycle.map((x) => x.current).join(" → "), focusTips: more.focusTips.length });
+  }
+  /* acceptance-ids: DS-1, DS-2 — layout at rest vs the baselines in tools/e2e/baselines/ (DS-2: v2.7.0-web; DS-1: re-captured for spec §3 item 9) */
+  if (!HD_ONLY) {
     const baseFile = path.join(__dirname, "baselines", "ds-1.json");
     const base = fs.existsSync(baseFile) ? JSON.parse(fs.readFileSync(baseFile, "utf8")) : null;
     const now = await ds1Snapshot();
     const diffs = base ? [...dsEnvDiffs(base["@env"], now["@env"]), ...dsCompare(base, now)] : ["no baseline"];
-    record("DS-1", `Main screen at rest: header, controls, list toolbar, columns, rows and footer within ±${DS_TOLERANCE_PX} px of v2.7.0; default colours unchanged (text masked, clock frozen, FX mocked)`,
+    record("DS-1", `Main screen at rest: header, controls, list toolbar, columns, rows and footer within ±${DS_TOLERANCE_PX} px of the baseline (v2.7.0; re-captured 16 Nov 2026 for the two-line header, spec §3 item 9); default colours unchanged (text masked, clock frozen, FX mocked)`,
       diffs.length === 0, diffs.length ? diffs.slice(0, 12).join(" | ") : `${Object.keys(now.boxes).length} boxes`);
   }
-  {
+  if (!HD_ONLY) {
     const baseFile = path.join(__dirname, "baselines", "ds-2.json");
     const base = fs.existsSync(baseFile) ? JSON.parse(fs.readFileSync(baseFile, "utf8")) : null;
     const now = await ds2Snapshot();

@@ -694,5 +694,6 @@
   "fng.band.neutral": "Neutral",
   "fng.band.greed": "Greed",
   "fng.band.extremeGreed": "Extreme Greed",
-  "fng.historySummary": "Last {n} days, oldest to newest: from {first} to {last}, low {min}, high {max}"
+  "fng.historySummary": "Last {n} days, oldest to newest: from {first} to {last}, low {min}, high {max}",
+  "theme.cycle": "Tema: {current} (sonraki: {next})"
 }

@@ -238,7 +238,8 @@
     "fng.band.fear",
     "fng.band.neutral",
     "fng.band.greed",
-    "fng.band.extremeGreed"
+    "fng.band.extremeGreed",
+    "theme.cycle"
   ],
   "app.subtitle": "ماسح توافق مؤشرات العملات المشفّرة",
   "ctx.page": "الماسح",
@@ -933,5 +934,6 @@
   "fng.band.neutral": "محايد",
   "fng.band.greed": "طمع",
   "fng.band.extremeGreed": "طمع شديد",
-  "fng.historySummary": "آخر {n} يومًا، من الأقدم إلى الأحدث: من {first} إلى {last}، الأدنى {min}، الأعلى {max}"
+  "fng.historySummary": "آخر {n} يومًا، من الأقدم إلى الأحدث: من {first} إلى {last}، الأدنى {min}، الأعلى {max}",
+  "theme.cycle": "المظهر: {current} (التالي: {next})"
 }

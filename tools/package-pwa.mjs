@@ -5,7 +5,8 @@
  *   pnpm build:pwa     (builds the html target, then runs this)
  *
  * Refuses an out/ that was built for tauri or capacitor (out/.rsl-target).
- * Output: dist/rsL-Confluence-v<ver>-2026-pwa.zip + .sha256
+ * Output: dist/rsL-Confluence-<ver>-pwa.zip + .sha256, e.g. rsL-Confluence-2.7.0-pwa.zip (SemVer from the root
+ * package.json, no "v", no year — KIT-003)
  */
 import { readFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -15,14 +16,14 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = join(ROOT, "apps/confluence/web/out");
-const ver = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version.replace(/\.0$/, "");
+const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 const marker = join(OUT, ".rsl-target");
 if (!existsSync(marker)) { console.error("out/ has no .rsl-target — run `pnpm --filter @rsl/confluence-web build:static` first."); process.exit(1); }
 const target = readFileSync(marker, "utf8").trim();
 if (target !== "html") { console.error(`out/ was built for "${target}", not the PWA (html). Rebuild with build:static.`); process.exit(1); }
 
 mkdirSync(join(ROOT, "dist"), { recursive: true });
-const zip = join(ROOT, "dist", `rsL-Confluence-v${ver}-2026-pwa.zip`);
+const zip = join(ROOT, "dist", `rsL-Confluence-${pkg.version}-pwa.zip`);
 rmSync(zip, { force: true });
 const LAUNCHER = join(ROOT, "tools/pwa-launcher");
 const launchFiles = ["serve-pwa.mjs", "Start-Confluence-Terminal.cmd", "start-confluence-terminal.sh"];

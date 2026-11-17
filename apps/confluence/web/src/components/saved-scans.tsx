@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FolderOpen } from "lucide-react";
+import { HeaderTip } from "@/components/header-tip";
 import { normalizePreferences, type AppPreferences } from "@/lib/preferences-store";
 
 export type ScanInputs = Pick<AppPreferences, "timeframe" | "dataSource" | "universeLimit" | "assetClass" | "sortKey" | "sortDir" | "monitorAssets"> & { search: string };
@@ -73,8 +75,13 @@ export function SavedScans({ port, current, onApply }: { port: Port; current: Sc
 
   return (
     <div className="relative">
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}
-        className="h-8 rounded border border-zinc-700 px-2 text-xs text-zinc-200">Saved scans</button>
+      {/* v2.8 header (owner decision 16 Nov 2026): icon-only at ≥ 1280 px; same accessible name; HeaderTip adds the hover title and the focus tooltip there only. */}
+      <HeaderTip label="Saved scans">
+        <button type="button" aria-expanded={open} aria-label="Saved scans" onClick={() => setOpen(!open)}
+          className="h-8 rounded border border-zinc-700 px-2 text-xs text-zinc-200 xl:inline-flex xl:w-8 xl:items-center xl:justify-center xl:px-0">
+          <FolderOpen aria-hidden="true" className="hidden h-3.5 w-3.5 xl:block" /><span className="xl:sr-only">Saved scans</span>
+        </button>
+      </HeaderTip>
       {open && (
         <section aria-label="Saved scans" className="absolute start-0 z-30 mt-1 grid w-64 gap-2 rounded border border-zinc-700 bg-zinc-900 p-3 text-xs text-zinc-100">
           <form className="grid gap-2" onSubmit={(event) => { event.preventDefault(); void save(); }}>
