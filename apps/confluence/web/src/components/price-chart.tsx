@@ -14,7 +14,7 @@ import { OPTIN_IDS } from "@/lib/chart-optin-store";
 import { useMediaQuery } from "@/lib/use-media-query";
 import {
   type ChartProjection, type PlayAction, type PlayState, SC_PLAY_MS,
-  bandsAtSlots, bucketBars, bucketForward, heikinAshi, playReducer, projectionSlots,
+  bandsAtSlots, bucketBars, bucketForward, heikinAshi, playLabel, playReducer, plotFrac, plotSpan, projectionSlots,
 } from "@/lib/chart-geometry";
 import type { Scenario } from "@/lib/scenarios";
 import { disagreement, ribbonStyle } from "@/lib/fund-trend";
@@ -162,7 +162,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
   const [menuOpen, setMenuOpen] = useState(false);
   const [full, setFull] = useState<FullMode>("off");
   const [tab, setTab] = useState<Scenario | null>(null);
-  const [play, setPlay] = useState<PlayState>(() => ({ count: projection?.horizon ?? 0, playing: false }));
+  const [play, setPlay] = useState<PlayState>(() => ({ count: projection?.horizon ?? 0, playing: false, started: false }));
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const shellFsRef = useRef(false); // true only while THIS chart asked the shell for full screen
@@ -673,7 +673,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
   if (seenProjection !== projection) {
     setSeenProjection(projection);
     setTab(null);
-    setPlay({ count: horizon, playing: false });
+    setPlay({ count: horizon, playing: false, started: false });
   }
   const act = useCallback((a: PlayAction) => setPlay((cur) => playReducer(cur, a, horizon, reduced)), [horizon, reduced]);
   useEffect(() => {
@@ -685,15 +685,18 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
   /* ---------------- input ---------------- */
   const viewRef = useRef(v);
   const fullRef = useRef(full);
-  useEffect(() => { viewRef.current = v; fullRef.current = full; });
+  // Pixel span of the real bars: the whole plot, or less while the projection takes slots on the right.
+  const span = model ? plotSpan(chartW, model.step, model.slice.length, !!model.sim) : chartW;
+  const spanRef = useRef(span);
+  useEffect(() => { viewRef.current = v; fullRef.current = full; spanRef.current = span; });
   /** Pointer X → fraction across the plot area (0 left … 1 right). */
   const fracAt = useCallback((clientX: number): number => {
     const svg = svgRef.current;
     if (!svg) return 1;
     const rect = svg.getBoundingClientRect();
     const scale = rect.width / viewW;
-    return Math.max(0, Math.min(1, (clientX - rect.left - PAD_L * scale) / (chartW * scale)));
-  }, [viewW, chartW]);
+    return plotFrac((clientX - rect.left) / scale - PAD_L, span);
+  }, [viewW, span]);
   const zoomBy = useCallback((factor: number, frac = 1) => setView((cur) => zoomView(cur, total, factor, frac)), [total]);
   const resetView = useCallback(() => { setView(initialView(total, visible)); setHoverIdx(null); }, [total, visible]);
 
@@ -758,7 +761,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
       if (!g.moved && Math.abs(dx) < 6) { if (e.pointerType === "mouse") hoverAt(e.clientX); return; }
       g.moved = true;
       const svg = svgRef.current;
-      const widthPx = svg ? (svg.getBoundingClientRect().width * chartW) / viewW : chartW;
+      const widthPx = svg ? (svg.getBoundingClientRect().width * spanRef.current) / viewW : spanRef.current;
       setView(panView(g.startView, total, -(dx / Math.max(1, widthPx)) * g.startView.count));
       return;
     }
@@ -842,7 +845,7 @@ export function PriceChart({ klines, visible = 60, formatPrice = fmtNum, formatA
           </div>
           <button type="button" className={btn} data-testid="projection-play"
             onClick={() => act(play.playing ? "pause" : "play")}>
-            {play.playing ? t("sc.pausePlay") : play.count >= horizon ? t("sc.replay") : t("sc.play")}
+            {t(playLabel(play, horizon))}
           </button>
         </div>
       )}

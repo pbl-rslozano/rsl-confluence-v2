@@ -68,17 +68,39 @@ export function bandsAtSlots(bands: Band[], k: number): Band[] {
   return bands.length ? out : [];
 }
 
-export type PlayState = { count: number; playing: boolean };
+export type PlayState = { count: number; playing: boolean; started: boolean };
 export type PlayAction = "play" | "tick" | "pause" | "reset";
 
-/** Play / Pause / Replay state. The initial state is `reset`: all H candles shown. */
+/**
+ * Play / Pause / Replay state. The initial state is `reset`: all H candles shown, not started.
+ * `play` resumes after a mid-way pause; from the first view or the end it starts again at 0.
+ */
 export function playReducer(s: PlayState, a: PlayAction, h: number, reduced: boolean): PlayState {
   switch (a) {
-    case "play": return reduced ? { count: h, playing: false } : { count: 0, playing: true };
-    case "tick": { const count = Math.min(h, s.count + 1); return { count, playing: s.playing && count < h }; }
-    case "pause": return { count: s.count, playing: false };
-    case "reset": return { count: h, playing: false };
+    case "play":
+      if (reduced) return { count: h, playing: false, started: true };
+      if (s.started && s.count < h) return { count: s.count, playing: true, started: true };
+      return { count: 0, playing: true, started: true };
+    case "tick": { const count = Math.min(h, s.count + 1); return { count, playing: s.playing && count < h, started: s.started }; }
+    case "pause": return { count: s.count, playing: false, started: s.started };
+    case "reset": return { count: h, playing: false, started: false };
   }
+}
+
+/** Button label key: Pause while playing, Replay at the end of a run, otherwise Play. */
+export function playLabel(s: PlayState, h: number): "sc.pausePlay" | "sc.replay" | "sc.play" {
+  if (s.playing) return "sc.pausePlay";
+  return s.started && s.count >= h ? "sc.replay" : "sc.play";
+}
+
+/** Pixel span (view units) that the view's real bars cover: all of chartW, or less when the projection takes slots. */
+export function plotSpan(chartW: number, step: number, nBars: number, hasProjection: boolean): number {
+  return hasProjection ? step * nBars : chartW;
+}
+
+/** Pointer offset from the plot's left edge (view units) → fraction across the real bars, clamped to 0..1. */
+export function plotFrac(relX: number, span: number): number {
+  return Math.max(0, Math.min(1, relX / span));
 }
 
 /** What the chart draws for a projection (built by the page, Task 5). `paths` are in tab order; empty `candles` = no path. */

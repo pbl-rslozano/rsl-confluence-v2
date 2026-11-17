@@ -2,7 +2,7 @@
 // Run: node --experimental-strip-types --no-warnings --test src/lib/chart-geometry.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bucketBars, bucketForward, heikinAshi, projectionSlots, bandsAtSlots, playReducer, SC_PLAY_MS } from "./chart-geometry.ts";
+import { bucketBars, bucketForward, heikinAshi, projectionSlots, bandsAtSlots, playReducer, playLabel, plotSpan, plotFrac, SC_PLAY_MS } from "./chart-geometry.ts";
 
 function bars(n) {
   const out = [];
@@ -86,17 +86,43 @@ test("bandsAtSlots samples each bucket's last step", () => {
 
 test("playReducer", () => {
   const h = 24;
-  let s = playReducer({ count: 0, playing: false }, "reset", h, false);
-  assert.deepEqual(s, { count: 24, playing: false });
+  let s = playReducer({ count: 0, playing: false, started: true }, "reset", h, false);
+  assert.deepEqual(s, { count: 24, playing: false, started: false });
   s = playReducer(s, "play", h, false);
-  assert.deepEqual(s, { count: 0, playing: true });
+  assert.deepEqual(s, { count: 0, playing: true, started: true });
   for (let i = 0; i < 24; i++) s = playReducer(s, "tick", h, false);
-  assert.deepEqual(s, { count: 24, playing: false });
-  assert.deepEqual(playReducer(s, "tick", h, false), { count: 24, playing: false });
-  let m = playReducer({ count: 24, playing: false }, "play", h, false);
+  assert.deepEqual(s, { count: 24, playing: false, started: true });
+  assert.deepEqual(playReducer(s, "tick", h, false), { count: 24, playing: false, started: true });
+  // Replay from the end starts again at 0.
+  assert.deepEqual(playReducer(s, "play", h, false), { count: 0, playing: true, started: true });
+  // Pause mid-way keeps the count; the next play resumes from it.
+  let m = playReducer({ count: 24, playing: false, started: false }, "play", h, false);
   for (let i = 0; i < 10; i++) m = playReducer(m, "tick", h, false);
   m = playReducer(m, "pause", h, false);
-  assert.deepEqual(m, { count: 10, playing: false });
-  assert.deepEqual(playReducer({ count: 3, playing: false }, "play", h, true), { count: 24, playing: false });
+  assert.deepEqual(m, { count: 10, playing: false, started: true });
+  assert.deepEqual(playReducer(m, "play", h, false), { count: 10, playing: true, started: true });
+  assert.deepEqual(playReducer({ count: 3, playing: false, started: false }, "play", h, true), { count: 24, playing: false, started: true });
   assert.equal(SC_PLAY_MS, 250);
+});
+
+test("playLabel", () => {
+  assert.equal(playLabel({ count: 24, playing: false, started: false }, 24), "sc.play");
+  assert.equal(playLabel({ count: 5, playing: true, started: true }, 24), "sc.pausePlay");
+  assert.equal(playLabel({ count: 10, playing: false, started: true }, 24), "sc.play");
+  assert.equal(playLabel({ count: 24, playing: false, started: true }, 24), "sc.replay");
+});
+
+test("plotSpan / plotFrac: pointer maths with a projection", () => {
+  const chartW = 688, bars = 60, slots = 24;
+  const step = chartW / (bars + slots);
+  const span = plotSpan(chartW, step, bars, true);
+  assert.ok(Math.abs(span - (chartW * 60) / 84) < 1e-9);
+  assert.equal(plotSpan(chartW, chartW / bars, bars, false), chartW);
+  // Pointer on the newest real candle's right edge anchors at 1 (old chartW maths gave ~0.71).
+  assert.ok(Math.abs(plotFrac(bars * step, span) - 1) < 1e-9);
+  // Over the simulated area it is clamped to the newest bar.
+  assert.equal(plotFrac(chartW - 5, span), 1);
+  assert.equal(plotFrac(-4, span), 0);
+  // No projection: unchanged.
+  assert.equal(plotFrac(344, plotSpan(chartW, chartW / bars, bars, false)), 0.5);
 });
