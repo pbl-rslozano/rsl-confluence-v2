@@ -40,11 +40,20 @@ function keep<T>(items: T[], ok: (x: unknown) => T | null): { out: T[]; skipped:
 export async function createBackupFile(deps: BackupDeps, passphrase: string): Promise<{
   name: string; text: string; bytes: number; createdAt: number;
   counts: { rows: number; journal: number; preregistrations: number; trials: number };
-  /** Local records the restore sanitiser would refuse (for example replay rows), left out of the file, per section. */
-  skipped: { rows: number; preregistrations: number; trials: number; journal: number };
+  /**
+   * Local records the restore sanitiser would refuse, left out of the file, per section. Replay ledger rows (`live: 0`) are
+   * left out on purpose (only live rows are backed up) and counted apart in `replayRows`; `rows` holds unreadable rows only.
+   */
+  skipped: { rows: number; replayRows: number; preregistrations: number; trials: number; journal: number };
 }> {
   const createdAt = Math.floor(deps.now());
-  const rows = keep(await deps.ledger.all(), (x) => { const r = sanitizeLedgerRow(x); return r && r.live === 1 ? r : null; });
+  let replayRows = 0;
+  const rows = keep(await deps.ledger.all(), (x) => {
+    const r = sanitizeLedgerRow(x);
+    if (r && r.live !== 1) { replayRows++; return null; }
+    return r;
+  });
+  rows.skipped -= replayRows;
   const pre = keep(await deps.ledger.preregistrations(), sanitizePreregistration);
   const trials = keep(await deps.ledger.trials(), sanitizeTrial);
   const journal = keep((await deps.paper.load(createdAt)).journal, sanitizeJournalEntry);
@@ -63,7 +72,7 @@ export async function createBackupFile(deps: BackupDeps, passphrase: string): Pr
   return {
     name: backupFileName(createdAt), text, bytes: utf8Bytes(text), createdAt,
     counts: { rows: rows.out.length, journal: journal.out.length, preregistrations: pre.out.length, trials: trials.out.length },
-    skipped: { rows: rows.skipped, preregistrations: pre.skipped, trials: trials.skipped, journal: journal.skipped },
+    skipped: { rows: rows.skipped, replayRows, preregistrations: pre.skipped, trials: trials.skipped, journal: journal.skipped },
   };
 }
 

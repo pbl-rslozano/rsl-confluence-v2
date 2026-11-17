@@ -627,10 +627,10 @@ test("F4 a successful open and plan writes nothing to any store", async () => {
 test("createBackupFile reports what it left out per section", async () => {
   const A = device();
   await A.ledger.restoreRows(mkRows(1, 2));
-  // a replay row can reach the ledger through the CSV import path; it is left out, and counted
+  // a replay row can reach the ledger through the CSV import path; it is left out on purpose (only live rows are backed up), and counted as a replay row
   await A.ledgerPort.put("ledger", "2026-11-10|binance|4h|c1|1", { schema: 2, day: "2026-11-10", src: "binance", tf: "4h", cfg: "c1", t: 1, rows: [mkRow("RPL", BAR0 - 100 * 4 * H, 0, { live: 0 })] });
   const made = await createBackupFile(A.deps, PASS);
-  assert.deepEqual(made.skipped, { rows: 1, preregistrations: 0, trials: 0, journal: 0 });
+  assert.deepEqual(made.skipped, { rows: 0, replayRows: 1, preregistrations: 0, trials: 0, journal: 0 }, "replay rows are counted apart, not as unreadable");
   assert.equal(made.counts.rows, 2);
 });
 

@@ -822,5 +822,6 @@
   "bk.err.needs-gateway": "Add a bucket key in Settings → API first.",
   "bk.err.foreign": "This sign-in was meant for the phone app or has expired. Start it again from Cloud backup.",
   "bk.err.partial": "Restore stopped part-way: {n} items were written. Running the same restore again is safe.",
-  "bk.uploadAuditFailed": "The backup was uploaded, but its audit entry could not be written."
+  "bk.uploadAuditFailed": "The backup was uploaded, but its audit entry could not be written.",
+  "bk.skippedReplay": "{n} replay ledger rows are not backed up (only live rows are)."
 }

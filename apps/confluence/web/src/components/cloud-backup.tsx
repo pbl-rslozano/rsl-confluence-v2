@@ -214,6 +214,7 @@ function CloudBackupBody({ deps: base, providerLink, notice }: CloudBackupProps)
       if (s.rows + s.preregistrations + s.trials + s.journal > 0) {
         lines.push({ key: "bk.skipped", vars: { rows: s.rows, prereg: s.preregistrations, trials: s.trials, journal: s.journal } });
       }
+      if (s.replayRows > 0) lines.push({ key: "bk.skippedReplay", vars: { n: s.replayRows } });
       try {
         await deps.audit.append({
           actorId: deps.actorId, event: "backup.cloud.upload", record: "backup",

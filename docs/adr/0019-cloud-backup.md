@@ -72,7 +72,8 @@ the sanitiser of its own store; an item that fails is counted, never silently dr
 - No new dependency: WebCrypto, `CompressionStream`, `node:crypto` and `std::net` only.
 
 ### 3. What is backed up, and what is not
-- **In:** signal-ledger rows; pre-registrations and registered trials (the multiple-testing count); the paper journal;
+- **In:** signal-ledger rows (**live rows only**: replay rows, `live: 0`, are left out on purpose and reported separately as
+  `bk.skippedReplay`, while `bk.skipped` is kept for records that are genuinely unreadable); pre-registrations and registered trials (the multiple-testing count); the paper journal;
   preferences (`preferences/current`); the scoring profile (`preferences/scoring-profile-v1`).
 - **Out:** market history (re-downloadable); the paper account, open positions and risk settings (a restore must never
   loosen a drawdown lock); tokens, keys and the passphrase; radar caches.
@@ -83,20 +84,23 @@ the sanitiser of its own store; an item that fails is counted, never silently dr
 - The backup time is shown. Records are merged and never overwritten.
 - **Journal entries merge by content fingerprint.** Their ids (`trade-<n>`) are per-account counters that restart on every
   account, so they cannot identify a trade across devices. An identical entry is a duplicate; any other restored entry is
-  written under the id `bk:<8 hex>:<origId>`, so it can never collide with a later local trade. Restoring the same file again
+  written under the id `bk:<8 hex>:<origId>` (every restored entry that is not an identical duplicate, not only clashing ones), so it can never collide with a later local trade. Restoring the same file again
   is safe.
 - **The plan counts exactly.** Rows removed by the device's row cap (by simulating the day-granular eviction) and days removed
   for age are counted separately, with rows too old and rows that could not be read. Per-section skipped counts are reported on
   backup.
-- **Settings.** Restoring them is opt-in. If the local settings changed after the backup, or the local preferences or scoring
-  profile differ from the backup's, the plan says so and "Also restore settings" starts unticked.
+- **Settings.** "Also restore settings" starts ticked, and starts **unticked** when the local settings changed after the
+  backup or the local preferences or scoring profile differ from the backup's; the plan says so in that case.
 - **Partial failure.** If a restore throws part-way, the audit trail records `backup.cloud.restore.partial` with the counts,
   and the UI shows `bk.err.partial`. A re-run is safe. **Known limitation:** a ledger chunk that failed in the middle of a
   write is not re-indexed by the re-run (rows already present are skipped, so they are never indexed): the row-cap count can be
-  off by up to about 5,000 rows, and an orphaned bar document is not pruned, until the rows age out.
+  off by the rows of that chunk (chunks close at 5,000 rows or more and never split a day), and an orphaned bar document is not pruned, until the rows age out.
 
 ### 5. Transport, per shell
-- **Web:** `fetch` under the CSP; only the four hosts below.
+- **Web:** `fetch` under the CSP; only the four hosts `login.microsoftonline.com`, `graph.microsoft.com`, `api.pcloud.com`
+  and `eapi.pcloud.com`. The full host lists (native allowlist, sign-in pages, gateway templates) are in the ADR-0003
+  amendment "v2.8 (17 Nov 2026, WP28)".
+- **Backup transfer** has no Sign in step for B2 and R2: they use the gateway key from Settings → API.
 - **Desktop:** the Tauri HTTP plugin under the `BACKUP_NATIVE_URLS` scope (equal to the allowlist, R16). Sign-in pages open in
   the system browser through the opener scope.
 - **Phone:** native HTTP under the same allowlist; sign-in in the system browser; return by a verified app link.
@@ -141,9 +145,9 @@ The upload route has its own 20 MB limit; every other gateway route keeps 32 KB.
   **Residual risk:** the browser may still record the visit in its history, and a pCloud token does not expire. Mitigation: the
   user revokes the app's access in pCloud (`docs/backup-provider-setup.md` section 4).
 - **Web callback.** The code or token stays in the address bar from the return until the Home effect runs, which consumes it and
-  scrubs it. The only way the page could leak it is the `Referer` header on an outgoing request in that short window; this
-  build sets no Referrer-Policy of its own, so a `Referrer-Policy: no-referrer` header on the hosted origin is a sensible
-  hardening for the owner to add. The code is useless without the verifier in `sessionStorage`, which exists only in the
+  scrubs it. The only way the page could leak it is the `Referer` header on an outgoing request in that short window, and the
+  build already sends `Referrer-Policy: no-referrer` (`apps/confluence/web/public/_headers` line 24 and `next.config.ts`
+  line 48), so none is sent. The code is useless without the verifier in `sessionStorage`, which exists only in the
   tab that started the sign-in.
 - **Phone app link:** `https://<hosted origin>/oauth/app/`, **off by default**. It exists only when the repository variable
   `RSL_APP_LINK` is `1` and a valid `RSL_ANDROID_CERT_SHA256` and/or `RSL_IOS_TEAM_ID` is set (public identifiers, never
@@ -160,7 +164,7 @@ The upload route has its own 20 MB limit; every other gateway route keeps 32 KB.
 | Section lives in About, collapsed; Settings… opens About (plan author) | spec §3 item 8: design unchanged at rest | none |
 | The 20 MB limit applies to the encrypted file; gzip inside; 160 MB decompression cap; oversize refused before upload (plan author) | bounded memory; a clear message before any network call | a user with a huge ledger must use CSV |
 | OneDrive restore blocked until the owner verifies the download host (plan author) | the pre-authenticated file host is unverified and may not be allowed | OneDrive users cannot restore in the app until an amendment |
-| Google is desktop-only (plan author, owner) | web: no script-free flow Google verifies for a browser app without a secret; phone: no app-link redirect Google accepts | Google users on web and phone use another provider |
+| Google is desktop-only (plan author, owner) | owner's documented assumption, to be confirmed by the manual check: web has no script-free flow that can be verified without a client secret; phone has no app-link redirect for Google in this build | Google users on web and phone use another provider |
 | Phone app link off until the owner configures it (plan author) | needs signing identities and the Associated Domains capability | phone sign-in for OneDrive and pCloud stays off |
 | pCloud token fragment relayed by a loopback relay page (plan author) | a server never sees a fragment | one extra local page |
 | Backup excludes the paper account, open positions and risk settings; includes registered trials with pre-registrations (plan author) | a restore must never loosen a drawdown lock; trials carry the multiple-testing count | a user restoring on a new device starts a fresh paper account |
@@ -183,9 +187,11 @@ The upload route has its own 20 MB limit; every other gateway route keeps 32 KB.
 | R2 all-bucket token gets 403 on ListBuckets and is accepted (Task 8, 11) | 403 proves only "cannot list buckets" | a wider key than needed; the gateway still addresses one bucket |
 
 ### Google Drive is desktop-only
-- **Web:** no script-free flow that can be verified here. The app loads no third-party sign-in script and carries no client
+These are the owner's documented assumptions, not verified facts; the manual check in `docs/backup-provider-setup.md`
+  section 8 settles them.
+- **Web:** assumed: no script-free flow that can be verified here. The app loads no third-party sign-in script and carries no client
   secret. Hosts `oauth2.googleapis.com` and `www.googleapis.com` are therefore in no CSP.
-- **Phone:** no app-link redirect for Google in this build (the phone link is also off by default).
+- **Phone:** assumed: no app-link redirect for Google in this build (the phone link is also off by default).
 - **Desktop:** loopback + PKCE. Google may refuse the token exchange without a client secret; that is an owner check with a
   decision path in `docs/backup-provider-setup.md` sections 2 and 8.
 
@@ -204,7 +210,8 @@ amended and the user guide is updated.
 ### Raising the iteration count later
 Write a higher `iter` in new files. Older files still open as long as their `iter` is at least 600,000, because the value is
 read from the authenticated header. If the floor itself ever rises, lower files need a documented migration (open with the
-old value, seal again).
+old value, seal again). An iteration count above 5,000,000 (`PBKDF2_MAX_ITERATIONS`) is refused when opening, so
+raising past it needs a code change to that constant first.
 
 ### Other costs
 - A forgotten passphrase is final; the guide says so.
