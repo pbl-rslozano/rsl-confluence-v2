@@ -7,6 +7,7 @@
  * v2.8 (WP20, licence audit): a collapsed "Open-source licences" section just above the credit — the third-party notices
  * (out/THIRD-PARTY-NOTICES.txt, tools/third-party-notices.mjs) and the trademark line.
  * v2.8 (owner request, 15 Nov 2026): a collapsed, optional rsL Coffee Kit tip card (CoffeeSection) just above it.
+ * v2.8 (WP28): a collapsed "Cloud backup (encrypted)" section right after the Backup section (components/cloud-backup.tsx).
  */
 import { useEffect, useState, type MouseEvent } from "react";
 import { LANGUAGES } from "@rsl/core-kit/core/rsl-i18n.js";
@@ -28,21 +29,22 @@ import { Monogram3D } from "./Monogram3D";
 
 import { BUILD_COMMIT } from "@/lib/build-info";
 import { PROVIDERS } from "@/lib/providers";
+import { CloudBackupSection, type CloudBackupProps } from "@/components/cloud-backup";
 
 const STAMP_APP = { name: APP.name, version: APP.version, year: APP.year, build: APP.build };
 
-export function AboutDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+export function AboutDialog({ open, onOpenChange, cloudBackup }: { open: boolean; onOpenChange: (o: boolean) => void; cloudBackup?: CloudBackupProps }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92dvh] w-[min(100vw-1.5rem,40rem)] max-w-[min(100vw-1.5rem,40rem)] overflow-y-auto border-zinc-800 bg-zinc-900 text-zinc-100">
         {/* Mounted only while open, so every opening starts from fresh state. */}
-        {open && <AboutBody />}
+        {open && <AboutBody cloudBackup={cloudBackup} />}
       </DialogContent>
     </Dialog>
   );
 }
 
-function AboutBody() {
+function AboutBody({ cloudBackup }: { cloudBackup?: CloudBackupProps }) {
   const rsl = useRsl();
   const { t, id, info, port, audit, platform, i18n } = rsl;
   const [verify, setVerify] = useState<{ intact: boolean; count: number; brokenAt: number | null } | null>(null);
@@ -172,6 +174,9 @@ function AboutBody() {
           )}
           {msg && <p role="status" className={`mt-2 text-xs ${msg.tone === "ok" ? "text-emerald-300" : "text-rose-300"}`}>{msg.text}</p>}
         </section>
+
+        {/* v2.8 (WP28): collapsed; its body mounts only while open, so at rest nothing is computed or requested. */}
+        {cloudBackup && <CloudBackupSection {...cloudBackup} />}
 
         <UpdatesSection btn={btn} />
 
