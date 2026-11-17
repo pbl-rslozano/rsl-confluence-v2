@@ -4,7 +4,7 @@
 import { deepStrictEqual } from "node:assert";
 import { readFileSync } from "node:fs";
 import { efficiencyRatio, indATR, LOW_VOLATILITY_PERCENTILE } from "./indicators.ts";
-import { fingerprintSeries, engineConfigId } from "./engine-config.ts";
+import { fingerprintSeries, engineConfigId, hash64, stableStringify } from "./engine-config.ts";
 import { scoreSeries, sessionBars, hasUsableVolume } from "./scan-pipeline.ts";
 import { barWhileClosed } from "./asset-classes.ts";
 import { contiguousTail } from "./market-client.ts";
@@ -369,6 +369,8 @@ ok("held bars are never STRONG (and the fixtures contain held bars)", heldSeen.l
     && v2LineModel(r).dropped === false);
 }
 
+const V2_PIN = "e2c5b7a6240ef664";
+
 // ---- config ids ------------------------------------------------------------------------------------------
 {
   const a = v2ConfigId();
@@ -376,6 +378,22 @@ ok("held bars are never STRONG (and the fixtures contain held bars)", heldSeen.l
   ok("Classic's config id is unchanged after importing v2", engineConfigId() === "5c30b5c39f5ba3f2", engineConfigId());
   ok("v2Fingerprint is a 16-hex hash and repeatable", /^[0-9a-f]{16}$/.test(v2Fingerprint()) && v2Fingerprint() === v2Fingerprint());
   console.log(`  v2ConfigId() = ${a}`);
+  ok("v2 config id pinned", a === V2_PIN, `${a} !== ${V2_PIN}`);
+
+  // Review M1: the bloc, the volume requirement and the divisor-floor scale of every input are hashed.
+  const idOf = (params) => hash64(stableStringify({ engine: "confluence-v2", params, behaviour: v2Fingerprint() }));
+  ok("V2_PARAMS reproduces v2ConfigId", idOf(V2_PARAMS) === a);
+  const fields = ["inputBlocs", "inputVolume", "inputScaleKind"];
+  ok("V2_PARAMS carries bloc, volume and scale kind for all 18 inputs",
+    fields.every((f) => Array.isArray(V2_PARAMS[f]) && V2_PARAMS[f].length === 18 && V2_PARAMS[f].every((e, i) => e[0] === V2_INPUTS[i].id)));
+  const flip = { inputBlocs: (v) => (v === "trend" ? "flow" : "trend"), inputVolume: (v) => !v, inputScaleKind: (v) => (v === "price" ? "osc" : "price") };
+  const unchanged = [];
+  for (const f of fields) for (let i = 0; i < 18; i++) {
+    const p = structuredClone(V2_PARAMS);
+    p[f][i][1] = flip[f](p[f][i][1]);
+    if (idOf(p) === a) unchanged.push(`${f}[${i}]`);
+  }
+  ok("changing any input's bloc, volume flag or scale kind changes the v2 config id", unchanged.length === 0, unchanged.join(" "));
 }
 
 // ---- exactly-rounded maths only ------------------------------------------------------------------------

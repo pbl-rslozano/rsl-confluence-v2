@@ -118,7 +118,7 @@ function sigma64(values: Float64Array, j: number, n: number): number {
 }
 
 /** Natural scale of each input, for the divisor floor. */
-const SCALE_KIND: Record<VotingIndicatorId, "price" | "osc" | "unit" | "volume"> = {
+export const SCALE_KIND: Record<VotingIndicatorId, "price" | "osc" | "unit" | "volume"> = {
   sma: "price", ema: "price", macd: "price", adx: "osc", psar: "price", ichimoku: "price", supertrend: "price",
   rsi: "osc", stochastic: "osc", cci: "osc", williams: "osc", ao: "price", mfi: "osc", bollinger: "price",
   keltner: "price", vwap: "price", obv: "volume", cmf: "unit",

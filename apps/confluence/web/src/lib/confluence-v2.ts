@@ -28,7 +28,7 @@ import { ENGINE_BARS, MIN_ENGINE_BARS } from "./engine-window";
 import { hash64, stableStringify, fingerprintSeries } from "./engine-config";
 import {
   V2_INPUTS, V2_SIGMA_BARS, V2_ATR, V2_CLIP, V2_DROP_FROM_MS, V2_DIVISOR_FLOOR, V2_CONTRARIAN,
-  contrarianDropped, v2InputSeries, type V2Bloc, type V2InputSeries,
+  contrarianDropped, v2InputSeries, SCALE_KIND, type V2Bloc, type V2InputSeries,
 } from "./confluence-v2-inputs";
 import type { VotingIndicatorId } from "./scoring-profile";
 
@@ -39,10 +39,16 @@ export const V2_ENTER = 55;
 export const V2_EXIT = 40;
 /** Per-bar scores of the row's own window the hysteresis runs over. */
 export const V2_HYST_BARS = 300;
-/** PROVISIONAL (Task 4 sets the noise-calibrated value). */
-export const V2_GAIN = 1;
-/** PROVISIONAL (Task 4 sets the noise-calibrated value). */
-export const V2_STRONG_BAND = 70;
+/**
+ * Noise-calibrated (WP23 Task 4): the largest gain on the 0.50..3.00 grid whose worst noise cell labels <= 6.0 %.
+ * Evidence: docs/research/evidence/wp23-v2-calibration-2026-11-17.json (npm run calibrate:v2).
+ */
+export const V2_GAIN = 0.55;
+/**
+ * Noise-calibrated (WP23 Task 4): the smallest band in 56..100 whose worst noise cell has STRONG <= 1.5 % at V2_GAIN.
+ * Same evidence file. Note: round(100 x 0.55 x mean) is at most 55, so no score reaches 56 and STRONG cannot occur.
+ */
+export const V2_STRONG_BAND = 56;
 
 /** Bloc order of Classic's VOTING_BLOCS (sum order is part of the definition). */
 const V2_BLOCS: readonly V2Bloc[] = ["trend", "meanReversion", "breakout", "flow"];
@@ -61,6 +67,10 @@ export const V2_PARAMS = {
   divisorFloor: V2_DIVISOR_FLOOR,
   contrarian: [...V2_CONTRARIAN],
   inputs: V2_INPUTS.map((s) => [s.id, s.divisor, s.sign] as const),
+  // Review M1: the bloc, the volume requirement and the divisor-floor scale are part of the definition too.
+  inputBlocs: V2_INPUTS.map((s) => [s.id, s.bloc] as const),
+  inputVolume: V2_INPUTS.map((s) => [s.id, s.volume] as const),
+  inputScaleKind: V2_INPUTS.map((s) => [s.id, SCALE_KIND[s.id]] as const),
   minValidVotingShare: MIN_VALID_VOTING_SHARE,
   erPeriod: ER_PERIOD,
   erGate: [ER_GATE_LOW, ER_GATE_HIGH],
