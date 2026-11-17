@@ -52,6 +52,7 @@ import {
 import { loadHistoricalSeries, mergeKlines, saveHistoricalSeries } from "@/lib/history-store";
 import { fetchHistory, INTERVAL_MS, RateLimitError, type DataSource } from "@/lib/market-client";
 import { engineConfigId } from "@/lib/engine-config";
+import { realizedLogReturn, scenarioCheck, type ScenarioCheck } from "@/lib/scenario-check";
 
 
 interface Props {
@@ -94,6 +95,9 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
   const [lastExport, setLastExport] = useState(0);
   const [snapCount, setSnapCount] = useState(0);
   const [measuredSlip, setMeasuredSlip] = useState(0);
+  /** v2.8 (WP22): the collapsed Scenario check (logged, never scored). */
+  const [scCheck, setScCheck] = useState<ScenarioCheck | null>(null);
+  const [scOpen, setScOpen] = useState(false);
   /** Generation guard: only the newest measurement may update state. */
   const generation = useRef(0);
   const viewClass: AssetClass = assetClass === "all" ? "crypto" : (assetClass as AssetClass);
@@ -170,6 +174,8 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
       const momentumSign = new Map<string, -1 | 0 | 1>();
       const fresh = new Map<string, Record<string, OutcomeSnapshot>>();
       let fromSnapshots = 0;
+      const scItems: { row: LedgerRow; r: number }[] = [];
+      let scSkipped = 0;
       for (const [pair, list] of byPair) {
         const k = await ensureBars(pair, await klinesOf(pair), list);
         const at = new Map(k.map((b, i) => [b.time, i]));
@@ -180,6 +186,11 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
           if (i !== undefined && i >= 20) {
             const ret = k[i].close / k[i - 20].close - 1;
             momentumSign.set(row.id, ret > 0 ? 1 : ret < 0 ? -1 : 0);
+          }
+          if (row.scb || row.scp) {
+            const r = realizedLogReturn(row, k, 6, intervalMs);
+            if (r !== null) scItems.push({ row, r });
+            else if (row.t + 7 * intervalMs <= now) scSkipped++;
           }
           const stored = snaps.get(row.id) ?? {};
           for (const h of DEFAULT_HORIZONS) {
@@ -226,6 +237,7 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
       if (gen !== generation.current) return;
       setReport(full);
       setConfirm(conf);
+      setScCheck(scenarioCheck(scItems, intervalMs, scSkipped));
     } catch (error) {
       if (gen === generation.current) setFailure(error instanceof Error ? error.message : String(error));
     } finally {
@@ -598,6 +610,34 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
             <Download className="h-3.5 w-3.5" />{t("ledger.export")}
           </Button>
         </div>
+
+        <section data-testid="ledger-scenario-check" className="rounded-lg border border-zinc-800 px-3 py-2 text-xs">
+          <button
+            type="button"
+            data-testid="ledger-scenario-toggle"
+            aria-expanded={scOpen}
+            aria-controls="ledger-scenario-body"
+            className="font-medium text-zinc-300"
+            onClick={() => setScOpen((v) => !v)}
+          >
+            {t("ledger.sc.title")}
+          </button>
+          {scOpen && (
+            <div id="ledger-scenario-body" className="mt-2 space-y-1 text-zinc-400">
+              {!scCheck || scCheck.n === 0 ? (
+                <p>{t("ledger.sc.none")}</p>
+              ) : (
+                <>
+                  {scCheck.cov68 && <p>{t("ledger.sc.cov68", { pct: fmtPct(scCheck.cov68.rate), lo: fmtPct(scCheck.cov68.ci[0]), hi: fmtPct(scCheck.cov68.ci[1]), n: scCheck.cov68.n })}</p>}
+                  {scCheck.cov95 && <p>{t("ledger.sc.cov95", { pct: fmtPct(scCheck.cov95.rate), lo: fmtPct(scCheck.cov95.ci[0]), hi: fmtPct(scCheck.cov95.ci[1]), n: scCheck.cov95.n })}</p>}
+                  <p>{scCheck.brier ? t("ledger.sc.brier", { s: fmtNum(scCheck.brier.scenarios, 3), b: fmtNum(scCheck.brier.base, 3), n: scCheck.brier.n }) : t("ledger.sc.brierNone")}</p>
+                  <p>{t("ledger.sc.note")}</p>
+                  {scCheck.skipped > 0 && <p>{t("ledger.sc.skipped", { n: scCheck.skipped })}</p>}
+                </>
+              )}
+            </div>
+          )}
+        </section>
       </DialogContent>
     </Dialog>
   );

@@ -756,5 +756,13 @@
   "sc.hideFromChart": "Hide from chart",
   "sc.sampleAll": "{cases} past moments (all bars) · effective sample {neff}",
   "chart.reflect": "Reflect view (mirror the price axis)",
-  "chart.reflected": "Reflected"
+  "chart.reflected": "Reflected",
+  "ledger.sc.title": "Scenario check",
+  "ledger.sc.none": "No closed 6-bar outcomes for rows with Scenarios yet.",
+  "ledger.sc.cov68": "Inside the 16–84 % band: {pct} (target 68 %; 95 % range {lo}–{hi}; {n} windows)",
+  "ledger.sc.cov95": "Inside the 2.5–97.5 % band: {pct} (target 95 %; 95 % range {lo}–{hi}; {n} windows)",
+  "ledger.sc.brier": "Brier score (three outcomes, lower is better): scenarios {s} · base rate {b} ({n} windows)",
+  "ledger.sc.brierNone": "Brier score: no rows with their own scenario odds yet (all used the overall odds).",
+  "ledger.sc.note": "The official check: 6 bars, the last 1,000 bars at each recorded bar; each series counts non-overlapping windows only.",
+  "ledger.sc.skipped": "{n} rows could not be measured (their bars are no longer stored)."
 }

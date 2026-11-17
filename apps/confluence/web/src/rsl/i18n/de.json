@@ -756,5 +756,13 @@
   "sc.hideFromChart": "Aus dem Chart entfernen",
   "sc.sampleAll": "{cases} frühere Momente (alle Kerzen) · effektive Stichprobe {neff}",
   "chart.reflect": "Spiegelansicht (Preisachse spiegeln)",
-  "chart.reflected": "Gespiegelt"
+  "chart.reflected": "Gespiegelt",
+  "ledger.sc.title": "Szenario-Prüfung",
+  "ledger.sc.none": "Noch keine abgeschlossenen 6-Kerzen-Ergebnisse für Zeilen mit Szenarien.",
+  "ledger.sc.cov68": "Innerhalb des 16–84-%-Bandes: {pct} (Ziel 68 %; 95-%-Bereich {lo}–{hi}; {n} Fenster)",
+  "ledger.sc.cov95": "Innerhalb des 2,5–97,5-%-Bandes: {pct} (Ziel 95 %; 95-%-Bereich {lo}–{hi}; {n} Fenster)",
+  "ledger.sc.brier": "Brier-Score (drei Ergebnisse, niedriger ist besser): Szenarien {s} · Basisrate {b} ({n} Fenster)",
+  "ledger.sc.brierNone": "Brier-Score: noch keine Zeilen mit eigenen Szenario-Wahrscheinlichkeiten (alle nutzten die Gesamtwerte).",
+  "ledger.sc.note": "Die offizielle Prüfung: 6 Kerzen, die letzten 1.000 Kerzen bei jeder erfassten Kerze; jede Serie zählt nur sich nicht überlappende Fenster.",
+  "ledger.sc.skipped": "{n} Zeilen konnten nicht gemessen werden (ihre Kerzen sind nicht mehr gespeichert)."
 }

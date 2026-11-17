@@ -756,5 +756,13 @@
   "sc.hideFromChart": "Retirer du graphique",
   "sc.sampleAll": "{cases} moments passés (toutes les bougies) · échantillon effectif {neff}",
   "chart.reflect": "Vue en miroir (inverser l'axe des prix)",
-  "chart.reflected": "En miroir"
+  "chart.reflected": "En miroir",
+  "ledger.sc.title": "Contrôle des scénarios",
+  "ledger.sc.none": "Aucun résultat clos sur 6 bougies pour les lignes avec scénarios pour l'instant.",
+  "ledger.sc.cov68": "Dans la bande 16–84 % : {pct} (cible 68 % ; plage à 95 % {lo}–{hi} ; {n} fenêtres)",
+  "ledger.sc.cov95": "Dans la bande 2,5–97,5 % : {pct} (cible 95 % ; plage à 95 % {lo}–{hi} ; {n} fenêtres)",
+  "ledger.sc.brier": "Score de Brier (trois issues, plus bas = mieux) : scénarios {s} · taux de base {b} ({n} fenêtres)",
+  "ledger.sc.brierNone": "Score de Brier : aucune ligne avec ses propres probabilités de scénario pour l'instant (toutes ont utilisé les probabilités globales).",
+  "ledger.sc.note": "Le contrôle officiel : 6 bougies, les 1 000 dernières bougies à chaque bougie enregistrée ; chaque série ne compte que des fenêtres sans chevauchement.",
+  "ledger.sc.skipped": "{n} lignes n'ont pas pu être mesurées (leurs bougies ne sont plus stockées)."
 }

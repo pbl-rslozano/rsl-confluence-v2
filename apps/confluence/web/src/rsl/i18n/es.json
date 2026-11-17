@@ -756,5 +756,13 @@
   "sc.hideFromChart": "Quitar del gráfico",
   "sc.sampleAll": "{cases} momentos pasados (todas las velas) · muestra efectiva {neff}",
   "chart.reflect": "Vista reflejada (invertir el eje de precio)",
-  "chart.reflected": "Reflejado"
+  "chart.reflected": "Reflejado",
+  "ledger.sc.title": "Comprobación de escenarios",
+  "ledger.sc.none": "Aún no hay resultados cerrados de 6 velas para filas con escenarios.",
+  "ledger.sc.cov68": "Dentro de la banda 16–84 %: {pct} (objetivo 68 %; rango del 95 % {lo}–{hi}; {n} ventanas)",
+  "ledger.sc.cov95": "Dentro de la banda 2,5–97,5 %: {pct} (objetivo 95 %; rango del 95 % {lo}–{hi}; {n} ventanas)",
+  "ledger.sc.brier": "Puntuación de Brier (tres resultados, menor es mejor): escenarios {s} · tasa base {b} ({n} ventanas)",
+  "ledger.sc.brierNone": "Puntuación de Brier: aún no hay filas con probabilidades de escenario propias (todas usaron las generales).",
+  "ledger.sc.note": "La comprobación oficial: 6 velas, las últimas 1.000 velas en cada vela registrada; cada serie cuenta solo ventanas sin solapamiento.",
+  "ledger.sc.skipped": "No se pudieron medir {n} filas (sus velas ya no están almacenadas)."
 }

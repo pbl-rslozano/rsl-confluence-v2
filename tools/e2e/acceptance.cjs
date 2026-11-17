@@ -524,13 +524,13 @@ async function ds1Snapshot() {
 //          §3.7  the risk > 1 % warning (text inside the proposal box)            [data-testid=paper-warning]
 //   detail §3.8  "View on [exchange]" (WP26, end of the sheet, below the compared region)   [data-testid=view-on-exchange]
 //          §3.1  "Scenarios (simulation)" (WP22, collapsed, right after the Pattern panel)  [data-testid=scenarios-section]
-//   ledger §3.4  collapsed Scenario check at the end (WP22): not built yet — add its selector with WP22.
+//   ledger §3.4  collapsed Scenario check at the end of the dialog (WP22)               [data-testid=ledger-scenario-check]
 // §3.5 block reasons and §3.7 text inside existing boxes need no exclusion (text is masked). Never add a selector for
 // anything that is not on the §3 list.
 const DS2_ALLOWED = {
   detail: ['[data-testid="view-on-exchange"]', '[data-testid="scenarios-section"]'],
   paper: ['[data-testid="paper-more-limits"]', '[data-testid="paper-more-stats"]', '[data-testid="paper-add-note"]', '[data-testid="paper-lock-drawdown"]', '[data-testid="paper-drawdown"]', '[data-testid="paper-warning"]'],
-  ledger: [],
+  ledger: ['[data-testid="ledger-scenario-check"]'],
 };
 async function ds2Snapshot() {
   const { c, p, seen } = await dsContext();
@@ -2977,6 +2977,58 @@ async function hdPinnedBoxes(w, h, lang) {
     record("RV-3", "Reflect + Heikin-Ashi + projection with zoom and pan, then all off and Reset view, gives the default SVG back; Reflect is remembered across a reload (ct-chart-optin-v1) and Reset to defaults clears it",
       allOn.reflect === "1" && allOn.ha === 1 && allOn.simZoomed > 0 && allOn.zoomed && svgBack === svgDefaultCanon && !!stored && stored.includes("reflect") && afterReload === "1" && afterReset === null && !(storedReset ?? "").includes("reflect"),
       { allOn, back: svgBack === svgDefaultCanon, len: [svgDefaultCanon.length, svgBack.length], stored, afterReload, afterReset, storedReset });
+    await c.close();
+  }
+
+  /* ===== v2.8 WP22 (Scenarios): the Scenario check at the end of the ledger dialog ===== */
+  /* acceptance-ids: SC-7 */
+  {
+    const c = await newContext(browser);
+    await mockExchanges(c);
+    const p = await c.newPage();
+    await p.goto(BASE, { waitUntil: "domcontentloaded" });
+    await completeFirstRun(p);
+    await waitRows(p);
+    await p.getByRole("button", { name: /Signal ledger \(forward test\)/ }).click();
+    await p.waitForSelector("text=Signals recorded");
+    const dialog = p.locator('[role="dialog"]').first();
+    const sec = p.getByTestId("ledger-scenario-check");
+    await sec.waitFor({ timeout: 10000 }).catch(() => null);
+    const toggle = p.getByTestId("ledger-scenario-toggle");
+    const rest = {
+      sections: await sec.count(),
+      // The dialog's own close (X) button is rendered after the content: the section is the last content element.
+      last: await dialog.evaluate((d) => [...d.children].filter((e) => e.getAttribute("data-slot") !== "dialog-close" && !e.querySelector(':scope > .sr-only') && !e.matches("button")).pop()?.getAttribute("data-testid") ?? null).catch(() => null),
+      expanded: await toggle.getAttribute("aria-expanded").catch(() => null),
+      allowed: DS2_ALLOWED.ledger.includes('[data-testid="ledger-scenario-check"]'),
+    };
+    // The ledger lists the rows it loaded when it opened: reopen it until the scan's rows are recorded.
+    for (let tries = 0; tries < 8 && !(await p.getByRole("button", { name: "Export CSV" }).isEnabled()); tries++) {
+      await p.waitForTimeout(1500);
+      await p.keyboard.press("Escape");
+      await p.waitForFunction(() => !document.querySelector('[role="dialog"]'), null, { timeout: 10000 });
+      await p.getByRole("button", { name: /Signal ledger \(forward test\)/ }).click();
+      await p.getByTestId("ledger-scenario-check").waitFor({ timeout: 10000 });
+      await p.waitForTimeout(500);
+    }
+    const [dl] = await Promise.all([p.waitForEvent("download"), p.getByRole("button", { name: "Export CSV" }).click()]);
+    const sc7Path = path.join(OUT, "ledger-export-sc7.csv");
+    await dl.saveAs(sc7Path);
+    const sc7Lines = fs.readFileSync(sc7Path, "utf8").replace(/^\uFEFF/, "").trim().split(/\r?\n/);
+    const head = sc7Lines[0].split(",").map((x) => x.replace(/^"|"$/g, ""));
+    const at = head.indexOf("radar_alerts");
+    const cols = head.slice(at + 1, at + 14);
+    const lo = head.indexOf("scenario_band_lo95");
+    const btcLine = sc7Lines.slice(1).find((l) => /BTCUSDT/.test(l)) ?? "";
+    const btcCells = btcLine.split(",").map((x) => x.replace(/^"|"$/g, ""));
+    const lo95 = Number(btcCells[lo]);
+    await toggle.click();
+    await p.waitForTimeout(300);
+    const none = await p.getByTestId("ledger-scenario-check").textContent();
+    const sc7 = { rest, cols: cols.length, allScenario: cols.every((x) => /^scenario_/.test(x)), lo95, none: (none ?? "").slice(0, 120) };
+    record("SC-7", "Scenario check: collapsed section at the end of the ledger dialog; CSV export carries the scenario columns with values; with no closed outcomes it says so",
+      rest.sections === 1 && rest.last === "ledger-scenario-check" && rest.expanded === "false" && rest.allowed
+        && cols.length === 13 && sc7.allScenario && lo95 < 0 && /No closed 6-bar outcomes for rows with Scenarios yet\./.test(none ?? ""), sc7);
     await c.close();
   }
 

@@ -756,5 +756,13 @@
   "sc.hideFromChart": "Sembunyikan dari grafik",
   "sc.sampleAll": "{cases} momen masa lalu (semua bar) · sampel efektif {neff}",
   "chart.reflect": "Tampilan cermin (balik sumbu harga)",
-  "chart.reflected": "Dicerminkan"
+  "chart.reflected": "Dicerminkan",
+  "ledger.sc.title": "Pemeriksaan skenario",
+  "ledger.sc.none": "Belum ada hasil 6 bar yang tertutup untuk baris dengan Skenario.",
+  "ledger.sc.cov68": "Di dalam pita 16–84 %: {pct} (target 68 %; rentang 95 % {lo}–{hi}; {n} jendela)",
+  "ledger.sc.cov95": "Di dalam pita 2,5–97,5 %: {pct} (target 95 %; rentang 95 % {lo}–{hi}; {n} jendela)",
+  "ledger.sc.brier": "Skor Brier (tiga hasil, makin rendah makin baik): skenario {s} · laju dasar {b} ({n} jendela)",
+  "ledger.sc.brierNone": "Skor Brier: belum ada baris dengan peluang skenario sendiri (semua memakai peluang keseluruhan).",
+  "ledger.sc.note": "Pemeriksaan resmi: 6 bar, 1.000 bar terakhir pada setiap bar yang dicatat; tiap seri hanya menghitung jendela yang tidak tumpang tindih.",
+  "ledger.sc.skipped": "{n} baris tidak dapat diukur (bar-nya tidak lagi tersimpan)."
 }

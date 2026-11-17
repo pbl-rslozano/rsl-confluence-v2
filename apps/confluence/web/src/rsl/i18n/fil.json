@@ -756,5 +756,13 @@
   "sc.hideFromChart": "Itago sa chart",
   "sc.sampleAll": "{cases} nakaraang sandali (lahat ng bar) · epektibong sample {neff}",
   "chart.reflect": "Reflect view (baligtarin ang price axis)",
-  "chart.reflected": "Nakabaligtad"
+  "chart.reflected": "Nakabaligtad",
+  "ledger.sc.title": "Pagsusuri ng mga senaryo",
+  "ledger.sc.none": "Wala pang saradong 6-bar na resulta para sa mga hilera na may Scenarios.",
+  "ledger.sc.cov68": "Nasa loob ng 16–84 % na banda: {pct} (target 68 %; 95 % na saklaw {lo}–{hi}; {n} window)",
+  "ledger.sc.cov95": "Nasa loob ng 2.5–97.5 % na banda: {pct} (target 95 %; 95 % na saklaw {lo}–{hi}; {n} window)",
+  "ledger.sc.brier": "Brier score (tatlong kinalabasan, mas mababa ay mas mabuti): mga senaryo {s} · base rate {b} ({n} window)",
+  "ledger.sc.brierNone": "Brier score: wala pang hilera na may sariling scenario odds (lahat ay gumamit ng pangkalahatang odds).",
+  "ledger.sc.note": "Ang opisyal na pagsusuri: 6 bar, ang huling 1,000 bar sa bawat naitalang bar; bawat serye ay bumibilang lamang ng mga window na hindi nagpapatong.",
+  "ledger.sc.skipped": "{n} hilera ang hindi nasukat (hindi na nakaimbak ang kanilang mga bar)."
 }

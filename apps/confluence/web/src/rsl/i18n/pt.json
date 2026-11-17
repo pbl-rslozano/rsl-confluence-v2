@@ -756,5 +756,13 @@
   "sc.hideFromChart": "Ocultar do gráfico",
   "sc.sampleAll": "{cases} momentos passados (todas as barras) · amostra efetiva {neff}",
   "chart.reflect": "Vista espelhada (inverter o eixo de preço)",
-  "chart.reflected": "Espelhado"
+  "chart.reflected": "Espelhado",
+  "ledger.sc.title": "Verificação de cenários",
+  "ledger.sc.none": "Ainda não há resultados fechados de 6 barras para linhas com cenários.",
+  "ledger.sc.cov68": "Dentro da faixa 16–84 %: {pct} (alvo 68 %; intervalo de 95 % {lo}–{hi}; {n} janelas)",
+  "ledger.sc.cov95": "Dentro da faixa 2,5–97,5 %: {pct} (alvo 95 %; intervalo de 95 % {lo}–{hi}; {n} janelas)",
+  "ledger.sc.brier": "Pontuação de Brier (três resultados, menor é melhor): cenários {s} · taxa base {b} ({n} janelas)",
+  "ledger.sc.brierNone": "Pontuação de Brier: ainda não há linhas com probabilidades de cenário próprias (todas usaram as gerais).",
+  "ledger.sc.note": "A verificação oficial: 6 barras, as últimas 1.000 barras em cada barra registrada; cada série conta apenas janelas sem sobreposição.",
+  "ledger.sc.skipped": "{n} linhas não puderam ser medidas (as suas barras já não estão armazenadas)."
 }

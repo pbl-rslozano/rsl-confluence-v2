@@ -756,5 +756,13 @@
   "sc.hideFromChart": "Sembunyikan daripada carta",
   "sc.sampleAll": "{cases} detik lalu (semua bar) · sampel berkesan {neff}",
   "chart.reflect": "Paparan cermin (terbalikkan paksi harga)",
-  "chart.reflected": "Dicerminkan"
+  "chart.reflected": "Dicerminkan",
+  "ledger.sc.title": "Semakan senario",
+  "ledger.sc.none": "Belum ada hasil 6 bar yang ditutup untuk baris dengan Senario.",
+  "ledger.sc.cov68": "Dalam jalur 16–84 %: {pct} (sasaran 68 %; julat 95 % {lo}–{hi}; {n} tetingkap)",
+  "ledger.sc.cov95": "Dalam jalur 2.5–97.5 %: {pct} (sasaran 95 %; julat 95 % {lo}–{hi}; {n} tetingkap)",
+  "ledger.sc.brier": "Skor Brier (tiga hasil, lebih rendah lebih baik): senario {s} · kadar asas {b} ({n} tetingkap)",
+  "ledger.sc.brierNone": "Skor Brier: belum ada baris dengan kebarangkalian senario sendiri (semuanya guna kebarangkalian keseluruhan).",
+  "ledger.sc.note": "Semakan rasmi: 6 bar, 1,000 bar terakhir pada setiap bar yang direkodkan; setiap siri hanya mengira tetingkap yang tidak bertindih.",
+  "ledger.sc.skipped": "{n} baris tidak dapat diukur (bar mereka tidak lagi disimpan)."
 }

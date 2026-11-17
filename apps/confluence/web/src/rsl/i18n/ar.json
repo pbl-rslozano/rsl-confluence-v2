@@ -300,7 +300,15 @@
     "sc.hideFromChart",
     "sc.sampleAll",
     "chart.reflect",
-    "chart.reflected"
+    "chart.reflected",
+    "ledger.sc.title",
+    "ledger.sc.none",
+    "ledger.sc.cov68",
+    "ledger.sc.cov95",
+    "ledger.sc.brier",
+    "ledger.sc.brierNone",
+    "ledger.sc.note",
+    "ledger.sc.skipped"
   ],
   "app.subtitle": "ماسح توافق مؤشرات العملات المشفّرة",
   "ctx.page": "الماسح",
@@ -1057,5 +1065,13 @@
   "sc.hideFromChart": "إخفاء من الرسم البياني",
   "sc.sampleAll": "{cases} لحظة سابقة (كل الشموع) · العينة الفعلية {neff}",
   "chart.reflect": "عرض معكوس (عكس محور السعر)",
-  "chart.reflected": "معكوس"
+  "chart.reflected": "معكوس",
+  "ledger.sc.title": "فحص السيناريوهات",
+  "ledger.sc.none": "لا توجد بعد نتائج مغلقة لستّ شموع للصفوف التي تحتوي على سيناريوهات.",
+  "ledger.sc.cov68": "داخل نطاق 16–84 %: {pct} (الهدف 68 %؛ مدى 95 % {lo}–{hi}؛ {n} نافذة)",
+  "ledger.sc.cov95": "داخل نطاق 2.5–97.5 %: {pct} (الهدف 95 %؛ مدى 95 % {lo}–{hi}؛ {n} نافذة)",
+  "ledger.sc.brier": "درجة بريير (ثلاث نتائج، الأقل أفضل): السيناريوهات {s} · المعدل الأساسي {b} ({n} نافذة)",
+  "ledger.sc.brierNone": "درجة بريير: لا توجد بعد صفوف لها احتمالات سيناريو خاصة بها (جميعها استخدمت الاحتمالات العامة).",
+  "ledger.sc.note": "الفحص الرسمي: 6 شموع، وآخر 1,000 شمعة عند كل شمعة مسجلة؛ وتحتسب كل سلسلة النوافذ غير المتداخلة فقط.",
+  "ledger.sc.skipped": "تعذّر قياس {n} صفوف (لم تعد شموعها محفوظة)."
 }

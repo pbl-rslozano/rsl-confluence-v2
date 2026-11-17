@@ -277,6 +277,11 @@ export function indexOfTime(k: Kline[], t: number): number {
   return -1;
 }
 
+/** Longest allowed time between the signal bar and the bar h later (see measureOutcome's contiguity rule). */
+export function maxHoldSpan(h: number, intervalMs: number): number {
+  return intervalMs >= 28 * 86_400_000 ? h * 31 * 86_400_000 : h * intervalMs + intervalMs / 2;
+}
+
 /** Measure one row at one horizon; null while the horizon has not closed yet. */
 export function measureOutcome(row: LedgerRow, k: Kline[], horizon: number, costs: CostModel, intervalMs: number): Outcome | null {
   const i = indexOfTime(k, row.t);
@@ -289,8 +294,7 @@ export function measureOutcome(row: LedgerRow, k: Kline[], horizon: number, cost
   // jitter; calendar months: up to 31 days each). v2.1.1 allowed 5 %, which
   // let h ≥ 20 straddle one missing bar.
   const span = k[i + horizon].time - k[i].time;
-  const maxSpan = intervalMs >= 28 * 86_400_000 ? horizon * 31 * 86_400_000 : horizon * intervalMs + intervalMs / 2;
-  if (span > maxSpan) return null;
+  if (span > maxHoldSpan(horizon, intervalMs)) return null;
   // v2.3: a stock split inside the holding window is a corporate action, not a return.
   if (row.ac === "stock" && detectSplit(k.slice(i, i + horizon + 1))) return null;
   const gross = exit / entry - 1;

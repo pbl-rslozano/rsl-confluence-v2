@@ -756,5 +756,13 @@
   "sc.hideFromChart": "从图表隐藏",
   "sc.sampleAll": "{cases} 个过往时点(全部K线) · 有效样本 {neff}",
   "chart.reflect": "镜像视图（翻转价格轴）",
-  "chart.reflected": "已镜像"
+  "chart.reflected": "已镜像",
+  "ledger.sc.title": "情景检验",
+  "ledger.sc.none": "带情景的记录尚无已收盘的6根K线结果。",
+  "ledger.sc.cov68": "位于16–84 %区间内：{pct}（目标 68 %；95 %范围 {lo}–{hi}；{n} 个窗口）",
+  "ledger.sc.cov95": "位于2.5–97.5 %区间内：{pct}（目标 95 %；95 %范围 {lo}–{hi}；{n} 个窗口）",
+  "ledger.sc.brier": "布赖尔分数（三种结果，越低越好）：情景 {s} · 基础概率 {b}（{n} 个窗口）",
+  "ledger.sc.brierNone": "布赖尔分数：暂无使用自身情景概率的记录（全部使用整体概率）。",
+  "ledger.sc.note": "正式检验：6根K线，在每根已记录K线处取最近1,000根；每个序列仅统计互不重叠的窗口。",
+  "ledger.sc.skipped": "有 {n} 条记录无法测量（其K线已不再存储）。"
 }

@@ -756,5 +756,13 @@
   "sc.hideFromChart": "Nascondi dal grafico",
   "sc.sampleAll": "{cases} momenti passati (tutte le barre) · campione effettivo {neff}",
   "chart.reflect": "Vista speculare (inverti l'asse dei prezzi)",
-  "chart.reflected": "Speculare"
+  "chart.reflected": "Speculare",
+  "ledger.sc.title": "Verifica degli scenari",
+  "ledger.sc.none": "Ancora nessun risultato chiuso a 6 barre per le righe con scenari.",
+  "ledger.sc.cov68": "Dentro la banda 16–84 %: {pct} (obiettivo 68 %; intervallo al 95 % {lo}–{hi}; {n} finestre)",
+  "ledger.sc.cov95": "Dentro la banda 2,5–97,5 %: {pct} (obiettivo 95 %; intervallo al 95 % {lo}–{hi}; {n} finestre)",
+  "ledger.sc.brier": "Punteggio di Brier (tre esiti, più basso è meglio): scenari {s} · tasso di base {b} ({n} finestre)",
+  "ledger.sc.brierNone": "Punteggio di Brier: ancora nessuna riga con probabilità di scenario proprie (tutte hanno usato quelle complessive).",
+  "ledger.sc.note": "La verifica ufficiale: 6 barre, le ultime 1.000 barre a ogni barra registrata; ogni serie conta solo finestre non sovrapposte.",
+  "ledger.sc.skipped": "{n} righe non sono state misurabili (le loro barre non sono più memorizzate)."
 }

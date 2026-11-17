@@ -756,5 +756,13 @@
   "sc.hideFromChart": "차트에서 숨기기",
   "sc.sampleAll": "과거 시점 {cases}개(모든 봉) · 유효 표본 {neff}",
   "chart.reflect": "반사 보기 (가격 축 뒤집기)",
-  "chart.reflected": "반사됨"
+  "chart.reflected": "반사됨",
+  "ledger.sc.title": "시나리오 점검",
+  "ledger.sc.none": "시나리오가 있는 행의 마감된 6봉 결과가 아직 없습니다.",
+  "ledger.sc.cov68": "16–84 % 밴드 안: {pct} (목표 68 %, 95 % 범위 {lo}–{hi}, {n}개 구간)",
+  "ledger.sc.cov95": "2.5–97.5 % 밴드 안: {pct} (목표 95 %, 95 % 범위 {lo}–{hi}, {n}개 구간)",
+  "ledger.sc.brier": "브라이어 점수(결과 3개, 낮을수록 좋음): 시나리오 {s} · 기준 비율 {b} ({n}개 구간)",
+  "ledger.sc.brierNone": "브라이어 점수: 자체 시나리오 확률을 가진 행이 아직 없습니다(모두 전체 확률 사용).",
+  "ledger.sc.note": "공식 점검: 6봉, 기록된 각 봉 시점의 최근 1,000봉. 각 시리즈는 겹치지 않는 구간만 셉니다.",
+  "ledger.sc.skipped": "{n}개 행을 측정할 수 없었습니다(해당 봉이 더 이상 저장되어 있지 않음)."
 }
