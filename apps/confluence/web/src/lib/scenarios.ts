@@ -199,9 +199,9 @@ export function ftState(ft: number | null | undefined): FtState | null {
 }
 
 /** Volatility regime from today's ATR/close percentile, cut at 33 / 67. NaN (bad data) is unknown, never a number. */
-export function volRegime(volPct: number | null | undefined): "low" | "mid" | "high" | null {
+export function volRegime(volPct: number | null | undefined): "low" | "normal" | "high" | null {
   if (typeof volPct !== "number" || !Number.isFinite(volPct)) return null;
-  return volPct < 33 ? "low" : volPct > 67 ? "high" : "mid";
+  return volPct < 33 ? "low" : volPct > 67 ? "high" : "normal";
 }
 
 /** Local copy of market-client.barCloseTime (that module pulls in venue code). Monthly bars close at the next UTC month start. */

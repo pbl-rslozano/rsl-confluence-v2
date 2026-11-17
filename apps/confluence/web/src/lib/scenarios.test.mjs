@@ -392,8 +392,8 @@ test("runScenarios: not enough history, and NaN volatility is unknown", () => {
 test("volRegime cuts at the 33/67 percentiles; NaN is unknown", () => {
   assert.equal(volRegime(10), "low");
   assert.equal(volRegime(32.9), "low");
-  assert.equal(volRegime(33), "mid");
-  assert.equal(volRegime(67), "mid");
+  assert.equal(volRegime(33), "normal");
+  assert.equal(volRegime(67), "normal");
   assert.equal(volRegime(67.1), "high");
   assert.equal(volRegime(NaN), null);
   assert.equal(volRegime(undefined), null);
