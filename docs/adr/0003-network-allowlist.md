@@ -229,26 +229,31 @@ path. Nothing here reaches scoring, the ledger, alerts or any paper-trading rule
   An origin is added only by an amendment to this ADR after the manual check, and then to `CSP_HOSTS` and
   `BACKUP_NATIVE_URLS` too (R16 checks both).
 - **Gateway only, never in any CSP:** Backblaze B2 and Cloudflare R2 are reached only from the local desktop gateway
-  (`apps/confluence/gateway`, new files `s3-sign.mjs` and `backup-store.mjs`), with the user's own bucket-restricted keys
-  held in gateway memory only (the WP25 rule: cleared at exit and on a crash, never logged, never in an error or a
+  (`apps/confluence/gateway`, new files `s3-sign.mjs` and `backup-store.mjs`), with the user's own keys, which the user
+  is told to limit to one bucket, held in gateway memory only (the WP25 rule: cleared at exit and on a crash, never logged, never in an error or a
   response). Their hosts carry a region or an account id, so they cannot be written out one by one. The gateway process in
   `tools/egress-manifest.json` therefore gains `hostTemplates`: `s3.${region}.backblazeb2.com` (region must match
   `^[a-z]{2}-[a-z]+-\d{3}$`) and `${accountId}.r2.cloudflarestorage.com` (account id must match `^[0-9a-f]{32}$`).
   `tools/check-egress.mjs` (R11) lets a dynamic URL literal pass only when its authority equals one of those two strings
-  exactly, in the gateway process; any other dynamic host, a near miss and a `wss` literal stay findings, and no
+  exactly, and only in `apps/confluence/gateway/backup-store.mjs` (`hostTemplates` maps that file to the two templates, so
+  the same literal in any other file is a finding; `s3Endpoint` there checks the region and account id first); any other dynamic host, a near miss and a `wss` literal stay findings, and no
   `hostTemplates` entry exists for any other process. B2 and R2 are not in `web.hosts`, `web.csp` or `CSP_HOSTS`, and R16
   refuses either family there.
   - **What the gateway sends:** SigV4-signed (`node:crypto`, no new dependency), path-style S3 requests, redirects never
     followed, and only: `HEAD /<bucket>` and `GET /` (the key test), `PUT`/`GET /<bucket>/rsl-confluence/<name>` and
     `GET /<bucket>?list-type=2&prefix=rsl-confluence/`. `<name>` must match `^confluence-backup-\d{8}T\d{6}Z\.json$`; it is
     checked before anything is signed, so there is no other object key and no path traversal.
-  - **Key test at connect:** the bucket must answer `HEAD` 200, and the key must not be able to list other buckets
-    (ListBuckets 403, or 200 naming only this bucket); otherwise the key is refused. This is separate from the WP19
+  - **Key test at connect:** the bucket must answer `HEAD` 200, and the key must not be able to enumerate other buckets
+    (ListBuckets 403, or 200 naming only this bucket); otherwise the key is refused. A 403 means "cannot list buckets", not
+    "restricted to one bucket": the user is still told to create a one-bucket key, and the gateway only ever addresses
+    `rsl-confluence/<name>` in the named bucket. This is separate from the WP19
     read-only refusal, which still applies to exchange keys only.
   - **Local routes:** `POST /backup/upload` (own 20 MB body limit; every other gateway route keeps 32 KB),
     `GET /backup/list`, `GET /backup/download`, behind the same token, origin and host checks.
+  - **Transfer deadlines:** a PUT has 10 s plus bytes at 128 KiB/s (cap 5 minutes); a GET has 10 s to the headers, then
+    30 s between chunks; HEAD, ListBuckets and the listing keep 10 s.
   - **Not verified:** B2 and R2 behaviour with real keys (the S3 `ListBuckets` answer for a scoped key in particular) is part
-    of the deferred manual checks below; the code is proven against AWS's published SigV4 examples and a fake S3.
+    of the deferred manual checks below, which now include "R2 all-bucket Object R/W token: expect 403 (accepted)"; the code is proven against AWS's published SigV4 examples and a fake S3.
 - **Loopback listener (not egress):** the desktop app listens on `127.0.0.1:48787` for the OAuth redirect while a sign-in
   is open. It is a listen address on the user's own computer; nothing leaves the computer through it.
 - **Tokens and keys:** access tokens live in memory only, are never stored or logged and are never in a backup; no refresh

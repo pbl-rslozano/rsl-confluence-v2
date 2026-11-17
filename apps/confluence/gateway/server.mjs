@@ -28,7 +28,7 @@ import { createEtfFlowCache, createWhaleStream } from "./provider-data.mjs";
 const HOST = "127.0.0.1";
 const PORT = Number.parseInt(process.env.CONFLUENCE_GATEWAY_PORT || "8787", 10);
 const MAX_BODY_BYTES = 32 * 1024; // every route but the backup upload
-const DRAIN_LIMIT_BYTES = BACKUP_MAX_BYTES + 64 * 1024 * 1024;
+const REFUSE_DRAIN_BYTES = BACKUP_MAX_BYTES + 1024 * 1024; // an early refusal discards at most this much of an unwanted body
 const TAURI_ORIGINS = new Set(["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"]);
 const ALLOWED_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 
@@ -120,8 +120,8 @@ function corsHeaders(origin) {
   };
 }
 
-function sendJson(response, status, payload, origin) {
-  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", ...corsHeaders(origin) });
+function sendJson(response, status, payload, origin, extraHeaders = {}) {
+  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", ...corsHeaders(origin), ...extraHeaders });
   response.end(JSON.stringify(payload));
 }
 
@@ -131,18 +131,32 @@ function sendText(response, status, text, origin) {
 }
 
 /**
- * Reads a raw body of at most `limit` bytes, or returns null when it is larger. An oversize body is read and thrown away
- * (up to DRAIN_LIMIT_BYTES) instead of destroying the socket, so the client still receives the 413 answer.
+ * Reads a raw body of at most `limit` bytes, or returns null when it is larger (counted as it streams, so a chunked body
+ * is caught too). Bytes past the limit are dropped, not kept; the read stops and the socket is destroyed once the
+ * body is more than a megabyte over, so one request holds at most about `limit` bytes.
  */
 async function readBytes(request, limit) {
   let size = 0;
-  let chunks = [];
+  const chunks = [];
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > DRAIN_LIMIT_BYTES) { request.destroy(); return null; }
-    if (size > limit) chunks = []; else chunks.push(chunk);
+    if (size > limit + 1024 * 1024) { request.destroy(); return null; }
+    if (size <= limit) chunks.push(chunk);
   }
   return size > limit ? null : Buffer.concat(chunks);
+}
+
+/**
+ * Answers before the body has been read, then discards (never buffers) up to REFUSE_DRAIN_BYTES of what the client is
+ * still sending, so it receives this answer and not a connection reset (a 20 MB upload whose socket is closed half
+ * way often reports "fetch failed"; that includes `Connection: close`, which Node honours by closing at once). A
+ * client that sends more than the budget is cut off.
+ */
+function refuseUnread(request, response, status, payload, origin) {
+  sendJson(response, status, payload, origin);
+  let drained = 0;
+  request.on("data", (chunk) => { drained += chunk.length; if (drained >= REFUSE_DRAIN_BYTES) request.destroy(); });
+  request.on("error", () => {});
 }
 
 /** The credentials of a connected bucket key by profile id; null for an unknown id or a non-bucket profile. */
@@ -155,12 +169,15 @@ function bucketCredentials(id) {
 async function handleBackup(request, response, url, origin) {
   const route = `${request.method} ${url.pathname}`;
   if (route === "POST /backup/upload") {
+    // Cheap refusals first, from the query string and Content-Length, so a bad request never costs a 20 MB read.
+    const declared = Number(request.headers["content-length"]);
+    if (Number.isFinite(declared) && declared > BACKUP_MAX_BYTES) { refuseUnread(request, response, 413, { error: "Backup is larger than 20 MB." }, origin); return true; }
+    const creds = bucketCredentials(url.searchParams.get("profile"));
+    if (!creds) { refuseUnread(request, response, 409, { error: "No backup bucket key is connected." }, origin); return true; }
+    const name = url.searchParams.get("name");
+    if (!BACKUP_FILE_RE.test(name ?? "")) { refuseUnread(request, response, 400, { error: "Invalid backup name." }, origin); return true; }
     const body = await readBytes(request, BACKUP_MAX_BYTES);
     if (!body) { sendJson(response, 413, { error: "Backup is larger than 20 MB." }, origin); return true; }
-    const creds = bucketCredentials(url.searchParams.get("profile"));
-    if (!creds) { sendJson(response, 409, { error: "No backup bucket key is connected." }, origin); return true; }
-    const name = url.searchParams.get("name");
-    if (!BACKUP_FILE_RE.test(name ?? "")) { sendJson(response, 400, { error: "Invalid backup name." }, origin); return true; }
     try {
       sendJson(response, 200, await putBackup(creds, name, body), origin);
     } catch {

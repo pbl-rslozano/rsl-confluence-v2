@@ -8,10 +8,14 @@
  * in a source file must name a host listed for that process (`hosts` or
  * `conditionalHosts`). A literal whose host is an interpolation
  * (`https://${host}/…`) cannot be verified and is a finding too — write the
- * host literally. One exception (v2.8 WP28): a process may list `hostTemplates`,
- * e.g. "s3.${region}.backblazeb2.com". A dynamic http(s) literal whose authority
- * equals a listed template exactly is allowed (a per-account bucket host that
- * cannot be written out); any other dynamic host, and any near-miss, is a finding.
+ * host literally. One exception (v2.8 WP28): a process may list `hostTemplates`, an
+ * object that maps a source file (path relative to the repo root) to the
+ * templates only that file may use, e.g.
+ * { "apps/confluence/gateway/backup-store.mjs": ["s3.${region}.backblazeb2.com"] }.
+ * In that file a dynamic http(s) literal whose authority equals a listed
+ * template exactly is allowed (a per-account bucket host that cannot be written
+ * out); in any other file, and for any other dynamic host or near-miss, it is a
+ * finding.
  *
  * Reserved names never reach a third party and are allowed anywhere: the
  * RFC 6761 special-use TLDs (.test, .invalid, .example, .localhost) and the
@@ -79,7 +83,6 @@ export function checkEgress({ root = ROOT, manifestPath = join(root, "tools", "e
       continue;
     }
     const allowed = new Set([...(proc.hosts ?? []), ...Object.keys(proc.conditionalHosts ?? {})].map((h) => h.toLowerCase()));
-    const templates = new Set(proc.hostTemplates ?? []);
     const websocketAllowed = new Set((proc.websocketHosts ?? []).map((h) => h.toLowerCase()));
     for (const r of roots[name] ?? proc.roots ?? []) {
       const dir = resolve(root, r);
@@ -91,6 +94,7 @@ export function checkEgress({ root = ROOT, manifestPath = join(root, "tools", "e
       for (const file of statSync(dir).isDirectory() ? walk(dir) : [dir]) {
         scanned++;
         const testFile = isTestFile(relative(root, file));
+        const templates = new Set(proc.hostTemplates?.[relative(root, file).split(sep).join("/")] ?? []);
         const lines = readFileSync(file, "utf8").split(/\r?\n/);
         lines.forEach((text, i) => {
           for (const m of text.matchAll(URL_RE)) {

@@ -66,7 +66,11 @@ Connect it with `POST /providers/connect`:
 What the test call checks (it shares the 5-per-15-minutes limit with `/connect`):
 
 1. `HEAD /<bucket>` must answer 200, so the key works and the bucket is the one you named.
-2. The key must **not** be able to list other buckets: `GET /` (ListBuckets) must be refused (403), or list only this bucket. A key that reaches other buckets is refused with "This key can reach other buckets. Create a key restricted to one bucket."
+2. The key must **not** be able to enumerate other buckets: `GET /` (ListBuckets) must be refused (403), or list only this bucket. A key that lists other buckets is refused with "This key can reach other buckets. Create a key restricted to one bucket."
+
+A 403 only proves the key cannot list buckets. It does not prove the key is limited to one bucket (an R2 token with Object Read & Write on all buckets would also get 403 and be accepted). The gateway itself only ever addresses `rsl-confluence/<name>` in the one bucket you named, but you should still create a key limited to that bucket, as described above.
+
+Transfers: an upload is allowed 10 s plus the time its size needs at 128 KiB/s (at most 5 minutes); a download has 10 s to start and then 30 s between chunks; the key test and the listing keep 10 s.
 
 A bucket key is a provider profile (`kind: "provider"`, with `bucket` and a masked key id). The read-only refusal for exchange keys is unchanged and does not apply to it; it cannot reach an exchange.
 

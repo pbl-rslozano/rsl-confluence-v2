@@ -1,7 +1,7 @@
 // WP28 Task 8: B2/R2 backup store over a fake S3. No test reaches the network. The key pair is AWS's public documentation example.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BACKUP_FILE_RE, BACKUP_MAX_BYTES, BACKUP_PREFIX, getBackup, listBackups, putBackup, s3Endpoint, verifyBucketKey } from "./backup-store.mjs";
+import { B2_REGION_RE, BACKUP_FILE_RE, BACKUP_MAX_BYTES, BACKUP_PREFIX, R2_ACCOUNT_RE, getBackup, listBackups, putBackup, putDeadlineMs, s3Endpoint, verifyBucketKey } from "./backup-store.mjs";
 
 const ACCESS = "AKIAIOSFODNN7EXAMPLE";
 const SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
@@ -95,30 +95,39 @@ test("object names: only BACKUP_PREFIX + a BACKUP_FILE_RE name is ever signed or
   assert.equal(BACKUP_MAX_BYTES, 20 * 1024 * 1024);
 });
 
-test("hostile list XML: 5,000 entries, traversal keys, markup, negative sizes -> at most 20 valid, newest first", async () => {
+const contents = (key, size = 5, modified = "2026-11-17T08:00:00.000Z") =>
+  `<Contents><Key>${key}</Key><LastModified>${modified}</LastModified><Size>${size}</Size></Contents>`;
+const listOf = (...items) => async () => new Response(`<ListBucketResult>${items.join("")}</ListBucketResult>`, { status: 200 });
+
+test("hostile list XML next to one valid entry: only that entry comes back, exactly", async () => {
+  const hostile = [
+    contents(`rsl-confluence/../${N1}`),
+    contents(`other/${N1}`),
+    contents(N1), // no prefix
+    contents(`rsl-confluence/sub/${N1}`),
+    contents(`rsl-confluence/${N1}.bak`),
+    contents("rsl-confluence/<script>alert(1)</script>"),
+    contents(`rsl-confluence/${N2}`, -5),
+    contents(`rsl-confluence/${N2}`, "5; DROP"),
+    contents(`rsl-confluence/${N2}`, 5, "not a date"),
+    contents(`rsl-confluence/${N2}`, BACKUP_MAX_BYTES + 1),
+    contents("rsl-confluence/confluence-backup-2026T0Z.json"),
+    "<Contents><Key>rsl-confluence/" + N2 + "</Key></Contents>",
+    "<Contents></Contents>",
+  ];
+  const fetcher = listOf(...hostile, contents(`rsl-confluence/${N1}`, 7, "2026-11-17T08:00:00.000Z"));
+  assert.deepEqual(await listBackups(B2, { fetcher, now: NOW }), [{ name: N1, size: 7, modifiedAt: "2026-11-17T08:00:00.000Z" }]);
+});
+
+test("a listing of 5,000 valid entries is cut at the first 1,000 and returns at most 20, newest first", async () => {
   const entries = [];
   for (let i = 0; i < 5000; i++) {
-    const d = String(20200101 + i).slice(0, 8);
-    entries.push(`<Contents><Key>rsl-confluence/confluence-backup-${d}T000000Z.json</Key><LastModified>2026-01-${String(1 + (i % 28)).padStart(2, "0")}T00:00:00.000Z</LastModified><Size>10</Size></Contents>`);
+    entries.push(contents(`rsl-confluence/confluence-backup-${20200101 + i}T000000Z.json`, 10, `2026-01-${String(1 + (i % 28)).padStart(2, "0")}T00:00:00.000Z`));
   }
-  entries.push(
-    "<Contents><Key>rsl-confluence/../confluence-backup-20261117T080000Z.json</Key><LastModified>2026-11-17T08:00:00.000Z</LastModified><Size>5</Size></Contents>",
-    "<Contents><Key>other/confluence-backup-20261117T080000Z.json</Key><LastModified>2026-11-17T08:00:00.000Z</LastModified><Size>5</Size></Contents>",
-    "<Contents><Key><script>alert(1)</script></Key><LastModified>2026-11-17T08:00:00.000Z</LastModified><Size>5</Size></Contents>",
-    `<Contents><Key>rsl-confluence/${N1}</Key><LastModified>2026-11-17T08:00:00.000Z</LastModified><Size>-5</Size></Contents>`,
-    `<Contents><Key>rsl-confluence/${N1}</Key><LastModified>not a date</LastModified><Size>5</Size></Contents>`,
-  );
-  const fetcher = async () => new Response(`<ListBucketResult>${entries.join("")}</ListBucketResult>`, { status: 200 });
-  const files = await listBackups(B2, { fetcher, now: NOW });
-  assert.ok(files.length <= 20 && files.length > 0);
-  for (const f of files) {
-    assert.match(f.name, BACKUP_FILE_RE);
-    assert.ok(Number.isInteger(f.size) && f.size >= 0);
-    assert.ok(!Number.isNaN(Date.parse(f.modifiedAt)));
-  }
+  const files = await listBackups(B2, { fetcher: listOf(...entries), now: NOW });
+  assert.equal(files.length, 20);
   assert.ok(files.every((f, i) => i === 0 || files[i - 1].modifiedAt >= f.modifiedAt));
-  // Only the first 1,000 <Contents> are even looked at.
-  assert.ok(files.every((f) => Number(f.name.slice(18, 26)) < 20200101 + 1000));
+  assert.ok(files.every((f) => Number(f.name.slice(18, 26)) < 20200101 + 1000), "entries past the 1,000 cap are never read");
 });
 
 test("a list response larger than 2 MB is refused", async () => {
@@ -171,4 +180,61 @@ test("verifyBucketKey refuses a key that can list other buckets, and any failure
   await assert.rejects(verifyBucketKey(B2, { fetcher: async () => { throw new Error(`${SECRET} ${ACCESS}`); }, now: NOW }), rejected);
   const timeout = async () => { throw Object.assign(new Error(SECRET), { name: "TimeoutError" }); };
   await assert.rejects(verifyBucketKey(B2, { fetcher: timeout, now: NOW }), (e) => e.message === "The provider did not answer the key test in time.");
+});
+
+// Fix round 1: size-aware transfer deadlines. Real values are 10 s + bytes / 128 KiB/s (cap 5 min) for a PUT and 10 s to
+// the headers, then 30 s idle, for a GET; the tests scale the same rules down to milliseconds.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const hang = (init) => new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(init.signal.reason ?? new Error("aborted"))));
+
+test("putDeadlineMs: 10 s + bytes / 128 KiB/s, capped at 5 minutes", () => {
+  assert.equal(putDeadlineMs(0), 10_000);
+  assert.equal(putDeadlineMs(128 * 1024), 11_000);
+  assert.equal(putDeadlineMs(BACKUP_MAX_BYTES), 10_000 + 160_000);
+  assert.equal(putDeadlineMs(10 * BACKUP_MAX_BYTES), 300_000);
+});
+
+test("a PUT slower than the base timeout succeeds when its size earns it more time; a stalled PUT fails with the fixed message", async () => {
+  const body = "x".repeat(400);
+  const slow = async (_url, init) => { await Promise.race([sleep(150), hang(init)]); return new Response(null, { status: 200 }); }; // base 50 ms + 400 B at 2000 B/s = 250 ms
+  assert.equal((await putBackup(B2, N1, body, { fetcher: slow, now: NOW, timeoutMs: 50, bytesPerSecond: 2000 })).size, 400);
+  const stalled = async (_url, init) => hang(init);
+  const started = Date.now();
+  await assert.rejects(putBackup(B2, N1, body, { fetcher: stalled, now: NOW, timeoutMs: 50, bytesPerSecond: 2000 }),
+    (e) => e.message === "The bucket did not accept the request." && e.timedOut === true);
+  assert.ok(Date.now() - started < 2000);
+});
+
+test("a GET whose body takes longer than the header timeout succeeds while chunks keep arriving; a stalled body fails", async () => {
+  const chunked = (delays) => async () => new Response(new ReadableStream({
+    async start(c) { for (const d of delays) { await sleep(d); c.enqueue(new TextEncoder().encode("ab")); } c.close(); },
+  }), { status: 200 });
+  // header timeout 40 ms, idle 120 ms: five chunks 60 ms apart take 300 ms in all.
+  assert.equal(await getBackup(B2, N1, { fetcher: chunked([60, 60, 60, 60, 60]), now: NOW, timeoutMs: 40, idleMs: 120 }), "ababababab");
+  let cancelled = false;
+  const stalls = async () => new Response(new ReadableStream({
+    start(c) { c.enqueue(new TextEncoder().encode("ab")); },
+    cancel() { cancelled = true; },
+  }), { status: 200 });
+  await assert.rejects(getBackup(B2, N1, { fetcher: stalls, now: NOW, timeoutMs: 40, idleMs: 80 }),
+    (e) => e.message === "The bucket did not accept the request." && e.timedOut === true);
+  assert.ok(cancelled, "a stalled body is cancelled");
+  await assert.rejects(getBackup(B2, N1, { fetcher: async (_u, init) => hang(init), now: NOW, timeoutMs: 40 }), (e) => e.timedOut === true);
+});
+
+test("a read error mid-body (socket reset, abort) becomes the fixed message, never the upstream text", async () => {
+  const broken = async () => new Response(new ReadableStream({
+    start(c) { c.enqueue(new TextEncoder().encode("ab")); },
+    pull() { throw Object.assign(new TypeError(`terminated ${SECRET} s3.us-west-004.backblazeb2.com`), { cause: new Error(ACCESS) }); },
+  }), { status: 200 });
+  const fixed = (e) => e.message === "The bucket did not accept the request." && !e.message.includes(SECRET) && !e.message.includes("terminated");
+  await assert.rejects(getBackup(B2, N1, { fetcher: broken, now: NOW }), fixed);
+  await assert.rejects(listBackups(B2, { fetcher: broken, now: NOW }), fixed);
+  const aborted = async () => new Response(new ReadableStream({ start(c) { c.error(new DOMException("x", "TimeoutError")); } }), { status: 200 });
+  await assert.rejects(getBackup(B2, N1, { fetcher: aborted, now: NOW }), (e) => fixed(e) && e.timedOut === true);
+});
+
+test("the region and account-id patterns are exported and shared with provider validation", () => {
+  assert.equal(String(B2_REGION_RE), String(/^[a-z]{2}-[a-z]+-\d{3}$/));
+  assert.equal(String(R2_ACCOUNT_RE), String(/^[0-9a-f]{32}$/));
 });

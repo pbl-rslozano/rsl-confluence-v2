@@ -90,7 +90,7 @@
       "loopbackListen": true
     },
     "gateway": {
-      "description": "Optional local read-only API gateway (apps/confluence/gateway, ADR-0009 / ADR-0003): runs on the user's own computer, listens on loopback, and calls an exchange's account endpoint only when the user connects an API key and asks it to check the key's permissions (read-only; keys with trading or withdrawal permission are refused). v2.8 (WP25 part 2): it also holds optional, paid data-provider keys in memory only (CoinGlass over https, Whale Alert over wss), each checked with one test call at connect; both hosts are contacted only for a connected provider profile. v2.8 (WP28, encrypted cloud backup): it also reaches the user's own Backblaze B2 or Cloudflare R2 bucket (S3 API, SigV4) with a bucket-restricted key held in memory, only for a connected bucket profile. Those hosts carry a region or an account id, so they are listed as hostTemplates (an exact-match exception in tools/check-egress.mjs) and never as web hosts or CSP entries. Never bundled into the app.",
+      "description": "Optional local read-only API gateway (apps/confluence/gateway, ADR-0009 / ADR-0003): runs on the user's own computer, listens on loopback, and calls an exchange's account endpoint only when the user connects an API key and asks it to check the key's permissions (read-only; keys with trading or withdrawal permission are refused). v2.8 (WP25 part 2): it also holds optional, paid data-provider keys in memory only (CoinGlass over https, Whale Alert over wss), each checked with one test call at connect; both hosts are contacted only for a connected provider profile. v2.8 (WP28, encrypted cloud backup): it also reaches the user's own Backblaze B2 or Cloudflare R2 bucket (S3 API, SigV4) with a bucket-restricted key held in memory, only for a connected bucket profile. Those hosts carry a region or an account id, so they are listed as hostTemplates (an exact-match exception in tools/check-egress.mjs, valid in backup-store.mjs only, whose s3Endpoint checks the region and account id first) and never as web hosts or CSP entries. Never bundled into the app.",
       "roots": [
         "apps/confluence/gateway/exchange-auth.mjs",
         "apps/confluence/gateway/provider-auth.mjs",
@@ -98,10 +98,12 @@
         "apps/confluence/gateway/s3-sign.mjs",
         "apps/confluence/gateway/backup-store.mjs"
       ],
-      "hostTemplates": [
-        "s3.${region}.backblazeb2.com",
-        "${accountId}.r2.cloudflarestorage.com"
-      ],
+      "hostTemplates": {
+        "apps/confluence/gateway/backup-store.mjs": [
+          "s3.${region}.backblazeb2.com",
+          "${accountId}.r2.cloudflarestorage.com"
+        ]
+      },
       "hosts": [
         "api.binance.com",
         "testnet.binance.vision",

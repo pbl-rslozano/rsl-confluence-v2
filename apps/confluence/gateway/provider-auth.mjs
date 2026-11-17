@@ -10,7 +10,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { maskApiKey } from "./exchange-auth.mjs";
-import { verifyBucketKey } from "./backup-store.mjs";
+import { B2_REGION_RE, R2_ACCOUNT_RE, verifyBucketKey } from "./backup-store.mjs";
 
 export const PROVIDER_IDS = Object.freeze(["whale-alert", "coinglass", "b2", "r2"]);
 /** v2.8 WP28: backup-bucket keys (Backblaze B2, Cloudflare R2). They hold a key id and a secret, not one apiKey. */
@@ -34,8 +34,8 @@ export function validateProviderCredentials(value) {
 }
 
 const BUCKET_RULES = {
-  b2: { bucket: /^[A-Za-z0-9-]{6,63}$/, field: "region", pattern: /^[a-z]{2}-[a-z]+-\d{3}$/ },
-  r2: { bucket: /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/, field: "accountId", pattern: /^[0-9a-f]{32}$/ },
+  b2: { bucket: /^[A-Za-z0-9-]{6,63}$/, field: "region", pattern: B2_REGION_RE },
+  r2: { bucket: /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/, field: "accountId", pattern: R2_ACCOUNT_RE },
 };
 
 function validateBucketCredentials(value) {

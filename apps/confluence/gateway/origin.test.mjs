@@ -175,6 +175,14 @@ test("backup routes end to end against a fake S3 (no network): connect, upload, 
         assert.equal((await fetch(`${base}/backup/upload?${q(bad)}`, { method: "POST", headers: authHeaders, body: "{}" })).status, 400, bad);
         assert.equal((await fetch(`${base}/backup/download?${q(bad)}`, { headers: authHeaders })).status, 400, bad);
       }
+      // Early refusals do not wait for the body; a chunked body (no Content-Length) is counted as it streams.
+      assert.equal((await fetch(`${base}/backup/upload?${q("bad.json")}`, { method: "POST", headers: authHeaders, body: Buffer.alloc(2 * 1024 * 1024, 0x61) })).status, 400);
+      assert.equal((await fetch(`${base}/backup/upload?profile=00000000-0000-0000-0000-000000000000&name=${NAME}`, { method: "POST", headers: authHeaders, body: Buffer.alloc(2 * 1024 * 1024, 0x61) })).status, 409);
+      let sent = 0;
+      const chunked = new ReadableStream({ pull(c) { if (sent > MB20) c.close(); else { sent += 1024 * 1024; c.enqueue(new Uint8Array(1024 * 1024)); } } });
+      const streamed = await fetch(`${base}/backup/upload?${q(NAME)}`, { method: "POST", headers: authHeaders, body: chunked, duplex: "half" });
+      assert.equal(streamed.status, 413);
+      assert.deepEqual(await streamed.json(), { error: "Backup is larger than 20 MB." });
       const failed = await fetch(`${base}/backup/upload?${q("confluence-backup-20261231T000000Z.json")}`, { method: "POST", headers: authHeaders, body: "{}" });
       assert.equal(failed.status, 502);
       const failedText = await failed.text();
