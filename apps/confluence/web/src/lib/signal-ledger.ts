@@ -162,6 +162,9 @@ export function maxRowsFor(kind: string): number {
   return 20_000;
 }
 
+/** v2.8 final review (I-2): a restore writes at most this many rows per chunk (a day that holds more is one chunk). */
+export const RESTORE_CHUNK_ROWS = 1000;
+
 const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const isQuotaError = (e: unknown) =>
   e instanceof Error && /quota|QUOTA|NS_ERROR_DOM_QUOTA|full|disk/i.test(`${e.name} ${e.message}`);
@@ -220,13 +223,41 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
     }
   }
 
-  async function addDayMeta(port: LedgerPort, index: LedgerIndex, day: string, key: string, units: number): Promise<void> {
-    const dayDoc = ((await port.get(LEDGER_META, `day|${day}`)) as DayDoc | null) ?? { ids: [] };
-    if (!(dayDoc.meta ?? []).includes(key)) dayDoc.meta = [...(dayDoc.meta ?? []), key];
-    await port.put(LEDGER_META, `day|${day}`, dayDoc);
-    index.days[day] = (index.days[day] ?? 0) + units;
+  /**
+   * Writes meta documents (outcome snapshots, universes) that belong to a day. v2.8 final review (I-2): the index is saved
+   * with the new units BEFORE any document, then the day document lists the key, then the document is written, so a
+   * failure at any point (a full store) never leaves a document that pruning cannot reach. Units of documents that were
+   * not written are taken back and the index saved again (best effort; an over-count only prunes earlier).
+   */
+  async function writeMeta(port: LedgerPort, index: LedgerIndex, items: { day: string; key: string; units: number; doc: unknown }[]): Promise<void> {
+    if (!items.length) return;
+    for (const it of items) index.days[it.day] = (index.days[it.day] ?? 0) + it.units;
+    await port.put(LEDGER_META, INDEX_ID, index);
+    let i = 0;
+    try {
+      for (; i < items.length; i++) {
+        const it = items[i];
+        const dayDoc = ((await port.get(LEDGER_META, `day|${it.day}`)) as DayDoc | null) ?? { ids: [] };
+        if (!(dayDoc.meta ?? []).includes(it.key)) {
+          dayDoc.meta = [...(dayDoc.meta ?? []), it.key];
+          await port.put(LEDGER_META, `day|${it.day}`, dayDoc);
+        }
+        await port.put(LEDGER_META, it.key, it.doc);
+      }
+    } catch (error) {
+      for (const it of items.slice(i)) index.days[it.day] = Math.max(0, (index.days[it.day] ?? 0) - it.units);
+      await port.put(LEDGER_META, INDEX_ID, index).catch(() => undefined);
+      throw error;
+    }
   }
 
+  /**
+   * Appends rows. v2.8 final review (I-2): the order makes every failure consistent. (1) the index is saved with the
+   * chunk's new rows counted, so every day this call touches is indexed before any of its documents exists; (2) the day
+   * documents list the new bar documents; (3) the bar documents are written. If a put fails part-way, the units of rows
+   * that were not written are taken back and the index is saved again, then the error is rethrown. Pruning walks the
+   * index, so no stored row is ever out of its reach.
+   */
   async function write(port: LedgerPort, rows: LedgerRow[], universe?: UniverseSnapshot, stats?: PruneStats): Promise<number> {
     const groups = new Map<string, LedgerRow[]>();
     for (const r of rows) {
@@ -236,34 +267,47 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
     }
     const index = await readIndex(port);
     await prune(port, index, Date.now(), false, stats);
-    let added = 0;
+    const plans: { id: string; day: string; doc: BarDoc; toAdd: LedgerRow[]; isNew: boolean; list: LedgerRow[] }[] = [];
     for (const [id, list] of groups) {
       const day = id.split("|")[0];
-      const existing = ((await port.get(LEDGER_COLLECTION, id)) as BarDoc | null) ?? {
-        schema: 2, day, src: list[0].src, tf: list[0].tf, cfg: list[0].cfg, t: list[0].t, rows: [],
-      };
-      const have = new Set(existing.rows.map((r) => r.id));
+      const stored = (await port.get(LEDGER_COLLECTION, id)) as BarDoc | null;
+      const doc = stored ?? { schema: 2, day, src: list[0].src, tf: list[0].tf, cfg: list[0].cfg, t: list[0].t, rows: [] };
+      const have = new Set(doc.rows.map((r) => r.id));
       const toAdd = list.filter((r) => !have.has(r.id));
-      if (toAdd.length) {
-        existing.rows.push(...toAdd);
-        await port.put(LEDGER_COLLECTION, id, existing);
-        if (!have.size) {
+      if (toAdd.length) plans.push({ id, day, doc, toAdd, isNew: !have.size, list });
+      else list.forEach((r) => seen.add(r.id));
+    }
+    let added = 0;
+    if (plans.length) {
+      for (const p of plans) index.days[p.day] = (index.days[p.day] ?? 0) + p.toAdd.length;
+      await port.put(LEDGER_META, INDEX_ID, index); // (1)
+      let written = 0;
+      try {
+        const newIds = new Map<string, string[]>();
+        for (const p of plans) if (p.isNew) newIds.set(p.day, [...(newIds.get(p.day) ?? []), p.id]);
+        for (const [day, ids] of newIds) { // (2)
           const dayDoc = ((await port.get(LEDGER_META, `day|${day}`)) as DayDoc | null) ?? { ids: [] };
-          dayDoc.ids = [...new Set([...(dayDoc.ids ?? []), id])];
+          dayDoc.ids = [...new Set([...(dayDoc.ids ?? []), ...ids])];
           await port.put(LEDGER_META, `day|${day}`, dayDoc);
         }
-        index.days[day] = (index.days[day] ?? 0) + toAdd.length;
-        added += toAdd.length;
+        for (; written < plans.length; written++) { // (3)
+          const p = plans[written];
+          await port.put(LEDGER_COLLECTION, p.id, { ...p.doc, rows: [...p.doc.rows, ...p.toAdd] });
+          added += p.toAdd.length;
+          p.list.forEach((r) => seen.add(r.id));
+        }
+      } catch (error) {
+        for (const p of plans.slice(written)) index.days[p.day] = Math.max(0, (index.days[p.day] ?? 0) - p.toAdd.length);
+        await port.put(LEDGER_META, INDEX_ID, index).catch(() => undefined);
+        throw error;
       }
-      list.forEach((r) => seen.add(r.id));
     }
     // The full venue ranking, once per (source, bar time) — only for the scan's
     // newest bar, so a lagging pair cannot attach today's ranking to an older bar.
     if (universe?.list.length && rows.length) {
       const key = `u|${rows[0].src}|${universe.t}`;
       if (!(await port.get(LEDGER_META, key))) {
-        await port.put(LEDGER_META, key, { src: rows[0].src, t: universe.t, list: universe.list.slice(0, 300) });
-        await addDayMeta(port, index, dayOf(universe.t), key, UNIVERSE_UNITS);
+        await writeMeta(port, index, [{ day: dayOf(universe.t), key, units: UNIVERSE_UNITS, doc: { src: rows[0].src, t: universe.t, list: universe.list.slice(0, 300) } }]);
       }
     }
     // Prune again after writing: rows older than the window (e.g. catch-up of
@@ -417,6 +461,7 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
       }
       const index = await readIndex(port);
       let saved = 0;
+      const items: { day: string; key: string; units: number; doc: unknown }[] = [];
       for (const [id, list] of byDoc) {
         if (!(await port.get(LEDGER_COLLECTION, id))) continue; // pruned meanwhile
         const key = `o|${id}`;
@@ -434,11 +479,9 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
             if (!before) newRows++;
           }
         }
-        if (changed) {
-          await port.put(LEDGER_META, key, { out });
-          await addDayMeta(port, index, id.split("|")[0], key, newRows * SNAPSHOT_UNITS);
-        }
+        if (changed) items.push({ day: id.split("|")[0], key, units: newRows * SNAPSHOT_UNITS, doc: { out } });
       }
+      await writeMeta(port, index, items);
       await prune(port, index, Date.now());
       await port.put(LEDGER_META, INDEX_ID, index);
       return saved;
@@ -505,13 +548,22 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
     });
   }
   /* ---- v2.8 (WP28): restore from an encrypted backup. Rows are already sanitised by the caller. ---- */
-  /** Restore chunks of about 5,000 rows, never splitting a day (so a day is never re-created after its eviction). */
+  /**
+   * Restore chunks of at most RESTORE_CHUNK_ROWS rows, or one whole day when a day holds more, never splitting a day (so a
+   * day is never re-created after its eviction). v2.8 final review (I-2): small chunks, each indexed before its documents
+   * are written, so a full store stops a restore at a chunk boundary or inside one chunk with the index consistent.
+   */
   function restoreChunks(fresh: LedgerRow[]): LedgerRow[][] {
     const out: LedgerRow[][] = [];
     let cur: LedgerRow[] = [];
-    for (const r of fresh) {
-      if (cur.length >= 5000 && dayOf(cur[cur.length - 1].t) !== dayOf(r.t)) { out.push(cur); cur = []; }
-      cur.push(r);
+    let i = 0;
+    while (i < fresh.length) {
+      const day = dayOf(fresh[i].t);
+      let j = i;
+      while (j < fresh.length && dayOf(fresh[j].t) === day) j++;
+      if (cur.length && cur.length + (j - i) > RESTORE_CHUNK_ROWS) { out.push(cur); cur = []; }
+      for (let k = i; k < j; k++) cur.push(fresh[k]);
+      i = j;
     }
     if (cur.length) out.push(cur);
     return out;
@@ -584,7 +636,17 @@ export function createLedgerStore(portOrPromise: LedgerPort | Promise<LedgerPort
       }
       const st: PruneStats = { ageDays: 0, capDays: 0, capRows: 0 };
       let added = 0;
-      for (const chunk of chunks) added += await write(port, chunk, undefined, st);
+      for (const chunk of chunks) {
+        try {
+          added += await write(port, chunk, undefined, st);
+        } catch (error) {
+          // v2.8 final review (I-2): no aggressive pruning here (it would delete this device's rows to make room for older
+          // backup rows, against the plan). Stop: write() left the index consistent, the caller reports a partial restore,
+          // and running it again stops at the same point or finishes once there is room.
+          if (isQuotaError(error)) full = true;
+          throw error;
+        }
+      }
       return { added, duplicates, tooOld, capDropped: st.capRows, agePrunedDays: st.ageDays };
     });
   }

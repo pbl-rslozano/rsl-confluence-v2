@@ -56,8 +56,8 @@ const mkPrereg = (over = {}) => {
 };
 const mkTrial = (n) => ({ id: `app-${n.toString(16).padStart(8, "0")}`, cfg: "c1", variant: `variant-${n}`, at: NOW - n * 1000, note: n % 2 ? "n" : undefined });
 
-function device(kind = "sqlite", clock = NOW) {
-  const ledgerPort = { ...memoryPaperPort(), kind };
+function device(kind = "sqlite", clock = NOW, port = null) {
+  const ledgerPort = port ?? { ...memoryPaperPort(), kind };
   const paperPort = { ...memoryPaperPort(), kind };
   const prefsPort = memoryPaperPort();
   const log = [];
@@ -726,4 +726,133 @@ test("a ledger store that throws mid-restore: the rows already written are count
   assert.ok(written > 0 && written < 200, `some rows were written (${written})`);
   assert.equal(e.detail.rows, written);
   assert.equal(e.detail.n, written + 1 + 2);
+});
+
+/* ---- final review (I-2): a restore onto a store with a real quota ---- */
+/** A memory port that refuses a put once the stored bytes (key + JSON) would pass `limit`, like localStorage. */
+function quotaPort(kind, limit = Infinity) {
+  const base = memoryPaperPort();
+  const sizes = new Map();
+  const port = {
+    kind, limit, used: 0, puts: [],
+    get: (c, id) => base.get(c, id),
+    list: (c) => base.list(c),
+    async put(c, id, doc) {
+      const k = `${c}\u0000${id}`;
+      const n = k.length + JSON.stringify(doc).length;
+      const next = port.used - (sizes.get(k) ?? 0) + n;
+      if (next > port.limit) {
+        const e = new Error("The quota has been exceeded.");
+        e.name = "QuotaExceededError";
+        throw e;
+      }
+      await base.put(c, id, doc);
+      sizes.set(k, n);
+      port.used = next;
+      port.puts.push(`${c}/${id}`);
+    },
+    async del(c, id) {
+      const k = `${c}\u0000${id}`;
+      port.used -= sizes.get(k) ?? 0;
+      sizes.delete(k);
+      await base.del(c, id);
+    },
+  };
+  return port;
+}
+/** Every stored bar, outcome and universe document is reachable from the index (so pruning can free it), and the index never under-counts a day. */
+async function ledgerProblems(port) {
+  const index = (await port.get("ledger_meta", "index")) ?? { days: {} };
+  const problems = [];
+  const listed = new Map();
+  for (const { id, doc } of await port.list("ledger_meta")) {
+    if (!id.startsWith("day|")) continue;
+    const d = id.slice(4);
+    if (!(d in index.days)) problems.push(`day doc ${d} is not in the index`);
+    for (const x of [...(doc.ids ?? []), ...(doc.meta ?? [])]) listed.set(x, d);
+  }
+  const rowsPerDay = {};
+  for (const { id, doc } of await port.list("ledger")) {
+    if (!listed.has(id)) problems.push(`bar doc ${id} is in no day doc`);
+    rowsPerDay[doc.day] = (rowsPerDay[doc.day] ?? 0) + doc.rows.length;
+  }
+  for (const { id } of await port.list("ledger_meta")) {
+    if ((id.startsWith("o|") || id.startsWith("u|")) && !listed.has(id)) problems.push(`${id} is in no day doc`);
+  }
+  for (const [d, n] of Object.entries(rowsPerDay)) if ((index.days[d] ?? -1) < n) problems.push(`index counts ${index.days[d]} for ${d}, stored ${n}`);
+  return problems;
+}
+
+test("I-2 a restore onto a nearly full localStorage store stops cleanly: every stored day is indexed and the error is partial", async () => {
+  const port = quotaPort("localstorage");
+  const B = device("localstorage", NOW, port);
+  assert.equal((await B.ledger.restoreRows(mkRows(20, 50))).added, 1000);
+  const incoming = mkRows(40, 30, 50); // 1,200 rows on older days (still inside 14 days), other pairs
+  const file = await fileOf({ ...emptyParts(NOW), ledger: { ...emptyParts(NOW).ledger, rows: incoming } });
+  const plan = await openBackupFile(file, PASS, B.deps);
+  assert.equal(plan.ledger.added, 1200);
+  port.limit = port.used + 450_000; // room for roughly half of the incoming rows
+  const e = await partialError(applyRestore(plan, { settings: false }, B.deps));
+  assert.ok(e instanceof BackupError && e.code === "partial", `expected partial, got ${e}`);
+  assert.equal(e.detail.step, "rows");
+  const stored = (await B.ledger.all()).length;
+  assert.ok(e.detail.rows > 0 && e.detail.rows < 1200, `some rows were written (${e.detail.rows})`);
+  assert.equal(stored, 1000 + e.detail.rows, "the partial count is what the store holds");
+  assert.deepEqual(await ledgerProblems(port), []);
+  assert.equal((await B.ledger.stats()).rows, stored, "the index counts exactly the stored rows");
+  assert.equal(B.ledger.isFull(), true, "the store reports that it is full");
+});
+
+test("I-2 a re-run stops at the same consistent point, and finishes once there is room", async () => {
+  const port = quotaPort("localstorage");
+  const B = device("localstorage", NOW, port);
+  await B.ledger.restoreRows(mkRows(20, 50));
+  const file = await fileOf({ ...emptyParts(NOW), ledger: { ...emptyParts(NOW).ledger, rows: mkRows(40, 30, 50) } });
+  port.limit = port.used + 450_000;
+  await partialError(applyRestore(await openBackupFile(file, PASS, B.deps), { settings: false }, B.deps));
+  const first = (await B.ledger.all()).map((r) => r.id).sort();
+  for (let i = 0; i < 2; i++) {
+    const e = await partialError(applyRestore(await openBackupFile(file, PASS, B.deps), { settings: false }, B.deps));
+    assert.equal(e.code, "partial");
+    assert.equal(e.detail.rows, 0, "a re-run against the same full store writes no row");
+    assert.deepEqual((await B.ledger.all()).map((r) => r.id).sort(), first, "and stops at the same point");
+    assert.deepEqual(await ledgerProblems(port), []);
+  }
+  port.limit = Infinity;
+  const done = await applyRestore(await openBackupFile(file, PASS, B.deps), { settings: false }, B.deps);
+  assert.equal(done.ledger.added, 2200 - first.length);
+  assert.equal((await B.ledger.all()).length, 2200);
+  assert.equal((await B.ledger.stats()).rows, 2200);
+  assert.deepEqual(await ledgerProblems(port), []);
+  // and everything restored is prunable: clearing frees the store
+  await B.ledger.clear();
+  assert.equal((await port.list("ledger")).length, 0);
+});
+
+test("I-2 a restore writes chunks of at most about 1,000 rows (or one day) and saves the index before each chunk's documents", async () => {
+  const port = quotaPort("indexeddb");
+  const B = device("indexeddb", NOW, port);
+  const rows = mkRows(30, 100); // 3,000 rows, about 180 a day
+  await B.ledger.restoreRows(rows);
+  const indexPuts = port.puts.filter((p) => p === "ledger_meta/index").length;
+  assert.ok(indexPuts >= 3, `index saved per chunk (${indexPuts})`);
+  // the index is saved before the first bar document of the first chunk
+  assert.ok(port.puts.indexOf("ledger_meta/index") < port.puts.findIndex((p) => p.startsWith("ledger/")));
+  assert.deepEqual(await ledgerProblems(port), []);
+});
+
+test("I-2 a failure inside one bar document leaves no orphan: the day of a written bar document is always in the index", async () => {
+  for (const failAt of [1, 2, 3, 5, 8, 13]) {
+    const port = quotaPort("localstorage");
+    const B = device("localstorage", NOW, port);
+    let n = 0;
+    const realPut = port.put;
+    port.put = async (c, id, doc) => {
+      if (++n === failAt + 1) { const e = new Error("QuotaExceededError"); e.name = "QuotaExceededError"; throw e; }
+      return realPut(c, id, doc);
+    };
+    await B.ledger.restoreRows(mkRows(3, 12)).catch(() => null);
+    port.put = realPut;
+    assert.deepEqual(await ledgerProblems(port), [], `failure at put ${failAt + 1}`);
+  }
 });
