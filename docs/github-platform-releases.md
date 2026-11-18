@@ -18,8 +18,13 @@ default **false**). With `publish` false the run builds every installer and uplo
 (`installer-windows`, `installer-macos`, `installer-linux`, `installer-android`, `installer-iphone`, `pwa-sbom-evidence`)
 and stops: the Netlify update-channel job `publish` and every `publish_*` job are skipped, so nothing is deployed and no
 GitHub release or tag is created. Tick `publish` only after the owner has approved the installers; `draft` still decides
-whether the releases are drafts. Tag pushes and `[release…]` commits on main publish as before. Guard:
-`tools/workflow-gates.test.mjs`.
+whether the releases are drafts. A dispatch publishes only with `publish` ticked and the workflow taken from `main`; a
+dispatch from a tag or another branch never publishes. Version-tag pushes and `[release…]` commits on main publish as
+before. The `promote-desktop` and `release-audit` workflows, which also write to releases, run only on the same kind of
+dispatch (their own `publish` input) and no longer run on push. Guard: `tools/workflow-gates.test.mjs`.
+
+**Use workflow from: main only.** Branches and tags made before 2.8.0 carry the old workflow, which publishes on any
+manual run.
 
 **Unsigned desktop installers (2.8.0, owner decision 18 Nov 2026).** Windows builds with no `signCommand` (unsigned
 installers). macOS takes the existing `RSL_MACOS_UNSIGNED` path automatically when none of the six Apple secrets is set:

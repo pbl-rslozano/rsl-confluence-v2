@@ -1,14 +1,19 @@
 name: Promote verified desktop builds
+# 2.8.0 review fix (I3): creates draft GitHub releases, so it runs only on a manual dispatch of main with `publish`
+# ticked (the push trigger is gone). Guard: tools/workflow-gates.test.mjs.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths: [.github/workflows/promote-desktop.yml]
+    inputs:
+      publish:
+        description: "Publish: create the draft desktop releases from the verified build runs"
+        type: boolean
+        default: false
 permissions:
   contents: write
   actions: read
 jobs:
   promote:
+    if: (github.event_name == 'workflow_dispatch' && inputs.publish == true && github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
