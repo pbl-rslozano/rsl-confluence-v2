@@ -59,6 +59,7 @@ import type { ReversalResult } from "@/lib/reversal";
 import type { PatternSignal } from "@/lib/pattern-signal";
 import { runPanelScores, runScanJobs, scanMode } from "@/lib/scan-runner";
 import { packKlines, type ScanJob, type ScanJobResult } from "@/lib/scan-jobs";
+import type { V2Result } from "@/lib/confluence-v2";
 import { createLedgerStore } from "@/lib/signal-ledger";
 import { createIndexedDBAdapter } from "@rsl/core-kit/core/rsl-storage.js";
 import { emptyReversal, floorLabel, suppressedConfluence, thinNote, type SeriesScore } from "@/lib/scan-pipeline";
@@ -248,6 +249,8 @@ interface AssetRow {
   confluence: ConfluenceResult;
   reversal: ReversalResult;
   pattern: PatternSignal;
+  /** v2.8 (WP23): Confluence v2 on the same bars (logged, never scored or listed). */
+  v2?: V2Result | null;
   klines: Kline[];
   assetClass: AssetClass;
   /** Stocks/FX: the newest bar printed while the underlying market was shut. */
@@ -1039,7 +1042,7 @@ export default function Home() {
         return c === "excluded" ? "crypto" : c;
       };
       type Ticker = { rank: number; symbol: string; lastPrice: string; priceChangePercent: string; quoteVolume: string };
-      const rowOf = (t: Ticker, kl: Kline[], res: { score: { confluence: ConfluenceResult; reversal: ReversalResult }; pattern: PatternSignal }, freshness: Freshness, priceFromBars = false): AssetRow => {
+      const rowOf = (t: Ticker, kl: Kline[], res: { score: { confluence: ConfluenceResult; reversal: ReversalResult }; pattern: PatternSignal; v2?: V2Result | null }, freshness: Freshness, priceFromBars = false): AssetRow => {
         const assetCls = classOf(t.symbol);
         return {
           rank: t.rank,
@@ -1053,6 +1056,7 @@ export default function Home() {
           confluence: res.score.confluence,
           reversal: res.score.reversal,
           pattern: res.pattern,
+          v2: res.v2,
           klines: kl,
           assetClass: assetCls,
           underlyingClosed: kl.length > 0 && barWhileClosed(assetCls, kl[kl.length - 1].time, intervalMs),
@@ -1215,7 +1219,7 @@ export default function Home() {
       };
       // Cross-sectional fields (RS percentile, BTC beta, universe rank) once the chosen list is complete, as in a full scan.
       const shared = scanShared(prepared.filter((p) => p.fresh && p.kl.length).map((p) => seriesOf(p.t, p.kl)), data.universe);
-      const scoredOf = new Map<string, { t: (typeof prepared)[number]["t"]; res: Pick<ScanJobResult, "score" | "pattern"> }>();
+      const scoredOf = new Map<string, { t: (typeof prepared)[number]["t"]; res: Pick<ScanJobResult, "score" | "pattern" | "v2"> }>();
       const out: AssetRow[] = prepared.map(({ t, kl, fresh, failure }) => {
         const scored = byKey.get(`${source}:${tf}:${t.symbol}`);
         const res = scored && !scored.error
@@ -1224,7 +1228,7 @@ export default function Home() {
               score: { usable: false, warmBars: 0, confluence: suppressedConfluence(`Feed unavailable this scan (${scored?.error ?? failure}) — not scored, not recorded.`), reversal: emptyReversal() },
               pattern: emptySignal("Feed unavailable"),
             };
-        scoredOf.set(t.symbol, { t, res: res as Pick<ScanJobResult, "score" | "pattern"> });
+        scoredOf.set(t.symbol, { t, res: res as Pick<ScanJobResult, "score" | "pattern" | "v2"> });
         // A row whose fetch failed this scan is display-only: "not updated" with its bar time.
         return rowOf(t, kl, res, fresh ? "live" : "stale");
       });
@@ -1233,7 +1237,7 @@ export default function Home() {
         const x = scoredOf.get(row.pair);
         if (!x || !x.res.score.usable || !row.klines.length) return null;
         // v2.8 (WP19): the row logs this scan's Pattern output (pd / pc).
-        const lr = liveRow({ ...seriesOf(x.t, row.klines), pattern: x.res.pattern }, x.res.score as SeriesScore, recordCtx, shared);
+        const lr = liveRow({ ...seriesOf(x.t, row.klines), pattern: x.res.pattern, v2: x.res.v2 }, x.res.score as SeriesScore, recordCtx, shared);
         if (lr) row.context = lr;
         return lr;
       });
