@@ -3,6 +3,7 @@
  * sbom.mjs — CycloneDX 1.6 JSON SBOM for rsL Confluence Terminal.
  *
  *   node tools/sbom.mjs            → dist/rsL-Confluence-<version>-sbom.cdx.json   (e.g. rsL-Confluence-2.7.0-sbom.cdx.json)
+ *   node tools/sbom.mjs --out <path>   → that file instead (tests)
  *
  * Sources: pnpm-lock.yaml (npm packages, with integrity hashes) and
  * apps/confluence/desktop/src-tauri/Cargo.lock (Rust crates, with checksums).
@@ -97,9 +98,11 @@ if (existsSync(cargoPath)) {
 
 /* ---- Vendored rsL Core Kit (pinned by manifest) ---- */
 const manifest = readFileSync(join(ROOT, "packages/core/KIT-MANIFEST.sha256"), "utf8");
+// K-Dense v2 (18 Nov 2026) B-L2: the kit's version comes from its own package.json (KIT-003 SemVer), never hard-coded.
+const kitVersion = JSON.parse(readFileSync(join(ROOT, "packages/core/package.json"), "utf8")).version;
 components.push({
-  type: "library", name: "rsl-core-kit", version: "1.0.2026", supplier: { name: "rsLozano" },
-  "bom-ref": "rsl:core-kit@1.0.2026", scope: "required", licenses: [{ license: { name: "UNLICENSED (rsLozano, all rights reserved)" } }],
+  type: "library", name: "rsl-core-kit", version: kitVersion, supplier: { name: "rsLozano" },
+  "bom-ref": `rsl:core-kit@${kitVersion}`, scope: "required", licenses: [{ license: { name: "UNLICENSED (rsLozano, all rights reserved)" } }],
   hashes: [{ alg: "SHA-256", content: createHash("sha256").update(manifest).digest("hex") }],
   description: "Vendored unchanged; hash is of KIT-MANIFEST.sha256 (per-file hashes inside).",
 });
@@ -113,8 +116,9 @@ const bom = {
   },
   components,
 };
-mkdirSync(join(ROOT, "dist"), { recursive: true });
-const out = join(ROOT, "dist", `rsL-Confluence-${pkg.version}-sbom.cdx.json`);
+const outAt = process.argv.indexOf("--out");
+const out = outAt > 0 && process.argv[outAt + 1] ? process.argv[outAt + 1] : join(ROOT, "dist", `rsL-Confluence-${pkg.version}-sbom.cdx.json`);
+mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, JSON.stringify(bom, null, 2) + "\n");
 const req = components.filter((c) => c.scope === "required").length;
 console.log(`SBOM: ${npmCount} npm + ${components.length - npmCount - 1} cargo + 1 vendored = ${components.length} components (${req} required, ${components.length - req} excluded) → ${out.replace(ROOT + "/", "")}`);

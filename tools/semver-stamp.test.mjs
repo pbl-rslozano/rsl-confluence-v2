@@ -4,7 +4,9 @@
 // not scanned. Run: node --experimental-strip-types --no-warnings --test tools/semver-stamp.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildStamp, poweredBy } from "../packages/core/core/rsl-brand.js";
@@ -84,4 +86,22 @@ test("the PWA zip is rsL-Confluence-<SemVer>-pwa.zip (+ .sha256) in the packager
     assert.ok(!old.test(readFileSync(join(ROOT, rel), "utf8")), `${rel}: no rsL-Confluence-v<ver>-2026-pwa.zip`);
   }
   assert.match(readFileSync(join(ROOT, "docs/runbooks/release-and-sign.md"), "utf8"), /rsL-Confluence-<ver>-pwa\.zip/);
+});
+
+// K-Dense v2 (18 Nov 2026) B-L2: the SBOM's vendored Core Kit component carries the kit's own package version.
+test("the SBOM's rsl-core-kit component version and bom-ref follow packages/core/package.json", () => {
+  const kit = JSON.parse(readFileSync(join(ROOT, "packages/core/package.json"), "utf8")).version;
+  const dir = mkdtempSync(join(tmpdir(), "sbom-"));
+  try {
+    const out = join(dir, "sbom.cdx.json");
+    const r = spawnSync(process.execPath, [join(ROOT, "tools/sbom.mjs"), "--out", out], { encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    const bom = JSON.parse(readFileSync(out, "utf8"));
+    const c = bom.components.find((x) => x.name === "rsl-core-kit");
+    assert.ok(c, "SBOM lists rsl-core-kit");
+    assert.equal(c.version, kit);
+    assert.equal(c["bom-ref"], `rsl:core-kit@${kit}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
