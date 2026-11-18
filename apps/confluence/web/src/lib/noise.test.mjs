@@ -77,15 +77,18 @@ ok(`Pattern never HIGH on noise (got ${pHigh})`, pHigh === 0);
 
 console.log(`\n(noise grid ${seconds.toFixed(1)} s, of which Pattern ${(patternMs / 1000).toFixed(1)} s)`);
 
-// K-Dense v2 (18 Nov 2026) A-L4: Pattern after "Load 5K" — where MAX_HISTORY_ANCHORS (600) matters. 16 seeded
-// 5,000-bar 4h random walks (the shared fixture generators: Gaussian, t3, GARCH in turn at the 4h sigma), Pattern
-// scored every 6 bars from bar 4,400 to 5,000 with a per-series cache key, as the scan does. Audit measured 98.3 % NONE, 0 HIGH.
-console.log("\n== Pattern after Load 5K (16 × 5,000-bar 4h random walks, every 6 bars from bar 4,400) ==");
+// K-Dense v2 (18 Nov 2026) A-L4: Pattern after "Load 5K" — where MAX_HISTORY_ANCHORS (600) matters. Seeded 5,000-bar 4h
+// random walks (the shared fixture generators: Gaussian, t3, GARCH in turn at the 4h sigma), Pattern scored every 6 bars
+// from bar 4,400 to 5,000 with a per-series cache key, as the scan does. Audit (16 walks): 98.3 % NONE, 0 HIGH.
+// Round 2 (controller ruling, run time): 6 walks, each model twice (~7 s). Measured 18 Nov 2026: 6 walks 98.51 % NONE,
+// 0 HIGH (606 calls); 16 walks 98.45 %, 0 HIGH.
+const LOAD5K_WALKS = 6;
+console.log(`\n== Pattern after Load 5K (${LOAD5K_WALKS} × 5,000-bar 4h random walks, every 6 bars from bar 4,400) ==`);
 {
   const iv = INTERVALS.find((x) => x.tf === "4h");
   let n = 0, none = 0, high = 0, mod = 0, low = 0;
   const t5 = performance.now();
-  for (let rep = 0; rep < 16; rep++) {
+  for (let rep = 0; rep < LOAD5K_WALKS; rep++) {
     const model = MODELS[rep % MODELS.length];
     const k = klines(innovations(model, rng(50_000 + rep * 17), iv.sigma), 5000, iv.ms);
     const key = `noise5k-${rep}`;
@@ -101,7 +104,7 @@ console.log("\n== Pattern after Load 5K (16 × 5,000-bar 4h random walks, every 
     }
     clearPatternCache(key);
   }
-  ok(`Load 5K: ${n} Pattern calls scored (16 series × 101)`, n === 16 * 101, String(n));
+  ok(`Load 5K: ${n} Pattern calls scored (${LOAD5K_WALKS} series × 101)`, n === LOAD5K_WALKS * 101, String(n));
   ok(`Load 5K: Pattern NONE ≥ 95% (got ${((none / n) * 100).toFixed(2)}%; LOW ${low}, MODERATE ${mod}, HIGH ${high})`, none / n >= 0.95);
   ok(`Load 5K: Pattern never HIGH (got ${high})`, high === 0);
   console.log(`  (Load 5K grid ${((performance.now() - t5) / 1000).toFixed(1)} s)`);
