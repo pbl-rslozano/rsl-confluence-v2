@@ -2611,6 +2611,11 @@ async function hdPinnedBoxes(w, h, lang) {
     const sum = six.rows.reduce((a, r) => a + r.p, 0);
     // Each row: odds, Wilson range, cases and base rate (percent with one decimal, never "-0.0").
     const rowsOk = (x) => x.rows.length === 3 && Math.abs(x.rows.reduce((a, r) => a + r.p, 0) - 1) <= 0.002 && x.rows.every((r) => r.cells.length === 5 && /^\d+\.\d %$/.test(r.cells[1]) && /^\d+\.\d–\d+\.\d %$/.test(r.cells[2]) && /^\d+$/.test(r.cells[3]) && /^\d+\.\d %$/.test(r.cells[4]));
+    // K-Dense v2 (18 Nov 2026) A-L5: when every past bar is in today's Fund-trend state (this fixture's Fund trend is
+    // +100 throughout) the sample line says the odds equal the base rate instead of counting "similar past moments";
+    // then every row's odds must equal its base rate. Otherwise the line shows the effective sample.
+    const ALL_SAME = "Every past bar here is in the same Fund-trend state, so these odds equal the base rate";
+    const sampleOk = (x) => (x.sampleText === ALL_SAME ? x.rows.length === 3 && x.rows.every((r) => r.cells[1] === r.cells[4]) : /effective sample/.test(x.sampleText || ""));
     const h = p.getByTestId("scenarios-h");
     await h.getByRole("radio", { name: "24 bars" }).click();
     await p.locator('[data-testid="scenarios-table"][data-h="24"]').waitFor({ timeout: 30000 }).catch(() => null);
@@ -2623,9 +2628,9 @@ async function hdPinnedBoxes(w, h, lang) {
     await p.locator('[data-testid="scenarios-table"][data-h="6"]').waitFor({ timeout: 30000 }).catch(() => null);
     await p.waitForTimeout(1500);
     const quick = await read();
-    record("SC-2", "Expanded: fixed header, three scenarios with odds, Wilson range, cases, effective sample and base rate, explanation without placeholders; 24-bar horizon has the smaller sample; a quick horizon switch never shows a stale result",
-      expandedNow === "true" && header === "Possible scenarios from past data — not a forecast." && six.h === "6" && rowsOk(six) && six.neff > 0 && /effective sample/.test(six.sampleText || "")
-        && !!six.explain && six.explain.trim().length > 0 && !/[{}]/.test(six.explain) && tf.h === "24" && rowsOk(tf) && tf.neff < six.neff && quick.h === "6" && quick.neff === six.neff && workersAfter.length >= 1,
+    record("SC-2", "Expanded: fixed header, three scenarios with odds, Wilson range, cases, effective sample (or, when every past bar shares today's Fund-trend state, the base-rate line with odds equal to the base rate) and base rate, explanation without placeholders; 24-bar horizon has the smaller sample; a quick horizon switch never shows a stale result",
+      expandedNow === "true" && header === "Possible scenarios from past data — not a forecast." && six.h === "6" && rowsOk(six) && six.neff > 0 && sampleOk(six)
+        && !!six.explain && six.explain.trim().length > 0 && !/[{}]/.test(six.explain) && tf.h === "24" && rowsOk(tf) && sampleOk(tf) && tf.neff < six.neff && quick.h === "6" && quick.neff === six.neff && workersAfter.length >= 1,
       { header, workers: workersAfter.length, six: { h: six.h, rows: six.rows, sum, neff: six.neff, sample: six.sampleText, explain: (six.explain || "").slice(0, 160) }, tf: { h: tf.h, neff: tf.neff, rows: tf.rows.map((r) => r.cells.join(" | ")) }, quick: { h: quick.h, neff: quick.neff } });
     await p.keyboard.press("Escape");
     await p.waitForFunction(() => !document.querySelector('[role="dialog"]'), null, { timeout: 10000 }).catch(() => null);
