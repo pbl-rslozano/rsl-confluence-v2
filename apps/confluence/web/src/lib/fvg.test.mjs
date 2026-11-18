@@ -78,8 +78,9 @@ const bearSeq = () => [c(1,20,21,18,19), c(2,18,18,14,14.5), c(3,15,15,13,13.5)]
 
 // K-Dense v2 (18 Nov 2026) A-M6: FVG density on noise is recorded, not retuned (a new minGapAtr would move Classic's
 // config id). Nine seeded 1,000-bar 4h random walks — Gaussian, Student-t(3) and GARCH(1,1), each at 0.5 %, 1 % and
-// 2 % per bar, random wicks — with the default options give about 1 gap per 11-14 bars pooled (a single 1,000-bar
-// series varies, about 1 per 9.5-15); this pins the pooled gaps per bar ≤ 1/10.
+// 2 % per bar, random wicks, one seed per cell — with the default options give 1 gap per 11.6 bars pooled (measured
+// 18 Nov 2026; a single 1,000-bar series varies, 1 per 9.5-13.7; the audit's grid gave 1 per 11-14); this pins the
+// pooled gaps per bar ≤ 1/10.
 { const lcg = (seed) => { let s = seed >>> 0 || 1; return () => { s = (s * 16807) % 2147483647; return s / 2147483647; }; };
   const walk = (kind, vol, seed) => {
     const r = lcg(seed);
@@ -96,9 +97,9 @@ const bearSeq = () => [c(1,20,21,18,19), c(2,18,18,14,14.5), c(3,15,15,13,13.5)]
     }
     return out;
   };
-  let gaps = 0, bars = 0; const per = [];
+  let gaps = 0, bars = 0, idx = 0; const per = [];
   for (const kind of ["gauss", "t3", "garch"]) for (const vol of [0.005, 0.01, 0.02]) {
-    const k = walk(kind, vol, 4242 + kind.length * 101 + Math.round(vol * 1e4));
+    const k = walk(kind, vol, 4242 + 1009 * idx++); // one seed per cell ("gauss" and "garch" have the same length)
     const g = detectFVG(k, { lastBarClosed: true }).all.length;
     per.push(`${kind} ${vol}: 1 per ${(k.length / g).toFixed(1)}`); gaps += g; bars += k.length;
   }

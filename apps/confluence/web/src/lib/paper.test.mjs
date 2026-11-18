@@ -557,6 +557,8 @@ console.log("v2.8 WP19 — cost-inclusive sizing, open-loss locks, no loosening,
   ok("A-L6: kill switch on → raising maxCryptoPositions is refused", refused({ maxCryptoPositions: ks.maxCryptoPositions + 1 }));
   ok("A-L6: kill switch on → allowing intraday proposals is refused", ks.allowIntradayProposals === false && refused({ allowIntradayProposals: true }));
   ok("A-L6: kill switch on → lowering minScoreAbs is refused", refused({ minScoreAbs: ks.minScoreAbs - 5 }));
+  ok("A-L6: a combined update that tightens riskPerTradePct while raising maxPositions is refused",
+    refused({ riskPerTradePct: ks.riskPerTradePct / 2, maxPositions: ks.maxPositions + 1 }));
   ok("A-L6: tightening the same settings is still allowed while locked",
     updateSettings(killed, { ...ks, maxPositions: ks.maxPositions - 1, maxCryptoPositions: ks.maxCryptoPositions - 1, minScoreAbs: ks.minScoreAbs + 5 }, NOW).ok);
   const blackoutOff = updateSettings(newBook(T0), { ...S, eventBlackout: false, allowIntradayProposals: true }, NOW).book;
