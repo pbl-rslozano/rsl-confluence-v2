@@ -5,17 +5,19 @@ credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (St
 ledger rows of engine 2.3.0 stay and are reported separately.
 
 - **New in 2.8.0:** OKX, Coinbase and Upbit sources, Fund trend, Market radar, Scenarios and encrypted cloud backup.
-- **Windows and macOS installers are unsigned in 2.8.0** (owner decision, 18 Nov 2026; Android stays signed).
-  The Windows installers are not code-signed and the Mac app is ad-hoc signed and not notarised by Apple. Windows
-  SmartScreen may show "Windows protected your PC" with an unknown publisher: choose **More info → Run anyway**. macOS
-  Gatekeeper blocks the first launch: on macOS 15 open **System Settings → Privacy & Security** and choose **Open Anyway**
-  (on macOS 15, right-click → **Open** no longer skips this check). Check each file against its `.sha256` first
-  (user guide §1).
-- **Translations are drafts, not certified** (owner decision, 17 Nov 2026); the new Arabic strings await native review.
-  No language is CERTIFIED: the 16 tier-2 languages stay machine-checked drafts, and the new and changed v2.8 Arabic
-  strings are machine drafts pending native-speaker review (About shows the count). Release check **R25** passes this
-  release only on the recorded owner waiver (ADR-0020). A LanguageTool pass now runs in CI as an informational check.
-- **K-Dense v2 audit corrections (18 Nov 2026, WP19/WP20/WP22/WP26):** Fixes from the second K-Dense audit.
+- **Windows and macOS installers are unsigned in 2.8.0**; Android stays signed.
+  Owner decision of 18 Nov 2026. The Windows installers are not code-signed and the Mac app is ad-hoc signed and not
+  notarised by Apple. Windows SmartScreen may show "Windows protected your PC" with an unknown publisher: choose
+  **More info → Run anyway**. macOS Gatekeeper blocks the first launch: on macOS 15 open **System Settings → Privacy &
+  Security** and choose **Open Anyway** (on macOS 15, right-click → **Open** no longer skips this check). Check each
+  file against its `.sha256` first (user guide §1).
+- **Translations are drafts, not certified**; the new Arabic strings await native review.
+  Owner decision of 17 Nov 2026. No language is CERTIFIED: the 16 tier-2 languages stay machine-checked drafts, and
+  the new and changed v2.8 Arabic strings are machine drafts pending native-speaker review (About shows the count).
+  Release check **R25** passes this release only on the recorded owner waiver (ADR-0020). A LanguageTool pass now runs
+  in CI as an informational check.
+- **Paper-trading fixes:** While a loss lock is active, more settings can no longer be loosened, and the October 2027 FOMC meeting no longer blocks paper trades.
+  Audit corrections of 18 Nov 2026 (WP19/WP20/WP22/WP26).
   The no-loosening rule while a lock is active also refuses more positions, the event blackout off, 1m–15m proposals
   on and a lower minimum score; the 26–27 Oct 2027 FOMC meeting (strategy only, no decision) no longer blocks paper
   trades; Scenarios say when the odds equal the base rate (`scenario.allSameState`, all 18 catalogs, Arabic draft

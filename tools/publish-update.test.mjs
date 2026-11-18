@@ -45,6 +45,8 @@ test("the 2.8.0 update notice reads as whole sentences within 500 characters", a
   const notes = notesFromChangelog(changelog, "2.8.0");
   assert.ok(notes.length > 0 && notes.length <= 500, `${notes.length} characters`);
   assert.match(notes, /[^.]\.$/, "ends with a full stop, not a cut");
+  // Re-review M7 / Minor 3: users read this; no internal references (audit names, work packages, ADRs, checks, dates).
+  assert.doesNotMatch(notes, /K-Dense|\bWP\d|ADR-|\bR\d\d\b|owner decision|\d{1,2} Nov 20\d\d/, notes);
   const entry = changelog.slice(changelog.indexOf("# v2.8.0"), changelog.indexOf("\n# v2.7.0"));
   const firsts = entry.split("\n").filter((l) => /^- /.test(l));
   assert.ok(firsts.length > 10);
