@@ -476,6 +476,28 @@ console.log("v2.8 WP19 — cost-inclusive sizing, open-loss locks, no loosening,
   ok("clean stop-out ≈ −1 R on Binance (2% stop, in [−1.00, −0.97])", near(rb.stopDist, 2) && rb.r >= -1.0 - 1e-9 && rb.r <= -0.97, JSON.stringify(rb));
   const rc = cleanStopR("coinsph", "SOLUSDT");
   ok("clean stop-out ≈ −1 R on Coins.ph (2% stop, in [−1.00, −0.94])", near(rc.stopDist, 2) && rc.r >= -1.0 - 1e-9 && rc.r <= -0.94, JSON.stringify(rc));
+  // K-Dense v2 (18 Nov 2026) A-M3 / A-L9: the same broker path with a chosen ATR (stop = 2 × ATR from ref 100) and an
+  // optional gap: `gapPct` > 0 opens the exit bar that far below the filled entry (through the stop).
+  const stopOutR = (src, pair, atrV, gapPct = 0) => {
+    const c = DEFAULT_COSTS[src];
+    const b0 = { ...newBook(T0), account: { ...newBook(T0).account, heartbeats: { [`${src}|4h`]: NOW } } };
+    const rt = 2 * (c.feeBps + c.slipBps) / 1e4;
+    const pr = createProposal(b0, input({ src, pair, atr: atrV, roundTripCost: rt }), NOW, "g" + src);
+    const b1 = approveProposal(b0, pr, "g" + src, NOW).book;
+    const o = processBars(b1, src, "4h", { [pair]: [bar(T0 + 2 * I, 100, 100.05, 99.95, 100)] }, T0 + 3 * I, c).book;
+    const e = o.positions[0].entry;
+    const stopDist = o.positions[0].stopDistance;
+    const exitBar = gapPct > 0
+      ? bar(T0 + 3 * I, e * (1 - gapPct), e * (1 - gapPct), e * (1 - gapPct) * 0.99, e * (1 - gapPct))
+      : bar(T0 + 3 * I, e, e, e - stopDist - 0.01, e - stopDist);
+    const cl = processBars(o, src, "4h", { [pair]: [exitBar] }, T0 + 4 * I, c).closed[0];
+    return { r: cl.r, reason: cl.reason, stopPct: (100 * stopDist) / e };
+  };
+  const gapR = stopOutR("binance", "SOLUSDT", 1, 0.05);
+  ok("A-M3: 2% stop, next bar opens 5% lower → stop exit at the open, realised R < −1", gapR.reason === "stop" && gapR.r < -1, JSON.stringify(gapR));
+  const tightR = stopOutR("binance", "SOLUSDT", 0.25);
+  console.log(`    measured: gap ${JSON.stringify(gapR)}; 0.5% stop ${JSON.stringify(tightR)}`);
+  ok("A-L9: clean stop-out at a 0.5% stop on Binance defaults → R in [−1.00, −0.90]", near(tightR.stopPct, 0.5, 1e-2) && tightR.r >= -1.0 - 1e-9 && tightR.r <= -0.90, JSON.stringify(tightR));
 
   // T2-1: changing the starting equity restarts the day/week marks (and the peak) at the new equity.
   const low = setStartingEquity(newBook(T0), 1_000);
@@ -526,6 +548,22 @@ console.log("v2.8 WP19 — cost-inclusive sizing, open-loss locks, no loosening,
   ok("locks can't be loosened while active (kill switch)", !loosen.ok && loosen.invalid.join() === "locked");
   ok("tightening is allowed while locked", updateSettings(killed, { ...killed.account.settings, riskPerTradePct: 0.25 }, NOW).ok);
   ok("non-risk settings can change while locked", updateSettings(killed, { ...killed.account.settings, stopAtrMult: 3 }, NOW).ok);
+  // K-Dense v2 (18 Nov 2026) A-L6: the no-loosening rule also covers position caps, the event blackout, intraday
+  // proposals and the minimum score.
+  const ks = killed.account.settings;
+  const refused = (over) => { const r = updateSettings(killed, { ...ks, ...over }, NOW); return !r.ok && r.invalid.join() === "locked"; };
+  ok("A-L6: kill switch on → turning the event blackout off is refused", ks.eventBlackout === true && refused({ eventBlackout: false }));
+  ok("A-L6: kill switch on → raising maxPositions is refused", refused({ maxPositions: ks.maxPositions + 1 }));
+  ok("A-L6: kill switch on → raising maxCryptoPositions is refused", refused({ maxCryptoPositions: ks.maxCryptoPositions + 1 }));
+  ok("A-L6: kill switch on → allowing intraday proposals is refused", ks.allowIntradayProposals === false && refused({ allowIntradayProposals: true }));
+  ok("A-L6: kill switch on → lowering minScoreAbs is refused", refused({ minScoreAbs: ks.minScoreAbs - 5 }));
+  ok("A-L6: tightening the same settings is still allowed while locked",
+    updateSettings(killed, { ...ks, maxPositions: ks.maxPositions - 1, maxCryptoPositions: ks.maxCryptoPositions - 1, minScoreAbs: ks.minScoreAbs + 5 }, NOW).ok);
+  const blackoutOff = updateSettings(newBook(T0), { ...S, eventBlackout: false, allowIntradayProposals: true }, NOW).book;
+  ok("A-L6: turning the blackout back on / intraday off is tightening, allowed while locked",
+    updateSettings(engageKill(blackoutOff, NOW), { ...blackoutOff.account.settings, eventBlackout: true, allowIntradayProposals: false }, NOW).ok);
+  ok("A-L6: later the same UTC day after the lock cleared, blackout off is still refused",
+    !updateSettings(resetKill(killed, "RESET", NOW + 1).book, { ...S, eventBlackout: false }, NOW + 2).ok);
   const unlocked = resetKill(killed, "RESET", NOW + 1).book;
   ok("still refused later the same UTC day after the lock cleared", !updateSettings(unlocked, { ...S, riskPerTradePct: 1 }, NOW + 2).ok);
   ok("allowed again from the next UTC day", updateSettings(unlocked, { ...S, riskPerTradePct: 1 }, utcDayStart(NOW) + 86_400_000).ok);

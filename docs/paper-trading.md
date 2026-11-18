@@ -77,13 +77,13 @@ The lot step is a power of ten worth at most about one quote unit, capped at one
 | ETH at 3 000 | 0.0001 |
 | Asset at 0.5 | 1 |
 
-Sizes are always rounded **down**, so the risk taken never exceeds the plan. The round-trip cost (two fees plus two slippages) sits **inside** the risk budget, so a clean stop-out costs about **−1 R** rather than slightly more.
+Sizes are always rounded **down**, so a clean stop-out never loses more than the plan; a gap through the stop exits at the open and can lose more than 1 R. The round-trip cost (two fees plus two slippages) sits **inside** the risk budget, so a clean stop-out costs about **−1 R** rather than slightly more.
 
 ## Loss limits and what can break them
 - **Daily and weekly locks** count open losses as well as closed ones, measured from the first equity mark of the UTC day or week.
 - **Drawdown lock.** When equity, open P&L included, falls the set percentage (10 % by default) below its highest mark, new trades stop, every pending (unfilled) position is cancelled (discarded, not journalled), and every open trade is closed at the **next open of its own chart**. `RESET` (typed) clears it once every lock close has filled, keeps the loss and starts a fresh limit from current equity.
 - **The 10 % is not a guaranteed maximum loss.** Gaps, exit costs, and a longer timeframe's wait for its next open (a 1d chart's close fills at the next daily open) can all take a loss past 10 %. The simulation cannot exit faster than the next bar.
-- **No loosening while locked.** Raising a loss limit, the risk per trade, the open-risk cap or the leverage cap is refused while the kill switch or any loss lock is active, and until the next UTC day after it clears. Tightening is always allowed.
+- **No loosening while locked.** While the kill switch or any loss lock is active, and until the next UTC day after it clears, these changes are refused: raising a loss limit, the risk per trade, the open-risk cap or the leverage cap; raising the maximum open positions or the maximum open crypto positions; turning the event blackout off; allowing 1m–15m (intraday) proposals; lowering the minimum |score|. Tightening is always allowed. (Widened 18 Nov 2026, K-Dense v2 audit.)
 
 ## Kill switch and dead-man switch
 **Kill switch** (manual):
@@ -129,6 +129,7 @@ These events are written to the hash-chained audit trail:
 - **Positions:** at most 5, at most 2 per cluster, at most 3 crypto.
 - **Loss locks:** daily 2 %, weekly 5 % (open losses count); drawdown lock 10 % with `RESET`.
 - **Other gates:** macro event blackout on; 1m–15m context only; quote depeg gate at 1 %; time stop off (24 bars when on).
+- The time stop is optional and off by default (builder's call, 18 Nov 2026; the owner may change the default).
 - **Stop and target:** stop 2 × ATR, target 2R.
 - **Signals:** |score| ≥ 55; fresh means at most 1 bar old.
 - **Switches:** dead-man after 3 bars.
