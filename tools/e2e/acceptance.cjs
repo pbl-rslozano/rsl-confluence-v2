@@ -4437,6 +4437,78 @@ async function hdPinnedBoxes(w, h, lang) {
     });
     if (shared.c) await shared.c.close();
   }
+  /* ===== v2.8 WP23 Task 8: optional "Confluence v2 (test)" line in the detail sheet (default off) ===== */
+  /* acceptance-ids: CV-1, CV-2 */
+  if (!DS_ONLY && !HD_ONLY && !BK_ONLY) {
+    const c = await newContext(browser, { reducedMotion: "reduce", serviceWorkers: "block", deviceScaleFactor: 1 });
+    await rdMock(c);
+    const p = await c.newPage();
+    await p.goto(BASE, { waitUntil: "domcontentloaded" });
+    await completeFirstRun(p, { operator: "R" });
+    await waitRows(p);
+    const openBtc = () => p.getByRole("button", { name: /^BTC/ }).first().click();
+    const closeSheet = async () => { await p.keyboard.press("Escape"); await p.waitForFunction(() => !document.querySelector('[role="dialog"]'), null, { timeout: 10000 }); };
+    const lineCount = () => p.locator('[data-testid="confluence-v2-line"]').count();
+    const storedOn = () => p.evaluate(() => { try { return JSON.parse(localStorage.getItem("ct-preferences-v1") || "{}").confluenceV2Line === true; } catch { return null; } });
+    const openProfile = () => p.getByRole("button", { name: /^Scoring profile/ }).click();
+    const setting = () => p.locator('[data-testid="confluence-v2-setting"]');
+    const miniConfluence = () => p.locator('[role="dialog"]').first().evaluate((d) => {
+      const el = [...d.querySelectorAll("div")].find((x) => x.children.length === 2 && /^Confluence$/i.test(x.children[0].textContent.trim()));
+      return el ? el.children[1].textContent.trim() : null;
+    });
+    const rowsText = () => p.evaluate(() => [...document.querySelectorAll("tbody tr")].slice(0, 10).map((r) => r.innerText));
+
+    /* CV-1 */
+    await openBtc();
+    await p.waitForSelector("text=Bloc scores");
+    const cv1Lines = await lineCount();
+    await closeSheet();
+    await openProfile();
+    const cv1Exists = await setting().count();
+    const cv1Checked = cv1Exists ? await setting().isChecked() : null;
+    const cv1Stored = await storedOn();
+    await openProfile();
+    record("CV-1", "Defaults: no Confluence v2 line in the detail sheet; the setting exists, unchecked, in the Scoring profile popover",
+      cv1Lines === 0 && cv1Exists === 1 && cv1Checked === false && cv1Stored === false, { cv1Lines, cv1Exists, cv1Checked, cv1Stored });
+
+    /* CV-2 */
+    const listBefore = await rowsText();
+    await openBtc();
+    await p.waitForSelector("text=Bloc scores");
+    const miniBefore = await miniConfluence();
+    await closeSheet();
+    await openProfile();
+    await setting().check();
+    await openProfile();
+    const listAfter = await rowsText();
+    await openBtc();
+    await p.waitForSelector('[data-testid="confluence-v2-line"]', { timeout: 10000 }).catch(() => null);
+    const lineText = ((await p.locator('[data-testid="confluence-v2-line"]').first().innerText().catch(() => "")) || "").replace(/\s+/g, " ").trim();
+    const miniAfter = await miniConfluence();
+    await closeSheet();
+    const lineRe = /^Confluence v2 \(test\): ((BUY|SELL) · (STRONG|MODERATE)|NEUTRAL) · score [+-]?\d+|^Confluence v2 \(test\): no data/;
+    const lineOk = lineRe.test(lineText) && !lineText.includes("{");
+    await p.reload({ waitUntil: "domcontentloaded" });
+    await waitRows(p);
+    await openBtc();
+    await p.waitForSelector("text=Bloc scores");
+    const persisted = await lineCount();
+    await closeSheet();
+    await openProfile();
+    const stillChecked = await setting().isChecked();
+    await setting().uncheck();
+    await openProfile();
+    await openBtc();
+    await p.waitForSelector("text=Bloc scores");
+    const goneLines = await lineCount();
+    await closeSheet();
+    const storedOff = await storedOn();
+    record("CV-2", "Setting on: the detail sheet shows the Confluence v2 (test) line; list rows and the Classic score are unchanged; the choice persists and turning it off removes the line",
+      lineOk && JSON.stringify(listBefore) === JSON.stringify(listAfter) && listBefore.length >= 3 && miniBefore !== null && miniBefore === miniAfter
+        && persisted === 1 && stillChecked === true && goneLines === 0 && storedOff === false,
+      { lineText, listRows: listBefore.length, listSame: JSON.stringify(listBefore) === JSON.stringify(listAfter), miniBefore, miniAfter, persisted, stillChecked, goneLines, storedOff });
+    await c.close();
+  }
   /* acceptance-ids: HD-1 — two-line header control ribbon at ≥ 1280 px (owner decision 16 Nov 2026, spec §3 item 9) */
   if (!DS_ONLY && !BK_ONLY) {
     const ev = {}; const bad = []; let more = null;

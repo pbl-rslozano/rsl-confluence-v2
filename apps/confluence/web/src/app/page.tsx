@@ -129,6 +129,7 @@ import { autoCurrency, BANDS, cachedCurrencies, cachedTable, canConvert, convert
 import { formatMoney, formatMoneyCompact } from "@/lib/money";
 import { FxSourcesDialog } from "@/components/fx-sources-dialog";
 import { fxCredit, fxSourceInfo, type FxChoice } from "@/lib/fx-rates";
+import { ConfluenceV2Line } from "@/components/confluence-v2-line";
 import { PrivateApiDialog } from "@/components/private-api-dialog";
 import type { PrivateApiProfile, ProviderLink } from "@/lib/private-api";
 import type { CloudBackupProps, StatusLine } from "@/components/cloud-backup";
@@ -604,6 +605,7 @@ export default function Home() {
   const [fundPulse, setFundPulse] = useState<AppPreferences["fundPulse"]>(DEFAULT_APP_PREFERENCES.fundPulse);
   const [fundRankColumn, setFundRankColumn] = useState<boolean>(DEFAULT_APP_PREFERENCES.fundRankColumn);
   const [recordRadar, setRecordRadar] = useState<boolean>(DEFAULT_APP_PREFERENCES.recordRadar);
+  const [confluenceV2Line, setConfluenceV2Line] = useState<boolean>(DEFAULT_APP_PREFERENCES.confluenceV2Line);
   // The scan reads the live setting when it builds rows (the scan runs from a long-lived callback).
   const recordRadarRef = useRef(recordRadar);
   useEffect(() => { recordRadarRef.current = recordRadar; }, [recordRadar]);
@@ -875,6 +877,7 @@ export default function Home() {
         setFundPulse(saved.fundPulse);
         setFundRankColumn(saved.fundRankColumn);
         setRecordRadar(saved.recordRadar);
+        setConfluenceV2Line(saved.confluenceV2Line);
         applyBackground(saved.background);
       } else {
         let legacy: string | null = null;
@@ -910,9 +913,10 @@ export default function Home() {
       fundPulse,
       fundRankColumn,
       recordRadar,
+      confluenceV2Line,
     };
     saveAppPreferences(preferences);
-  }, [preferencesReady, timeframe, dataSource, universeLimit, background, monitorAssets, sortKey, sortDir, autoRefresh, chartDepth, assetClass, quoteBySource, displayPref, fxChoice, fxAutoUpdate, fxCustom, liquidityFloorUsd, fundPulse, fundRankColumn, recordRadar]);
+  }, [preferencesReady, timeframe, dataSource, universeLimit, background, monitorAssets, sortKey, sortDir, autoRefresh, chartDepth, assetClass, quoteBySource, displayPref, fxChoice, fxAutoUpdate, fxCustom, liquidityFloorUsd, fundPulse, fundRankColumn, recordRadar, confluenceV2Line]);
 
   // v2.7 (WP13): display-currency rates — from the chosen source, cached on the device, refreshed every 6 h
   // while "Update automatically" is on, or on "Update now". Display only: the scan never sees them.
@@ -1505,7 +1509,7 @@ export default function Home() {
       const [res] = await runScanJobs([{ key: seriesKey, packed: packKlines(klines), intervalMs, volumeAvailable: true, assetClass: asset.assetClass, profile: scoringProfile }]);
       if (controller.signal.aborted) return;
       historyLenRef.current.set(seriesKey, { len: klines.length, newest: klines.at(-1)?.time ?? 0 });
-      const updated = { ...asset, klines, confluence: res.score.confluence, reversal: res.score.reversal, pattern: res.pattern };
+      const updated = { ...asset, klines, confluence: res.score.confluence, reversal: res.score.reversal, pattern: res.pattern, v2: res.v2 };
       setRows((current) => current.map((row) => row.pair === asset.pair ? updated : row));
       if (shownRef.current.rows.some((row) => row.pair === asset.pair)) shownRef.current = { ...shownRef.current, rows: shownRef.current.rows.map((row) => row.pair === asset.pair ? updated : row) };
       if (updated.freshness === "live") setPaperRows((current) => current.map((row) => row.pair === asset.pair ? updated : row));
@@ -1856,7 +1860,7 @@ export default function Home() {
             <div aria-hidden="true" className="hidden xl:block xl:h-1.5 xl:basis-full" />
             <ScoringProfileEditor profile={scoringProfile} configId={activeConfigId} onApply={applyScoringProfile} disabled={!profileReady}
               liquidityFloorUsd={liquidityFloorUsd} onLiquidityFloor={setLiquidityFloorUsd}
-              fundPulse={fundPulse} onFundPulse={setFundPulse} fundRankColumn={fundRankColumn} onFundRankColumn={setFundRankColumn} recordRadar={recordRadar} onRecordRadar={setRecordRadar} t={t} />
+              fundPulse={fundPulse} onFundPulse={setFundPulse} fundRankColumn={fundRankColumn} onFundRankColumn={setFundRankColumn} recordRadar={recordRadar} onRecordRadar={setRecordRadar} confluenceV2Line={confluenceV2Line} onConfluenceV2Line={setConfluenceV2Line} t={t} />
             <SavedScans port={rsl.port}
               current={{ timeframe, dataSource, universeLimit, assetClass, sortKey, sortDir, search, monitorAssets }}
               onApply={(preset) => {
@@ -2415,6 +2419,7 @@ export default function Home() {
               {scanMeta.source === "coinsph" && scanMeta.premium[detailAsset.pair] !== undefined && (
                 <p className="text-[10px] text-zinc-500">{t("ph.premiumHelp")}</p>
               )}
+              {confluenceV2Line && !chartReplay && <ConfluenceV2Line r={detailAsset.v2} t={t} />}
 
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2">
                 <div className="flex min-w-0 items-center gap-2">

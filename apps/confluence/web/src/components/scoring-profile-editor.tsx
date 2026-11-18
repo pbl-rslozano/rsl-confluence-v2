@@ -8,7 +8,7 @@ import type { FundPulse } from "@/lib/preferences-store";
 
 type T = (key: string, vars?: Record<string, string | number>) => string;
 
-export function ScoringProfileEditor({ profile, configId, onApply, disabled, liquidityFloorUsd, onLiquidityFloor, fundPulse, onFundPulse, fundRankColumn, onFundRankColumn, recordRadar, onRecordRadar, t }: {
+export function ScoringProfileEditor({ profile, configId, onApply, disabled, liquidityFloorUsd, onLiquidityFloor, fundPulse, onFundPulse, fundRankColumn, onFundRankColumn, recordRadar, onRecordRadar, confluenceV2Line, onConfluenceV2Line, t }: {
   profile: ScoringProfile | null;
   configId: string;
   onApply: (profile: ScoringProfile | null) => Promise<void>;
@@ -24,6 +24,8 @@ export function ScoringProfileEditor({ profile, configId, onApply, disabled, liq
   /** v2.8 (WP25): log the radar context on new ledger rows (contacts the radar hosts while on). */
   recordRadar: boolean;
   onRecordRadar: (on: boolean) => void;
+  confluenceV2Line: boolean;
+  onConfluenceV2Line: (on: boolean) => void;
   t: T;
 }) {
   const floorChoices = [...new Set<number>([...LIQUIDITY_FLOOR_CHOICES, liquidityFloorUsd])].sort((a, b) => a - b);
@@ -92,6 +94,10 @@ export function ScoringProfileEditor({ profile, configId, onApply, disabled, liq
           <label className="flex items-center gap-2">
             <input type="checkbox" data-testid="record-radar" checked={recordRadar} onChange={(event) => onRecordRadar(event.target.checked)} />
             {t("settings.recordRadar")}
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" data-testid="confluence-v2-setting" checked={confluenceV2Line} onChange={(event) => onConfluenceV2Line(event.target.checked)} />
+            {t("settings.confluenceV2")}
           </label>
           <fieldset disabled={busy} className="grid max-h-64 gap-1 overflow-auto">
             <legend>Indicator votes</legend>
