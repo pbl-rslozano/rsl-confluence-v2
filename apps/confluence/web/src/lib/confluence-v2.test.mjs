@@ -41,7 +41,7 @@ ok("V2_PARAMS carries the inputs as [id, divisor, sign] and the shared engine co
   && V2_PARAMS.version === V2_ENGINE_VERSION && V2_PARAMS.enter === 55 && V2_PARAMS.exit === 40 && V2_PARAMS.hystBars === 300
   && V2_PARAMS.engineBars === 1000 && V2_PARAMS.minValidVotingShare === 0.7 && deq(V2_PARAMS.erGate, [0.3, 0.6])
   && V2_PARAMS.erPeriod === 40 && V2_PARAMS.lowVolatilityPercentile === 0.1 && V2_PARAMS.sigmaBars === 100
-  && V2_PARAMS.dropFromMs === H4 && deq(V2_PARAMS.contrarian, ["rsi", "stochastic", "williams", "mfi"]));
+  && !("dropFromMs" in V2_PARAMS) && deq(V2_PARAMS.contrarian, ["rsi", "stochastic", "williams", "mfi"]));
 
 // ---- hysteresis (Review Focus 2: exactly 55 / 40, one-bar flips, null) ------------------------------
 {
@@ -79,16 +79,16 @@ ok("v2Strength",
   const means = v2MeanSeries(k, o, 700);
   ok("v2MeanSeries is aligned to k and null before from", means.length === 1000 && means.slice(0, 700).every((m) => m === null)
     && means.slice(700).some((m) => m !== null));
-  // Independent recomputation of the rule at a few bars, at 1h (18 voters) and 4h (14 voters).
+  // Independent recomputation of the rule at a few bars, at 1h and 4h (18 voters on both: the contrarian bloc is kept).
   const gateAt = (j) => { const er = efficiencyRatio(k.slice(0, j + 1)); return er === null ? 0 : Math.max(0, Math.min(1, (er - 0.3) / 0.3)); };
   let bad = "";
-  for (const [iv, voters] of [[H, 18], [H4, 14]]) {
+  for (const [iv, voters] of [[H, 18], [H4, 18]]) {
   const oi = { intervalMs: iv, volumeAvailable: true };
   const series = v2InputSeries(k, oi, 700);
   const meansI = v2MeanSeries(k, oi, 700);
-  if (series.filter((s) => !s.dropped).length !== voters) bad = `voters ${iv}`;
+  if (series.length !== voters) bad = `voters ${iv}`;
   for (const j of [700, 750, 900, 999]) {
-    const valid = series.filter((s) => !s.dropped && Number.isFinite(s.z[j]));
+    const valid = series.filter((s) => Number.isFinite(s.z[j]));
     let expected = null;
     if (valid.length >= Math.ceil(voters * 0.7)) {
       let num = 0, den = 0;
@@ -194,7 +194,7 @@ for (const [label, k, iv] of [["1h fingerprint", fingerprintSeries(), H], ["4h w
   const atr = indATR(w);
   ok("lowVolatility uses Classic's ATR percentile", r.lowVolatility === (atr.valid && atr.value !== null && atr.value < LOW_VOLATILITY_PERCENTILE));
   ok("inputs: 18 in V2_INPUTS order with blocs; voters 18 at 1h", r.inputs.map((x) => x.id).join() === V2_INPUTS.map((s) => s.id).join()
-    && r.inputs.every((x, i) => x.bloc === V2_INPUTS[i].bloc) && r.voters === 18 && r.dropped === false);
+    && r.inputs.every((x, i) => x.bloc === V2_INPUTS[i].bloc) && r.voters === 18 && !("dropped" in r));
   ok("validCount counts finite inputs", r.validCount === r.inputs.filter((x) => x.z !== null).length);
   ok("blocs are reported in Classic's order", r.blocs.map((b) => b.bloc).join() === "trend,meanReversion,breakout,flow"
     && r.blocs.find((b) => b.bloc === "meanReversion").weight === 1 - r.trendGate);
@@ -323,14 +323,17 @@ ok("held bars are never STRONG (and the fixtures contain held bars)", heldSeen.l
     && a.strength === v2Strength(a.master, a.score, a.lowVolatility, true));
 }
 {
-  // 4h boundary and 1M bars.
+  // The contrarian bloc votes on every interval (owner decision, WP23 Task 4 rework): 4h - 1 ms, 4h, 1d, 1w, 1M.
   const w = walk4h.slice(-1000);
-  const below = scoreV2(w, optsOf(w, H4 - 1)), at = scoreV2(w, optsOf(w, H4)), month = scoreV2(w, optsOf(w, 30 * DAY));
-  const drop = (r) => r.inputs.filter((x) => x.dropped).map((x) => x.id).join();
-  ok("4h - 1 ms: nothing dropped, 18 voters", below.voters === 18 && !below.dropped && drop(below) === "");
-  ok("4h and 1M: the four contrarian oscillators dropped, 14 voters, z null", at.voters === 14 && at.dropped && month.dropped
-    && drop(at) === "rsi,stochastic,williams,mfi" && drop(month) === drop(at)
-    && at.inputs.filter((x) => x.dropped).every((x) => x.z === null) && Number.isFinite(month.score));
+  const contrarian = ["rsi", "stochastic", "williams", "mfi"];
+  const bad = [];
+  for (const [label, ms] of [["4h - 1 ms", H4 - 1], ["4h", H4], ["1d", DAY], ["1w", 7 * DAY], ["1M", 30 * DAY]]) {
+    const r = scoreV2(w, optsOf(w, ms));
+    const ins = r.inputs.filter((x) => contrarian.includes(x.id));
+    if (!(r.voters === 18 && r.inputs.length === 18 && ins.length === 4 && ins.every((x) => x.z !== null)
+      && r.blocs.find((b) => b.bloc === "meanReversion").valid === 4 && Number.isFinite(r.score) && !r.suppressed)) bad.push(label);
+  }
+  ok("4h - 1 ms, 4h, 1d, 1w and 1M: 18 voters; rsi, stochastic, williams and mfi present with finite z", bad.length === 0, bad.join());
 }
 
 // ---- v2Compact ---------------------------------------------------------------------------------------
@@ -365,11 +368,11 @@ ok("held bars are never STRONG (and the fixtures contain held bars)", heldSeen.l
     && v2LineModel({ ...r, suppressed: false, held: false, score: -7, master: "NEUTRAL" }).vars.score === "-7"
     && v2LineModel({ ...r, suppressed: false, held: false, score: 0, master: "NEUTRAL" }).vars.score === "0");
   const w4 = walk4h.slice(-1000);
-  ok("4h -> dropped true; 1h -> false", v2LineModel(scoreV2(w4, optsOf(w4, H4))).dropped === true && lm.dropped === true
-    && v2LineModel(r).dropped === false);
+  ok("the line model has no dropped flag (the contrarian bloc is kept on 4h)", !("dropped" in v2LineModel(scoreV2(w4, optsOf(w4, H4))))
+    && !("dropped" in lm) && !("dropped" in v2LineModel(r)));
 }
 
-const V2_PIN = "e2c5b7a6240ef664";
+const V2_PIN = "f5c94871f16f6673";
 
 // ---- config ids ------------------------------------------------------------------------------------------
 {

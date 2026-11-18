@@ -34,16 +34,15 @@ const TARGET_STRONG = 0.015;
 /** Inputs whose live divisor is not sigma100: sigma100 is measured for them as the alternative. */
 const ALT_IDS = V2_INPUTS.filter((s) => s.divisor !== "sigma100").map((s) => s.id);
 
-/** Candidate tables: the inputs moved to sigma100 (everything else keeps the live divisor). */
+/**
+ * Candidate tables: the inputs moved to sigma100 (everything else keeps the live divisor). Round 2 (owner
+ * decision: the contrarian bloc is kept on every interval): the live table, and sigma100 for the four inputs
+ * whose clipped share fell with sigma100 at every interval in round 1 (EMA, SMA and the bands did not improve).
+ * Round 1 (contrarian dropped on >= 4h, six tables) is commit 4e47704 of this file and its evidence.
+ */
 export const TABLES = {
   current: [],
-  trend5: ["sma", "ema", "psar", "ichimoku", "supertrend"],
-  // By measurement: the inputs whose clipped share falls with sigma100 at every interval (EMA, SMA and the
-  // bands do not improve; VWAP improves at 1h and 1d only, so it is tried both ways).
   measured: ["psar", "ichimoku", "supertrend", "ao"],
-  measured_vwap: ["psar", "ichimoku", "supertrend", "ao", "vwap"],
-  trend5_ao_vwap: ["sma", "ema", "psar", "ichimoku", "supertrend", "ao", "vwap"],
-  all_sigma: ALT_IDS,
 };
 
 const r6 = (x) => (typeof x === "number" && Number.isFinite(x) ? Number(x.toPrecision(6)) : null);
@@ -81,7 +80,7 @@ const gateOf = (er) => (er === null ? 0 : Math.max(0, Math.min(1, (er - ER_GATE_
 
 /**
  * One window: the z of every input under the live divisor and, for ALT_IDS, under sigma100, over [from, n).
- * Returns { zLive[i][j - from], zAlt[id][j - from], gate[j - from], dropped[i] }.
+ * Returns { zLive[i][j - from], zAlt[id][j - from], gate[j - from] }.
  */
 function windowZ(k, intervalMs, from) {
   const n = k.length, span = n - from;
@@ -90,7 +89,7 @@ function windowZ(k, intervalMs, from) {
   const zAlt = {};
   for (let i = 0; i < V2_INPUTS.length; i++) {
     const spec = V2_INPUTS[i];
-    if (!ALT_IDS.includes(spec.id) || series[i].dropped) continue;
+    if (!ALT_IDS.includes(spec.id)) continue;
     const scaleKind = SCALE_KIND[spec.id];
     const z = new Float64Array(span).fill(NaN);
     for (let j = from; j < n; j++) z[j - from] = zSigma(series[i].raw, j, spec.sign, scaleKind === "price" ? Math.abs(k[j].close) : 1);
@@ -98,14 +97,13 @@ function windowZ(k, intervalMs, from) {
   }
   const gate = new Float64Array(span);
   for (let j = from; j < n; j++) gate[j - from] = gateOf(erAt(k, j));
-  return { zLive, zAlt, gate, dropped: series.map((s) => s.dropped) };
+  return { zLive, zAlt, gate };
 }
 
 /** The engine's aggregation (meanAt) over a table: moved ids read zAlt. Returns means (null as NaN) and bloc scores. */
 function meansOf(w, moved, blocHists) {
   const span = w.gate.length;
-  const voters = w.dropped.filter((d) => !d).length;
-  const x = voters * MIN_VALID_VOTING_SHARE, rx = Math.round(x), minValid = rx < x ? rx + 1 : rx;
+  const x = V2_INPUTS.length * MIN_VALID_VOTING_SHARE, rx = Math.round(x), minValid = rx < x ? rx + 1 : rx;
   const out = new Float64Array(span).fill(NaN);
   const sums = new Float64Array(4), counts = new Int32Array(4);
   const zs = V2_INPUTS.map((s, i) => (moved.includes(s.id) ? w.zAlt[s.id] : w.zLive[i]));
@@ -114,7 +112,6 @@ function meansOf(w, moved, blocHists) {
     sums.fill(0); counts.fill(0);
     let valid = 0;
     for (let i = 0; i < zs.length; i++) {
-      if (w.dropped[i]) continue;
       const z = zs[i][t];
       if (!fin(z)) continue;
       valid++; sums[bi[i]] += z; counts[bi[i]]++;
@@ -200,7 +197,6 @@ export function diagnose() {
     for (const k of noiseCell(model, iv, DIAG_WINDOWS, DIAG_SEED_OFFSET)) {
       const wz = windowZ(k, iv.ms, from);
       V2_INPUTS.forEach((s, i) => {
-        if (wz.dropped[i]) return;
         for (const z of wz.zLive[i]) if (fin(z)) zh[iv.tf][s.id][s.divisor].add(Math.abs(z));
         if (wz.zAlt[s.id]) for (const z of wz.zAlt[s.id]) if (fin(z)) zh[iv.tf][s.id].sigma100.add(Math.abs(z));
       });
@@ -236,7 +232,7 @@ export function diagnose() {
     for (const s of V2_INPUTS) {
       const o = {};
       for (const [d, h] of Object.entries(zh[iv.tf][s.id])) if (h.n) o[d] = h.summary();
-      inputs[iv.tf][s.id] = Object.keys(o).length ? o : "dropped";
+      inputs[iv.tf][s.id] = o;
     }
   }
   const tables = {};
@@ -258,6 +254,7 @@ export function diagnose() {
     };
   }
   return {
+    round: "2: contrarian bloc kept on every interval (owner decision); round 1 (contrarian dropped on >= 4h) is commit 4e47704",
     what: "WP23 Task 4 rework: noise distribution of the v2 inputs' z per divisor option, and the bloc mean, gain grid and drift per candidate table",
     set: { models: MODELS, intervals: INTERVALS.map((i) => i.tf), windows: DIAG_WINDOWS, seedOffset: DIAG_SEED_OFFSET, bars: `last ${V2_HYST_BARS} of ${BARS}` },
     clippedMeans: `share of |z| >= ${CLIP_AT}`,
@@ -280,7 +277,6 @@ function main() {
     console.log(`\n== ${iv.tf}: per input, clipped share / median |z| ==`);
     for (const s of V2_INPUTS) {
       const o = r.inputs[iv.tf][s.id];
-      if (o === "dropped") { console.log(`  ${s.id.padEnd(11)} dropped`); continue; }
       console.log(`  ${s.id.padEnd(11)} ` + Object.entries(o).map(([d, x]) => `${d.padEnd(8)} ${pct(x.clipped)} ${x.median.toFixed(3)}`).join("   "));
     }
   }

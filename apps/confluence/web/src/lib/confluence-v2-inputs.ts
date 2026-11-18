@@ -4,7 +4,9 @@
  * Each of Classic's 18 voters is turned into a continuous, volatility-standardised input in
  * [-1, 1] (ADR-0017 table): the indicator's measure at bar j is divided by ATR(14), by its own
  * rolling sigma over 100 bars, or by a band half-width, signed (contrarian oscillators carry -1)
- * and clipped. Classic is untouched: this module only reads `indicators.ts` helpers and
+ * and clipped. All 18 inputs vote on every interval (owner decision, WP23 Task 4 rework: the
+ * contrarian bloc is kept on >= 4h; it offsets the trend, breakout and flow blocs, which share a
+ * sign on random walks). Classic is untouched: this module only reads `indicators.ts` helpers and
  * re-derives, bar by bar, the same measures Classic reads at the last bar only.
  *
  * Causality: raw[j] and z[j] use bars <= j only. Warm-up and invalid bars are NaN, never zero.
@@ -28,10 +30,9 @@ import type { VotingIndicatorId } from "./scoring-profile";
 export const V2_SIGMA_BARS = 100;
 export const V2_ATR = 14;
 export const V2_CLIP = 1;
-/** Contrarian oscillators are dropped from this interval up (>= 4h). */
-export const V2_DROP_FROM_MS = 4 * 3_600_000;
 /** A divisor at or below this fraction of its input's natural scale is rounding noise, not volatility. */
 export const V2_DIVISOR_FLOOR = 1e-9;
+/** The contrarian oscillators (sign -1 in V2_INPUTS). */
 export const V2_CONTRARIAN = ["rsi", "stochastic", "williams", "mfi"] as const;
 
 export type V2Bloc = Exclude<BlocName, "volatility">;
@@ -49,9 +50,8 @@ export interface V2InputSeries {
   bloc: V2Bloc;
   /** The un-divided measure at every bar (NaN where not computable). */
   raw: Float64Array;
-  /** clamp(sign * raw / divisor) for bars >= `from`; NaN elsewhere, when invalid, dropped or volume-less. */
+  /** clamp(sign * raw / divisor) for bars >= `from`; NaN elsewhere, when invalid or volume-less. */
   z: Float64Array;
-  dropped: boolean;
 }
 
 /** ADR-0017 table, in Classic's voter (VOTE_ORDER) order. */
@@ -75,10 +75,6 @@ export const V2_INPUTS: readonly V2InputSpec[] = [
   { id: "obv", bloc: "flow", measure: "OBV - SMA20(OBV)", divisor: "sigma100", sign: 1, volume: true },
   { id: "cmf", bloc: "flow", measure: "CMF20", divisor: "sigma100", sign: 1, volume: true },
 ];
-
-export function contrarianDropped(intervalMs: number): boolean {
-  return intervalMs >= V2_DROP_FROM_MS;
-}
 
 const DAY_MS = 86_400_000;
 const fin = (v: number): boolean => Number.isFinite(v);
@@ -371,8 +367,7 @@ function rawCmf(k: Kline[]): Float64Array {
 /**
  * The 18 standardised inputs. `raw` covers every bar; `z[j]` exists only for j >= `from`.
  * z is NaN (never 0, never +-1) when the raw value or the divisor is not finite, when the
- * divisor is <= 0, when the input is dropped (contrarian at >= 4h) or needs volume that
- * the venue does not supply.
+ * divisor is <= 0, or when the input needs volume that the venue does not supply.
  */
 export function v2InputSeries(k: Kline[], o: { intervalMs: number; volumeAvailable: boolean }, from: number): V2InputSeries[] {
   const n = k.length;
@@ -387,7 +382,6 @@ export function v2InputSeries(k: Kline[], o: { intervalMs: number; volumeAvailab
     vwap: rawVwap(k, o.intervalMs), obv: rawObv(k), cmf: rawCmf(k),
   };
   const bands: Partial<Record<VotingIndicatorId, Float64Array>> = { bollinger: boll.band, keltner: kelt.band };
-  const dropAll = contrarianDropped(o.intervalMs);
   const cumVol = new Float64Array(n), absClose = new Float64Array(n);
   for (let j = 0; j < n; j++) {
     cumVol[j] = (j > 0 ? cumVol[j - 1] : 0) + (fin(k[j].volume) ? Math.abs(k[j].volume) : 0);
@@ -397,8 +391,7 @@ export function v2InputSeries(k: Kline[], o: { intervalMs: number; volumeAvailab
   return V2_INPUTS.map((spec): V2InputSeries => {
     const raw = raws[spec.id];
     const z = nan(n);
-    const dropped = dropAll && (V2_CONTRARIAN as readonly string[]).includes(spec.id);
-    if (!dropped && !(spec.volume && !o.volumeAvailable)) {
+    if (!(spec.volume && !o.volumeAvailable)) {
       // Per-input choices hoisted out of the bar loop; the arithmetic per bar is unchanged.
       const div = spec.divisor === "atr14" ? atr14 : spec.divisor === "band" ? bands[spec.id]! : null;
       const kind = SCALE_KIND[spec.id];
@@ -411,7 +404,7 @@ export function v2InputSeries(k: Kline[], o: { intervalMs: number; volumeAvailab
         z[j] = clamp((spec.sign * raw[j]) / divisor);
       }
     }
-    return { id: spec.id, bloc: spec.bloc, raw, z, dropped };
+    return { id: spec.id, bloc: spec.bloc, raw, z };
   });
 }
 

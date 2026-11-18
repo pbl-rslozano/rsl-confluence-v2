@@ -1,9 +1,9 @@
 /**
  * Confluence v2 — v2.8 (WP23 Task 3). Pure code: the hidden challenger scored beside Classic.
  *
- * Score. At every bar j the 18 standardised inputs of `confluence-v2-inputs.ts` (14 on >= 4h, where
- * the contrarian oscillators are dropped) are averaged per bloc; the bloc means are combined with
- * Classic's bloc weights (meanReversion x (1 - g_j), g_j = Classic's efficiency-ratio gate over the
+ * Score. At every bar j the 18 standardised inputs of `confluence-v2-inputs.ts` (all 18 on every
+ * interval: the owner kept the contrarian bloc on >= 4h, WP23 Task 4 rework) are averaged per bloc;
+ * the bloc means are combined with Classic's bloc weights (meanReversion x (1 - g_j), g_j = Classic's efficiency-ratio gate over the
  * 40 bars ending at j; every other bloc 1) into a mean in [-1, 1], and
  *   score_j = round(100 x clamp(V2_GAIN x mean_j, -1, 1)).
  * A bar with fewer than ceil(voters x MIN_VALID_VOTING_SHARE) finite inputs has no score (null).
@@ -27,8 +27,8 @@ import { sessionBars, detectSplit, hasUsableVolume, type ScoreOptions } from "./
 import { ENGINE_BARS, MIN_ENGINE_BARS } from "./engine-window";
 import { hash64, stableStringify, fingerprintSeries } from "./engine-config";
 import {
-  V2_INPUTS, V2_SIGMA_BARS, V2_ATR, V2_CLIP, V2_DROP_FROM_MS, V2_DIVISOR_FLOOR, V2_CONTRARIAN,
-  contrarianDropped, v2InputSeries, SCALE_KIND, type V2Bloc, type V2InputSeries,
+  V2_INPUTS, V2_SIGMA_BARS, V2_ATR, V2_CLIP, V2_DIVISOR_FLOOR, V2_CONTRARIAN,
+  v2InputSeries, SCALE_KIND, type V2Bloc, type V2InputSeries,
 } from "./confluence-v2-inputs";
 import type { VotingIndicatorId } from "./scoring-profile";
 
@@ -40,15 +40,17 @@ export const V2_EXIT = 40;
 /** Per-bar scores of the row's own window the hysteresis runs over. */
 export const V2_HYST_BARS = 300;
 /**
- * Noise-calibrated (WP23 Task 4): the largest gain on the 0.50..3.00 grid whose worst noise cell labels <= 6.0 %.
- * Evidence: docs/research/evidence/wp23-v2-calibration-2026-11-17.json (npm run calibrate:v2).
+ * Noise-calibrated (WP23 Task 4, re-run in the rework with the contrarian bloc kept on every interval): the largest
+ * gain on the 0.50..3.00 grid whose worst noise cell labels <= 6.0 % (worst 5.00 %; the next step, 0.85, gives 6.67 %).
+ * Evidence: docs/research/evidence/wp23-v2-calibration-2026-11-18.json (npm run calibrate:v2); it supersedes the
+ * 2026-11-17 file (gain 0.55, contrarian dropped on >= 4h), which is removed.
  */
-export const V2_GAIN = 0.55;
+export const V2_GAIN = 0.8;
 /**
- * Noise-calibrated (WP23 Task 4): the smallest band in 56..100 whose worst noise cell has STRONG <= 1.5 % at V2_GAIN.
- * Same evidence file. Note: round(100 x 0.55 x mean) is at most 55, so no score reaches 56 and STRONG cannot occur.
+ * Noise-calibrated (same run): the smallest band in 56..100 whose worst noise cell has STRONG <= 1.5 % at V2_GAIN
+ * (worst 1.33 %). Same evidence file.
  */
-export const V2_STRONG_BAND = 56;
+export const V2_STRONG_BAND = 64;
 
 /** Bloc order of Classic's VOTING_BLOCS (sum order is part of the definition). */
 const V2_BLOCS: readonly V2Bloc[] = ["trend", "meanReversion", "breakout", "flow"];
@@ -63,7 +65,6 @@ export const V2_PARAMS = {
   sigmaBars: V2_SIGMA_BARS,
   atr: V2_ATR,
   clip: V2_CLIP,
-  dropFromMs: V2_DROP_FROM_MS,
   divisorFloor: V2_DIVISOR_FLOOR,
   contrarian: [...V2_CONTRARIAN],
   inputs: V2_INPUTS.map((s) => [s.id, s.divisor, s.sign] as const),
@@ -81,7 +82,7 @@ export const V2_PARAMS = {
 
 export type V2State = -1 | 0 | 1;
 export type V2Strength = "STRONG" | "MODERATE" | "WEAK";
-export interface V2Input { id: VotingIndicatorId; bloc: V2Bloc; z: number | null; dropped: boolean }
+export interface V2Input { id: VotingIndicatorId; bloc: V2Bloc; z: number | null }
 export interface V2BlocScore { bloc: V2Bloc; score: number; valid: number; weight: number }
 export interface V2Result {
   /** False below MIN_ENGINE_BARS engine bars (nothing scored). */
@@ -98,8 +99,6 @@ export interface V2Result {
   /** A label kept by the hysteresis while |score| < V2_ENTER. */
   held: boolean;
   lowVolatility: boolean;
-  /** The contrarian oscillators are dropped at this interval (>= 4h). */
-  dropped: boolean;
   validCount: number;
   voters: number;
   blocs: V2BlocScore[];
@@ -134,9 +133,7 @@ function meanAt(series: readonly V2InputSeries[], j: number, gate: number, minVa
   counts.fill(0);
   let valid = 0;
   for (let i = 0; i < series.length; i++) {
-    const s = series[i];
-    if (s.dropped) continue;
-    const z = s.z[j];
+    const z = series[i].z[j];
     if (!fin(z)) continue;
     valid++;
     sums[BLOC_INDEX[i]] += z;
@@ -154,7 +151,6 @@ function meanAt(series: readonly V2InputSeries[], j: number, gate: number, minVa
   return den > 0 ? num / den : 0;
 }
 
-const votersOf = (series: readonly V2InputSeries[]): number => series.reduce((n, s) => n + (s.dropped ? 0 : 1), 0);
 /** ceil(voters x MIN_VALID_VOTING_SHARE), as Classic's floor, with whitelisted operations only (x > 0). */
 function minValidOf(voters: number): number {
   const x = voters * MIN_VALID_VOTING_SHARE, r = Math.round(x);
@@ -164,7 +160,7 @@ function minValidOf(voters: number): number {
 /** Combined means of precomputed input series; null before `from` and on bars below the validity floor. */
 function meansOf(series: readonly V2InputSeries[], k: Kline[], from: number): (number | null)[] {
   const n = k.length, out = new Array<number | null>(n).fill(null);
-  const minValid = minValidOf(votersOf(series));
+  const minValid = minValidOf(series.length);
   const sums = new Float64Array(V2_BLOCS.length), counts = new Int32Array(V2_BLOCS.length);
   for (let j = Math.max(0, from); j < n; j++) out[j] = meanAt(series, j, gateOf(erAt(k, j)), minValid, sums, counts);
   return out;
@@ -226,12 +222,10 @@ export function v2Strength(master: SignalState, score: number, lowVolatility: bo
 
 const masterOf = (s: V2State): SignalState => (s === 1 ? "BULLISH" : s === -1 ? "BEARISH" : "NEUTRAL");
 
-function blankResult(usable: boolean, warmBars: number, t: number, intervalMs: number): V2Result {
-  const dropped = contrarianDropped(intervalMs);
+function blankResult(usable: boolean, warmBars: number, t: number): V2Result {
   return {
     usable, warmBars, t, score: 0, master: "NEUTRAL", strength: "WEAK", suppressed: true, held: false,
-    lowVolatility: false, dropped, validCount: 0, voters: dropped ? V2_INPUTS.length - V2_CONTRARIAN.length : V2_INPUTS.length,
-    blocs: [], inputs: [], er: null, trendGate: 0,
+    lowVolatility: false, validCount: 0, voters: V2_INPUTS.length, blocs: [], inputs: [], er: null, trendGate: 0,
   };
 }
 
@@ -245,8 +239,8 @@ export function scoreV2(k: Kline[], options: ScoreOptions): V2Result {
   const raw = k.length > ENGINE_BARS ? k.slice(-ENGINE_BARS) : k;
   const t = raw.length ? raw[raw.length - 1].time : NaN;
   const engineBars = sessionBars(raw, options.assetClass, options.intervalMs);
-  if (engineBars.length < MIN_ENGINE_BARS) return blankResult(false, raw.length, t, options.intervalMs);
-  if (options.assetClass === "stock" && detectSplit(engineBars)) return blankResult(true, raw.length, t, options.intervalMs);
+  if (engineBars.length < MIN_ENGINE_BARS) return blankResult(false, raw.length, t);
+  if (options.assetClass === "stock" && detectSplit(engineBars)) return blankResult(true, raw.length, t);
 
   const o = { intervalMs: options.intervalMs, volumeAvailable: options.volumeAvailable && hasUsableVolume(engineBars) };
   const n = engineBars.length;
@@ -260,17 +254,16 @@ export function scoreV2(k: Kline[], options: ScoreOptions): V2Result {
   const lowVolatility = atrResult.valid && atrResult.value !== null && atrResult.value < LOW_VOLATILITY_PERCENTILE;
   const er = erAt(engineBars, n - 1);
   const trendGate = gateOf(er);
-  const dropped = contrarianDropped(o.intervalMs);
 
   // Last-bar breakdown (display and fingerprint only; the score above is the definition).
-  const inputs: V2Input[] = series.map((s) => ({ id: s.id, bloc: s.bloc, z: fin(s.z[n - 1]) ? s.z[n - 1] : null, dropped: s.dropped }));
+  const inputs: V2Input[] = series.map((s) => ({ id: s.id, bloc: s.bloc, z: fin(s.z[n - 1]) ? s.z[n - 1] : null }));
   const blocs: V2BlocScore[] = V2_BLOCS.map((bloc) => {
     let sum = 0, valid = 0;
     for (const x of inputs) if (x.bloc === bloc && x.z !== null) { sum += x.z; valid++; }
     return { bloc, score: valid ? sum / valid : 0, valid, weight: bloc === "meanReversion" ? 1 - trendGate : 1 };
   });
   const validCount = inputs.reduce((c, x) => c + (x.z !== null ? 1 : 0), 0);
-  const voters = votersOf(series);
+  const voters = series.length;
 
   const suppressed = last === null;
   const score = suppressed ? 0 : last;
@@ -285,7 +278,6 @@ export function scoreV2(k: Kline[], options: ScoreOptions): V2Result {
     suppressed,
     held: master !== "NEUTRAL" && Math.abs(score) < V2_ENTER,
     lowVolatility,
-    dropped,
     validCount,
     voters,
     blocs,
@@ -315,7 +307,6 @@ export function v2LineModel(r: V2Result | null | undefined): {
   master: SignalState;
   strength: V2Result["strength"];
   vars: { score: string; exit: number };
-  dropped: boolean;
 } {
   const noData = !r || !r.usable || r.suppressed;
   const score = noData ? 0 : r.score;
@@ -324,7 +315,6 @@ export function v2LineModel(r: V2Result | null | undefined): {
     master: noData ? "NEUTRAL" : r.master,
     strength: noData ? "WEAK" : r.strength,
     vars: { score: `${score > 0 ? "+" : ""}${score}`, exit: V2_EXIT },
-    dropped: r?.dropped ?? false,
   };
 }
 

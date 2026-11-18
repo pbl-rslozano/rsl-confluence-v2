@@ -5,8 +5,8 @@ import * as IND from "./indicators.ts";
 import { fingerprintSeries } from "./engine-config.ts";
 import { VOTE_ORDER } from "./scan-pipeline.ts";
 import {
-  V2_SIGMA_BARS, V2_ATR, V2_CLIP, V2_DROP_FROM_MS, V2_CONTRARIAN, V2_INPUTS,
-  contrarianDropped, rollingSigmaAt, v2InputSeries, v2RowAt,
+  V2_SIGMA_BARS, V2_ATR, V2_CLIP, V2_CONTRARIAN, V2_INPUTS,
+  rollingSigmaAt, v2InputSeries, v2RowAt,
 } from "./confluence-v2-inputs.ts";
 import { measureWalks } from "./noise-fixtures.mjs";
 
@@ -21,8 +21,9 @@ const clamp = (x) => Math.min(1, Math.max(-1, x));
 const H = 3_600_000;
 const O1H = { intervalMs: H, volumeAvailable: true };
 
-ok("constants", V2_SIGMA_BARS === 100 && V2_ATR === 14 && V2_CLIP === 1 && V2_DROP_FROM_MS === 4 * H
+ok("constants", V2_SIGMA_BARS === 100 && V2_ATR === 14 && V2_CLIP === 1
   && V2_CONTRARIAN.join() === "rsi,stochastic,williams,mfi");
+ok("V2_CONTRARIAN is exactly the inputs with sign -1", V2_INPUTS.filter((s) => s.sign === -1).map((s) => s.id).join() === V2_CONTRARIAN.join());
 
 const fp = fingerprintSeries().slice(0, 1000);
 const run = runConfluence(fp, { intervalMs: H });
@@ -99,22 +100,18 @@ ok("series are returned in table order, one per input", series.map((s) => s.id).
   ok("rising series: z_rsi < 0 (contrarian) and z_sma > 0 (trend)", g("rsi") < 0 && g("sma") > 0, `${g("rsi")} ${g("sma")}`);
 }
 
-// 5. drop on >= 4h only
+// 5. all 18 inputs vote on every interval (owner decision, WP23 Task 4 rework: the contrarian bloc is kept on >= 4h)
 {
-  ok("contrarianDropped boundary", contrarianDropped(4 * H) && !contrarianDropped(4 * H - 1) && contrarianDropped(30 * 24 * H) && !contrarianDropped(H));
   const k = measureWalks(1, 1000)[0];
-  for (const [label, ms] of [["4h", 4 * H], ["1d", 24 * H], ["1M", 30 * 24 * H]]) {
+  const at1h = v2InputSeries(k, O1H, 900);
+  for (const [label, ms] of [["4h - 1 ms", 4 * H - 1], ["4h", 4 * H], ["1d", 24 * H], ["1w", 7 * 24 * H], ["1M", 30 * 24 * H]]) {
     const r = v2InputSeries(k, { intervalMs: ms, volumeAvailable: true }, 900);
-    const dropped = r.filter((s) => s.dropped).map((s) => s.id).join();
-    ok(`${label}: exactly rsi,stochastic,williams,mfi dropped with all-NaN z`,
-      dropped === "rsi,stochastic,williams,mfi"
-      && r.filter((s) => s.dropped).every((s) => s.z.every(Number.isNaN)), dropped);
-    ok(`${label}: the other 14 are not dropped and are finite at the last bar`,
-      r.filter((s) => !s.dropped).length === 14 && r.filter((s) => !s.dropped).every((s) => Number.isFinite(s.z[999])));
-  }
-  for (const [label, ms] of [["1h", H], ["4h - 1 ms", 4 * H - 1]]) {
-    const r = v2InputSeries(k, { intervalMs: ms, volumeAvailable: true }, 900);
-    ok(`${label}: nothing dropped`, r.every((s) => !s.dropped) && r.every((s) => Number.isFinite(s.z[999])));
+    ok(`${label}: all 18 inputs present (incl. rsi, stochastic, williams, mfi) and finite at the last bar`,
+      r.length === 18 && r.map((s) => s.id).join() === VOTE_ORDER.join() && r.every((s) => Number.isFinite(s.z[999]))
+      && !r.some((s) => "dropped" in s), r.filter((s) => !Number.isFinite(s.z[999])).map((s) => s.id).join());
+    // Only the VWAP anchor depends on the interval (session < 1d, 20 bars otherwise): every other z equals 1h's.
+    const diff = r.filter((s, i) => s.id !== "vwap" && !s.z.every((z, j) => Object.is(z, at1h[i].z[j]))).map((s) => s.id);
+    ok(`${label}: every input but vwap has the same z as at 1h (the contrarian ones included)`, diff.length === 0, diff.join());
   }
 }
 

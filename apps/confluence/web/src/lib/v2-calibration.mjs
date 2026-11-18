@@ -22,6 +22,8 @@ export const CAL_WINDOWS = 300;
 export const CAL_SEED_OFFSET = 50;
 export const TARGET_LABELLED = 0.06;
 export const TARGET_STRONG = 0.015;
+/** The band the grid's `worstStrong70` column is evaluated at (fixed, independent of the current V2_STRONG_BAND). */
+export const GRID_STRONG_BAND = 70;
 const r6 = (x) => Math.round(x * 1e6) / 1e6;
 const masterOf = (s) => (s === 1 ? "BULLISH" : s === -1 ? "BEARISH" : "NEUTRAL");
 /** STRONG at an explicit band (v2Strength with lowVolatility false, which only lowers the share). */
@@ -53,7 +55,7 @@ export function calibrate() {
   const grid = [];
   for (let i = 0; i <= 50; i++) {
     const g = Math.round((0.5 + 0.05 * i) * 100) / 100;
-    const e = evalGain(g, [V2_STRONG_BAND]);
+    const e = evalGain(g, [GRID_STRONG_BAND]);
     grid.push({ g, worstLabelled: r6(Math.max(...e.map((x) => x.labelled))), worstStrong70: r6(Math.max(...e.map((x) => x.strong[0]))) });
   }
   const qual = grid.filter((r) => r.worstLabelled <= TARGET_LABELLED);
@@ -69,7 +71,8 @@ export function calibrate() {
   result.chosen = { gain, strongBand: bands[bi] };
   result.status = "OK";
   // Cross-check the inline STRONG rule against the production v2Strength at the provisional band.
-  for (const s of [-100, -71, -70, -69, 0, 69, 70, 71, 100]) for (const st of [-1, 0, 1]) {
+  const B = V2_STRONG_BAND;
+  for (const s of [-100, -B - 1, -B, -B + 1, 0, B - 1, B, B + 1, 100]) for (const st of [-1, 0, 1]) {
     if (strongAt(st, s, V2_STRONG_BAND) !== (v2Strength(masterOf(st), s, false, false) === "STRONG")) throw new Error("strongAt differs from v2Strength");
   }
   return result;
@@ -83,7 +86,7 @@ function main() {
   const t = performance.now();
   const r = calibrate();
   writeFileSync(out, JSON.stringify(r, null, 2) + "\n");
-  console.log("g     worstLabelled  worstStrong@" + V2_STRONG_BAND);
+  console.log("g     worstLabelled  worstStrong@" + GRID_STRONG_BAND);
   for (const row of r.grid) console.log(`${row.g.toFixed(2)}  ${(row.worstLabelled * 100).toFixed(2).padStart(6)}%       ${(row.worstStrong70 * 100).toFixed(2).padStart(6)}%`);
   for (const c of r.cells) console.log(`${c.model.padEnd(5)} ${c.tf}  labelled ${(c.labelled * 100).toFixed(2)}%  strong ${c.strong === null ? "-" : (c.strong * 100).toFixed(2) + "%"}`);
   console.log(`(${((performance.now() - t) / 1000).toFixed(1)} s) wrote ${out}`);
