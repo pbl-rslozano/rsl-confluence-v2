@@ -22,6 +22,12 @@ on:
         description: Keep releases as drafts for installation review
         type: boolean
         default: true
+      # 2.8.0 (owner, 17 Nov 2026): a dispatch builds and uploads the installer artifacts only, unless this is ticked.
+      # Tag pushes and [release…] commits on main publish as before (tools/workflow-gates.test.mjs).
+      publish:
+        description: "Publish: deploy the update channel and create GitHub releases"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -314,7 +320,7 @@ jobs:
   publish:
     name: Update channel — Netlify (PWA + latest.json + APK)
     needs: [verify, android]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || (github.ref == 'refs/heads/main' && (contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[release-android]')))
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.ref == 'refs/heads/main' && (contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[release-android]')))
     runs-on: ubuntu-24.04
     permissions: { contents: read }
     concurrency: { group: update-channel, cancel-in-progress: false }
@@ -421,7 +427,7 @@ jobs:
   publish_windows:
     name: Release — ${{ 'windows' }}
     needs: [windows]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release]'))
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release]'))
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -472,7 +478,7 @@ jobs:
   publish_macos:
     name: Release — ${{ 'macos' }}
     needs: [macos]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || (github.ref == 'refs/heads/main' && (contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[release-apple]')))
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.ref == 'refs/heads/main' && (contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[release-apple]')))
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -523,7 +529,7 @@ jobs:
   publish_android:
     name: Release — ${{ 'android' }}
     needs: [android]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || (github.ref == 'refs/heads/main' && (contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[release-android]')))
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.ref == 'refs/heads/main' && (contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[release-android]')))
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -574,7 +580,7 @@ jobs:
   publish_iphone:
     name: Release — ${{ 'iphone' }}
     needs: [ios]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || (github.ref == 'refs/heads/main' && (contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[release-apple]')))
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.ref == 'refs/heads/main' && (contains(github.event.head_commit.message, '[release]') || contains(github.event.head_commit.message, '[release-apple]')))
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -663,7 +669,7 @@ jobs:
   publish_linux:
     name: Release — ${{ 'linux' }}
     needs: [linux]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release]'))
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release]'))
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -714,7 +720,7 @@ jobs:
   publish_web:
     name: Release — ${{ 'web' }}
     needs: [verify]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release]'))
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release]'))
     runs-on: ubuntu-24.04
     permissions:
       contents: write

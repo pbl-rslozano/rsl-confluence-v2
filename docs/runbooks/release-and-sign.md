@@ -16,5 +16,10 @@
    - Windows: add a `bundle.windows.signCommand` (e.g. Azure Trusted Signing) once a certificate exists.
    - Android: `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
    - iOS: personal device install via Xcode with your Apple ID, or an Apple Business custom app if ever shared (no public App Store build).
-5. **Before the first shared release:** pin every `uses:` action to a full commit SHA.
-6. **Publish**: attach installers, `rsL-Confluence-<ver>-pwa.zip` (e.g. `rsL-Confluence-2.7.0-pwa.zip`) + `.sha256`, and the SBOM. Keep keys offline; report only their location.
+   - 2.8.0 (owner decision 18 Nov 2026): no Windows certificate and no Apple secrets — Windows ships unsigned, macOS ad-hoc
+     signed without notarisation (`RSL_MACOS_UNSIGNED`, set automatically when the six Apple secrets are absent).
+5. **Build without publishing:** run the release workflow by hand with `publish` unticked (the default). It builds and
+   uploads the installers as workflow artifacts only; the update channel and GitHub releases are untouched. Publish with a
+   second dispatch (`publish` ticked) or a tag only after the owner has approved the installers.
+6. **Before the first shared release:** pin every `uses:` action to a full commit SHA.
+7. **Publish**: attach installers, `rsL-Confluence-<ver>-pwa.zip` (e.g. `rsL-Confluence-2.8.0-pwa.zip`) + `.sha256`, and the SBOM. Keep keys offline; report only their location.
