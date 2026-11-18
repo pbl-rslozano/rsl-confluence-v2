@@ -255,6 +255,19 @@ export function buildNotices({ root = ROOT, roots = PRODUCTION_ROOTS, fallbackDi
  * Everything --check verifies. `skip` lets fixture tests leave out repository-wide parts.
  * @returns {{ ok: boolean, findings: string[], summary: string }}
  */
+/** Characters of `text` that Windows code page 1252 cannot hold. The MSI (WiX) licence page shows
+ *  bundle.licenseFile and fails with LGHT0311 on any of them (2.8.0 release build, 18 Nov 2026). */
+const CP1252_HIGH = "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ";
+export function cp1252Unencodable(text) {
+  const bad = new Set();
+  for (const ch of text) {
+    const c = ch.codePointAt(0);
+    if (c < 0x80 || (c >= 0xa0 && c <= 0xff) || CP1252_HIGH.includes(ch)) continue;
+    bad.add(ch);
+  }
+  return [...bad];
+}
+
 export function checkNotices({ root = ROOT, roots = PRODUCTION_ROOTS, fallbackDir = FALLBACK_DIR, skip = [] } = {}) {
   const findings = [];
   const fallbacks = loadFallbacks(fallbackDir);
@@ -304,6 +317,10 @@ export function checkNotices({ root = ROOT, roots = PRODUCTION_ROOTS, fallbackDi
         const res = Array.isArray(bundle.resources) ? bundle.resources : Object.keys(bundle.resources ?? {});
         if (!res.includes("THIRD-PARTY-NOTICES-rust.txt")) findings.push("tauri.conf.json: bundle.resources lacks THIRD-PARTY-NOTICES-rust.txt");
         if (!bundle.licenseFile || !existsSync(join(root, RUST_DIR, bundle.licenseFile))) findings.push("tauri.conf.json: bundle.licenseFile missing or not found");
+        else {
+          const bad = cp1252Unencodable(readFileSync(join(root, RUST_DIR, bundle.licenseFile), "utf8"));
+          if (bad.length) findings.push(`${bundle.licenseFile}: characters outside code page 1252 break the Windows MSI licence page (${bad.join(" ")})`);
+        }
       }
     }
   }

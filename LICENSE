@@ -9,5 +9,5 @@ The software is provided "as is", without warranty of any kind. It is an analysi
 it is not financial advice.
 
 Third-party components are included under their own licences, which this notice does not change. Their licence
-texts and copyright notices are in THIRD-PARTY-NOTICES.txt, shipped next to the app in every build (About →
+texts and copyright notices are in THIRD-PARTY-NOTICES.txt, shipped next to the app in every build (About >
 Open-source licences), and, for the desktop app's Rust crates, in THIRD-PARTY-NOTICES-rust.txt.
