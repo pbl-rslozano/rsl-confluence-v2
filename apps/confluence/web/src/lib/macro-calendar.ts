@@ -52,11 +52,18 @@ function frankfurtTime(date: string, hh: number, mm: number): number {
 
 /** [date, verified] */
 type Day = readonly [string, boolean];
-const FOMC_DECISION_DAYS: Day[] = [
+/** [date, verified, decision] — `decision: false` marks an FOMC meeting with no policy decision (never an event). */
+type FomcDay = readonly [string, boolean, boolean?];
+const FOMC_DECISION_DAYS: FomcDay[] = [
   ["2026-01-28", true], ["2026-03-18", true], ["2026-04-29", true], ["2026-06-17", true], ["2026-07-29", true], ["2026-09-16", true],
   ["2026-10-28", true], ["2026-12-09", true],
   ["2027-01-27", true], ["2027-03-17", true], ["2027-04-28", true], ["2027-06-09", true], ["2027-07-28", true], ["2027-09-15", true],
-  ["2027-10-27", true], ["2027-11-17", true],
+  // K-Dense v2 (18 Nov 2026) A-L2: 26-27 Oct 2027 is a strategy-only meeting with no policy decision. Source: Federal
+  // Reserve press release of 12 Nov 2026 (federalreserve.gov/newsevents/pressreleases/monetary20261112a.htm, read
+  // 18 Nov 2026): decisions are announced on the second day of each meeting "except the October 26-27 meeting", which
+  // "will be dedicated to the discussion of broad monetary policy strategy issues". Kept here, marked non-decision, so
+  // it is neither shown as an FOMC decision nor blocks paper trades (inBlackout).
+  ["2027-10-27", true, false], ["2027-11-17", true],
 ];
 const NFP: Day[] = [
   ["2026-11-06", false], ["2026-12-04", true],
@@ -75,7 +82,7 @@ const ECB: Day[] = [
 ];
 
 export const MACRO_EVENTS: MacroEvent[] = [
-  ...FOMC_DECISION_DAYS.map(([d, verified]) => ({ id: `fomc-${d}`, label: "FOMC decision", kind: "fomc" as const, at: nyTime(d, 14, 0), verified })),
+  ...FOMC_DECISION_DAYS.filter(([, , decision]) => decision !== false).map(([d, verified]) => ({ id: `fomc-${d}`, label: "FOMC decision", kind: "fomc" as const, at: nyTime(d, 14, 0), verified })),
   ...NFP.map(([d, verified]) => ({ id: `nfp-${d}`, label: "US jobs report", kind: "nfp" as const, at: nyTime(d, 8, 30), verified })),
   ...CPI.map(([d, verified]) => ({ id: `cpi-${d}`, label: "US CPI", kind: "cpi" as const, at: nyTime(d, 8, 30), verified })),
   ...ECB.map(([d, verified]) => ({ id: `ecb-${d}`, label: "ECB decision", kind: "ecb" as const, at: frankfurtTime(d, 14, 15), verified })),

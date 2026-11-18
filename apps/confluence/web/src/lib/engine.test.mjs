@@ -269,6 +269,11 @@ console.log("\nMacro calendar (WP19)");
   ok("CPI +1 h 01 min is outside the blackout", inBlackout(cpi.at + H + 60e3) === null);
   ok("CPI -2 h 01 min is outside the blackout", inBlackout(cpi.at - 2 * H - 60e3) === null);
   ok("ECB is informational, never blocking", inBlackout(ecb.at) === null);
+  // K-Dense v2 (18 Nov 2026) A-L2: the Fed's 12 Nov 2026 release makes 26-27 Oct 2027 a strategy-only meeting (no
+  // policy decision), so 27 Oct 2027 14:00 ET (18:00 UTC) is not a blackout and not listed as an FOMC decision.
+  ok("A-L2: 27 Oct 2027 18:00 UTC (strategy-only FOMC meeting) is not a blackout", inBlackout(Date.UTC(2027, 9, 27, 18, 0)) === null);
+  ok("A-L2: no FOMC decision event on 2027-10-27", !MACRO_EVENTS.some((e) => e.id === "fomc-2027-10-27"));
+  ok("A-L2: 17 Nov 2027 FOMC decision still blocks", inBlackout(Date.UTC(2027, 10, 17, 19, 0))?.id === "fomc-2027-11-17");
   // Unverified dates are ignored by blocking and coverage.
   const fake = { id: "cpi-fake", label: "US CPI", kind: "cpi", at: Date.UTC(2030, 0, 15, 13, 30), verified: false };
   MACRO_EVENTS.push(fake);
