@@ -124,7 +124,7 @@ recorder's radar option is on; the default build contacts none of them (acceptan
 - **Node processes:** the recorder (`recorder.hosts`) gains `fapi.binance.com`, `publicreporting.cftc.gov`,
   `stablecoins.llama.fi` and `api.pro.coins.ph` (listed for the radar's later regional-premium reads; its read-path restriction is by policy and the R12/R20 static checks, as the recorder's runtime guard is host-level); `web.hosts` and `web.csp` gain the three
   hosts (R8, R11).
-- **Not verified:** the live exchangeInfo limit value, the `fundingRate` weight, and the terms of the three hosts.
+- **Not verified:** the live exchangeInfo limit value and the `fundingRate` weight. Terms read 18 Nov 2026: CFTC data is public domain and the CFTC asks to be acknowledged (cftc.gov/webpolicy; About → Data sources & thanks names it); DefiLlama's Terms of Use (effective 24 Jun 2025) license personal, non-commercial use and bar republishing; Binance futures terms not reached.
 
 ## Amendment — v2.8 part 2 (web) (16 Nov 2026, WP25: liquidation websockets)
 Evidence: probe `docs/research/evidence/wp25-liquidation-ws-probe-2026-11-16.json` (16 Nov 2026, from the deployed app's

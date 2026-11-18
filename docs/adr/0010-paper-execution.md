@@ -33,7 +33,8 @@ No code that can send an order may be added (no exchange order endpoint, no demo
    - PSR ≥ 0.95.
    This must hold on the current engine id, and it must be confirmed out of sample by replay.
 2. **KSA eligibility confirmed.** The owner has confirmed in writing that the venue, the product (spot or perpetual) and automated or assisted order placement are permitted for a KSA resident. This covers CMA rules and the venue's own terms and onboarding.
-3. **50 paper/demo trades reconciled.** At least **50** closed paper trades from this simulator have been reconciled against the ledger. Reconciled means each trade's fill, exit and costs were matched to the recorded bars, and the realised R distribution is consistent with the ledger's expectancy for the same signals. The dialog shows progress as "n of 50".
+3. **50 paper/demo trades reconciled.** At least **50** closed paper trades from this simulator have been reconciled against the ledger. Reconciled means each trade's fill, exit and costs were matched to the recorded bars, and the realised R distribution is consistent with the **atr-bracket** outcome (2 × ATR stop, 2 R target, stop first, gap at the open; `measureBracket`) for the same signals. The dialog shows progress as "n of 50".
+   Amended 18 Nov 2026 (K-Dense v2 audit): gate 3 compares with the atr-bracket outcome; today that outcome is available in replay (`--outcome atr-bracket`), not yet in the ledger dialog.
 
 Passing the gate allows a design review; it does not grant permission. Any later step would still need its own threat model, as follows:
 - **Key storage:** keys stay out of app storage, as in ADR-0002.

@@ -7,7 +7,7 @@ The forward-test ledger (ADR-0007) only grows while the app, or its worker, is o
 
 Alerts for strong signals and reversals were only toasts inside an open tab.
 
-Measuring the signals needs 3–6 months of uninterrupted forward data (docs/measurement.md).
+Measuring the signals needs long, uninterrupted forward data: at realistic edges, years rather than months (see the power readout in docs/measurement.md).
 
 ## Decision
 1. **Separate Node process** (`apps/confluence/recorder`, package `@rsl/confluence-recorder` 2.3.0). It uses Node built-ins only and has no npm dependencies.
