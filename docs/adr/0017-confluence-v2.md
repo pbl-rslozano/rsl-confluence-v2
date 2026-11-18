@@ -139,7 +139,7 @@ and band) and v2's behaviour on a fixed test series, so a change to any of them 
   score or its catch-up rows. Catch-up goes to the worker in chunks of at most 25 jobs (each message stays well under the
   worker's time limit on a slow phone; the ruling is in the table below). The recorder (`docs/recorder.md`) and the replay
   record v2 with the same code; the replay has `--no-v2` and prints a head-to-head summary table.
-- **Translations.** The new strings are in all 18 catalogs. The 17 tier-2 catalogs carry English text for the new keys (house
+- **Translations.** The new strings are in all 18 catalogs. The 16 other catalogs carry English text for the new keys (house
   practice), Arabic is drafted and listed in `@pendingReview`, and nothing is certified.
 
 ## Consequences
@@ -169,7 +169,7 @@ and band) and v2's behaviour on a fixed test series, so a change to any of them 
 | Question | Ruling | Reason |
 |---|---|---|
 | Contrarian oscillators on ≥ 4h (spec: dropped) | Kept on every interval (owner decision, 18 Nov 2026) | With the drop, the first calibration was near-degenerate (cliff from 5.33 % to 25 %, STRONG unreachable); the cause is bloc correlation at 4h and above, which σ100 divisors did not fix. |
-| Trend inputs on ATR14 or σ100 | The table above (ATR14 for the price-unit trend measures); σ100 re-scaling was measured and does not change the bloc | The spec allows either; the measured bloc medians barely moved with the divisor. |
+| Trend inputs on ATR14 or σ100 | The table above (ATR14 for the price-unit trend measures); σ100 re-scaling of the price-unit trend inputs was measured and not adopted | The spec allows either. It moved the 4h trend-bloc median only a little (0.585 to 0.556) and the STRONG band from 64 to 63, and did not fix the bloc correlation. |
 | Two rows per bar, or one | One row with `v2: { cfg, s, m, st }` (controller, 17 Nov 2026) | Keeps retention and backup capacity; one shared outcome. |
 | Hysteresis state | Derived from the last 300 scores of the row's own window, starting NEUTRAL; never stored | The app, worker, recorder, catch-up and replay must agree; no storage to drift. |
 | Rows over a longer series | Recorded and replayed rows score the row's own 1,000-bar window; a precomputed longer series (`v2RowAt`) is display only | It is not bit-identical (rounding 1e-15 to 7e-14; VWAP session start; OBV scale start). |

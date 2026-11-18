@@ -245,8 +245,8 @@ ledger record. What v2 changes:
 - **All four mean-reversion oscillators vote on every timeframe.** RSI, Stochastic, Williams %R and MFI are kept on 4h and
   above too (owner decision, 18 Nov 2026).
 - **Hysteresis, 55 and 40.** v2 gives a label when its score reaches ±55 and returns to NEUTRAL only when the score is below
-  40 in size. Example: a BUY entered at 58 stays BUY at 45, and ends when the score falls below 40. This is why v2 changes
-  its label far less often than Classic.
+  40 in size. Example: a BUY entered at 58 stays BUY at 45, and ends when the score falls below 40. Hysteresis is meant to keep
+  the label steady; on the test fixtures v2 changed its label far less often than Classic did.
 - **Its own calibration.** v2's score scale was set on noise so that, like Classic, at most about 7% of random windows get a
   label and at most 2% get STRONG.
 
@@ -261,7 +261,7 @@ back inside ±40". With too little data it reads "Confluence v2 (test): no data"
 
 **The ledger records it.** Each ledger row also records v2's label, config id, score and strength (about 54 bytes more per
 row, logged and never scored). Rows recorded before v2.8, or without enough history, have no v2 label and are not compared.
-The new texts are in all 18 languages; the Arabic text is a draft pending native review.
+The new texts are in all 18 catalogs; 16 languages show them in English for now, and the Arabic text is a draft pending native review. Nothing is certified.
 
 ### Reversal
 The Reversal column looks for a turn **against** the current trend (the trend is judged from the 50-bar average and its slope). It checks nine clues: RSI divergence, MACD momentum loss, a return inside the Bollinger bands, a Stochastic cross, a Parabolic SAR flip, a Supertrend flip, RSI leaving overbought or oversold, an engulfing candle, and a hammer or shooting star. Three or more net clues are **HIGH**, two **MOD**, one **LOW**. HIGH is a count of clues, not a probability that the trend will turn. Point at the badge to see which clues fired.
