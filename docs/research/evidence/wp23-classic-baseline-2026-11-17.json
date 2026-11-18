@@ -1,0 +1,421 @@
+{
+  "wp": "WP23",
+  "part": "classic",
+  "base": "d572a3af30f8f1824362a667ccd6a95b50f4f8fe",
+  "classic": {
+    "configId": "5c30b5c39f5ba3f2",
+    "engineVersion": "2.4.0",
+    "fingerprint": "be49d3168f0e0c67",
+    "noise": [
+      {
+        "model": "gauss",
+        "tf": "1h",
+        "n": 1000,
+        "labelled": 0.034,
+        "strong": 0.007
+      },
+      {
+        "model": "gauss",
+        "tf": "4h",
+        "n": 1000,
+        "labelled": 0.027,
+        "strong": 0.005
+      },
+      {
+        "model": "gauss",
+        "tf": "1d",
+        "n": 1000,
+        "labelled": 0.031,
+        "strong": 0.006
+      },
+      {
+        "model": "t3",
+        "tf": "1h",
+        "n": 1000,
+        "labelled": 0.05,
+        "strong": 0.019
+      },
+      {
+        "model": "t3",
+        "tf": "4h",
+        "n": 1000,
+        "labelled": 0.04,
+        "strong": 0.009
+      },
+      {
+        "model": "t3",
+        "tf": "1d",
+        "n": 1000,
+        "labelled": 0.054,
+        "strong": 0.011
+      },
+      {
+        "model": "garch",
+        "tf": "1h",
+        "n": 1000,
+        "labelled": 0.033,
+        "strong": 0.005
+      },
+      {
+        "model": "garch",
+        "tf": "4h",
+        "n": 1000,
+        "labelled": 0.03,
+        "strong": 0.003
+      },
+      {
+        "model": "garch",
+        "tf": "1d",
+        "n": 1000,
+        "labelled": 0.037,
+        "strong": 0.008
+      }
+    ],
+    "fixtures": {
+      "1h": {
+        "horizons": [
+          {
+            "horizon": 1,
+            "scored": 800,
+            "groups": [
+              {
+                "label": "BUY · all",
+                "n": 15,
+                "hitRate": 0.266667,
+                "meanNetBps": -22.9849,
+                "edgeBps": 12.2913
+              },
+              {
+                "label": "BUY · strong",
+                "n": 1,
+                "hitRate": 0,
+                "meanNetBps": -29.824,
+                "edgeBps": 5.45224
+              },
+              {
+                "label": "SELL · all",
+                "n": 67,
+                "hitRate": 0.432836,
+                "meanNetBps": -15.7137,
+                "edgeBps": 9.01003
+              },
+              {
+                "label": "SELL · strong",
+                "n": 22,
+                "hitRate": 0.545455,
+                "meanNetBps": 0.0261612,
+                "edgeBps": 24.7499
+              }
+            ],
+            "icT": null,
+            "psr": 0.00538068
+          },
+          {
+            "horizon": 3,
+            "scored": 266,
+            "groups": [
+              {
+                "label": "BUY · all",
+                "n": 10,
+                "hitRate": 0.4,
+                "meanNetBps": -55.4805,
+                "edgeBps": -9.87196
+              },
+              {
+                "label": "SELL · all",
+                "n": 29,
+                "hitRate": 0.482759,
+                "meanNetBps": 17.5213,
+                "edgeBps": 31.9127
+              },
+              {
+                "label": "SELL · strong",
+                "n": 8,
+                "hitRate": 0.625,
+                "meanNetBps": 35.1725,
+                "edgeBps": 49.564
+              }
+            ],
+            "icT": null,
+            "psr": 0.473272
+          },
+          {
+            "horizon": 6,
+            "scored": 133,
+            "groups": [
+              {
+                "label": "BUY · all",
+                "n": 8,
+                "hitRate": 0.25,
+                "meanNetBps": -74.7022,
+                "edgeBps": -13.6116
+              },
+              {
+                "label": "SELL · all",
+                "n": 21,
+                "hitRate": 0.619048,
+                "meanNetBps": 13.68,
+                "edgeBps": 12.5894
+              },
+              {
+                "label": "SELL · strong",
+                "n": 5,
+                "hitRate": 1,
+                "meanNetBps": 157.123,
+                "edgeBps": 156.032
+              }
+            ],
+            "icT": null,
+            "psr": 0.346261
+          },
+          {
+            "horizon": 12,
+            "scored": 66,
+            "groups": [
+              {
+                "label": "BUY · all",
+                "n": 8,
+                "hitRate": 0.375,
+                "meanNetBps": -46.0439,
+                "edgeBps": 41.2824
+              },
+              {
+                "label": "SELL · all",
+                "n": 17,
+                "hitRate": 0.705882,
+                "meanNetBps": 112.946,
+                "edgeBps": 85.6195
+              },
+              {
+                "label": "SELL · strong",
+                "n": 3,
+                "hitRate": 1,
+                "meanNetBps": 281.982,
+                "edgeBps": 254.656
+              }
+            ],
+            "icT": null,
+            "psr": 0.94734
+          },
+          {
+            "horizon": 24,
+            "scored": 33,
+            "groups": [
+              {
+                "label": "BUY · all",
+                "n": 5,
+                "hitRate": 0.4,
+                "meanNetBps": 32.9491,
+                "edgeBps": 177.927
+              },
+              {
+                "label": "SELL · all",
+                "n": 11,
+                "hitRate": 0.727273,
+                "meanNetBps": 176.438,
+                "edgeBps": 91.4596
+              },
+              {
+                "label": "SELL · strong",
+                "n": 1,
+                "hitRate": 0,
+                "meanNetBps": -50.414,
+                "edgeBps": -135.392
+              }
+            ],
+            "icT": null,
+            "psr": 0.953618
+          }
+        ]
+      },
+      "4h": {
+        "horizons": [
+          {
+            "horizon": 1,
+            "scored": 10400,
+            "groups": [
+              {
+                "label": "BUY · all",
+                "n": 261,
+                "hitRate": 0.40613,
+                "meanNetBps": -29.9798,
+                "edgeBps": -0.142797
+              },
+              {
+                "label": "BUY · strong",
+                "n": 34,
+                "hitRate": 0.382353,
+                "meanNetBps": -23.4518,
+                "edgeBps": 6.38517
+              },
+              {
+                "label": "SELL · all",
+                "n": 226,
+                "hitRate": 0.384956,
+                "meanNetBps": -31.6803,
+                "edgeBps": -1.51721
+              },
+              {
+                "label": "SELL · strong",
+                "n": 10,
+                "hitRate": 0.4,
+                "meanNetBps": -31.7164,
+                "edgeBps": -1.55336
+              }
+            ],
+            "icT": -0.687314,
+            "psr": 2.91339e-12
+          },
+          {
+            "horizon": 3,
+            "scored": 3464,
+            "groups": [
+              {
+                "label": "BUY · all",
+                "n": 158,
+                "hitRate": 0.417722,
+                "meanNetBps": -32.984,
+                "edgeBps": -3.49279
+              },
+              {
+                "label": "BUY · strong",
+                "n": 11,
+                "hitRate": 0.545455,
+                "meanNetBps": -4.29469,
+                "edgeBps": 25.1965
+              },
+              {
+                "label": "SELL · all",
+                "n": 135,
+                "hitRate": 0.385185,
+                "meanNetBps": -39.8307,
+                "edgeBps": -9.32182
+              },
+              {
+                "label": "SELL · strong",
+                "n": 4,
+                "hitRate": 0.25,
+                "meanNetBps": -55.1536,
+                "edgeBps": -24.6447
+              }
+            ],
+            "icT": -0.491023,
+            "psr": 0.00107144
+          },
+          {
+            "horizon": 6,
+            "scored": 1728,
+            "groups": [
+              {
+                "label": "BUY · all",
+                "n": 123,
+                "hitRate": 0.406504,
+                "meanNetBps": -37.8009,
+                "edgeBps": -8.74362
+              },
+              {
+                "label": "BUY · strong",
+                "n": 6,
+                "hitRate": 0.5,
+                "meanNetBps": -35.768,
+                "edgeBps": -6.71065
+              },
+              {
+                "label": "SELL · all",
+                "n": 113,
+                "hitRate": 0.433628,
+                "meanNetBps": -31.4051,
+                "edgeBps": -0.462431
+              },
+              {
+                "label": "SELL · strong",
+                "n": 3,
+                "hitRate": 0.333333,
+                "meanNetBps": -108.76,
+                "edgeBps": -77.8171
+              }
+            ],
+            "icT": -0.743159,
+            "psr": 0.00992778
+          },
+          {
+            "horizon": 12,
+            "scored": 864,
+            "groups": [
+              {
+                "label": "BUY · all",
+                "n": 103,
+                "hitRate": 0.427184,
+                "meanNetBps": -29.2215,
+                "edgeBps": -1.14485
+              },
+              {
+                "label": "BUY · strong",
+                "n": 3,
+                "hitRate": 0.333333,
+                "meanNetBps": -217.643,
+                "edgeBps": -189.566
+              },
+              {
+                "label": "SELL · all",
+                "n": 98,
+                "hitRate": 0.44898,
+                "meanNetBps": -42.9813,
+                "edgeBps": -11.058
+              },
+              {
+                "label": "SELL · strong",
+                "n": 1,
+                "hitRate": 0,
+                "meanNetBps": -306.914,
+                "edgeBps": -274.991
+              }
+            ],
+            "icT": 0.103756,
+            "psr": 0.106005
+          },
+          {
+            "horizon": 24,
+            "scored": 432,
+            "groups": [
+              {
+                "label": "BUY · all",
+                "n": 86,
+                "hitRate": 0.44186,
+                "meanNetBps": -57.0052,
+                "edgeBps": -30.5957
+              },
+              {
+                "label": "BUY · strong",
+                "n": 2,
+                "hitRate": 0.5,
+                "meanNetBps": -114.983,
+                "edgeBps": -88.5739
+              },
+              {
+                "label": "SELL · all",
+                "n": 81,
+                "hitRate": 0.358025,
+                "meanNetBps": -103.347,
+                "edgeBps": -69.7569
+              },
+              {
+                "label": "SELL · strong",
+                "n": 3,
+                "hitRate": 0.333333,
+                "meanNetBps": -52.9121,
+                "edgeBps": -19.3216
+              }
+            ],
+            "icT": -0.253054,
+            "psr": 0.0779829
+          }
+        ]
+      }
+    },
+    "churnPer100": {
+      "1h": 7.625,
+      "4h": 5.18269
+    }
+  }
+}

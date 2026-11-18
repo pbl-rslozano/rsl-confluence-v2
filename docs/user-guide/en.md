@@ -234,6 +234,35 @@ ATR 14, Std Dev 20 and fair-value gaps are shown for information but do not vote
 - **NO DATA**: fewer than 13 of the 18 indicators could be calculated, the asset has fewer than 80 closed bars, a stock split was detected, or the feed failed this scan. The row is shown but gets no signal.
 - **Closed bars only.** The unfinished candle is always dropped. A feed whose newest closed bar is more than 2½ bars old is marked stale and gets no signal.
 
+<!-- wp:WP23 -->
+### Confluence v2 (test challenger, v2.8)
+Confluence v2 is a second way of scoring the same 18 indicators, run beside Classic so the ledger can measure which one
+works better. It is a test: **Classic stays the engine**, and nothing switches over without a later decision based on the
+ledger record. What v2 changes:
+- **Standardised inputs.** Each indicator's measure (for example price minus its average, or the MACD histogram) is divided by
+  the market's own volatility (ATR 14, or the measure's own spread over 100 bars) and **clipped to ±1**, so a reading far
+  from its trigger counts more than one just past it, and no single reading can count for more than 1.
+- **All four mean-reversion oscillators vote on every timeframe.** RSI, Stochastic, Williams %R and MFI are kept on 4h and
+  above too (owner decision, 18 Nov 2026).
+- **Hysteresis, 55 and 40.** v2 gives a label when its score reaches ±55 and returns to NEUTRAL only when the score is below
+  40 in size. Example: a BUY entered at 58 stays BUY at 45, and ends when the score falls below 40. Hysteresis is meant to keep
+  the label steady; on the test fixtures v2 changed its label far less often than Classic did.
+- **Its own calibration.** v2's score scale was set on noise so that, like Classic, at most about 7% of random windows get a
+  label and at most 2% get STRONG.
+
+**v2 is never shown in the list and never used for signals, alerts or paper trades.** The list, the labels, the Master
+signal, the alerts and the paper rules read Classic only.
+
+**The setting and the line.** In **Scoring profile**, tick **Confluence v2 line in the detail sheet (test)** (off by
+default). The asset detail sheet then shows one extra line, for example "Confluence v2 (test): BUY · STRONG · score +74",
+and "A challenger recorded for comparison only. It never changes the list, signals, alerts or paper trades." When the
+label is being **held** between 40 and 55, the line reads "Confluence v2 (test): BUY · MODERATE · score +45 · held until the
+score is back inside ±40". With too little data it reads "Confluence v2 (test): no data". Untick the setting and the line goes away.
+
+**The ledger records it.** Each ledger row also records v2's label, config id, score and strength (about 54 bytes more per
+row, logged and never scored). Rows recorded before v2.8, or without enough history, have no v2 label and are not compared.
+The new texts are in all 18 catalogs; 16 languages show them in English for now, and the Arabic text is a draft pending native review. Nothing is certified.
+
 ### Reversal
 The Reversal column looks for a turn **against** the current trend (the trend is judged from the 50-bar average and its slope). It checks nine clues: RSI divergence, MACD momentum loss, a return inside the Bollinger bands, a Stochastic cross, a Parabolic SAR flip, a Supertrend flip, RSI leaving overbought or oversold, an engulfing candle, and a hammer or shooting star. Three or more net clues are **HIGH**, two **MOD**, one **LOW**. HIGH is a count of clues, not a probability that the trend will turn. Point at the badge to see which clues fired.
 
@@ -661,6 +690,16 @@ Every scored closed bar is recorded with the engine version. The ledger shows ho
   - The CSV export has **13 scenario columns** after the Radar columns: `scenario_band_lo95`, `scenario_band_lo68`,
     `scenario_band_hi68`, `scenario_band_hi95`, `scenario_state`, `scenario_p_up`, `scenario_p_range`, `scenario_p_down`,
     `scenario_base_up`, `scenario_base_range`, `scenario_base_down`, `scenario_width`, `scenario_fallback`.
+- **Classic vs Confluence v2 (test)** (v2.8, collapsed, just before the Scenario check): the same rows and the same measured
+  outcomes, scored once with Classic's label and once with Confluence v2's (the entry, the costs and the funding are shared;
+  only the direction, and so the net result, differs). For each engine and the chosen horizon it shows the number of signals,
+  hit rate, mean net result and edge in basis points, rank IC t, probabilistic Sharpe and the **label changes per 100 bars**.
+  Only rows of the Confluence v2 version shown in the section are compared: rows recorded without v2 (before v2.8, or too
+  little history) are listed as **not compared**, and rows that carry another Confluence v2 version are counted on their own
+  line and are not compared either (versions are never pooled). The comparison is worked out only when you open the section,
+  after Classic's report is on screen, so a closed section costs nothing. The CSV export has **four v2
+  columns** after the scenario ones: `v2_config_id`, `v2_score`, `v2_direction`, `v2_strength`. It is a comparison only:
+  **nothing switches over**, and Classic's report, check and pre-registration never read v2.
 
 | Source | Fee per side | Slippage per side | Funding per 8 h |
 |---|---|---|---|

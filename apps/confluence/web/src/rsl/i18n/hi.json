@@ -827,5 +827,20 @@
   "bk.restore.records": "Measured outcomes: {outcomes} rows, {oadded} new. Universe snapshots: {universes}, {uadded} new. Recorded gaps: {gaps}, {gadded} new. Trade notes: {notes}, {nadded} new.",
   "bk.restore.notKept": "{n} outcome records, universe snapshots or gaps will not be kept: their rows are not on this device or are older than it keeps, or there is no room for them. No row is removed to make room.",
   "bk.skippedRecords": "{n} other records (measured outcomes, universe snapshots, gaps or trade notes) were left out because a restore could not read them.",
-  "bk.err.too-large-plain": "The backup would be about {size}, and {plain} once unpacked; the limits are 20 MB for the file and 160 MB unpacked. Export the ledger as CSV from the Ledger instead."
+  "bk.err.too-large-plain": "The backup would be about {size}, and {plain} once unpacked; the limits are 20 MB for the file and 160 MB unpacked. Export the ledger as CSV from the Ledger instead.",
+  "settings.confluenceV2": "Confluence v2 line in the detail sheet (test)",
+  "v2.line": "Confluence v2 (test): {label} · score {score}",
+  "v2.lineHeld": "Confluence v2 (test): {label} · score {score} · held until the score is back inside ±{exit}",
+  "v2.lineNoData": "Confluence v2 (test): no data",
+  "v2.lineNote": "A challenger recorded for comparison only. It never changes the list, signals, alerts or paper trades.",
+  "ledger.v2.title": "Classic vs Confluence v2 (test)",
+  "ledger.v2.engine": "Confluence v2 engine {id}",
+  "ledger.v2.none": "No rows with Confluence v2 in this view yet.",
+  "ledger.v2.pairs": "{n} bars labelled by both engines (horizon +{h}); both are measured on the same outcomes",
+  "ledger.v2.noOutcomes": "No closed outcomes on these bars yet.",
+  "ledger.v2.classic": "Classic: {n} signals · hit rate {hit} · mean net {net} bp · edge {edge} bp · IC t {ic} · PSR {psr} · {churn} label changes per 100 bars",
+  "ledger.v2.v2": "Confluence v2: {n} signals · hit rate {hit} · mean net {net} bp · edge {edge} bp · IC t {ic} · PSR {psr} · {churn} label changes per 100 bars",
+  "ledger.v2.notCompared": "{n} rows were recorded without Confluence v2 (before WP23, or too little history) and are not compared.",
+  "ledger.v2.note": "Comparison only. Classic stays the engine for the list, labels, alerts and paper trading; nothing switches over without a later owner decision.",
+  "ledger.v2.otherVersions": "{n} rows carry another Confluence v2 version and are not compared."
 }

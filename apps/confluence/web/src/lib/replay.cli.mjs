@@ -28,6 +28,8 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, write
 import { dirname, join, resolve } from "node:path";
 import { scoreSeries, toLedgerRow } from "./scan-pipeline.ts";
 import { enrich } from "./enrichment.ts";
+import { scoreV2, v2Compact, v2ConfigId } from "./confluence-v2.ts";
+import { asV2Row, labelChurn, sideOf, splitByV2 } from "./head-to-head.ts";
 import { ENGINE_BARS, engineConfigId, ENGINE_VERSION } from "./engine-config.ts";
 import { barCloseTime, contiguousTail, fetchHistoryRange, INTERVAL_MS, loadInstrumentTypes } from "./market-client.ts";
 import { hashId } from "./signal-ledger.ts";
@@ -60,6 +62,9 @@ if (args.help || args.h) {
   --profile <file>                               exported scoring profile
   --outcome horizon|atr-bracket                   v2.8: atr-bracket adds the paper bracket (2×ATR stop, 2R target,
                                                   stop first, gap at the open) — R per trade, as ADR-0010 gate 3 compares
+  --no-v2                                         v2.8 (WP23): leave the four Confluence v2 columns empty (default: every row also
+                                                  records Confluence v2, scored on the same window with the same code as the app;
+                                                  logged, never scored)
   --out ./replay-out                              output folder`);
   process.exit(0);
 }
@@ -82,6 +87,7 @@ const costBps = 2 * (costs.feeBps + costs.slipBps);
 const step = Math.max(1, Number(args.step ?? 1));
 const outDir = resolve(args.out ?? "replay-out");
 const minBars = Math.max(WARM_MIN_BARS, Number(args["min-bars"] ?? ENGINE_BARS));
+const noV2 = args["no-v2"] !== undefined && args["no-v2"] !== "false";
 const outcomeMode = args.outcome ?? "horizon";
 if (!OUTCOME_MODES.includes(outcomeMode)) throw new Error(`Unknown --outcome ${outcomeMode} (${OUTCOME_MODES.join(", ")})`);
 const explicitCosts = args["fee-bps"] !== undefined || args["slip-bps"] !== undefined || args["funding-bps"] !== undefined;
@@ -179,6 +185,12 @@ for (const [pair, k] of series) {
     });
     if (!row) continue;
     Object.assign(row, enrich(row, window, { intervalMs, btc: btcSeries, rs: null, split: s.split }));
+    // v2.8 (WP23): Confluence v2 on the same window (never a profile), logged beside Classic and never scored.
+    if (!noV2) {
+      let v2 = null;
+      try { v2 = v2Compact(scoreV2(window, { intervalMs, volumeAvailable: true, assetClass: cls }), row.t); } catch { /* v2 is logged only: a fault leaves the Classic row as it was */ }
+      if (v2) row.v2 = v2;
+    }
     rows.push(row);
     const b = momentumRow(row, k, i);
     if (b) baseline.push(b);
@@ -315,6 +327,30 @@ for (const [name, pair] of Object.entries(reports)) {
     lines.push("");
   }
 }
+// v2.8 (WP23 Task 9): Classic vs Confluence v2 on the SAME rows and outcomes (logged, never scored; Classic's report above is unchanged).
+const h2hLines = [`## Classic vs Confluence v2 (test) — engine ${v2ConfigId()}`, ""];
+{
+  // Final review I2: only rows of this v2 config are compared; rows of another v2 version are counted, never pooled.
+  const { compared: withV2, notCompared, otherVersions } = splitByV2(rows, v2ConfigId());
+  if (!withV2.length) {
+    h2hLines.push(noV2 ? "Not run: --no-v2 left Confluence v2 out of these rows." : "No rows with Confluence v2 in this replay.");
+  } else {
+    const v2Rows = withV2.map(asV2Row);
+    const classicRep = measure(withV2);
+    const v2Rep = measure(v2Rows);
+    const churn = { classic: labelChurn(withV2, intervalMs).per100, v2: labelChurn(v2Rows, intervalMs).per100 };
+    h2hLines.push(`${withV2.length} bars labelled by both engines (${notCompared} rows without v2 not compared; ${otherVersions} rows of another Confluence v2 version not compared — only engine ${v2ConfigId()} is compared); both are measured on the same outcomes.`, "");
+    h2hLines.push("| h | engine | n | hit | mean net bp | edge bp | IC t | PSR | label changes /100 bars |", "|---|---|---|---|---|---|---|---|---|");
+    for (const h of DEFAULT_HORIZONS) {
+      for (const [name, rep, ch] of [["Classic", classicRep, churn.classic], ["Confluence v2", v2Rep, churn.v2]]) {
+        const x = sideOf(rep, h, ch);
+        h2hLines.push(`| ${h} | ${name} | ${x.n} | ${Number.isFinite(x.hitRate) ? f(x.hitRate * 100) + "%" : "—"} | ${f(x.meanNetBps)} | ${f(x.edgeBps)} | ${f(x.icT, 2)} | ${f(x.psr, 2)} | ${f(x.churnPer100)} |`);
+      }
+    }
+  }
+  h2hLines.push("");
+}
+lines.push(...h2hLines);
 if (brackets) {
   lines.push("## Outcome mode atr-bracket (2×ATR stop, 2R target, stop first, gap at the open; one trade at a time per pair)", "");
   lines.push("| set | n | mean R | hit (95 % CI) | stops | targets |", "|---|---|---|---|---|---|");
@@ -322,4 +358,5 @@ if (brackets) {
   lines.push("");
 }
 writeFileSync(join(outDir, "report.md"), lines.join("\n") + "\n");
+console.log("\n" + h2hLines.join("\n"));
 console.log(`\n${rows.length} rows → ${outDir}/ledger.csv, report.json, report.md (${meta.seconds}s)`);

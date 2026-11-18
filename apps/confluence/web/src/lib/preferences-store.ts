@@ -62,6 +62,8 @@ export interface AppPreferences {
   fundRankColumn: boolean;
   /** v2.8 (WP25): log the market-radar context (rad) on new ledger rows; contacts the radar hosts while on. Off by default. */
   recordRadar: boolean;
+  /** v2.8 (WP23): show the optional "Confluence v2 (test)" line in the detail sheet. Off by default; never changes the list or signals. */
+  confluenceV2Line: boolean;
 }
 export type FundPulse = "three" | "off" | "keep";
 
@@ -87,6 +89,7 @@ export const DEFAULT_APP_PREFERENCES: AppPreferences = {
   fundPulse: "three",
   fundRankColumn: false,
   recordRadar: false,
+  confluenceV2Line: false,
 };
 
 const STORAGE_KEY = "ct-preferences-v1";
@@ -164,6 +167,7 @@ export function normalizePreferences(saved: unknown): AppPreferences | null {
     fundPulse: savedOrDefault(saved.fundPulse, FUND_PULSES, DEFAULT_APP_PREFERENCES.fundPulse),
     fundRankColumn: typeof saved.fundRankColumn === "boolean" ? saved.fundRankColumn : DEFAULT_APP_PREFERENCES.fundRankColumn,
     recordRadar: typeof saved.recordRadar === "boolean" ? saved.recordRadar : DEFAULT_APP_PREFERENCES.recordRadar,
+    confluenceV2Line: typeof saved.confluenceV2Line === "boolean" ? saved.confluenceV2Line : DEFAULT_APP_PREFERENCES.confluenceV2Line,
   };
 }
 

@@ -10,6 +10,7 @@ import { scoreSeries, toLedgerRow, type RowContext, type SeriesScore } from "./s
 import type { LedgerRow } from "./ledger-metrics";
 import { barWhileClosed } from "./asset-classes";
 import { ENGINE_BARS, engineConfigId } from "./engine-config";
+import { scoreV2, v2Compact, type V2Result } from "./confluence-v2";
 import { detectHistoricalPattern, emptySignal, type PatternSignal } from "./pattern-signal";
 
 export interface ScanJob {
@@ -32,6 +33,22 @@ export interface ScanJob {
    * otherwise left for the fresh series, so history rows do not delay the fresh ones in the worker.
    */
   displayOnly?: boolean;
+}
+
+/** Consecutive slices of at most `n` items, in order (n < 1 is treated as 1). */
+export function chunk<T>(xs: readonly T[], n: number): T[][] {
+  const size = Math.max(1, Math.floor(n));
+  const out: T[][] = [];
+  for (let i = 0; i < xs.length; i += size) out.push(xs.slice(i, i + size));
+  return out;
+}
+
+/** TEST ONLY: lets a test make v2 throw. Production code never writes it. */
+export const v2TestHook: { score: typeof scoreV2 } = { score: scoreV2 };
+
+/** v2 is logged beside Classic and must never take Classic down: a fault gives null (the field is simply not computed). */
+export function guardedV2(k: Kline[], o: Parameters<typeof scoreV2>[1]): V2Result | null {
+  try { return v2TestHook.score(k, o); } catch { return null; }
 }
 
 export function packKlines(k: Kline[]): Float64Array {
@@ -58,6 +75,11 @@ export interface ScanJobResult {
   key: string;
   score: SeriesScore;
   pattern: PatternSignal;
+  /**
+   * v2.8 (WP23): Confluence v2 on the same bars, beside Classic. Set for every non-catch-up job (displayOnly included),
+   * never takes the scoring profile, logged only. Null when the job failed.
+   */
+  v2?: V2Result | null;
   catchUpRows?: LedgerRow[];
   /** v2.3: bars after `since` that catch-up could not cover (beyond `max` or the window). */
   gap?: { from: number; to: number };
@@ -90,7 +112,11 @@ export function runCatchUp(job: ScanJob, klines: Kline[]): { rows: LedgerRow[]; 
       closeTime: job.intervalMs >= 28 * 86_400_000 ? Date.UTC(new Date(t).getUTCFullYear(), new Date(t).getUTCMonth() + 1, 1) : t + job.intervalMs,
       underlyingClosed: job.assetClass ? barWhileClosed(job.assetClass, t, job.intervalMs) : false,
     });
-    if (row) rows.push(row);
+    if (row) {
+      // v2.8 (WP23): v2 on the same window Classic used for this row; logged, never scored.
+      row.v2 = v2Compact(guardedV2(window, { intervalMs: job.intervalMs, volumeAvailable: job.volumeAvailable, assetClass: job.assetClass }), row.t);
+      rows.push(row);
+    }
   }
   // Bars after the cursor that could not be scored (hole longer than `max`,
   // history shorter than a full window) are reported, never silently lost.
@@ -132,6 +158,7 @@ export function runScanJobSafe(job: ScanJob): ScanJobResult {
       key: job.key,
       score: scoreSeries([], { intervalMs: job.intervalMs, volumeAvailable: false }),
       pattern: emptySignal("Scoring failed"),
+      v2: null,
       error: error instanceof Error ? error.message : String(error),
     };
   }
@@ -144,14 +171,15 @@ export function runScanJob(job: ScanJob): ScanJobResult {
     return { key: job.key, score: scoreSeries([], { intervalMs: job.intervalMs, volumeAvailable: false }), pattern: emptySignal("catch-up"), catchUpRows: cu.rows, ...(cu.gap ? { gap: cu.gap } : {}) };
   }
   const score = scoreSeries(klines, { intervalMs: job.intervalMs, volumeAvailable: job.volumeAvailable, assetClass: job.assetClass, profile: job.profile });
-  if (!score.usable) return { key: job.key, score, pattern: emptySignal("Insufficient data") };
+  const v2 = guardedV2(klines, { intervalMs: job.intervalMs, volumeAvailable: job.volumeAvailable, assetClass: job.assetClass });
+  if (!score.usable) return { key: job.key, score, pattern: emptySignal("Insufficient data"), v2 };
   const lastTime = klines.length ? klines[klines.length - 1].time : 0;
   const patternKey = job.key + (job.profile ? "|" + engineConfigId(job.profile) : "");
   const prior = patternMemo.get(patternKey);
   if (prior && prior.lastTime === lastTime && prior.length === klines.length) {
-    return { key: job.key, score, pattern: prior.pattern };
+    return { key: job.key, score, pattern: prior.pattern, v2 };
   }
-  if (job.displayOnly) return { key: job.key, score, pattern: emptySignal("Updating") };
+  if (job.displayOnly) return { key: job.key, score, pattern: emptySignal("Updating"), v2 };
   const pattern = detectHistoricalPattern(klines, {
     volumeAvailable: job.volumeAvailable,
     intervalMs: job.intervalMs,
@@ -161,5 +189,5 @@ export function runScanJob(job: ScanJob): ScanJobResult {
   });
   patternMemo.set(patternKey, { lastTime, length: klines.length, pattern });
   if (patternMemo.size > 2000) patternMemo.delete(patternMemo.keys().next().value as string);
-  return { key: job.key, score, pattern };
+  return { key: job.key, score, pattern, v2 };
 }

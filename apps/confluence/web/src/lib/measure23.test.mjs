@@ -647,7 +647,7 @@ console.log("WP21 ft: ledger field, CSV, catch-up no-look-ahead, benchmark");
   const header = [...LEDGER_CSV_COLUMNS, "net_return_h1"];
   const at = (col) => LEDGER_CSV_COLUMNS.indexOf(col);
 
-  ok("fund_trend is exported; the WP25 radar columns follow it; scenario_fallback is the last CSV column and the scenario columns follow radar_alerts", LEDGER_CSV_COLUMNS[LEDGER_CSV_COLUMNS.length - 1] === "scenario_fallback" && at("scenario_band_lo95") === at("radar_alerts") + 1 && at("radar_funding_pctl") === at("fund_trend") + 1 && ledgerRowValues(row)[at("fund_trend")] === -37.3);
+  ok("fund_trend is exported; the WP25 radar columns follow it; v2_strength is the last CSV column (the v2 columns follow scenario_fallback) and the scenario columns follow radar_alerts", LEDGER_CSV_COLUMNS[LEDGER_CSV_COLUMNS.length - 1] === "v2_strength" && at("v2_config_id") === at("scenario_fallback") + 1 && at("scenario_band_lo95") === at("radar_alerts") + 1 && at("radar_funding_pctl") === at("fund_trend") + 1 && ledgerRowValues(row)[at("fund_trend")] === -37.3);
   {
     const imp = parseLedgerImport(csvOf(header, [[...ledgerRowValues(row), ""]]));
     ok("v2.8 CSV round-trips ft", imp.rows.length === 1 && imp.rows[0].ft === -37.3 && JSON.stringify(imp.rows[0]) === JSON.stringify(sanitizeLedgerRow(row)), JSON.stringify(imp));

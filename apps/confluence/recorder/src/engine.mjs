@@ -23,7 +23,9 @@ export {
   usesDirectFetch,
 } from "../../web/src/lib/market-client.ts";
 export { scoreSeries, toLedgerRow } from "../../web/src/lib/scan-pipeline.ts";
-export { runScanJobSafe, packKlines } from "../../web/src/lib/scan-jobs.ts";
+export { runScanJobSafe, packKlines, guardedV2 } from "../../web/src/lib/scan-jobs.ts";
+// v2.8 (WP23): Confluence v2 (logged beside Classic, never scored): the guard is the app's scan-job guard, so a v2 fault leaves Classic rows untouched.
+export { scoreV2, v2Compact, v2ConfigId } from "../../web/src/lib/confluence-v2.ts";
 export { engineConfigId, ENGINE_VERSION, ENGINE_BARS } from "../../web/src/lib/engine-config.ts";
 export { classifySymbol, inClass, barWhileClosed, ASSET_CLASS_FILTERS } from "../../web/src/lib/asset-classes.ts";
 export { mergeKlines } from "../../web/src/lib/history-store.ts";

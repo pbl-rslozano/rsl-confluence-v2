@@ -58,7 +58,8 @@ import {
 import type { ReversalResult } from "@/lib/reversal";
 import type { PatternSignal } from "@/lib/pattern-signal";
 import { runPanelScores, runScanJobs, scanMode } from "@/lib/scan-runner";
-import { packKlines, type ScanJob, type ScanJobResult } from "@/lib/scan-jobs";
+import { chunk, packKlines, type ScanJob, type ScanJobResult } from "@/lib/scan-jobs";
+import type { V2Result } from "@/lib/confluence-v2";
 import { createLedgerStore } from "@/lib/signal-ledger";
 import { createIndexedDBAdapter } from "@rsl/core-kit/core/rsl-storage.js";
 import { emptyReversal, floorLabel, suppressedConfluence, thinNote, type SeriesScore } from "@/lib/scan-pipeline";
@@ -128,6 +129,7 @@ import { autoCurrency, BANDS, cachedCurrencies, cachedTable, canConvert, convert
 import { formatMoney, formatMoneyCompact } from "@/lib/money";
 import { FxSourcesDialog } from "@/components/fx-sources-dialog";
 import { fxCredit, fxSourceInfo, type FxChoice } from "@/lib/fx-rates";
+import { ConfluenceV2Line } from "@/components/confluence-v2-line";
 import { PrivateApiDialog } from "@/components/private-api-dialog";
 import type { PrivateApiProfile, ProviderLink } from "@/lib/private-api";
 import type { CloudBackupProps, StatusLine } from "@/components/cloud-backup";
@@ -248,6 +250,8 @@ interface AssetRow {
   confluence: ConfluenceResult;
   reversal: ReversalResult;
   pattern: PatternSignal;
+  /** v2.8 (WP23): Confluence v2 on the same bars (logged, never scored or listed). */
+  v2?: V2Result | null;
   klines: Kline[];
   assetClass: AssetClass;
   /** Stocks/FX: the newest bar printed while the underlying market was shut. */
@@ -601,6 +605,7 @@ export default function Home() {
   const [fundPulse, setFundPulse] = useState<AppPreferences["fundPulse"]>(DEFAULT_APP_PREFERENCES.fundPulse);
   const [fundRankColumn, setFundRankColumn] = useState<boolean>(DEFAULT_APP_PREFERENCES.fundRankColumn);
   const [recordRadar, setRecordRadar] = useState<boolean>(DEFAULT_APP_PREFERENCES.recordRadar);
+  const [confluenceV2Line, setConfluenceV2Line] = useState<boolean>(DEFAULT_APP_PREFERENCES.confluenceV2Line);
   // The scan reads the live setting when it builds rows (the scan runs from a long-lived callback).
   const recordRadarRef = useRef(recordRadar);
   useEffect(() => { recordRadarRef.current = recordRadar; }, [recordRadar]);
@@ -872,6 +877,7 @@ export default function Home() {
         setFundPulse(saved.fundPulse);
         setFundRankColumn(saved.fundRankColumn);
         setRecordRadar(saved.recordRadar);
+        setConfluenceV2Line(saved.confluenceV2Line);
         applyBackground(saved.background);
       } else {
         let legacy: string | null = null;
@@ -907,9 +913,10 @@ export default function Home() {
       fundPulse,
       fundRankColumn,
       recordRadar,
+      confluenceV2Line,
     };
     saveAppPreferences(preferences);
-  }, [preferencesReady, timeframe, dataSource, universeLimit, background, monitorAssets, sortKey, sortDir, autoRefresh, chartDepth, assetClass, quoteBySource, displayPref, fxChoice, fxAutoUpdate, fxCustom, liquidityFloorUsd, fundPulse, fundRankColumn, recordRadar]);
+  }, [preferencesReady, timeframe, dataSource, universeLimit, background, monitorAssets, sortKey, sortDir, autoRefresh, chartDepth, assetClass, quoteBySource, displayPref, fxChoice, fxAutoUpdate, fxCustom, liquidityFloorUsd, fundPulse, fundRankColumn, recordRadar, confluenceV2Line]);
 
   // v2.7 (WP13): display-currency rates — from the chosen source, cached on the device, refreshed every 6 h
   // while "Update automatically" is on, or on "Update now". Display only: the scan never sees them.
@@ -1039,7 +1046,7 @@ export default function Home() {
         return c === "excluded" ? "crypto" : c;
       };
       type Ticker = { rank: number; symbol: string; lastPrice: string; priceChangePercent: string; quoteVolume: string };
-      const rowOf = (t: Ticker, kl: Kline[], res: { score: { confluence: ConfluenceResult; reversal: ReversalResult }; pattern: PatternSignal }, freshness: Freshness, priceFromBars = false): AssetRow => {
+      const rowOf = (t: Ticker, kl: Kline[], res: { score: { confluence: ConfluenceResult; reversal: ReversalResult }; pattern: PatternSignal; v2?: V2Result | null }, freshness: Freshness, priceFromBars = false): AssetRow => {
         const assetCls = classOf(t.symbol);
         return {
           rank: t.rank,
@@ -1053,6 +1060,7 @@ export default function Home() {
           confluence: res.score.confluence,
           reversal: res.score.reversal,
           pattern: res.pattern,
+          v2: res.v2,
           klines: kl,
           assetClass: assetCls,
           underlyingClosed: kl.length > 0 && barWhileClosed(assetCls, kl[kl.length - 1].time, intervalMs),
@@ -1215,7 +1223,7 @@ export default function Home() {
       };
       // Cross-sectional fields (RS percentile, BTC beta, universe rank) once the chosen list is complete, as in a full scan.
       const shared = scanShared(prepared.filter((p) => p.fresh && p.kl.length).map((p) => seriesOf(p.t, p.kl)), data.universe);
-      const scoredOf = new Map<string, { t: (typeof prepared)[number]["t"]; res: Pick<ScanJobResult, "score" | "pattern"> }>();
+      const scoredOf = new Map<string, { t: (typeof prepared)[number]["t"]; res: Pick<ScanJobResult, "score" | "pattern" | "v2"> }>();
       const out: AssetRow[] = prepared.map(({ t, kl, fresh, failure }) => {
         const scored = byKey.get(`${source}:${tf}:${t.symbol}`);
         const res = scored && !scored.error
@@ -1224,7 +1232,7 @@ export default function Home() {
               score: { usable: false, warmBars: 0, confluence: suppressedConfluence(`Feed unavailable this scan (${scored?.error ?? failure}) — not scored, not recorded.`), reversal: emptyReversal() },
               pattern: emptySignal("Feed unavailable"),
             };
-        scoredOf.set(t.symbol, { t, res: res as Pick<ScanJobResult, "score" | "pattern"> });
+        scoredOf.set(t.symbol, { t, res: res as Pick<ScanJobResult, "score" | "pattern" | "v2"> });
         // A row whose fetch failed this scan is display-only: "not updated" with its bar time.
         return rowOf(t, kl, res, fresh ? "live" : "stale");
       });
@@ -1233,7 +1241,7 @@ export default function Home() {
         const x = scoredOf.get(row.pair);
         if (!x || !x.res.score.usable || !row.klines.length) return null;
         // v2.8 (WP19): the row logs this scan's Pattern output (pd / pc).
-        const lr = liveRow({ ...seriesOf(x.t, row.klines), pattern: x.res.pattern }, x.res.score as SeriesScore, recordCtx, shared);
+        const lr = liveRow({ ...seriesOf(x.t, row.klines), pattern: x.res.pattern, v2: x.res.v2 }, x.res.score as SeriesScore, recordCtx, shared);
         if (lr) row.context = lr;
         return lr;
       });
@@ -1283,7 +1291,14 @@ export default function Home() {
           const done: Record<string, number> = {};
           for (const j of jobs) if (!j.pending) done[j.pair] = j.kl[j.kl.length - 1].time;
           if (pending.length) {
-            const res = await runScanJobs(pending.map((j) => j.job), { allowMainThread: false });
+            // v2 makes each catch-up job slower, so the jobs go to the worker 25 at a time (one message each, in order): a slow device
+            // never nears the worker timeout on one huge message. An empty answer means the worker is gone or failed: send no more.
+            const res: Awaited<ReturnType<typeof runScanJobs>> = [];
+            for (const part of chunk(pending.map((j) => j.job), 25)) {
+              const got = await runScanJobs(part, { allowMainThread: false });
+              if (!got.length) break;
+              res.push(...got);
+            }
             const byKey = new Map(res.map((x) => [x.key, x]));
             const rowsToAdd: LedgerRow[] = [];
             // v2.8 (WP21): catch-up rows log ft from the daily bars closed before each bar (same feed: one request per pair per UTC day, venue gates, 429 halt; a halt leaves ft null).
@@ -1494,7 +1509,7 @@ export default function Home() {
       const [res] = await runScanJobs([{ key: seriesKey, packed: packKlines(klines), intervalMs, volumeAvailable: true, assetClass: asset.assetClass, profile: scoringProfile }]);
       if (controller.signal.aborted) return;
       historyLenRef.current.set(seriesKey, { len: klines.length, newest: klines.at(-1)?.time ?? 0 });
-      const updated = { ...asset, klines, confluence: res.score.confluence, reversal: res.score.reversal, pattern: res.pattern };
+      const updated = { ...asset, klines, confluence: res.score.confluence, reversal: res.score.reversal, pattern: res.pattern, v2: res.v2 };
       setRows((current) => current.map((row) => row.pair === asset.pair ? updated : row));
       if (shownRef.current.rows.some((row) => row.pair === asset.pair)) shownRef.current = { ...shownRef.current, rows: shownRef.current.rows.map((row) => row.pair === asset.pair ? updated : row) };
       if (updated.freshness === "live") setPaperRows((current) => current.map((row) => row.pair === asset.pair ? updated : row));
@@ -1845,7 +1860,7 @@ export default function Home() {
             <div aria-hidden="true" className="hidden xl:block xl:h-1.5 xl:basis-full" />
             <ScoringProfileEditor profile={scoringProfile} configId={activeConfigId} onApply={applyScoringProfile} disabled={!profileReady}
               liquidityFloorUsd={liquidityFloorUsd} onLiquidityFloor={setLiquidityFloorUsd}
-              fundPulse={fundPulse} onFundPulse={setFundPulse} fundRankColumn={fundRankColumn} onFundRankColumn={setFundRankColumn} recordRadar={recordRadar} onRecordRadar={setRecordRadar} t={t} />
+              fundPulse={fundPulse} onFundPulse={setFundPulse} fundRankColumn={fundRankColumn} onFundRankColumn={setFundRankColumn} recordRadar={recordRadar} onRecordRadar={setRecordRadar} confluenceV2Line={confluenceV2Line} onConfluenceV2Line={setConfluenceV2Line} t={t} />
             <SavedScans port={rsl.port}
               current={{ timeframe, dataSource, universeLimit, assetClass, sortKey, sortDir, search, monitorAssets }}
               onApply={(preset) => {
@@ -2404,6 +2419,7 @@ export default function Home() {
               {scanMeta.source === "coinsph" && scanMeta.premium[detailAsset.pair] !== undefined && (
                 <p className="text-[10px] text-zinc-500">{t("ph.premiumHelp")}</p>
               )}
+              {confluenceV2Line && !chartReplay && <ConfluenceV2Line r={detailAsset.v2} t={t} />}
 
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2">
                 <div className="flex min-w-0 items-center gap-2">

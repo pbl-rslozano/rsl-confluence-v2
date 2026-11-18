@@ -30,6 +30,7 @@ import { FR_MAX, OI_CHG_MAX, OI_CHG_MIN } from "./derivatives-context";
 import type { RadarContext } from "./radar/snapshot";
 import { RAD_BOUNDS } from "./radar/rad-bounds";
 import type { Scb, Scp } from "./scenarios";
+import type { V2Compact } from "./confluence-v2";
 
 export type AssetClass = "crypto" | "rwa" | "stock" | "fx" | "commodity";
 
@@ -110,6 +111,8 @@ export interface LedgerRow {
   scb?: Scb | null;
   /** Scenario odds: s = Fund trend state (-1/0/1, null = unknown), p = [up, range, down] odds, b = the coin's base rates, w = sigma_H, f = 1 when the overall odds were used. Null as scb. */
   scp?: Scp | null;
+  /** v2.8 (WP23): the Confluence v2 challenger on the same bar, logged and never scored. Null or absent = not computed (earlier rows, or v2 not usable on that window). */
+  v2?: V2Compact | null;
 }
 
 /** Fund trend as stored on a row: one decimal, so web and recorder rows match. */
@@ -1066,6 +1069,8 @@ export const LEDGER_CSV_COLUMNS = [
   "scenario_p_up", "scenario_p_range", "scenario_p_down",
   "scenario_base_up", "scenario_base_range", "scenario_base_down",
   "scenario_width", "scenario_fallback",
+  // v2.8 (WP23) — appended after scenario_fallback: the Confluence v2 challenger (logged, never scored). An earlier CSV without them imports with v2 null.
+  "v2_config_id", "v2_score", "v2_direction", "v2_strength",
 ] as const;
 
 const iso = (ms: number) => (ms ? new Date(ms).toISOString() : "");
@@ -1084,6 +1089,7 @@ export function ledgerRowValues(r: LedgerRow): (string | number)[] {
     r.scp?.p[0] ?? "", r.scp?.p[1] ?? "", r.scp?.p[2] ?? "",
     r.scp?.b[0] ?? "", r.scp?.b[1] ?? "", r.scp?.b[2] ?? "",
     r.scp?.w ?? "", r.scp?.f ?? "",
+    r.v2?.cfg ?? "", r.v2?.s ?? "", r.v2?.m ?? "", r.v2?.st ?? "",
   ];
 }
 
@@ -1122,6 +1128,27 @@ const SC_BAND_MAX = 5;
 const SC_WIDTH_MAX = 5;
 const isProb3 = (v: unknown): v is [number, number, number] =>
   Array.isArray(v) && v.length === 3 && v.every((x) => finite(x) && x >= 0 && x <= 1) && Math.abs((v as number[]).reduce((a, b) => a + b, 0) - 1) <= 0.01;
+const V2_CFG = /^[0-9a-f]{16}$/;
+/**
+ * v2.8 (WP23) strict check of `v2`: absent/null -> null; anything else must be an object with cfg 16 lowercase hex, s null or an integer
+ * with |s| <= 100, m in {-1, 0, 1}, st in {0, 1, 2}, and be consistent (s null -> m 0 and st 0; m 0 <=> st 0), else the WHOLE row is rejected.
+ * Unknown keys are dropped.
+ */
+function strictV2(r: Record<string, unknown>): { v2: V2Compact | null } | typeof INVALID {
+  const nil = (v: unknown) => v === null || v === undefined;
+  if (nil(r.v2)) return { v2: null };
+  const o = r.v2;
+  if (typeof o !== "object" || Array.isArray(o)) return INVALID;
+  const { cfg, s, m, st } = o as Record<string, unknown>;
+  if (typeof cfg !== "string" || !V2_CFG.test(cfg)) return INVALID;
+  if (!(s === null || (typeof s === "number" && Number.isInteger(s) && Math.abs(s) <= 100))) return INVALID;
+  if (m !== -1 && m !== 0 && m !== 1) return INVALID;
+  if (st !== 0 && st !== 1 && st !== 2) return INVALID;
+  if (s === null && !(m === 0 && st === 0)) return INVALID;
+  if ((m === 0) !== (st === 0)) return INVALID;
+  return { v2: { cfg, s: s as number | null, m, st } };
+}
+
 /**
  * v2.8 (WP22) strict check of `scb` / `scp`: absent/null → null; anything else must be in range, else the WHOLE row is rejected.
  * scb: 4 finite numbers, |x| <= 5, ascending. scp: s in {-1, 0, 1, null}; p and b three values in [0, 1] summing to 1 +- 0.01;
@@ -1207,6 +1234,8 @@ export function sanitizeLedgerRow(x: unknown): LedgerRow | null {
   if (rad === INVALID) return null;
   const sc = strictScenario(r);
   if (sc === INVALID) return null;
+  const v2 = strictV2(r);
+  if (v2 === INVALID) return null;
   const bl = Array.isArray(r.bl) && r.bl.length === 4 && r.bl.every(finite) ? (r.bl as number[]) : [0, 0, 0, 0];
   const bit = (v: unknown): 0 | 1 => (v === 1 || v === true ? 1 : 0);
   const out: LedgerRow = {
@@ -1229,7 +1258,7 @@ export function sanitizeLedgerRow(x: unknown): LedgerRow | null {
     eb: finite(r.eb) && r.eb >= 0 ? r.eb : undefined,
   };
   for (const [k, v] of Object.entries(extra)) if (v !== undefined) (out as unknown as Record<string, unknown>)[k] = v;
-  return Object.assign(out, v28, { rad }, sc);
+  return Object.assign(out, v28, { rad }, sc, v2);
 }
 
 /* ------------------------------------------------------------------ *
@@ -1308,6 +1337,16 @@ function csvScenario(get: (n: (typeof LEDGER_CSV_COLUMNS)[number]) => string | u
   return { scb, scp };
 }
 
+const V2_CELLS = ["v2_config_id", "v2_score", "v2_direction", "v2_strength"] as const;
+/**
+ * v2.8 (WP23): the v2 columns -> untrusted `v2` for the sanitiser. All four cells empty -> null. A blank v2_score with the other three
+ * present is a null score. Anything partial or non-numeric is passed through, so the sanitiser rejects the row.
+ */
+function csvV2(get: (n: (typeof LEDGER_CSV_COLUMNS)[number]) => string | undefined, num: (n: (typeof LEDGER_CSV_COLUMNS)[number]) => number | string | null): unknown {
+  if (V2_CELLS.every((c) => (get(c) ?? "") === "")) return null;
+  return { cfg: get("v2_config_id") ?? "", s: num("v2_score"), m: num("v2_direction"), st: num("v2_strength") };
+}
+
 /** True when `text` starts with the ledger CSV header (BOM and quotes tolerated). */
 export function looksLikeLedgerCsv(text: string): boolean {
   return /^\uFEFF?"?id"?,"?config_id"?,/.test(text);
@@ -1346,6 +1385,7 @@ export function parseLedgerCsv(text: string, maxRows = 500_000): { rows: LedgerR
       vt: num("vote_vector"), pd: num("pattern_dir"), pc: num("pattern_conf"), fr: num("funding_rate"), oiChg: num("oi_change_pct"), ft: num("fund_trend"),
       rad: csvRad(get, num, csvTime(get("bar_close_utc"))),
       ...csvScenario(get, num),
+      v2: csvV2(get, num),
     };
     const row = sanitizeLedgerRow(raw);
     if (row) rows.push(row); else rejected++;

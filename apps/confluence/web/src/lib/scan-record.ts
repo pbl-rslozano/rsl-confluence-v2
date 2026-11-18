@@ -24,6 +24,7 @@ import { barCloseTime, type UniverseEntry } from "./market-client";
 import { enrich, percentiles, ret20 } from "./enrichment";
 import { derivativeFields, type DerivativeSnapshot } from "./derivatives-context";
 import { radarFields, type RadarContext } from "./radar/snapshot";
+import { v2Compact, type V2Result } from "./confluence-v2";
 import type { PatternConfidence, PatternDirection } from "./pattern-signal";
 
 export interface ScanSeries {
@@ -36,6 +37,8 @@ export interface ScanSeries {
   kl: Kline[];
   /** v2.8 (WP19): the Pattern output computed on these bars (absent = not computed → pd/pc null). */
   pattern?: { direction: PatternDirection; confidence: PatternConfidence } | null;
+  /** v2.8 (WP23): Confluence v2 scored on these bars (absent = not computed → the row carries no v2 field). Logged, never scored. */
+  v2?: V2Result | null;
 }
 
 export interface ScanRecordContext {
@@ -97,6 +100,7 @@ export function liveRow(p: ScanSeries, score: SeriesScore, ctx: ScanRecordContex
     rad: ctx.radar?.length ? radarFields(ctx.radar as RadarContext[], closeTime) : null,
   });
   if (!row) return null;
+  if (p.v2 !== undefined) row.v2 = v2Compact(p.v2, row.t);
   return Object.assign(row, enrich(row, p.kl, {
     intervalMs: ctx.intervalMs,
     btc: shared.btc,

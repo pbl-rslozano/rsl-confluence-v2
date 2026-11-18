@@ -527,12 +527,13 @@ async function ds1Snapshot() {
 //   detail §3.8  "View on [exchange]" (WP26, end of the sheet, below the compared region)   [data-testid=view-on-exchange]
 //          §3.1  "Scenarios (simulation)" (WP22, collapsed, right after the Pattern panel)  [data-testid=scenarios-section]
 //   ledger §3.4  collapsed Scenario check at the end of the dialog (WP22)               [data-testid=ledger-scenario-check]
+//          §3 item 4  collapsed "Classic vs Confluence v2 (test)", just before the Scenario check (WP23)   [data-testid=ledger-v2-compare]
 // §3.5 block reasons and §3.7 text inside existing boxes need no exclusion (text is masked). Never add a selector for
 // anything that is not on the §3 list.
 const DS2_ALLOWED = {
   detail: ['[data-testid="view-on-exchange"]', '[data-testid="scenarios-section"]'],
   paper: ['[data-testid="paper-more-limits"]', '[data-testid="paper-more-stats"]', '[data-testid="paper-add-note"]', '[data-testid="paper-lock-drawdown"]', '[data-testid="paper-drawdown"]', '[data-testid="paper-warning"]'],
-  ledger: ['[data-testid="ledger-scenario-check"]'],
+  ledger: ['[data-testid="ledger-scenario-check"]', '[data-testid="ledger-v2-compare"]'],
 };
 async function ds2Snapshot() {
   const { c, p, seen } = await dsContext();
@@ -3034,6 +3035,64 @@ async function hdPinnedBoxes(w, h, lang) {
     await c.close();
   }
 
+  /* ===== v2.8 WP23 Task 9: the collapsed Classic vs Confluence v2 section of the ledger dialog ===== */
+  /* acceptance-ids: CV-3 */
+  if (!DS_ONLY && !HD_ONLY && !BK_ONLY) {
+    const c = await newContext(browser);
+    await mockExchanges(c);
+    const p = await c.newPage();
+    await p.goto(BASE, { waitUntil: "domcontentloaded" });
+    await completeFirstRun(p);
+    await waitRows(p);
+    await p.getByRole("button", { name: /Signal ledger \(forward test\)/ }).click();
+    await p.waitForSelector("text=Signals recorded");
+    const sec = p.getByTestId("ledger-v2-compare");
+    await sec.waitFor({ timeout: 10000 }).catch(() => null);
+    const toggle = p.getByTestId("ledger-v2-toggle");
+    // The ledger lists the rows it loaded when it opened: reopen it until the scan's rows are recorded.
+    for (let tries = 0; tries < 8 && !(await p.getByRole("button", { name: "Export CSV" }).isEnabled()); tries++) {
+      await p.waitForTimeout(1500);
+      await p.keyboard.press("Escape");
+      await p.waitForFunction(() => !document.querySelector('[role="dialog"]'), null, { timeout: 10000 });
+      await p.getByRole("button", { name: /Signal ledger \(forward test\)/ }).click();
+      await p.getByTestId("ledger-v2-compare").waitFor({ timeout: 10000 });
+      await p.waitForTimeout(500);
+    }
+    // (a) collapsed, immediately before the Scenario check (which stays last)
+    const rest = {
+      sections: await sec.count(),
+      expanded: await toggle.getAttribute("aria-expanded").catch(() => null),
+      next: await sec.evaluate((e) => e.nextElementSibling?.getAttribute("data-testid") ?? null).catch(() => null),
+      scenarioLast: await p.getByTestId("ledger-scenario-check").evaluate((e) => !e.nextElementSibling || e.nextElementSibling.getAttribute("data-slot") === "dialog-close" || !!e.nextElementSibling.matches("button")).catch(() => false),
+      allowed: DS2_ALLOWED.ledger.includes('[data-testid="ledger-v2-compare"]'),
+    };
+    // (b) expanded: the browser's v2 config id equals the id pinned in the Node test
+    const pin = (/const V2_PIN = "([0-9a-f]{16})"/.exec(fs.readFileSync(path.join(__dirname, "..", "..", "apps", "confluence", "web", "src", "lib", "confluence-v2.test.mjs"), "utf8")) ?? [])[1] ?? null;
+    await toggle.click();
+    await p.waitForTimeout(300);
+    const text = ((await sec.innerText()) ?? "").replace(/\s+/g, " ");
+    const shownId = (/Confluence v2 engine ([0-9a-f]{16})/.exec(text) ?? [])[1] ?? null;
+    const pairsN = Number((/(\d+) bars labelled by both engines/.exec(text) ?? [])[1] ?? 0);
+    const expandedNow = await toggle.getAttribute("aria-expanded").catch(() => null);
+    // (d) CSV
+    const [dl] = await Promise.all([p.waitForEvent("download"), p.getByRole("button", { name: "Export CSV" }).click()]);
+    const cv3Path = path.join(OUT, "ledger-export-cv3.csv");
+    await dl.saveAs(cv3Path);
+    const lines = fs.readFileSync(cv3Path, "utf8").replace(/^\uFEFF/, "").trim().split(/\r?\n/);
+    const head = lines[0].split(",").map((x) => x.replace(/^"|"$/g, ""));
+    // The four v2 columns follow scenario_fallback (the export then appends the net_return_h* outcome columns).
+    const tail4 = head.slice(head.indexOf("v2_config_id"), head.indexOf("v2_config_id") + 4);
+    const btc = (lines.slice(1).find((l) => /BTCUSDT/.test(l)) ?? "").split(",").map((x) => x.replace(/^"|"$/g, ""));
+    const cell = (name) => btc[head.indexOf(name)];
+    const cv3 = { rest, pin, shownId, pairsN, expandedNow, tail4, csvCfg: cell("v2_config_id"), csvDir: cell("v2_direction"), text: text.slice(0, 300) };
+    record("CV-3", "Ledger: collapsed Classic vs Confluence v2 section before the Scenario check; the browser's v2 config id equals the pinned one; rows carry v2 and the CSV exports its four columns",
+      rest.sections === 1 && rest.expanded === "false" && rest.next === "ledger-scenario-check" && rest.scenarioLast && rest.allowed
+        && !!pin && shownId === pin && expandedNow === "true"
+        && pairsN >= 1 && /No closed outcomes on these bars yet\./.test(text) && /Comparison only\. Classic stays the engine/.test(text)
+        && tail4.join() === "v2_config_id,v2_score,v2_direction,v2_strength" && cell("v2_config_id") === pin && ["-1", "0", "1"].includes(cell("v2_direction")), cv3);
+    await c.close();
+  }
+
   /* ===== v2.8 WP27: smooth loading — progressive rows; layout at rest unchanged ===== */
   /* acceptance-ids: PG-1, PG-2 */
   {
@@ -4436,6 +4495,78 @@ async function hdPinnedBoxes(w, h, lang) {
     if (consoleErrors.length) console.log("BK page errors:", consoleErrors.slice(0, 3).join(" | "));
     });
     if (shared.c) await shared.c.close();
+  }
+  /* ===== v2.8 WP23 Task 8: optional "Confluence v2 (test)" line in the detail sheet (default off) ===== */
+  /* acceptance-ids: CV-1, CV-2 */
+  if (!DS_ONLY && !HD_ONLY && !BK_ONLY) {
+    const c = await newContext(browser, { reducedMotion: "reduce", serviceWorkers: "block", deviceScaleFactor: 1 });
+    await rdMock(c);
+    const p = await c.newPage();
+    await p.goto(BASE, { waitUntil: "domcontentloaded" });
+    await completeFirstRun(p, { operator: "R" });
+    await waitRows(p);
+    const openBtc = () => p.getByRole("button", { name: /^BTC/ }).first().click();
+    const closeSheet = async () => { await p.keyboard.press("Escape"); await p.waitForFunction(() => !document.querySelector('[role="dialog"]'), null, { timeout: 10000 }); };
+    const lineCount = () => p.locator('[data-testid="confluence-v2-line"]').count();
+    const storedOn = () => p.evaluate(() => { try { return JSON.parse(localStorage.getItem("ct-preferences-v1") || "{}").confluenceV2Line === true; } catch { return null; } });
+    const openProfile = () => p.getByRole("button", { name: /^Scoring profile/ }).click();
+    const setting = () => p.locator('[data-testid="confluence-v2-setting"]');
+    const miniConfluence = () => p.locator('[role="dialog"]').first().evaluate((d) => {
+      const el = [...d.querySelectorAll("div")].find((x) => x.children.length === 2 && /^Confluence$/i.test(x.children[0].textContent.trim()));
+      return el ? el.children[1].textContent.trim() : null;
+    });
+    const rowsText = () => p.evaluate(() => [...document.querySelectorAll("tbody tr")].slice(0, 10).map((r) => r.innerText));
+
+    /* CV-1 */
+    await openBtc();
+    await p.waitForSelector("text=Bloc scores");
+    const cv1Lines = await lineCount();
+    await closeSheet();
+    await openProfile();
+    const cv1Exists = await setting().count();
+    const cv1Checked = cv1Exists ? await setting().isChecked() : null;
+    const cv1Stored = await storedOn();
+    await openProfile();
+    record("CV-1", "Defaults: no Confluence v2 line in the detail sheet; the setting exists, unchecked, in the Scoring profile popover",
+      cv1Lines === 0 && cv1Exists === 1 && cv1Checked === false && cv1Stored === false, { cv1Lines, cv1Exists, cv1Checked, cv1Stored });
+
+    /* CV-2 */
+    const listBefore = await rowsText();
+    await openBtc();
+    await p.waitForSelector("text=Bloc scores");
+    const miniBefore = await miniConfluence();
+    await closeSheet();
+    await openProfile();
+    await setting().check();
+    await openProfile();
+    const listAfter = await rowsText();
+    await openBtc();
+    await p.waitForSelector('[data-testid="confluence-v2-line"]', { timeout: 10000 }).catch(() => null);
+    const lineText = ((await p.locator('[data-testid="confluence-v2-line"]').first().innerText().catch(() => "")) || "").replace(/\s+/g, " ").trim();
+    const miniAfter = await miniConfluence();
+    await closeSheet();
+    const lineRe = /^Confluence v2 \(test\): ((BUY|SELL) · (STRONG|MODERATE)|NEUTRAL) · score [+-]?\d+|^Confluence v2 \(test\): no data/;
+    const lineOk = lineRe.test(lineText) && !lineText.includes("{");
+    await p.reload({ waitUntil: "domcontentloaded" });
+    await waitRows(p);
+    await openBtc();
+    await p.waitForSelector("text=Bloc scores");
+    const persisted = await lineCount();
+    await closeSheet();
+    await openProfile();
+    const stillChecked = await setting().isChecked();
+    await setting().uncheck();
+    await openProfile();
+    await openBtc();
+    await p.waitForSelector("text=Bloc scores");
+    const goneLines = await lineCount();
+    await closeSheet();
+    const storedOff = await storedOn();
+    record("CV-2", "Setting on: the detail sheet shows the Confluence v2 (test) line; list rows and the Classic score are unchanged; the choice persists and turning it off removes the line",
+      lineOk && JSON.stringify(listBefore) === JSON.stringify(listAfter) && listBefore.length >= 3 && miniBefore !== null && miniBefore === miniAfter
+        && persisted === 1 && stillChecked === true && goneLines === 0 && storedOff === false,
+      { lineText, listRows: listBefore.length, listSame: JSON.stringify(listBefore) === JSON.stringify(listAfter), miniBefore, miniAfter, persisted, stillChecked, goneLines, storedOff });
+    await c.close();
   }
   /* acceptance-ids: HD-1 — two-line header control ribbon at ≥ 1280 px (owner decision 16 Nov 2026, spec §3 item 9) */
   if (!DS_ONLY && !BK_ONLY) {

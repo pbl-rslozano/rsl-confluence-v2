@@ -161,6 +161,8 @@ Ledger rows from the recorder:
 - `rk` is the rank in the scanned class view, as in the app. `rku` is the rank in the full venue ranking.
 - `rks` is `"live"` for the newest bar, or `"now"` for catch-up bars (their rank is the one at catch-up time).
 - `rec` is the cycle time.
+- `v2` (v2.8, WP23) is the Confluence v2 challenger on the same bar: `{ cfg, s, m, st }` (config id, score, label, strength). Live rows and catch-up rows are scored by the app's own code (`scoreV2`, through the scan job's guard) on the same window as Classic. It is logged and never scored: no list, label, alert or paper rule reads it. It never takes the scoring profile. A row where v2 is not usable, or where v2 faulted, stores `"v2": null`; the Classic fields are exactly as before.
+- Replay (`replay.cli.mjs`) records `v2` on every row too, and its `ledger.csv` gains the four columns `v2_config_id`, `v2_score`, `v2_direction`, `v2_strength` after `scenario_fallback`. `--no-v2` leaves those cells empty. The Classic columns are identical either way.
 
 Row ids are the app's (`cfg|src|tf|pair|barTime`). Pooling recorder rows with an app export is therefore safe: deduplicate by id.
 

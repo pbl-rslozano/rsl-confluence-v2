@@ -1,9 +1,13 @@
-# v2.8.0 — in progress, Steps 1 to 5 and WP28 (not released; app still reports v2.7.0)
+# v2.8.0 — in progress, Steps 1 to 5, WP28 and WP23 (not released; app still reports v2.7.0)
 
 Steps 1 to 5 of the v2.8 plan (`docs/superpowers/specs/2026-11-15-v2.8-architecture-design.md`): safety fixes, licence
 credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (Step 2); Fund trend (Step 3); Market radar part 1 (Step 4a) and part 2 (Step 4b); Scenarios and Reflect view (Step 5); Fear & Greed widget (WP29); two-line header at ≥ 1280 px (owner decision, 16 Nov 2026). Engine 2.4.0 (`5c30b5c39f5ba3f2`);
 ledger rows of engine 2.3.0 stay and are reported separately.
 
+- **Confluence v2 challenger (WP23, ADR-0017):** recorded on each ledger row and compared in the ledger, never shown in the
+  list; Classic unchanged (`5c30b5c39f5ba3f2`); acceptance CV-1…CV-3.
+- **Catch-up in chunks (WP23):** the catch-up after a gap now goes to the scan worker in chunks of at most 25 jobs, so one
+  message stays short on a slow phone; the rows and their order are unchanged.
 - **Encrypted cloud backup (WP28, ADR-0019):** About → Cloud backup (collapsed, off by default): an AES-256-GCM backup of
   your records (ledger rows with their outcome snapshots, universe snapshots and recorded gaps; pre-registrations and
   trials; the paper journal with its trade notes; settings) in your own cloud storage; restore merges and never removes a
