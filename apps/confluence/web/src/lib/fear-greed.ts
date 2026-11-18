@@ -22,6 +22,7 @@ export interface FngPoint { t: number; value: number; label: string; band: FngBa
 /** asOf: when the data was fetched (ms); points oldest first, one per UTC day, at most 31. */
 export interface FngData { asOf: number; points: FngPoint[] }
 
+// Provenance (WP29): the GCMDSI kit is the owner's own earlier app (rsLozano); no third-party licence applies.
 /** Band colours ported from the GCMDSI kit (sentimentColor). The UI adjusts lightness for the light theme where contrast needs it. */
 export const FNG_COLORS: Record<FngBand, string> = {
   extremeFear: "#fd5b70",

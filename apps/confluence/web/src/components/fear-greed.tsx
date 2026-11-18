@@ -64,6 +64,7 @@ export function FearGreedToggle({ open, onToggle }: { open: boolean; onToggle: (
 const css = (b: FngBand) => ({ ["--fng-c" as string]: FNG_COLORS[b], ["--fng-l" as string]: FNG_COLORS_LIGHT[b] }) as React.CSSProperties;
 const isoDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
+// Provenance (WP29): the GCMDSI kit is the owner's own earlier app (rsLozano); no third-party licence applies.
 /**
  * Port of the kit's gaugeSvg geometry (arc radius 119, needle 90, pivot 160,155), 0 on the left. The viewBox is 30 px taller than the kit's
  * (320 x 240) so the value, band and date sit below the pivot: in the kit the needle runs through the value for mid-range readings.

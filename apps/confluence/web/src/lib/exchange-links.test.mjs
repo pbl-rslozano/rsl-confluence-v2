@@ -42,7 +42,16 @@ ok("USDC perpetual name → null", exchangeUrl("bybit-perp", "BTCPERP") === null
 console.log("providers");
 const ids = PROVIDERS.map((p) => p.id);
 ok("at least 13 providers, unique ids", PROVIDERS.length >= 13 && new Set(ids).size === ids.length, String(PROVIDERS.length));
-ok("required providers present", ["binance", "bybit", "bitget", "coinsph", "okx", "coinbase", "upbit", "binance-vision", "frankfurter", "ecb", "erapi", "fawazahmed0", "floatrates"].every((i) => ids.includes(i)));
+ok("required providers present", ["binance", "bybit", "bitget", "coinsph", "okx", "coinbase", "upbit", "binance-vision", "frankfurter", "ecb", "erapi", "fawazahmed0", "floatrates",
+  "coinglass", "whale-alert" /* K-Dense v2 B-L1: the two optional paid providers */].every((i) => ids.includes(i)), ids.join());
+// K-Dense v2 (18 Nov 2026) B-M1: terms links point at the venues' API terms.
+const termsOf = (id) => PROVIDERS.find((p) => p.id === id)?.terms ?? "";
+ok("OKX terms URL is the OKX API Agreement", termsOf("okx").includes("okx-api-agreement"), termsOf("okx"));
+ok("Upbit terms URL ends with /open_api_agreement", termsOf("upbit").endsWith("/open_api_agreement"), termsOf("upbit"));
+// B-L1: the paid providers say so in their name and use the new i18n keys.
+const cg = PROVIDERS.find((p) => p.id === "coinglass"), wa = PROVIDERS.find((p) => p.id === "whale-alert");
+ok("CoinGlass and Whale Alert are named as paid-key, desktop-gateway providers",
+  /paid key, desktop gateway/.test(cg?.name ?? "") && /paid key, desktop gateway/.test(wa?.name ?? "") && cg?.uses === "about.uses.etf" && wa?.uses === "about.uses.whale");
 ok("every provider has https apiDocs and terms", PROVIDERS.every((p) => /^https:\/\/[^\s]+$/.test(p.apiDocs) && /^https:\/\/[^\s]+$/.test(p.terms)));
 ok("every provider has a name and an i18n 'uses' key", PROVIDERS.every((p) => p.name.length > 0 && /^about\.uses\./.test(p.uses)));
 ok("ExchangeRate-API credit is verbatim", PROVIDERS.find((p) => p.id === "erapi")?.credit === "Rates By Exchange Rate API");
