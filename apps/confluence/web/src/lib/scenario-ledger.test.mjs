@@ -175,8 +175,9 @@ const at = (c) => LEDGER_CSV_COLUMNS.indexOf(c);
 
 test("CSV: the scenario columns follow radar_alerts and round-trip losslessly", () => {
   const SC_COLS = ["scenario_band_lo95", "scenario_band_lo68", "scenario_band_hi68", "scenario_band_hi95", "scenario_state", "scenario_p_up", "scenario_p_range", "scenario_p_down", "scenario_base_up", "scenario_base_range", "scenario_base_down", "scenario_width", "scenario_fallback"];
-  assert.equal(LEDGER_CSV_COLUMNS.slice(at("radar_alerts") + 1).join(), SC_COLS.join());
-  assert.equal(LEDGER_CSV_COLUMNS[LEDGER_CSV_COLUMNS.length - 1], "scenario_fallback");
+  assert.equal(LEDGER_CSV_COLUMNS.slice(at("radar_alerts") + 1, at("scenario_fallback") + 1).join(), SC_COLS.join());
+  // the scenario columns end with scenario_fallback, followed by the four v2 columns (WP23)
+  assert.equal(LEDGER_CSV_COLUMNS.slice(at("scenario_fallback") + 1).join(), "v2_config_id,v2_score,v2_direction,v2_strength");
   const vals = ledgerRowValues(row);
   assert.equal(vals.length, LEDGER_CSV_COLUMNS.length);
   assert.equal(vals[at("scenario_band_lo95")], -0.04123);
