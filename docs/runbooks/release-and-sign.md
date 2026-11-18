@@ -15,6 +15,12 @@
    - macOS: `APPLE_CERTIFICATE` (base64 .p12 Developer ID Application), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_PATH` (notarisation).
    - Windows: add a `bundle.windows.signCommand` (e.g. Azure Trusted Signing) once a certificate exists.
    - Android: `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
+     **versionCode** (set in CI by `tools/set-android-version.mjs`): since 18 Nov 2026 it is `build × 100 + (run number mod
+     100)`, e.g. 2026111836 for build 20261118 in run 36 (was `build + run number`). Every 2.8.0 code is above any 2.7.0
+     code, and the scheme stays under Android's 2,100,000,000 cap through 2099. Two builds with the same build date
+     collide only when the run number wraps (runs 100 apart); bump the build date for a second release on one day if in
+     doubt. The iOS `CURRENT_PROJECT_VERSION` is unchanged; it matters only for App Store Connect, which this app does
+     not use.
    - iOS: personal device install via Xcode with your Apple ID, or an Apple Business custom app if ever shared (no public App Store build).
    - 2.8.0 (owner decision 18 Nov 2026): no Windows certificate and no Apple secrets — Windows ships unsigned, macOS ad-hoc
      signed without notarisation (`RSL_MACOS_UNSIGNED`, set automatically when the six Apple secrets are absent).
