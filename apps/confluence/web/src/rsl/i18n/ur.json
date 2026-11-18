@@ -757,7 +757,7 @@
   "sc.showOnChart": "چارٹ پر دکھائیں",
   "sc.hideFromChart": "چارٹ سے چھپائیں",
   "sc.sampleAll": "{cases} ماضی کے لمحات (تمام بارز) · مؤثر نمونہ {neff}",
-  "scenario.allSameState": "Every past bar here is in the same Fund-trend state, so these odds equal the base rate",
+  "scenario.allSameState": "Every past bar here is in the same Fund-trend state, so these odds equal the base rate · effective sample {neff}",
   "chart.reflect": "عکسی منظر (قیمت کا محور الٹیں)",
   "chart.reflected": "عکسی",
   "ledger.sc.title": "منظرنامے کی جانچ",

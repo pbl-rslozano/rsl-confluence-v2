@@ -757,7 +757,7 @@
   "sc.showOnChart": "Im Chart zeigen",
   "sc.hideFromChart": "Aus dem Chart entfernen",
   "sc.sampleAll": "{cases} frühere Momente (alle Kerzen) · effektive Stichprobe {neff}",
-  "scenario.allSameState": "Every past bar here is in the same Fund-trend state, so these odds equal the base rate",
+  "scenario.allSameState": "Every past bar here is in the same Fund-trend state, so these odds equal the base rate · effective sample {neff}",
   "chart.reflect": "Spiegelansicht (Preisachse spiegeln)",
   "chart.reflected": "Gespiegelt",
   "ledger.sc.title": "Szenario-Prüfung",

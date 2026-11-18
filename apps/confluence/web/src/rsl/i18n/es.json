@@ -757,7 +757,7 @@
   "sc.showOnChart": "Mostrar en el gráfico",
   "sc.hideFromChart": "Quitar del gráfico",
   "sc.sampleAll": "{cases} momentos pasados (todas las velas) · muestra efectiva {neff}",
-  "scenario.allSameState": "Every past bar here is in the same Fund-trend state, so these odds equal the base rate",
+  "scenario.allSameState": "Every past bar here is in the same Fund-trend state, so these odds equal the base rate · effective sample {neff}",
   "chart.reflect": "Vista reflejada (invertir el eje de precio)",
   "chart.reflected": "Reflejado",
   "ledger.sc.title": "Comprobación de escenarios",

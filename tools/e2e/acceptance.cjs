@@ -48,6 +48,16 @@ function klines(sym, n = 200, step = H15, now = Date.now()) {
   for (let i = 0; i <= n; i++) { const o = px; px *= Math.exp(drift + r() * 0.01); out.push([start + i * step, String(o), String(Math.max(o, px) * 1.002), String(Math.min(o, px) * 0.998), String(px), String(1000 + i), start + (i + 1) * step - 1]); }
   return out;
 }
+/** v2.8 (K-Dense v2 round 3, SC-2): a daily zig-zag (20 days up, 20 days down, with small noise) so the Fund trend
+ *  changes state through the chart's history; same row shape as klines(). */
+function zigzagDaily(sym, n = 200, step = 864e5, now = Date.now()) {
+  const start = Math.floor(now / step) * step - n * step;
+  let px = 100, s = [...sym].reduce((a, c) => a + c.charCodeAt(0), 11);
+  const r = () => { s = (s * 16807) % 2147483647; return s / 2147483647 - 0.5; };
+  const out = [];
+  for (let i = 0; i <= n; i++) { const o = px; px *= Math.exp((Math.floor(i / 20) % 2 ? -0.02 : 0.02) + r() * 0.01); out.push([start + i * step, String(o), String(Math.max(o, px) * 1.002), String(Math.min(o, px) * 0.998), String(px), String(1000 + i), start + (i + 1) * step - 1]); }
+  return out;
+}
 async function mockExchanges(ctx, seen, opts = {}) {
   let klineCalls = 0;
   await ctx.route(/^https:\/\/(data-api\.binance\.vision|api\.bybit\.com|api\.bitget\.com)\//, async (route) => {
@@ -2566,6 +2576,10 @@ async function hdPinnedBoxes(w, h, lang) {
     // SOL: only 250 closed bars of the chart timeframe (the daily series is untouched), so its section has not enough history.
     await c.route(/^https:\/\/data-api\.binance\.vision\/api\/v3\/klines/, async (route) => {
       const u = new URL(route.request().url());
+      // K-Dense v2 round 3: ETH's daily bars zig-zag, so its Fund trend is mixed and SC-2 sees the effective-sample line.
+      if (u.searchParams.get("symbol") === "ETHUSDT" && u.searchParams.get("interval") === "1d") {
+        return route.fulfill({ status: 200, headers: { "access-control-allow-origin": "*", "content-type": "application/json" }, body: JSON.stringify(zigzagDaily("ETHUSDT", Math.min(1000, Number(u.searchParams.get("limit") || 200)), stepOf(u))) });
+      }
       if (u.searchParams.get("symbol") !== "SOLUSDT" || u.searchParams.get("interval") === "1d") return route.fallback();
       return route.fulfill({ status: 200, headers: { "access-control-allow-origin": "*", "content-type": "application/json" }, body: JSON.stringify(klines("SOLUSDT", 250, stepOf(u))) });
     });
@@ -2611,11 +2625,10 @@ async function hdPinnedBoxes(w, h, lang) {
     const sum = six.rows.reduce((a, r) => a + r.p, 0);
     // Each row: odds, Wilson range, cases and base rate (percent with one decimal, never "-0.0").
     const rowsOk = (x) => x.rows.length === 3 && Math.abs(x.rows.reduce((a, r) => a + r.p, 0) - 1) <= 0.002 && x.rows.every((r) => r.cells.length === 5 && /^\d+\.\d %$/.test(r.cells[1]) && /^\d+\.\d–\d+\.\d %$/.test(r.cells[2]) && /^\d+$/.test(r.cells[3]) && /^\d+\.\d %$/.test(r.cells[4]));
-    // K-Dense v2 (18 Nov 2026) A-L5: when every past bar is in today's Fund-trend state (this fixture's Fund trend is
-    // +100 throughout) the sample line says the odds equal the base rate instead of counting "similar past moments";
-    // then every row's odds must equal its base rate. Otherwise the line shows the effective sample.
-    const ALL_SAME = "Every past bar here is in the same Fund-trend state, so these odds equal the base rate";
-    const sampleOk = (x) => (x.sampleText === ALL_SAME ? x.rows.length === 3 && x.rows.every((r) => r.cells[1] === r.cells[4]) : /effective sample/.test(x.sampleText || ""));
+    // K-Dense v2 (18 Nov 2026) A-L5: BTC's Fund trend is +100 throughout this fixture, so every past bar is in today's
+    // state: the sample line is the base-rate line with n_eff, and every row's odds equal its base rate.
+    const ALL_SAME = /^Every past bar here is in the same Fund-trend state, so these odds equal the base rate · effective sample (\d+(?:\.\d)?)$/;
+    const sampleOk = (x) => { const m = ALL_SAME.exec(x.sampleText || ""); return !!m && Number(m[1]) === x.neff && x.rows.length === 3 && x.rows.every((r) => r.cells[1] === r.cells[4]); };
     const h = p.getByTestId("scenarios-h");
     await h.getByRole("radio", { name: "24 bars" }).click();
     await p.locator('[data-testid="scenarios-table"][data-h="24"]').waitFor({ timeout: 30000 }).catch(() => null);
@@ -2628,10 +2641,23 @@ async function hdPinnedBoxes(w, h, lang) {
     await p.locator('[data-testid="scenarios-table"][data-h="6"]').waitFor({ timeout: 30000 }).catch(() => null);
     await p.waitForTimeout(1500);
     const quick = await read();
-    record("SC-2", "Expanded: fixed header, three scenarios with odds, Wilson range, cases, effective sample (or, when every past bar shares today's Fund-trend state, the base-rate line with odds equal to the base rate) and base rate, explanation without placeholders; 24-bar horizon has the smaller sample; a quick horizon switch never shows a stale result",
+    await p.keyboard.press("Escape");
+    await p.waitForFunction(() => !document.querySelector('[role="dialog"]'), null, { timeout: 10000 }).catch(() => null);
+    // ETH (daily zig-zag, mixed Fund trend): the effective-sample line, end to end, its number equal to data-neff.
+    await p.getByRole("button", { name: /^ETH/ }).first().click();
+    await p.getByTestId("price-chart").waitFor({ timeout: 15000 });
+    const ethToggle = p.getByTestId("scenarios-toggle");
+    await ethToggle.waitFor({ timeout: 10000 }).catch(() => null);
+    if ((await ethToggle.getAttribute("aria-expanded").catch(() => null)) !== "true") await ethToggle.click();
+    await p.getByTestId("scenarios-table").waitFor({ timeout: 30000 }).catch(() => null);
+    await p.waitForFunction(() => /effective sample|same Fund-trend state/.test(document.querySelector('[data-testid="scenarios-sample"]')?.textContent || ""), null, { timeout: 30000 }).catch(() => null);
+    const eth = await read();
+    const ethM = /^(\d+) similar past moments · effective sample (\d+(?:\.\d)?)$/.exec(eth.sampleText || "");
+    const ethOk = !!ethM && Number(ethM[2]) === eth.neff && eth.neff > 0 && rowsOk(eth);
+    record("SC-2", "Expanded: fixed header, three scenarios with odds, Wilson range, cases and base rate, explanation without placeholders; base-rate line (fixture Fund trend +100 throughout) with n_eff and odds equal to the base rate; with a mixed Fund trend (ETH daily zig-zag) the \"N similar past moments · effective sample n\" line equals data-neff; 24-bar horizon has the smaller sample; a quick horizon switch never shows a stale result",
       expandedNow === "true" && header === "Possible scenarios from past data — not a forecast." && six.h === "6" && rowsOk(six) && six.neff > 0 && sampleOk(six)
-        && !!six.explain && six.explain.trim().length > 0 && !/[{}]/.test(six.explain) && tf.h === "24" && rowsOk(tf) && sampleOk(tf) && tf.neff < six.neff && quick.h === "6" && quick.neff === six.neff && workersAfter.length >= 1,
-      { header, workers: workersAfter.length, six: { h: six.h, rows: six.rows, sum, neff: six.neff, sample: six.sampleText, explain: (six.explain || "").slice(0, 160) }, tf: { h: tf.h, neff: tf.neff, rows: tf.rows.map((r) => r.cells.join(" | ")) }, quick: { h: quick.h, neff: quick.neff } });
+        && !!six.explain && six.explain.trim().length > 0 && !/[{}]/.test(six.explain) && tf.h === "24" && rowsOk(tf) && sampleOk(tf) && tf.neff < six.neff && quick.h === "6" && quick.neff === six.neff && workersAfter.length >= 1 && ethOk,
+      { header, workers: workersAfter.length, six: { h: six.h, rows: six.rows, sum, neff: six.neff, sample: six.sampleText, explain: (six.explain || "").slice(0, 160) }, tf: { h: tf.h, neff: tf.neff, sample: tf.sampleText, rows: tf.rows.map((r) => r.cells.join(" | ")) }, quick: { h: quick.h, neff: quick.neff }, eth: { h: eth.h, neff: eth.neff, sample: eth.sampleText, rows: eth.rows.map((r) => r.cells.join(" | ")) } });
     await p.keyboard.press("Escape");
     await p.waitForFunction(() => !document.querySelector('[role="dialog"]'), null, { timeout: 10000 }).catch(() => null);
 

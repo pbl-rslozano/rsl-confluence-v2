@@ -757,7 +757,7 @@
   "sc.showOnChart": "Tampilkan di grafik",
   "sc.hideFromChart": "Sembunyikan dari grafik",
   "sc.sampleAll": "{cases} momen masa lalu (semua bar) · sampel efektif {neff}",
-  "scenario.allSameState": "Every past bar here is in the same Fund-trend state, so these odds equal the base rate",
+  "scenario.allSameState": "Every past bar here is in the same Fund-trend state, so these odds equal the base rate · effective sample {neff}",
   "chart.reflect": "Tampilan cermin (balik sumbu harga)",
   "chart.reflected": "Dicerminkan",
   "ledger.sc.title": "Pemeriksaan skenario",

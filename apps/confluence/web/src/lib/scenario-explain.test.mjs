@@ -209,14 +209,15 @@ test("sampleLine: similar moments normally; all sampled bars with the overall n_
   assert.deepEqual(noState, { key: "sc.sampleAll", vars: { cases: 490, neff: 163.3 } });
   const few = sampleLine(result({ odds: { fallback: "fewMatches", matches: 12, nEff: 120, sampled: 360 } }).odds);
   assert.deepEqual(few, { key: "sc.sampleAll", vars: { cases: 360, neff: 120 } });
-  for (const k of ["sc.sample", "sc.sampleAll"]) assert.ok(k in en, "en.json lacks " + k);
+  assert.equal(en["sc.sample"], "{cases} similar past moments · effective sample {neff}");
+  assert.equal(en["sc.sampleAll"], "{cases} past moments (all bars) · effective sample {neff}");
 });
 
 test("A-L5: sampleLine says the odds equal the base rate when every past bar is in today's Fund-trend state", () => {
   const en = JSON.parse(readFileSync(join(process.cwd(), "src", "rsl", "i18n", "en.json"), "utf8"));
   const same = sampleLine(result({ odds: { matches: 400, nEff: 133.33, sampled: 400, withState: 400, allSameState: true } }).odds);
   assert.deepEqual(same, { key: "scenario.allSameState", vars: { neff: 133.3 } });
-  assert.equal(en["scenario.allSameState"], "Every past bar here is in the same Fund-trend state, so these odds equal the base rate");
+  assert.equal(en["scenario.allSameState"], "Every past bar here is in the same Fund-trend state, so these odds equal the base rate · effective sample {neff}");
   const normal = sampleLine(result({ odds: { matches: 245, nEff: 81.66, sampled: 400, allSameState: false } }).odds);
   assert.equal(normal.key, "sc.sample");
 });

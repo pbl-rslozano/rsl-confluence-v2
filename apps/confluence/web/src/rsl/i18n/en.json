@@ -757,7 +757,7 @@
   "sc.showOnChart": "Show on chart",
   "sc.hideFromChart": "Hide from chart",
   "sc.sampleAll": "{cases} past moments (all bars) · effective sample {neff}",
-  "scenario.allSameState": "Every past bar here is in the same Fund-trend state, so these odds equal the base rate",
+  "scenario.allSameState": "Every past bar here is in the same Fund-trend state, so these odds equal the base rate · effective sample {neff}",
   "chart.reflect": "Reflect view (mirror the price axis)",
   "chart.reflected": "Reflected",
   "ledger.sc.title": "Scenario check",

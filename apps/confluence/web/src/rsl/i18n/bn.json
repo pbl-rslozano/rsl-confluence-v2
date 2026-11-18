@@ -757,7 +757,7 @@
   "sc.showOnChart": "চার্টে দেখান",
   "sc.hideFromChart": "চার্ট থেকে লুকান",
   "sc.sampleAll": "{cases}টি অতীত মুহূর্ত (সব বার) · কার্যকর নমুনা {neff}",
-  "scenario.allSameState": "Every past bar here is in the same Fund-trend state, so these odds equal the base rate",
+  "scenario.allSameState": "Every past bar here is in the same Fund-trend state, so these odds equal the base rate · effective sample {neff}",
   "chart.reflect": "প্রতিফলিত দৃশ্য (মূল্য অক্ষ উল্টানো)",
   "chart.reflected": "প্রতিফলিত",
   "ledger.sc.title": "পরিস্থিতি যাচাই",
