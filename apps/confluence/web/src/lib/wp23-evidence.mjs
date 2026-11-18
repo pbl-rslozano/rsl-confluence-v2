@@ -1,15 +1,24 @@
 // WP23 evidence — Classic baseline (Task 1); Task 10 adds the `all` part (Classic vs Confluence v2).
-// Run: npm run evidence:wp23 -- --out <absolute path> [--part classic|all]
+// Run: npm run evidence:wp23 -- --out <absolute path> [--part classic]
+//      npm run evidence:wp23 -- --part all --baseline <absolute path of the Task 1 JSON> --out <absolute path .json>
 //
 // Everything here is read-only on the engine: it scores the shared noise grid and two fixed
-// series with Classic exactly as the app does, and writes the numbers as JSON.
-import { writeFileSync, realpathSync } from "node:fs";
+// series with Classic exactly as the app does, and writes the numbers as JSON. `--part all`
+// also scores Confluence v2 on the same rows, checks that Classic's metrics equal the baseline
+// (the guard) and writes the PR table next to the JSON (same name, `.md`).
+import { writeFileSync, readFileSync, realpathSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { engineConfigId, behaviourFingerprint, fingerprintSeries, ENGINE_VERSION } from "./engine-config.ts";
-import { scoreSeries, toLedgerRow } from "./scan-pipeline.ts";
-import { measureOutcome, buildReport, costsFor, DEFAULT_HORIZONS } from "./ledger-metrics.ts";
+import { scoreSeries, toLedgerRow, hasUsableVolume } from "./scan-pipeline.ts";
+import { measureOutcome, buildReport, costsFor, sanitizeLedgerRow, DEFAULT_HORIZONS } from "./ledger-metrics.ts";
 import { H, MODELS, INTERVALS, WINDOWS, noiseCell, measureWalks } from "./noise-fixtures.mjs";
+import { scoreV2, v2Compact, v2ConfigId, V2_PARAMS, V2_HYST_BARS, v2ScoreSeries, v2States } from "./confluence-v2.ts";
+import { asV2Row, pairedOutcomes, labelChurn, sideOf } from "./head-to-head.ts";
+
+/** Guard limits (Task 10): the Task 3 continuity rule and the Task 5 row-size rule. */
+export const CONTINUITY_MIN = 0.99;
+export const BYTES_MAX = 64;
 
 /** Numbers to 6 significant digits; non-finite values become null (JSON has no NaN). */
 const r6 = (x) => (typeof x === "number" && Number.isFinite(x) ? Number(x.toPrecision(6)) : null);
@@ -32,8 +41,9 @@ function noiseGrid() {
 }
 
 /** Every bar j ≥ 299 of a series, scored on its trailing 1,000 bars, as a ledger row. */
-function seriesRows(series, pair, tf, intervalMs) {
+function seriesRows(series, pair, tf, intervalMs, v2Acc = null) {
   const rows = [];
+  let prev = null; // { j, master } of the previous row, for the continuity rule
   for (let j = 299; j < series.length; j++) {
     const win = series.slice(Math.max(0, j - 999), j + 1);
     const s = scoreSeries(win, { intervalMs, volumeAvailable: true });
@@ -43,30 +53,34 @@ function seriesRows(series, pair, tf, intervalMs) {
       closeTime: series[j].time + intervalMs, rank: 0, quoteVolume: 0,
       appVersion: "evidence", live: false, recordedAt: series[j].time + intervalMs,
     });
-    if (row) rows.push(row);
+    if (row) {
+      if (v2Acc) {
+        const r2 = scoreV2(win, { intervalMs, volumeAvailable: true });
+        row.v2 = v2Compact(r2, row.t);
+        // Task 3 rule: row j-1's label equals the in-window state at j-1 recomputed inside row j's window.
+        if (prev && prev.j === j - 1) {
+          const from = Math.max(0, win.length - V2_HYST_BARS);
+          const st = v2States(v2ScoreSeries(win, { intervalMs, volumeAvailable: hasUsableVolume(win) }, from), from)[win.length - 2];
+          const hit = prev.master === st;
+          v2Acc.allTotal++; if (hit) v2Acc.allAgree++;
+          if (j >= 1000) { v2Acc.total++; if (hit) v2Acc.agree++; } // both windows are full 1,000 bars
+        }
+        prev = { j, master: r2.master === "BULLISH" ? 1 : r2.master === "BEARISH" ? -1 : 0 };
+      }
+      rows.push(row);
+    }
   }
   return rows;
 }
 
-/** Share (per cent) of consecutive rows (Δt = one interval) whose label differs. Task 9's labelChurn replaces this. */
-function churn(rows, intervalMs) {
-  let pairs = 0, flips = 0;
-  for (let i = 1; i < rows.length; i++) {
-    if (rows[i].t - rows[i - 1].t !== intervalMs) continue;
-    pairs++;
-    if (rows[i].m !== rows[i - 1].m) flips++;
-  }
-  return pairs ? (flips / pairs) * 100 : 0;
-}
-
 /** One interval group → the brief per horizon, with churn averaged over its series. */
-function brief(groupSeries, intervalMs) {
+function brief(groupSeries, intervalMs, v2Acc = null) {
   const costs = costsFor("binance", "crypto");
   const costBps = 2 * (costs.feeBps + costs.slipBps);
   const rows = [];
   const perSeries = [];
   for (const { series, pair, tf } of groupSeries) {
-    const r = seriesRows(series, pair, tf, intervalMs);
+    const r = seriesRows(series, pair, tf, intervalMs, v2Acc);
     perSeries.push(r);
     rows.push(...r);
   }
@@ -82,6 +96,11 @@ function brief(groupSeries, intervalMs) {
     outcomes.set(h, list);
   }
   const rep = buildReport(rows, outcomes, costBps, 1, intervalMs, { shuffles: 200 });
+  return { brief: shapeBrief(rep), churn: r6(labelChurn(rows, intervalMs).per100), rows, outcomes, costBps };
+}
+
+/** A report → the brief (per horizon: scored signals-with-outcomes, groups, IC t, PSR). */
+function shapeBrief(rep) {
   const result = {};
   for (const hr of rep.horizons) {
     result[hr.horizon] = {
@@ -91,14 +110,20 @@ function brief(groupSeries, intervalMs) {
       psr: r6(hr.sharpe.psr),
     };
   }
-  const churnAvg = perSeries.reduce((a, r) => a + churn(r, intervalMs), 0) / perSeries.length;
-  return { brief: { horizons: DEFAULT_HORIZONS.map((h) => ({ horizon: h, ...result[h] })) }, churn: r6(churnAvg) };
+  return { horizons: DEFAULT_HORIZONS.map((h) => ({ horizon: h, ...result[h] })) };
 }
 
-export function classicMetrics() {
-  const one = brief([{ series: fingerprintSeries(), pair: "FPUSDT", tf: "1h" }], H);
-  const walks = measureWalks(8, 1600);
-  const four = brief(walks.map((series, i) => ({ series, pair: `W${i}USDT`, tf: "4h" })), 4 * H);
+const side6 = (s) => ({ n: s.n, hitRate: r6(s.hitRate), meanNetBps: r6(s.meanNetBps), edgeBps: r6(s.edgeBps), icT: r6(s.icT), psr: r6(s.psr), churnPer100: r6(s.churnPer100) });
+
+/** The two fixed fixtures: one 1h series (the fingerprint series) and eight 4h walks. */
+function fixtureGroups() {
+  return {
+    "1h": { intervalMs: H, group: [{ series: fingerprintSeries(), pair: "FPUSDT", tf: "1h" }] },
+    "4h": { intervalMs: 4 * H, group: measureWalks(8, 1600).map((series, i) => ({ series, pair: `W${i}USDT`, tf: "4h" })) },
+  };
+}
+
+function classicOf(one, four) {
   return {
     configId: engineConfigId(),
     engineVersion: ENGINE_VERSION,
@@ -109,17 +134,191 @@ export function classicMetrics() {
   };
 }
 
+export function classicMetrics() {
+  const f = fixtureGroups();
+  return classicOf(brief(f["1h"].group, f["1h"].intervalMs), brief(f["4h"].group, f["4h"].intervalMs));
+}
+
+/** v2's noise grid on the production path, the hold-out cells (seed offset 0) that `npm run test:noise-v2` prints. */
+function v2NoiseGrid() {
+  const out = [];
+  for (const model of MODELS) for (const iv of INTERVALS) {
+    let n = 0, labelled = 0, strong = 0;
+    for (const k of noiseCell(model, iv, WINDOWS)) {
+      const r = scoreV2(k, { intervalMs: iv.ms, volumeAvailable: true });
+      if (!r.usable || r.suppressed) continue;
+      n++;
+      if (r.master !== "NEUTRAL") labelled++;
+      if (r.strength === "STRONG") strong++;
+    }
+    out.push({ model, tf: iv.tf, n, labelled: r6(labelled / n), strong: r6(strong / n) });
+  }
+  return out;
+}
+
+/** JSON characters v2 adds to a stored row (Task 5's measure: the sanitised row with and without the key). */
+function bytesPerRow(rows) {
+  const sizes = [];
+  for (const row of rows) {
+    if (!row.v2) continue;
+    // The sanitiser writes `v2: null` for an absent field, so the key is removed from its output (as Task 5's test does).
+    const a = sanitizeLedgerRow(row);
+    if (!a) continue;
+    const { v2, ...without } = a;
+    sizes.push(JSON.stringify(a).length - JSON.stringify(without).length);
+  }
+  return { rows: sizes.length, mean: r6(sizes.reduce((x, y) => x + y, 0) / sizes.length), max: Math.max(...sizes) };
+}
+
+/** Classic after (v2 attached to every row) + Confluence v2 on the same rows and outcomes. */
+export function allMetrics() {
+  const f = fixtureGroups();
+  const acc = { agree: 0, total: 0, allAgree: 0, allTotal: 0 };
+  const one = brief(f["1h"].group, f["1h"].intervalMs, acc);
+  const four = brief(f["4h"].group, f["4h"].intervalMs, acc);
+  const after = classicOf(one, four);
+
+  const v2 = { fixtures: {}, churn: {} };
+  const headToHead = {};
+  const allRows = [];
+  for (const [key, b, fx] of [["1h", one, f["1h"]], ["4h", four, f["4h"]]]) {
+    const paired = pairedOutcomes(b.outcomes);
+    const withV2 = b.rows.filter((r) => r.v2);
+    const v2Rows = withV2.map(asV2Row);
+    const classicRep = buildReport(withV2, paired.classic, b.costBps, 1, fx.intervalMs, { shuffles: 200 });
+    const v2Rep = buildReport(v2Rows, paired.v2, b.costBps, 1, fx.intervalMs, { shuffles: 200 });
+    const cC = labelChurn(withV2, fx.intervalMs).per100, cV = labelChurn(v2Rows, fx.intervalMs).per100;
+    v2.fixtures[key] = shapeBrief(v2Rep);
+    v2.churn[key] = r6(cV);
+    headToHead[key] = {};
+    for (const h of DEFAULT_HORIZONS) headToHead[key][h] = { classic: side6(sideOf(classicRep, h, cC)), v2: side6(sideOf(v2Rep, h, cV)) };
+    allRows.push(...withV2);
+  }
+  return {
+    after,
+    v2: {
+      configId: v2ConfigId(),
+      params: V2_PARAMS,
+      noiseSet: "hold-out cells (seed offset 0, 1,000 windows per cell): the cells `npm run test:noise-v2` prints",
+      noise: v2NoiseGrid(),
+      fixtures: v2.fixtures,
+      churnPer100: v2.churn,
+      continuity: {
+        scope: "consecutive rows whose two windows are both full 1,000 bars (the Task 3 rule)",
+        agree: acc.agree, total: acc.total, rate: r6(acc.agree / acc.total),
+        allRows: { agree: acc.allAgree, total: acc.allTotal, rate: r6(acc.allAgree / acc.allTotal) },
+      },
+      bytesPerRow: { ...bytesPerRow(allRows), unit: "JSON characters added to a sanitised ledger row" },
+    },
+    headToHead,
+    headToHeadNote: "Pools all fixture rows. There is no in-sample/out-of-sample split, and neither engine was fitted on these fixtures. n is the number of signals (BUY and SELL, measured) at each horizon.",
+  };
+}
+
+/** Paths at which two JSON values differ (for the guard's message). */
+export function diffPaths(a, b, path = "") {
+  if (JSON.stringify(a) === JSON.stringify(b)) return [];
+  if (a && b && typeof a === "object" && typeof b === "object") {
+    const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])];
+    return keys.flatMap((k) => diffPaths(a[k], b[k], path ? `${path}.${k}` : k));
+  }
+  return [path || "(root)"];
+}
+
+/** Why the run must fail (empty = pass). */
+export function guardFailures(ev, differing = []) {
+  const f = [];
+  if (!ev.classic.unchanged) f.push(`CLASSIC CHANGED (differing keys: ${differing.join(", ") || "unknown"})`);
+  if (!(ev.v2.continuity.rate >= CONTINUITY_MIN)) f.push(`V2 CONTINUITY ${ev.v2.continuity.rate} is below ${CONTINUITY_MIN}`);
+  if (!(ev.v2.bytesPerRow.max <= BYTES_MAX)) f.push(`V2 BYTES PER ROW max ${ev.v2.bytesPerRow.max} is above ${BYTES_MAX}`);
+  return f;
+}
+
+const pct = (x) => (Number.isFinite(x) ? (100 * x).toFixed(2) + " %" : "n/a");
+const num = (x, d = 2) => (Number.isFinite(x) ? x.toFixed(d) : "n/a");
+const worst = (noise, key) => noise.reduce((w, c) => (c[key] > w[key] ? c : w), noise[0]);
+
+/** The PR table (Markdown). */
+export function renderMarkdown(ev) {
+  const b = ev.classic.before, a = ev.classic.after, v = ev.v2;
+  const six = (m, key) => { const h = m.fixtures[key].horizons.find((x) => x.horizon === 6); return sideOf({ horizons: [{ horizon: 6, groups: h.groups, ic: { tStat: h.icT ?? NaN }, sharpe: { psr: h.psr ?? NaN } }] }, 6, NaN); };
+  const rows = [];
+  const add = (name, x, y, z) => rows.push(`| ${name} | ${x} | ${y} | ${z} |`);
+  const cell = (c, key) => `${pct(c[key])} (${c.model} ${c.tf})`;
+  add("Config id", `\`${b.configId}\``, `\`${a.configId}\``, `\`${v.configId}\``);
+  add("Worst noise cell, labelled", cell(worst(b.noise, "labelled"), "labelled"), cell(worst(a.noise, "labelled"), "labelled"), cell(worst(v.noise, "labelled"), "labelled"));
+  add("Worst noise cell, STRONG", cell(worst(b.noise, "strong"), "strong"), cell(worst(a.noise, "strong"), "strong"), cell(worst(v.noise, "strong"), "strong"));
+  for (const key of ["1h", "4h"]) {
+    const sb = six(b, key), sa = six(a, key), sv = ev.headToHead[key][6].v2;
+    const nn = (s) => String(s.n);
+    add(`h = 6, ${key}: signals`, nn(sb), nn(sa), nn(sv));
+    add(`h = 6, ${key}: hit rate`, pct(sb.hitRate), pct(sa.hitRate), pct(sv.hitRate));
+    add(`h = 6, ${key}: mean net bp`, num(sb.meanNetBps), num(sa.meanNetBps), num(sv.meanNetBps));
+    add(`h = 6, ${key}: edge bp`, num(sb.edgeBps), num(sa.edgeBps), num(sv.edgeBps));
+    add(`h = 6, ${key}: IC t`, num(sb.icT), num(sa.icT), num(sv.icT));
+    add(`h = 6, ${key}: PSR`, num(sb.psr, 3), num(sa.psr, 3), num(sv.psr, 3));
+  }
+  for (const key of ["1h", "4h"]) add(`Label changes per 100 bars, ${key}`, num(b.churnPer100[key]), num(a.churnPer100[key]), num(v.churnPer100[key]));
+  add("Continuity (consecutive rows agree)", "n/a", "n/a", `${pct(v.continuity.rate)} (${v.continuity.agree}/${v.continuity.total})`);
+  add("Bytes added per row (mean / max)", "n/a", "n/a", `${num(v.bytesPerRow.mean, 1)} / ${v.bytesPerRow.max}`);
+  return [
+    "# Classic before/after and Confluence v2 (WP23)",
+    "",
+    `Generated ${ev.generated}; Classic baseline at \`${ev.base.slice(0, 7)}\`, this run at \`${ev.head.slice(0, 7)}\`.`,
+    `Classic unchanged: **${ev.classic.unchanged}**.`,
+    "",
+    "| Metric | Classic before | Classic after | Confluence v2 |",
+    "| --- | --- | --- | --- |",
+    ...rows,
+    "",
+    "Notes",
+    "",
+    `- Noise cells: Classic is the shared grid (as in the baseline); Confluence v2 is the ${v.noiseSet}.`,
+    "- Signals, hit rate, mean net bp, edge bp, IC t and PSR are at h = 6, BUY and SELL pooled (weighted by n). Signals is the number of signals with a measured outcome at that horizon.",
+    `- ${ev.headToHeadNote}`,
+    "- Label changes per 100 bars: Classic after and Confluence v2 use the same rule (`labelChurn`).",
+    "- Continuity: scored over consecutive rows whose two windows are both full 1,000 bars. Bytes: JSON characters added to a sanitised ledger row.",
+    "- Owner decision 2026-11-18: RSI, Stochastic, Williams %R and MFI are kept on every interval (the spec's ≥ 4h drop was superseded after calibration evidence)",
+    "",
+    "synthetic fixtures (noise-like); not evidence of edge; Classic stays the engine",
+    "",
+  ].join("\n");
+}
+
 function main() {
   const args = process.argv.slice(2);
   const get = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
   const out = get("--out");
   const part = get("--part") ?? "classic";
-  if (!out || !out.startsWith("/")) { console.error("usage: --out <absolute path> [--part classic|all]"); process.exit(2); }
-  if (part !== "classic") { console.error(`part "${part}" is not available yet (added in WP23 Task 10)`); process.exit(2); }
+  const usage = "usage: --out <absolute path> [--part classic] | --part all --baseline <absolute path> --out <absolute path .json>";
+  if (!out || !out.startsWith("/")) { console.error(usage); process.exit(2); }
+  if (part !== "classic" && part !== "all") { console.error(`unknown part "${part}"\n${usage}`); process.exit(2); }
   const base = execSync("git rev-parse HEAD", { cwd: process.cwd() }).toString().trim();
-  const evidence = { wp: "WP23", part, base, classic: classicMetrics() };
+  if (part === "classic") {
+    writeFileSync(out, JSON.stringify({ wp: "WP23", part, base, classic: classicMetrics() }, null, 2) + "\n");
+    console.log(`wrote ${out}`);
+    return;
+  }
+  const baselinePath = get("--baseline");
+  if (!baselinePath || !baselinePath.startsWith("/") || !out.endsWith(".json")) { console.error(usage); process.exit(2); }
+  const baseline = JSON.parse(readFileSync(baselinePath, "utf8"));
+  const r = allMetrics();
+  const before = baseline.classic;
+  const after = JSON.parse(JSON.stringify(r.after)); // the same normalisation the file went through
+  const unchanged = JSON.stringify(before) === JSON.stringify(after);
+  const evidence = {
+    wp: "WP23", part, generated: new Date().toISOString().slice(0, 10), base: baseline.base, head: base,
+    classic: { before, after, unchanged },
+    v2: { configId: r.v2.configId, params: r.v2.params, noiseSet: r.v2.noiseSet, noise: r.v2.noise, fixtures: r.v2.fixtures,
+      churnPer100: r.v2.churnPer100, continuity: r.v2.continuity, bytesPerRow: r.v2.bytesPerRow },
+    headToHead: r.headToHead, headToHeadNote: r.headToHeadNote,
+  };
+  const failures = guardFailures(evidence, diffPaths(before, after));
+  if (failures.length) { for (const f of failures) console.error(f); process.exit(1); }
   writeFileSync(out, JSON.stringify(evidence, null, 2) + "\n");
-  console.log(`wrote ${out}`);
+  const md = out.replace(/\.json$/, ".md");
+  writeFileSync(md, renderMarkdown(evidence));
+  console.log(`wrote ${out}\nwrote ${md}`);
 }
 // Only the entry point runs the CLI, so Task 10 and the tests can import classicMetrics.
 // Real paths, so a symlinked entry (macOS tmpdir is under /var -> /private/var) still counts; any failure = not the entry.
