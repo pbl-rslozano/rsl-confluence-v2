@@ -167,7 +167,7 @@ function bytesPerRow(rows) {
     const { v2, ...without } = a;
     sizes.push(JSON.stringify(a).length - JSON.stringify(without).length);
   }
-  return { rows: sizes.length, mean: r6(sizes.reduce((x, y) => x + y, 0) / sizes.length), max: Math.max(...sizes) };
+  return sizes.length === 0 ? { rows: 0, mean: null, max: null } : { rows: sizes.length, mean: r6(sizes.reduce((x, y) => x + y, 0) / sizes.length), max: Math.max(...sizes) };
 }
 
 /** Classic after (v2 attached to every row) + Confluence v2 on the same rows and outcomes. */
@@ -229,14 +229,32 @@ export function diffPaths(a, b, path = "") {
 export function guardFailures(ev, differing = []) {
   const f = [];
   if (!ev.classic.unchanged) f.push(`CLASSIC CHANGED (differing keys: ${differing.join(", ") || "unknown"})`);
-  if (!(ev.v2.continuity.rate >= CONTINUITY_MIN)) f.push(`V2 CONTINUITY ${ev.v2.continuity.rate} is below ${CONTINUITY_MIN}`);
-  if (!(ev.v2.bytesPerRow.max <= BYTES_MAX)) f.push(`V2 BYTES PER ROW max ${ev.v2.bytesPerRow.max} is above ${BYTES_MAX}`);
+  if (!(ev.v2.continuity.total > 0)) f.push("V2 CONTINUITY measured no consecutive row pairs (total = 0)");
+  else if (!(ev.v2.continuity.rate >= CONTINUITY_MIN)) f.push(`V2 CONTINUITY ${ev.v2.continuity.rate} is below ${CONTINUITY_MIN}`);
+  if (!(ev.v2.bytesPerRow.rows > 0)) f.push("V2 BYTES PER ROW measured no rows (none carry v2)");
+  else if (!(Number.isFinite(ev.v2.bytesPerRow.max) && ev.v2.bytesPerRow.max <= BYTES_MAX)) f.push(`V2 BYTES PER ROW max ${ev.v2.bytesPerRow.max} is above ${BYTES_MAX}`);
+  for (const [iv, hs] of Object.entries(ev.headToHead ?? {})) {
+    for (const eng of ["classic", "v2"]) {
+      if (!Object.values(hs).some((h) => h[eng] && h[eng].n > 0)) f.push(`HEAD-TO-HEAD ${eng} ${iv} has no signals at any horizon (n = 0)`);
+    }
+  }
   return f;
 }
 
 const pct = (x) => (Number.isFinite(x) ? (100 * x).toFixed(2) + " %" : "n/a");
 const num = (x, d = 2) => (Number.isFinite(x) ? x.toFixed(d) : "n/a");
 const worst = (noise, key) => noise.reduce((w, c) => (c[key] > w[key] ? c : w), noise[0]);
+
+/** Small-sample threshold: an engine x interval with fewer signals than this at the horizon is flagged. */
+export const SMALL_N = 30;
+
+/** P(X >= k) for X ~ Binomial(n, 1/2), exactly (integer binomials; no pow/exp). */
+export function binomTailHalf(n, k) {
+  let c = 1, sum = 0, total = 1;
+  for (let i = 1; i <= n; i++) total *= 2;
+  for (let i = 0; i <= n; i++) { if (i >= k) sum += c; c = (c * (n - i)) / (i + 1); }
+  return sum / total;
+}
 
 /** The PR table (Markdown). */
 export function renderMarkdown(ev) {
@@ -245,22 +263,45 @@ export function renderMarkdown(ev) {
   const rows = [];
   const add = (name, x, y, z) => rows.push(`| ${name} | ${x} | ${y} | ${z} |`);
   const cell = (c, key) => `${pct(c[key])} (${c.model} ${c.tf})`;
+  const hits = (s) => (s.n > 0 && Number.isFinite(s.hitRate) ? ` (${Math.round(s.hitRate * s.n)}/${s.n})` : "");
+  const sig = (s) => (s.n < SMALL_N ? `${s.n} (small sample)` : String(s.n));
+  const label = { "1h": "1h, one series", "4h": "4h, eight walks" };
   add("Config id", `\`${b.configId}\``, `\`${a.configId}\``, `\`${v.configId}\``);
   add("Worst noise cell, labelled", cell(worst(b.noise, "labelled"), "labelled"), cell(worst(a.noise, "labelled"), "labelled"), cell(worst(v.noise, "labelled"), "labelled"));
   add("Worst noise cell, STRONG", cell(worst(b.noise, "strong"), "strong"), cell(worst(a.noise, "strong"), "strong"), cell(worst(v.noise, "strong"), "strong"));
   for (const key of ["1h", "4h"]) {
     const sb = six(b, key), sa = six(a, key), sv = ev.headToHead[key][6].v2;
-    const nn = (s) => String(s.n);
-    add(`h = 6, ${key}: signals`, nn(sb), nn(sa), nn(sv));
-    add(`h = 6, ${key}: hit rate`, pct(sb.hitRate), pct(sa.hitRate), pct(sv.hitRate));
-    add(`h = 6, ${key}: mean net bp`, num(sb.meanNetBps), num(sa.meanNetBps), num(sv.meanNetBps));
-    add(`h = 6, ${key}: edge bp`, num(sb.edgeBps), num(sa.edgeBps), num(sv.edgeBps));
-    add(`h = 6, ${key}: IC t`, num(sb.icT), num(sa.icT), num(sv.icT));
-    add(`h = 6, ${key}: PSR`, num(sb.psr, 3), num(sa.psr, 3), num(sv.psr, 3));
+    const L = `h = 6, ${label[key]}`;
+    add(`${L}: signals`, sig(sb), sig(sa), sig(sv));
+    add(`${L}: hit rate`, pct(sb.hitRate) + hits(sb), pct(sa.hitRate) + hits(sa), pct(sv.hitRate) + hits(sv));
+    add(`${L}: mean net bp`, num(sb.meanNetBps), num(sa.meanNetBps), num(sv.meanNetBps));
+    add(`${L}: edge bp`, num(sb.edgeBps), num(sa.edgeBps), num(sv.edgeBps));
+    add(`${L}: IC t`, num(sb.icT), num(sa.icT), num(sv.icT));
+    add(`${L}: PSR`, num(sb.psr, 3), num(sa.psr, 3), num(sv.psr, 3));
   }
   for (const key of ["1h", "4h"]) add(`Label changes per 100 bars, ${key}`, num(b.churnPer100[key]), num(a.churnPer100[key]), num(v.churnPer100[key]));
   add("Continuity (consecutive rows agree)", "n/a", "n/a", `${pct(v.continuity.rate)} (${v.continuity.agree}/${v.continuity.total})`);
   add("Bytes added per row (mean / max)", "n/a", "n/a", `${num(v.bytesPerRow.mean, 1)} / ${v.bytesPerRow.max}`);
+
+  // Caution notes, generated from the data: one per interval whose v2 or Classic signal count at h = 6 is below SMALL_N.
+  const cautions = [];
+  for (const key of ["1h", "4h"]) {
+    const sv = ev.headToHead[key][6].v2, sc = six(a, key);
+    const small = [["Confluence v2", sv], ["Classic", sc]].filter(([, s]) => s.n < SMALL_N);
+    if (!small.length) continue;
+    const g = v.fixtures[key].horizons.find((x) => x.horizon === 6).groups;
+    const nOf = (l) => g.find((x) => x.label === l)?.n ?? 0;
+    let text = `Read the ${key} column${small.length > 1 ? "s" : ""} with caution: at h = 6, ${small.map(([name, s]) => `${name} has ${s.n} signals`).join(" and ")} (below ${SMALL_N}), from ${key === "1h" ? "one 1h series" : "eight 4h walks"}.`;
+    if (sv.n < SMALL_N && sv.n > 0 && Number.isFinite(sv.hitRate)) {
+      const k = Math.round(sv.hitRate * sv.n);
+      text += ` Confluence v2's ${pct(sv.hitRate)} is ${k} of ${sv.n} (${nOf("BUY · all")} BUY, ${nOf("SELL · all")} SELL); ${k} of ${sv.n} or better happens about ${pct(binomTailHalf(sv.n, k))} of the time for a fair coin, and PSR ${num(sv.psr, 3)} is not stable at that size.`;
+      const h1 = ev.headToHead[key][1].v2;
+      text += ` At h = 1 the same engine has ${h1.n} signals and a ${pct(h1.hitRate)} hit rate.`;
+    }
+    cautions.push(text);
+  }
+  const other4 = ev.headToHead["4h"][6].v2;
+  cautions.push(`Confluence v2 at 4h (h = 6, ${other4.n} signals) has a ${pct(other4.hitRate)} hit rate and ${num(other4.meanNetBps)} mean net bp. No claim is made from these cells.`);
   return [
     "# Classic before/after and Confluence v2 (WP23)",
     "",
@@ -271,16 +312,19 @@ export function renderMarkdown(ev) {
     "| --- | --- | --- | --- |",
     ...rows,
     "",
+    "synthetic fixtures (noise-like); not evidence of edge; Classic stays the engine",
+    "",
     "Notes",
     "",
+    ...cautions.map((c) => `- ${c}`),
+    `- h = 6 is one horizon of ${DEFAULT_HORIZONS.length} (${DEFAULT_HORIZONS.join(", ")}); the JSON \`headToHead\` holds all of them. The 1h fixture is a single series; the 4h fixture is eight walks.`,
+    `- Cells with fewer than ${SMALL_N} signals at the horizon are marked "small sample".`,
     `- Noise cells: Classic is the shared grid (as in the baseline); Confluence v2 is the ${v.noiseSet}.`,
-    "- Signals, hit rate, mean net bp, edge bp, IC t and PSR are at h = 6, BUY and SELL pooled (weighted by n). Signals is the number of signals with a measured outcome at that horizon.",
+    "- Signals, hit rate (with hits/signals), mean net bp, edge bp, IC t and PSR are at h = 6, BUY and SELL pooled (weighted by n). Signals is the number of signals with a measured outcome at that horizon.",
     `- ${ev.headToHeadNote}`,
     "- Label changes per 100 bars: Classic after and Confluence v2 use the same rule (`labelChurn`).",
     "- Continuity: scored over consecutive rows whose two windows are both full 1,000 bars. Bytes: JSON characters added to a sanitised ledger row.",
     "- Owner decision 2026-11-18: RSI, Stochastic, Williams %R and MFI are kept on every interval (the spec's ≥ 4h drop was superseded after calibration evidence)",
-    "",
-    "synthetic fixtures (noise-like); not evidence of edge; Classic stays the engine",
     "",
   ].join("\n");
 }

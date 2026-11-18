@@ -14,17 +14,25 @@ ok("classicMetrics is exported as a function", typeof mod.classicMetrics === "fu
 
 // The Task 10 guard (pure): a changed Classic, continuity below 0.99 and a row size above 64 each fail with their message.
 {
-  const good = { classic: { unchanged: true }, v2: { continuity: { rate: 1 }, bytesPerRow: { max: 55 } } };
+  const good = { classic: { unchanged: true }, v2: { continuity: { rate: 1, total: 10 }, bytesPerRow: { rows: 10, max: 55 } } };
   ok("guard passes a clean run", mod.guardFailures(good).length === 0);
   const changed = mod.guardFailures({ ...good, classic: { unchanged: false } }, ["noise.0.labelled"]);
   ok("guard: a changed Classic metric prints CLASSIC CHANGED with the differing keys", changed.length === 1 && /^CLASSIC CHANGED.*noise\.0\.labelled/.test(changed[0]));
-  const lowRate = mod.guardFailures({ ...good, v2: { ...good.v2, continuity: { rate: 0.9899 } } });
+  const lowRate = mod.guardFailures({ ...good, v2: { ...good.v2, continuity: { rate: 0.9899, total: 10 } } });
   ok("guard: continuity below 0.99 fails", lowRate.length === 1 && /CONTINUITY/.test(lowRate[0]));
-  ok("guard: continuity exactly 0.99 passes", mod.guardFailures({ ...good, v2: { ...good.v2, continuity: { rate: 0.99 } } }).length === 0);
-  const big = mod.guardFailures({ ...good, v2: { ...good.v2, bytesPerRow: { max: 65 } } });
+  ok("guard: continuity exactly 0.99 passes", mod.guardFailures({ ...good, v2: { ...good.v2, continuity: { rate: 0.99, total: 10 } } }).length === 0);
+  const big = mod.guardFailures({ ...good, v2: { ...good.v2, bytesPerRow: { rows: 10, max: 65 } } });
   ok("guard: a row size above 64 fails", big.length === 1 && /BYTES PER ROW/.test(big[0]));
-  ok("guard: a row size of exactly 64 passes", mod.guardFailures({ ...good, v2: { ...good.v2, bytesPerRow: { max: 64 } } }).length === 0);
-  ok("guard: NaN continuity fails", mod.guardFailures({ ...good, v2: { ...good.v2, continuity: { rate: NaN } } }).length === 1);
+  ok("guard: a row size of exactly 64 passes", mod.guardFailures({ ...good, v2: { ...good.v2, bytesPerRow: { rows: 10, max: 64 } } }).length === 0);
+  ok("guard: NaN continuity fails", mod.guardFailures({ ...good, v2: { ...good.v2, continuity: { rate: NaN, total: 10 } } }).length === 1);
+  const empty1 = mod.guardFailures({ ...good, v2: { ...good.v2, continuity: { rate: NaN, total: 0 } } });
+  ok("guard: no continuity pairs (total 0) fails with its own message", empty1.length === 1 && /no consecutive row pairs/.test(empty1[0]));
+  const empty2 = mod.guardFailures({ ...good, v2: { ...good.v2, bytesPerRow: { rows: 0, mean: null, max: null } } });
+  ok("guard: no measured byte rows fails with its own message", empty2.length === 1 && /measured no rows/.test(empty2[0]));
+  const h = (n) => ({ classic: { n }, v2: { n } });
+  ok("guard: a side with n = 0 at every horizon fails", mod.guardFailures({ ...good, headToHead: { "1h": { 1: h(0), 6: h(0) } } }).length === 2);
+  ok("guard: n > 0 at one horizon passes", mod.guardFailures({ ...good, headToHead: { "1h": { 1: h(0), 6: h(3) } } }).length === 0);
+  ok("binomTailHalf(11, 8) is about 0.113", Math.abs(mod.binomTailHalf(11, 8) - 0.11328125) < 1e-12);
   ok("diffPaths names the differing leaves", JSON.stringify(mod.diffPaths({ a: { b: 1, c: 2 } }, { a: { b: 1, c: 3 } })) === '["a.c"]');
 }
 
