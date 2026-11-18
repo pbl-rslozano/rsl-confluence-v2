@@ -24,19 +24,22 @@ function section16() {
 const CSP_HOSTS = [...(hostsTs.match(/export const CSP_HOSTS = \[([\s\S]*?)\] as const;/) || [, ""])[1].matchAll(/origin:\s*"([^"]+)"/g)]
   .map((m) => m[1].replace(/^(?:https?|wss):\/\//, ""));
 const NATIVE_HOSTS = manifest.processes.web.nativeHosts ?? [];
-/** The gateway's two paid data providers (WP25 part 2): CoinGlass REST and the Whale Alert websocket. */
-const GATEWAY_PROVIDER_HOSTS = ["open-api-v4.coinglass.com", "leviathan.whale-alert.io"];
+/** Every host the local gateway contacts (egress manifest): account-key exchange hosts and the paid data providers. */
+const gw = manifest.processes.gateway;
+const GATEWAY_HOSTS = [...gw.hosts, ...(gw.websocketHosts ?? [])];
+/** A host named as a whole word (after a backtick, slash, space or opening bracket), never as part of a longer name. */
+const names = (text, h) => new RegExp("(^|[`/ (])" + h.replace(/\./g, "\\.") + "(?![\\w.-])").test(text);
 
-test("the host lists are read (CSP_HOSTS, nativeHosts, gateway provider hosts)", () => {
+test("the host lists are read (CSP_HOSTS, nativeHosts, gateway hosts)", () => {
   assert.ok(CSP_HOSTS.length >= 20, `CSP_HOSTS: ${CSP_HOSTS.length}`);
   assert.deepEqual(NATIVE_HOSTS, ["api.pro.coins.ph", "api.upbit.com"]);
-  const gw = manifest.processes.gateway;
-  for (const h of GATEWAY_PROVIDER_HOSTS) assert.ok([...(gw.hosts ?? []), ...(gw.websocketHosts ?? [])].includes(h), `${h} is a gateway host`);
+  for (const h of ["open-api-v4.coinglass.com", "leviathan.whale-alert.io", "api.binance.com"]) assert.ok(GATEWAY_HOSTS.includes(h), `${h} is a gateway host`);
+  assert.ok(names("`api.binance.com`", "api.binance.com") && !names("`fapi.binance.com`", "api.binance.com"), "whole-word host match");
 });
 
-test("B-M2: every CSP_HOSTS host, every native host and both gateway provider hosts appear in en.md §16", () => {
+test("B-M2: every CSP_HOSTS host, every native host and every gateway host appear in en.md §16 (whole-word match)", () => {
   const s16 = section16();
-  const missing = [...CSP_HOSTS, ...NATIVE_HOSTS, ...GATEWAY_PROVIDER_HOSTS].filter((h) => !s16.includes(h));
+  const missing = [...CSP_HOSTS, ...NATIVE_HOSTS, ...GATEWAY_HOSTS].filter((h) => !names(s16, h));
   assert.deepEqual(missing, [], `missing from §16: ${missing.join(", ")}`);
 });
 
