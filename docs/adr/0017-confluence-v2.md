@@ -127,11 +127,15 @@ and band) and v2's behaviour on a fixed test series, so a change to any of them 
   pre-registration. Its only surfaces are the opt-in detail line, the collapsed ledger section and the four exported columns.
 - **Head-to-head.** `asV2Row` is the same row with v2's score, label and strength; `retargetOutcome` re-prices the row's one
   measured outcome for v2's direction (gross, cost and funding are shared; only the direction, and so the net, changes);
-  `pairedOutcomes` keeps only rows that carry v2; `labelChurn` counts label changes per 100 consecutive bars (a missing bar
+  `pairedOutcomes` keeps only rows whose `v2.cfg` is the current v2 config id (rows of another v2 version are counted
+  separately, "{n} rows carry another Confluence v2 version and are not compared.", and never pooled; final review I2, the
+  replay print applies the same filter); `labelChurn` counts label changes per 100 consecutive bars (a missing bar
   breaks a step). The comparison is a collapsed **Classic vs Confluence v2 (test)** section in the ledger dialog,
   immediately before the Scenario check (spec §3 item 4), so the Scenario check stays the last element. It shows, per
   engine, signals, hit rate, mean net and edge in basis points, rank IC t, PSR and label changes per 100 bars, and says how
-  many rows were not compared. Rows are compared on the same bars and the same outcomes.
+  many rows were not compared. Rows are compared on the same bars and the same outcomes. The comparison is built lazily
+  (final review I1): only when the section is expanded, after Classic's report has rendered, once per measurement and v2
+  config id; while the section is closed no comparison work runs, so Classic's report path is exactly as before WP23.
 - **Detail line (spec §3 item 3).** The setting **Confluence v2 line in the detail sheet (test)**, default off, sits in the
   Scoring profile popover. On, the detail sheet shows one line, "Confluence v2 (test): BUY · STRONG · score +74", with "held
   until the score is back inside ±40" when the label is held between 40 and 55, or "no data".

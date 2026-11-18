@@ -29,7 +29,7 @@ import { dirname, join, resolve } from "node:path";
 import { scoreSeries, toLedgerRow } from "./scan-pipeline.ts";
 import { enrich } from "./enrichment.ts";
 import { scoreV2, v2Compact, v2ConfigId } from "./confluence-v2.ts";
-import { asV2Row, labelChurn, sideOf } from "./head-to-head.ts";
+import { asV2Row, labelChurn, sideOf, splitByV2 } from "./head-to-head.ts";
 import { ENGINE_BARS, engineConfigId, ENGINE_VERSION } from "./engine-config.ts";
 import { barCloseTime, contiguousTail, fetchHistoryRange, INTERVAL_MS, loadInstrumentTypes } from "./market-client.ts";
 import { hashId } from "./signal-ledger.ts";
@@ -330,7 +330,8 @@ for (const [name, pair] of Object.entries(reports)) {
 // v2.8 (WP23 Task 9): Classic vs Confluence v2 on the SAME rows and outcomes (logged, never scored; Classic's report above is unchanged).
 const h2hLines = [`## Classic vs Confluence v2 (test) — engine ${v2ConfigId()}`, ""];
 {
-  const withV2 = rows.filter((r) => r.v2);
+  // Final review I2: only rows of this v2 config are compared; rows of another v2 version are counted, never pooled.
+  const { compared: withV2, notCompared, otherVersions } = splitByV2(rows, v2ConfigId());
   if (!withV2.length) {
     h2hLines.push(noV2 ? "Not run: --no-v2 left Confluence v2 out of these rows." : "No rows with Confluence v2 in this replay.");
   } else {
@@ -338,7 +339,7 @@ const h2hLines = [`## Classic vs Confluence v2 (test) — engine ${v2ConfigId()}
     const classicRep = measure(withV2);
     const v2Rep = measure(v2Rows);
     const churn = { classic: labelChurn(withV2, intervalMs).per100, v2: labelChurn(v2Rows, intervalMs).per100 };
-    h2hLines.push(`${withV2.length} bars labelled by both engines (${rows.length - withV2.length} rows without v2 not compared); both are measured on the same outcomes.`, "");
+    h2hLines.push(`${withV2.length} bars labelled by both engines (${notCompared} rows without v2 not compared; ${otherVersions} rows of another Confluence v2 version not compared — only engine ${v2ConfigId()} is compared); both are measured on the same outcomes.`, "");
     h2hLines.push("| h | engine | n | hit | mean net bp | edge bp | IC t | PSR | label changes /100 bars |", "|---|---|---|---|---|---|---|---|---|");
     for (const h of DEFAULT_HORIZONS) {
       for (const [name, rep, ch] of [["Classic", classicRep, churn.classic], ["Confluence v2", v2Rep, churn.v2]]) {

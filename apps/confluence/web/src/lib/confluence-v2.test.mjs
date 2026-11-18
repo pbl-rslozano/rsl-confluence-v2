@@ -104,9 +104,10 @@ ok("v2Strength",
     if (!Object.is(meansI[j], expected)) bad = `${iv} ${j}: ${meansI[j]} vs ${expected}`;
   }
   }
-  // Validity floor at 4h: 14 voters, 3 volume inputs off -> 11 valid >= ceil(9.8) = 10, still scored.
+  // Validity floor at 4h: counted over all 18 inputs, floor ceil(0.7 x 18) = 13; without volume the 4 volume inputs
+  // (MFI, VWAP, OBV, CMF) are NaN -> 14 valid >= 13, still scored.
   const noVol4 = v2MeanSeries(k, { intervalMs: H4, volumeAvailable: false }, 999);
-  if (noVol4[999] === null) bad = "4h without volume should still score (11 of 14 >= 10)";
+  if (noVol4[999] === null) bad = "4h without volume should still score (14 of 18 valid >= 13)";
   ok("v2MeanSeries = weighted mean of bloc means (meanReversion x (1 - ER gate)), recomputed independently", bad === "", bad);
   ok("v2ScoreSeries = scoresFromMeans(v2MeanSeries, V2_GAIN)", deq(v2ScoreSeries(k, o, 700), scoresFromMeans(means, V2_GAIN)));
   // Validity floor: with volume off and the series cut so that few inputs are warm, the mean is null.

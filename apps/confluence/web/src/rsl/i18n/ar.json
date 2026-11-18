@@ -385,7 +385,8 @@
     "ledger.v2.classic",
     "ledger.v2.v2",
     "ledger.v2.notCompared",
-    "ledger.v2.note"
+    "ledger.v2.note",
+    "ledger.v2.otherVersions"
   ],
   "app.subtitle": "ماسح توافق مؤشرات العملات المشفّرة",
   "ctx.page": "الماسح",
@@ -1227,5 +1228,6 @@
   "ledger.v2.classic": "Classic: {n} إشارة · نسبة الإصابة {hit} · متوسط الصافي {net} نقطة أساس · الأفضلية {edge} نقطة أساس · IC t ‏{ic} · PSR ‏{psr} · {churn} تغيير في التصنيف لكل 100 شمعة",
   "ledger.v2.v2": "Confluence v2: {n} إشارة · نسبة الإصابة {hit} · متوسط الصافي {net} نقطة أساس · الأفضلية {edge} نقطة أساس · IC t ‏{ic} · PSR ‏{psr} · {churn} تغيير في التصنيف لكل 100 شمعة",
   "ledger.v2.notCompared": "سُجّل {n} صفًا دون Confluence v2 (قبل WP23 أو لقلة السجل) ولا تُقارن.",
-  "ledger.v2.note": "للمقارنة فقط. يبقى Classic المحرك المعتمد للقائمة والتصنيفات والتنبيهات والتداول الورقي؛ ولا يُنقل شيء إلى غيره دون قرار لاحق من المالك."
+  "ledger.v2.note": "للمقارنة فقط. يبقى Classic المحرك المعتمد للقائمة والتصنيفات والتنبيهات والتداول الورقي؛ ولا يُنقل شيء إلى غيره دون قرار لاحق من المالك.",
+  "ledger.v2.otherVersions": "{n} صفًا تحمل إصدارًا آخر من Confluence v2 ولا تُقارن."
 }

@@ -841,5 +841,6 @@
   "ledger.v2.classic": "Classic: {n} signals · hit rate {hit} · mean net {net} bp · edge {edge} bp · IC t {ic} · PSR {psr} · {churn} label changes per 100 bars",
   "ledger.v2.v2": "Confluence v2: {n} signals · hit rate {hit} · mean net {net} bp · edge {edge} bp · IC t {ic} · PSR {psr} · {churn} label changes per 100 bars",
   "ledger.v2.notCompared": "{n} rows were recorded without Confluence v2 (before WP23, or too little history) and are not compared.",
-  "ledger.v2.note": "Comparison only. Classic stays the engine for the list, labels, alerts and paper trading; nothing switches over without a later owner decision."
+  "ledger.v2.note": "Comparison only. Classic stays the engine for the list, labels, alerts and paper trading; nothing switches over without a later owner decision.",
+  "ledger.v2.otherVersions": "{n} rows carry another Confluence v2 version and are not compared."
 }

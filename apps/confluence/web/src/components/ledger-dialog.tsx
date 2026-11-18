@@ -54,7 +54,7 @@ import { fetchHistory, INTERVAL_MS, RateLimitError, type DataSource } from "@/li
 import { engineConfigId } from "@/lib/engine-config";
 import { v2ConfigId } from "@/lib/confluence-v2";
 import { realizedLogReturn, scenarioCheck, type ScenarioCheck } from "@/lib/scenario-check";
-import { asV2Row, labelChurn, pairedOutcomes, sideOf } from "@/lib/head-to-head";
+import { headToHeadLoader, sideOf, type H2HInputs, type H2HJob, type H2HReports } from "@/lib/head-to-head";
 
 
 interface Props {
@@ -74,14 +74,13 @@ const fmtBps = (v: number) => (Number.isFinite(v) ? `${v >= 0 ? "+" : ""}${v.toF
 const fmtPct = (v: number) => (Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : "—");
 const fmtNum = (v: number, d = 2) => (Number.isFinite(v) ? v.toFixed(d) : "—");
 
-/** v2.8 (WP23): what the collapsed head-to-head section reads. `paired` = closed outcomes per horizon on the compared bars. */
+/**
+ * v2.8 (WP23): what the collapsed head-to-head section reads — the job for one measurement's inputs and, once built, its
+ * reports (`undefined` while building, null when no compared bar has a closed outcome).
+ */
 interface H2HView {
-  n: number;
-  notCompared: number;
-  paired: Map<number, number>;
-  classic: LedgerReport | null;
-  v2: LedgerReport | null;
-  churn: { classic: number; v2: number };
+  job: H2HJob;
+  reports: H2HReports | null | undefined;
 }
 
 export function LedgerDialog({ open, onOpenChange, store, source, timeframe, assetClass, getLiveKlines, configId = engineConfigId() }: Props) {
@@ -113,6 +112,9 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
   /** v2.8 (WP23): the collapsed Classic vs Confluence v2 comparison on the same rows and outcomes (never scored, never gates). */
   const [h2h, setH2h] = useState<H2HView | null>(null);
   const [v2Open, setV2Open] = useState(false);
+  /** Final review I1: the Classic report's inputs, handed over after it is set; the comparison is built from them lazily. */
+  const [h2hInputs, setH2hInputs] = useState<(H2HInputs & { gen: number }) | null>(null);
+  const h2hLoad = useRef(headToHeadLoader(buildReportAsync));
   /** Generation guard: only the newest measurement may update state. */
   const generation = useRef(0);
   const viewClass: AssetClass = assetClass === "all" ? "crypto" : (assetClass as AssetClass);
@@ -249,29 +251,13 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
         const confOut = new Map([...outcomes].map(([h, list]) => [h, list.filter((o) => ids.has(o.row.id))]));
         conf = await buildReportAsync({ rows: after, outcomes: confOut, costBps, trials: confTrials, intervalMs, momentum: momentumSign });
       }
-      // v2.8 (WP23): the same rows and the same measured outcomes, once with Classic's label and once with v2's.
-      // No extra kline loads or snapshot writes: every outcome above is reused.
-      const withV2 = usable.filter((r) => r.v2);
-      let h2hView: H2HView = { n: withV2.length, notCompared: usable.length - withV2.length, paired: new Map(), classic: null, v2: null, churn: { classic: NaN, v2: NaN } };
-      if (withV2.length) {
-        const pairs = pairedOutcomes(outcomes);
-        const v2Rows = withV2.map((r) => asV2Row(r) as LedgerRow);
-        const opts = { costBps, trials, intervalMs, momentum: momentumSign };
-        const [cRep, vRep] = [
-          await buildReportAsync({ rows: withV2, outcomes: pairs.classic, ...opts }),
-          await buildReportAsync({ rows: v2Rows, outcomes: pairs.v2, ...opts }),
-        ];
-        h2hView = {
-          ...h2hView, classic: cRep, v2: vRep,
-          paired: new Map([...pairs.classic].map(([h, list]) => [h, list.length])),
-          churn: { classic: labelChurn(withV2, intervalMs).per100, v2: labelChurn(v2Rows, intervalMs).per100 },
-        };
-      }
       if (gen !== generation.current) return;
       setReport(full);
       setConfirm(conf);
-      setH2h(h2hView);
       setScCheck(scenarioCheck(scItems, intervalMs, scSkipped));
+      // v2.8 (WP23, final review I1): the comparison reuses these same rows and measured outcomes (no extra kline loads or
+      // snapshot writes) and is built only when its section is open, after this report — see the effect below.
+      setH2hInputs({ gen, rows: usable, outcomes, costBps, trials, intervalMs, momentum: momentumSign });
     } catch (error) {
       if (gen === generation.current) setFailure(error instanceof Error ? error.message : String(error));
     } finally {
@@ -284,6 +270,25 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
     const timer = window.setTimeout(() => void measure(), 0);
     return () => window.clearTimeout(timer);
   }, [open, measure]);
+
+  // Final review I1: nothing runs while the section is closed; built once per measurement (generation) and v2 config,
+  // after the Classic report has rendered; a stale build never overwrites a newer one.
+  useEffect(() => {
+    const inputs = h2hInputs;
+    if (!v2Open || !inputs) return;
+    let live = true;
+    const timer = window.setTimeout(() => {
+      const job = h2hLoad.current(v2Open, inputs, v2ConfigId());
+      if (!job || !live || inputs.gen !== generation.current) return;
+      setH2h((cur) => (cur?.job === job ? cur : { job, reports: undefined }));
+      job.reports.then(
+        (reports) => { if (live && inputs.gen === generation.current) setH2h({ job, reports }); },
+        (error) => { if (live && inputs.gen === generation.current) setFailure(error instanceof Error ? error.message : String(error)); },
+      );
+    }, 0);
+    return () => { live = false; window.clearTimeout(timer); };
+  }, [v2Open, h2hInputs]);
+  const h2hNow = h2h && h2h.job.inputs === h2hInputs ? h2h : null;
 
   const current = useMemo(() => report?.horizons.find((h) => h.horizon === horizon) ?? null, [report, horizon]);
 
@@ -659,16 +664,21 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
           {v2Open && (
             <div id="ledger-v2-body" className="mt-2 space-y-1 text-zinc-400">
               <p>{t("ledger.v2.engine", { id: v2ConfigId() })}</p>
-              {!h2h || h2h.n === 0 ? (
+              {!h2hNow ? (
+                busy || h2hInputs ? <p className="flex items-center gap-2"><Loader2 className="h-3 w-3 animate-spin" />{t("ledger.loading")}</p> : <p>{t("ledger.v2.none")}</p>
+              ) : h2hNow.job.prep.n === 0 ? (
                 <p>{t("ledger.v2.none")}</p>
               ) : (
                 <>
-                  <p>{t("ledger.v2.pairs", { n: h2h.n, h: horizon })}</p>
-                  {!h2h.classic || !h2h.v2 || !(h2h.paired.get(horizon) ?? 0) ? (
+                  <p>{t("ledger.v2.pairs", { n: h2hNow.job.prep.n, h: horizon })}</p>
+                  {!(h2hNow.job.prep.paired.get(horizon) ?? 0) || h2hNow.reports === null ? (
                     <p>{t("ledger.v2.noOutcomes")}</p>
+                  ) : !h2hNow.reports ? (
+                    <p className="flex items-center gap-2"><Loader2 className="h-3 w-3 animate-spin" />{t("ledger.loading")}</p>
                   ) : (
                     (["classic", "v2"] as const).map((side) => {
-                      const x = sideOf(h2h[side] as LedgerReport, horizon, h2h.churn[side]);
+                      const r = h2hNow.reports as H2HReports;
+                      const x = sideOf(r[side], horizon, r.churn[side]);
                       return (
                         <p key={side}>
                           {t(side === "classic" ? "ledger.v2.classic" : "ledger.v2.v2", {
@@ -679,9 +689,10 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
                       );
                     })
                   )}
-                  {h2h.notCompared > 0 && <p>{t("ledger.v2.notCompared", { n: h2h.notCompared })}</p>}
+                  {h2hNow.job.prep.notCompared > 0 && <p>{t("ledger.v2.notCompared", { n: h2hNow.job.prep.notCompared })}</p>}
                 </>
               )}
+              {h2hNow && h2hNow.job.prep.otherVersions > 0 && <p>{t("ledger.v2.otherVersions", { n: h2hNow.job.prep.otherVersions })}</p>}
               <p>{t("ledger.v2.note")}</p>
             </div>
           )}

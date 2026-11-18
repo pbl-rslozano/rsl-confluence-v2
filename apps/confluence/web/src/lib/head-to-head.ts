@@ -22,12 +22,28 @@ export function retargetOutcome(o: Outcome, row: LedgerRow): Outcome {
   return { ...o, row, net: d * o.gross - o.cost - d * o.fundingLong, mfe: NaN, mae: NaN };
 }
 
-/** Only outcomes whose row carries v2; one outcome per row is shared by both sides. */
-export function pairedOutcomes(outcomes: Map<number, Outcome[]>): { classic: Map<number, Outcome[]>; v2: Map<number, Outcome[]> } {
+/** Whether a row is compared: it carries v2 recorded by the CURRENT v2 config. Rows of another v2 version are never pooled. */
+export const comparedV2 = (row: LedgerRow, v2Cfg: string): boolean => row.v2?.cfg === v2Cfg;
+
+/** The rows compared under `v2Cfg`, and the two kinds left out: no v2 at all, and v2 of another version. */
+export function splitByV2(rows: LedgerRow[], v2Cfg: string): { compared: LedgerRow[]; notCompared: number; otherVersions: number } {
+  const compared: LedgerRow[] = [];
+  let notCompared = 0;
+  let otherVersions = 0;
+  for (const r of rows) {
+    if (comparedV2(r, v2Cfg)) compared.push(r);
+    else if (r.v2) otherVersions++;
+    else notCompared++;
+  }
+  return { compared, notCompared, otherVersions };
+}
+
+/** Only outcomes whose row carries v2 of `v2Cfg`; one outcome per row is shared by both sides. */
+export function pairedOutcomes(outcomes: Map<number, Outcome[]>, v2Cfg: string): { classic: Map<number, Outcome[]>; v2: Map<number, Outcome[]> } {
   const classic = new Map<number, Outcome[]>();
   const v2 = new Map<number, Outcome[]>();
   for (const [h, list] of outcomes) {
-    const kept = list.filter((o) => !!o.row.v2);
+    const kept = list.filter((o) => comparedV2(o.row, v2Cfg));
     classic.set(h, kept);
     v2.set(h, kept.map((o) => retargetOutcome(o, asV2Row(o.row) as LedgerRow)));
   }
@@ -76,5 +92,64 @@ export function sideOf(report: LedgerReport, horizon: number, churnPer100: numbe
     icT: h ? h.ic.tStat : NaN,
     psr: h ? h.sharpe.psr : NaN,
     churnPer100,
+  };
+}
+
+/** What the ledger hands the head-to-head: the Classic report's own rows, outcomes and options (the shape of `buildReportAsync`'s input). */
+export interface H2HInputs {
+  rows: LedgerRow[];
+  outcomes: Map<number, Outcome[]>;
+  costBps: number;
+  trials: number;
+  intervalMs: number;
+  momentum: Map<string, -1 | 0 | 1>;
+}
+export type H2HReportBuilder = (x: H2HInputs) => Promise<LedgerReport>;
+
+/** The cheap part: which rows are compared, the two counts left out, and closed outcomes per horizon on the compared bars. */
+export interface H2HPrep {
+  n: number;
+  notCompared: number;
+  otherVersions: number;
+  paired: Map<number, number>;
+  rows: LedgerRow[];
+  pairs: { classic: Map<number, Outcome[]>; v2: Map<number, Outcome[]> };
+}
+export interface H2HReports { classic: LedgerReport; v2: LedgerReport; churn: { classic: number; v2: number } }
+
+export function headToHeadPrep(inputs: H2HInputs, v2Cfg: string): H2HPrep {
+  const { compared, notCompared, otherVersions } = splitByV2(inputs.rows, v2Cfg);
+  const pairs = pairedOutcomes(inputs.outcomes, v2Cfg);
+  return { n: compared.length, notCompared, otherVersions, paired: new Map([...pairs.classic].map(([h, list]) => [h, list.length])), rows: compared, pairs };
+}
+
+/** The two reports on the compared rows (null when no compared bar has a closed outcome at any horizon). */
+async function headToHeadReports(prep: H2HPrep, inputs: H2HInputs, build: H2HReportBuilder): Promise<H2HReports | null> {
+  if (!prep.n || ![...prep.paired.values()].some((n) => n > 0)) return null;
+  const v2Rows = prep.rows.map((r) => asV2Row(r) as LedgerRow);
+  const opts = { costBps: inputs.costBps, trials: inputs.trials, intervalMs: inputs.intervalMs, momentum: inputs.momentum };
+  const classic = await build({ rows: prep.rows, outcomes: prep.pairs.classic, ...opts });
+  const v2 = await build({ rows: v2Rows, outcomes: prep.pairs.v2, ...opts });
+  return { classic, v2, churn: { classic: labelChurn(prep.rows, inputs.intervalMs).per100, v2: labelChurn(v2Rows, inputs.intervalMs).per100 } };
+}
+
+export interface H2HJob { inputs: H2HInputs; v2Cfg: string; prep: H2HPrep; reports: Promise<H2HReports | null> }
+
+/**
+ * Final review I1: the comparison is built lazily. `load(open, inputs, v2Cfg)` returns null — and builds nothing — while the
+ * section is closed or before the Classic report has handed over its inputs; otherwise one job per (inputs, v2Cfg), cached,
+ * so re-opening the section does not build again. A new measurement passes new inputs and builds again. A failed build is
+ * not kept, so the next open retries.
+ */
+export function headToHeadLoader(build: H2HReportBuilder): (open: boolean, inputs: H2HInputs | null, v2Cfg: string) => H2HJob | null {
+  let job: H2HJob | null = null;
+  return (open, inputs, v2Cfg) => {
+    if (!open || !inputs) return null;
+    if (job && job.inputs === inputs && job.v2Cfg === v2Cfg) return job;
+    const prep = headToHeadPrep(inputs, v2Cfg);
+    const next: H2HJob = { inputs, v2Cfg, prep, reports: headToHeadReports(prep, inputs, build) };
+    next.reports.catch(() => { if (job === next) job = null; });
+    job = next;
+    return next;
   };
 }

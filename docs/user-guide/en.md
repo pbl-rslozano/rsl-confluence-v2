@@ -256,8 +256,8 @@ signal, the alerts and the paper rules read Classic only.
 **The setting and the line.** In **Scoring profile**, tick **Confluence v2 line in the detail sheet (test)** (off by
 default). The asset detail sheet then shows one extra line, for example "Confluence v2 (test): BUY · STRONG · score +74",
 and "A challenger recorded for comparison only. It never changes the list, signals, alerts or paper trades." When the
-label is being **held** between 40 and 55, the line reads "Confluence v2 (test): BUY · score +45 · held until the score is
-back inside ±40". With too little data it reads "Confluence v2 (test): no data". Untick the setting and the line goes away.
+label is being **held** between 40 and 55, the line reads "Confluence v2 (test): BUY · MODERATE · score +45 · held until the
+score is back inside ±40". With too little data it reads "Confluence v2 (test): no data". Untick the setting and the line goes away.
 
 **The ledger records it.** Each ledger row also records v2's label, config id, score and strength (about 54 bytes more per
 row, logged and never scored). Rows recorded before v2.8, or without enough history, have no v2 label and are not compared.
@@ -694,7 +694,10 @@ Every scored closed bar is recorded with the engine version. The ledger shows ho
   outcomes, scored once with Classic's label and once with Confluence v2's (the entry, the costs and the funding are shared;
   only the direction, and so the net result, differs). For each engine and the chosen horizon it shows the number of signals,
   hit rate, mean net result and edge in basis points, rank IC t, probabilistic Sharpe and the **label changes per 100 bars**.
-  Rows recorded without v2 (before v2.8, or too little history) are listed as **not compared**. The CSV export has **four v2
+  Only rows of the Confluence v2 version shown in the section are compared: rows recorded without v2 (before v2.8, or too
+  little history) are listed as **not compared**, and rows that carry another Confluence v2 version are counted on their own
+  line and are not compared either (versions are never pooled). The comparison is worked out only when you open the section,
+  after Classic's report is on screen, so a closed section costs nothing. The CSV export has **four v2
   columns** after the scenario ones: `v2_config_id`, `v2_score`, `v2_direction`, `v2_strength`. It is a comparison only:
   **nothing switches over**, and Classic's report, check and pre-registration never read v2.
 

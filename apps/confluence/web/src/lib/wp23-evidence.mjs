@@ -182,8 +182,8 @@ export function allMetrics() {
   const headToHead = {};
   const allRows = [];
   for (const [key, b, fx] of [["1h", one, f["1h"]], ["4h", four, f["4h"]]]) {
-    const paired = pairedOutcomes(b.outcomes);
-    const withV2 = b.rows.filter((r) => r.v2);
+    const paired = pairedOutcomes(b.outcomes, v2ConfigId());
+    const withV2 = b.rows.filter((r) => r.v2?.cfg === v2ConfigId());
     const v2Rows = withV2.map(asV2Row);
     const classicRep = buildReport(withV2, paired.classic, b.costBps, 1, fx.intervalMs, { shuffles: 200 });
     const v2Rep = buildReport(v2Rows, paired.v2, b.costBps, 1, fx.intervalMs, { shuffles: 200 });
