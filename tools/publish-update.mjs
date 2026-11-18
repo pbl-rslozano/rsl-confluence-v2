@@ -22,15 +22,23 @@ export function buildManifest({ version, build, publishedAt, notes, apk }) {
   return { schema: 1, app: "rsl-confluence", version, build, publishedAt, notes: (notes ?? "").slice(0, 500), android: apk ? { file: apk.file, bytes: apk.bytes, sha256: apk.sha256 } : null };
 }
 
-/** The bullet lines under the `# v<version>` (or `##`/`###`) heading of CHANGELOG.md, joined, ≤ 500 characters. */
+/** The first lines of the bullets under the `# v<version>` (or `##`/`###`) heading of CHANGELOG.md, joined, ≤ 500
+ * characters. Whole bullets only (2.8.0 review M7): a bullet that would overflow is left out rather than cut; only a
+ * single first bullet longer than 500 characters is shortened. */
 export function notesFromChangelog(text, version) {
   const lines = text.split("\n");
   const start = lines.findIndex((l) => new RegExp(`^#{1,3}\\s+v?${version.replace(/\./g, "\\.")}(\\s|$)`).test(l));
   if (start < 0) return "";
   const out = [];
   for (const l of lines.slice(start + 1)) { if (/^#{1,3}\s/.test(l)) break; const m = l.match(/^\s*[-*]\s+(.*)$/); if (m) out.push(m[1].replace(/\*\*|`/g, "").trim()); }
-  const s = out.join(" ");
-  return s.length > 500 ? `${s.slice(0, 497)}...` : s;
+  let s = "";
+  for (const item of out) {
+    const next = s ? `${s} ${item}` : item;
+    if (next.length > 500) break;
+    s = next;
+  }
+  if (!s && out.length) s = `${out[0].slice(0, 497)}...`;
+  return s;
 }
 
 /** { "/path": { sha1, read() } } for every file under dir. */

@@ -30,6 +30,28 @@ test("release notes come from the CHANGELOG section of that version, capped at 5
   assert.equal(notesFromChangelog(real, "2.5"), "");
 });
 
+// 2.8.0 review M7: the update notice is built from the first line of each bullet. It keeps whole bullets only (no
+// sentence cut at 500 characters), so every first line of the release entry must be a complete sentence.
+test("release notes keep whole bullets within 500 characters instead of cutting one", () => {
+  const a = "A".repeat(200) + ".", b = "B".repeat(200) + ".", c = "C".repeat(200) + ".";
+  const notes = notesFromChangelog(`# v3.0.0\n- ${a}\n- ${b}\n- ${c}\n`, "3.0.0");
+  assert.equal(notes, `${a} ${b}`);
+  assert.equal(notesFromChangelog(`# v3.0.0\n- ${"y".repeat(900)}\n`, "3.0.0").length, 500, "a single over-long bullet is still capped");
+});
+
+test("the 2.8.0 update notice reads as whole sentences within 500 characters", async () => {
+  const { readFileSync } = await import("node:fs");
+  const changelog = readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
+  const notes = notesFromChangelog(changelog, "2.8.0");
+  assert.ok(notes.length > 0 && notes.length <= 500, `${notes.length} characters`);
+  assert.match(notes, /[^.]\.$/, "ends with a full stop, not a cut");
+  const entry = changelog.slice(changelog.indexOf("# v2.8.0"), changelog.indexOf("\n# v2.7.0"));
+  const firsts = entry.split("\n").filter((l) => /^- /.test(l));
+  assert.ok(firsts.length > 10);
+  const bad = firsts.filter((l) => !/\.(\*\*)?$/.test(l.trimEnd()));
+  assert.deepEqual(bad, [], "every 2.8.0 bullet's first line is a complete sentence");
+});
+
 test("digest lists every file with a leading slash and its SHA-1", () => {
   const d = mkdtempSync(join(tmpdir(), "pub-")); mkdirSync(join(d, "updates"));
   writeFileSync(join(d, "index.html"), "<p>hi</p>"); writeFileSync(join(d, "updates", "latest.json"), "{}");
