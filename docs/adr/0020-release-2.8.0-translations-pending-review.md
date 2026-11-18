@@ -3,20 +3,22 @@
 **Status:** Accepted · owner decision of 17 Nov 2026 · scope: release 2.8.0 only.
 
 ## Context
-Release check **R25** (final review I-1, `tools/checks/translation-review.mjs`) fails a release build (`--release`: version
-tags, manual dispatch, `[release…]` commits on main) while any tier-1 catalog still lists strings in `@pendingReview`. Those
-are machine drafts of new or changed strings awaiting a native-speaker review. In the Arabic catalog (`ar.json`), the v2.8
-work left the new and changed strings as drafts (390 when this ADR was written). The owner decided on 17 Nov 2026 that translations ship as drafts without native
-validation. The tier-2 catalogs are MACHINE-CHECKED;
-none is CERTIFIED.
+Release check **R25** (final review I-1, `tools/checks/translation-review.mjs`) blocks a release build (`--release`:
+version tags, manual dispatch, `[release…]` commits on main) while any tier-1 catalog still lists strings in
+`@pendingReview`, the machine drafts of new or changed strings awaiting a native-speaker review. When 2.8.0 was prepared,
+the Arabic catalog (`ar.json`, the only tier-1 catalog) still listed the new and changed v2.8 strings (390 when this ADR
+was written), and no native review had taken place, so R25 blocked the 2.8.0 release build. The 16 tier-2 catalogs are
+MACHINE-CHECKED; none is CERTIFIED.
 
 ## Decision
 The owner decided on **17 Nov 2026** that 2.8.0 ships its translations as drafts without native validation:
 - nothing is marked CERTIFIED; Arabic stays APPROVED for its reviewed strings and keeps its `@pendingReview` list, and
   About keeps showing *N new strings await native-speaker review*;
 - R25 is **not** removed or weakened. It still counts the pending strings on every run. With `--release` it passes only when
-  `tools/r25-waiver.json` holds an owner waiver for exactly the app version being released, and this ADR exists. It then
-  prints `WAIVED` with the pending count. Without that waiver it fails exactly as before;
+  `tools/r25-waiver.json` holds an owner waiver for exactly the app version being released, and the ADR it names exists,
+  names that version and says "owner waiver" (this ADR). It then prints `WAIVED` with the pending count, under the label
+  *Tier-1 translations: release waived by owner (pending native-speaker review)*. Without that waiver it fails exactly
+  as before;
 - the waiver file is machine-readable: `{ "version", "adr", "owner", "date", "reason" }`. `version` must equal the root
   `package.json` version. `adr` must point to this file.
 

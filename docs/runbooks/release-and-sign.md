@@ -29,6 +29,8 @@
    second dispatch (`publish` ticked) or a tag push only after the owner has approved the installers. A dispatch publishes
    only with `publish` ticked **and** "Use workflow from: main"; a dispatch from a tag or a branch never publishes, and
    `promote-desktop` and `release-audit` (they write to releases) follow the same rule and have no push trigger.
+   - `release-audit` stays gated (re-review, 18 Nov 2026): it uploads normalised `.sha256` files to draft releases, so it
+     also needs `publish` ticked on a dispatch of main. Run it after the drafts exist.
    - **Use workflow from: main only.** Branches and tags made before 2.8.0 carry the old workflow, which publishes on any
      manual run.
    - **Apple secrets:** if the six Apple secrets are ever added, every macOS build notarises, including a build-only
