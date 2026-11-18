@@ -31,13 +31,15 @@ export function checkTranslationReview(root, { release = false } = {}) {
  * release run and, only while strings are still pending, reads tools/r25-waiver.json:
  *   { "version": "2.8.0", "adr": "docs/adr/0020-….md", "owner": "…", "date": "YYYY-MM-DD", "reason": "…" }
  * The release passes as WAIVED (with the pending count) only when the waiver names exactly this app version and its ADR
- * exists. Otherwise the result is the unwaived one, with the reason the waiver did not apply. The measurement itself is
+ * exists and records it (names that version and says "owner waiver"). Otherwise the result is the unwaived one, with the reason the waiver did not apply. The measurement itself is
  * unchanged; deleting the waiver file re-blocks the release.
  */
 export const R25_WAIVER = "tools/r25-waiver.json";
+export const R25_LABEL = "Tier-1 translations reviewed: no string pending native-speaker review";
+export const R25_WAIVED_LABEL = "Tier-1 translations: release waived by owner (pending native-speaker review)";
 export function applyR25Waiver(root, result, { version } = {}) {
-  if (result.ok) return { ...result, waived: false };
-  const fail = (why) => ({ ...result, ok: false, waived: false, findings: [...result.findings, why] });
+  if (result.ok) return { ...result, waived: false, label: R25_LABEL };
+  const fail = (why) => ({ ...result, ok: false, waived: false, label: R25_LABEL, findings: [...result.findings, why] });
   const path = join(root, R25_WAIVER);
   if (!existsSync(path)) return fail(`no owner waiver (${R25_WAIVER})`);
   let w;
@@ -47,9 +49,14 @@ export function applyR25Waiver(root, result, { version } = {}) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(w.date)) return fail(`${R25_WAIVER}: date "${w.date}" is not YYYY-MM-DD`);
   if (!version || w.version !== version) return fail(`owner waiver is for ${w.version}, not ${version ?? "(unknown version)"}`);
   if (!/^docs\/adr\/\d{4}-[^/]+\.md$/.test(w.adr) || !existsSync(join(root, w.adr))) return fail(`waiver ADR ${w.adr} not found`);
+  // The ADR must be the record of THIS waiver: it names the waiver's version and says "owner waiver" (review M3).
+  const adr = readFileSync(join(root, w.adr), "utf8");
+  if (!new RegExp(`(?<![\\d.])${w.version.replaceAll(".", "\\.")}(?![\\d.])`).test(adr) || !/owner waiver/i.test(adr)) {
+    return fail(`waiver ADR ${w.adr} does not record an owner waiver for ${w.version}`);
+  }
   const pending = Object.entries(result.pending).map(([c, n]) => `${c} ${n} pending`).join(", ");
   return {
-    ...result, ok: true, waived: true,
+    ...result, ok: true, waived: true, label: R25_WAIVED_LABEL,
     summary: `WAIVED — ${pending} native-speaker review; owner waiver for ${w.version} (${w.adr}, ${w.owner}, ${w.date})`,
   };
 }

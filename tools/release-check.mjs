@@ -348,7 +348,7 @@ if (process.argv.includes("--with-tests")) {
   // ADR-0020: a release passes with pending strings only on the owner's waiver for exactly this version (WAIVED).
   if (process.argv.includes("--release")) {
     const w = applyR25Waiver(ROOT, r, { version: ver });
-    check("R25", "Tier-1 translations reviewed: no string pending native-speaker review", w.ok, w.ok ? w.summary : w.findings.join("; "));
+    check("R25", w.label, w.ok, w.ok ? w.summary : w.findings.join("; "));
   }
   else console.log(`SKIP  R25  Tier-1 translation review — release builds only (--release): ${r.summary}`);
 }

@@ -6,7 +6,8 @@
 Release check **R25** (final review I-1, `tools/checks/translation-review.mjs`) fails a release build (`--release`: version
 tags, manual dispatch, `[release…]` commits on main) while any tier-1 catalog still lists strings in `@pendingReview`. Those
 are machine drafts of new or changed strings awaiting a native-speaker review. In the Arabic catalog (`ar.json`), the v2.8
-work left the new and changed strings as drafts (390 when this ADR was written). No native reviewer is available before 2.8.0. The tier-2 catalogs are MACHINE-CHECKED;
+work left the new and changed strings as drafts (390 when this ADR was written). The owner decided on 17 Nov 2026 that translations ship as drafts without native
+validation. The tier-2 catalogs are MACHINE-CHECKED;
 none is CERTIFIED.
 
 ## Decision
@@ -28,6 +29,11 @@ decision (a new ADR and a new waiver).
   are unchanged MACHINE-CHECKED drafts. The CHANGELOG and the user guide say so.
 - LanguageTool runs as an **informational** CI check over the catalogs (`docs/translation-review.md`). It does not replace a
   native review and never sets a status.
+
+## Known gaps (2.8.0)
+- `docs/user-guide/ar.md` §1, Mac row: still says right-click → Open on first launch. On macOS 15 (the app's minimum)
+  the 2.8.0 Mac app, which is not notarised, must be opened through System Settings → Privacy & Security → Open Anyway
+  (English guide §1). The Arabic guide is APPROVED text awaiting native review, so the line is left for the reviewer.
 
 ## How to remove
 Delete `tools/r25-waiver.json` (or let the version move on). R25 then blocks every release again until each `@pendingReview`
