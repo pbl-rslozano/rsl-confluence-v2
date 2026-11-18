@@ -5,9 +5,9 @@
 export const APP = {
   name: "Confluence Terminal",
   code: "CONF",
-  version: "2.7.0",
+  version: "2.8.0",
   year: 2026,
-  build: "20261111",
+  build: "20261118",
   subtitleKey: "app.subtitle",
   category: "Console",
   /** Personal edition: no customer licensing layer, no corporate credit or confidentiality line (ADR-0004). */

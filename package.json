@@ -1,6 +1,6 @@
 {
   "name": "rsl-confluence",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "private": true,
   "license": "UNLICENSED",
   "description": "rsL Confluence Terminal — one web core, Tauri 2 desktop shell, Capacitor 8 mobile shell, PWA.",

@@ -840,7 +840,7 @@ async function hdPinnedBoxes(w, h, lang) {
   record("ID-8.1a", "Brand order monogram → rsL → App → by rsLozano → build (LTR)", JSON.stringify(order) === JSON.stringify(["rsl-mono", "rsl-r", "rsl-app", "rsl-by", "rsl-build"]), order.join(" → "));
   const stamp = await page.$eval(".rsl-brand-host .rsl-build", (e) => e.textContent);
   const footerStamp = await page.$eval("footer", (e) => e.textContent);
-  // KIT-003 (owner, 16 Nov 2026): the bar shows "2.7.0 (build 20261111)", the footer "Powered by rsL … · 2.7.0 · build 20261111" —
+  // KIT-003 (owner, 16 Nov 2026): the bar shows "2.8.0 (build 20261118)", the footer "Powered by rsL … · 2.8.0 · build 20261118" —
   // SemVer, no leading "v", no year; the same version and build in both.
   const semverStamp = /^(\d+\.\d+\.\d+) \(build (\d{8})\)$/.exec(stamp);
   record("ID-8.2", "Build stamp identical in app bar and footer (SemVer \"X.Y.Z (build YYYYMMDD)\" in the bar; \"X.Y.Z · build YYYYMMDD\" in the footer)", !!semverStamp && footerStamp.includes(`${semverStamp[1]} · build ${semverStamp[2]}`) && !/\bv\d+\.\d+ 20\d\d\b/.test(footerStamp), stamp);
