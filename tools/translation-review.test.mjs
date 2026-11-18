@@ -58,3 +58,81 @@ test("R25 is wired: release-check runs it, and CI passes --release only on relea
   assert.match(step, /startsWith\(github\.ref, 'refs\/tags\/v'\)/, step);
   assert.match(step, /'--release'/, step);
 });
+
+// 2.8.0 owner waiver (ADR-0020, owner decision 17 Nov 2026): with --release, R25 still measures the pending strings and
+// passes only on a machine-readable waiver (tools/r25-waiver.json) for exactly this app version whose ADR exists.
+// Removing the waiver, changing the version or deleting the ADR re-blocks the release.
+const loadWaiver = async () => (await import("./checks/translation-review.mjs").catch(() => ({}))).applyR25Waiver;
+const ADR = "docs/adr/0020-release-2.8.0-translations-pending-review.md";
+function waived({ version = "2.8.0", adr = true, waiver = true } = {}) {
+  const root = fixture({ "@status": "APPROVED", "@pendingReview": ["a.one", "b.two"], "a.one": "واحد", "b.two": "اثنان" });
+  if (adr) { mkdirSync(join(root, "docs/adr"), { recursive: true }); writeFileSync(join(root, ADR), "# ADR-0020\n"); }
+  if (waiver) {
+    mkdirSync(join(root, "tools"), { recursive: true });
+    writeFileSync(join(root, "tools/r25-waiver.json"), JSON.stringify({ version, adr: ADR, owner: "rsLozano", date: "2026-11-17", reason: "drafts ship" }));
+  }
+  return root;
+}
+async function r25(root, version = "2.8.0") {
+  const check = await load();
+  const apply = await loadWaiver();
+  assert.equal(typeof apply, "function", "applyR25Waiver exported");
+  return apply(root, check(root, { release: true }), { version });
+}
+
+test("R25 release + matching owner waiver: passes, says WAIVED and still reports the pending count", async () => {
+  const root = waived();
+  try {
+    const r = await r25(root);
+    assert.equal(r.ok, true, r.findings?.join("; "));
+    assert.equal(r.waived, true);
+    assert.match(r.summary, /^WAIVED/);
+    assert.match(r.summary, /ar 2 pending/);
+    assert.match(r.summary, /ADR-0020|0020-release-2\.8\.0/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("R25 release + waiver for another version: fails as before", async () => {
+  const root = waived({ version: "2.7.0" });
+  try {
+    const r = await r25(root);
+    assert.equal(r.ok, false);
+    assert.match(r.findings.join(" "), /ar: 2 strings pending native-speaker review/);
+    assert.match(r.findings.join(" "), /waiver is for 2\.7\.0, not 2\.8\.0/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("R25 release with the waiver file removed: fails as before", async () => {
+  const root = waived({ waiver: false });
+  try {
+    const r = await r25(root);
+    assert.equal(r.ok, false);
+    assert.match(r.findings.join(" "), /ar: 2 strings pending native-speaker review/);
+    assert.doesNotMatch(r.summary ?? "", /WAIVED/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("R25 release with the waiver's ADR missing: fails as before", async () => {
+  const root = waived({ adr: false });
+  try {
+    const r = await r25(root);
+    assert.equal(r.ok, false);
+    assert.match(r.findings.join(" "), /ADR .*0020.* not found/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("R25 release with nothing pending passes without a waiver and never says WAIVED", async () => {
+  const check = await load();
+  const apply = await loadWaiver();
+  const root = fixture({ "@status": "APPROVED", "a.one": "واحد", "b.two": "اثنان" });
+  try {
+    const r = apply?.(root, check(root, { release: true }), { version: "2.8.0" });
+    assert.equal(r?.ok, true);
+    assert.doesNotMatch(r?.summary ?? "", /WAIVED/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("R25 waiver is wired into release-check for --release runs, against the root package version", () => {
+  const rc = readFileSync(join(ROOT, "tools/release-check.mjs"), "utf8");
+  assert.match(rc, /applyR25Waiver\(ROOT, r, \{ version: ver \}\)/);
+});

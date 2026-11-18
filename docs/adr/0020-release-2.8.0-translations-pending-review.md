@@ -1,0 +1,35 @@
+# ADR-0020 — Release 2.8.0 with tier-1 translations pending native review (owner waiver)
+
+**Status:** Accepted · owner decision of 17 Nov 2026 · scope: release 2.8.0 only.
+
+## Context
+Release check **R25** (final review I-1, `tools/checks/translation-review.mjs`) fails a release build (`--release`: version
+tags, manual dispatch, `[release…]` commits on main) while any tier-1 catalog still lists strings in `@pendingReview`. Those
+are machine drafts of new or changed strings awaiting a native-speaker review. In the Arabic catalog (`ar.json`), the v2.8
+work left the new and changed strings as drafts (390 when this ADR was written). No native reviewer is available before 2.8.0. The tier-2 catalogs are MACHINE-CHECKED;
+none is CERTIFIED.
+
+## Decision
+The owner decided on **17 Nov 2026** that 2.8.0 ships its translations as drafts without native validation:
+- nothing is marked CERTIFIED; Arabic stays APPROVED for its reviewed strings and keeps its `@pendingReview` list, and
+  About keeps showing *N new strings await native-speaker review*;
+- R25 is **not** removed or weakened. It still counts the pending strings on every run. With `--release` it passes only when
+  `tools/r25-waiver.json` holds an owner waiver for exactly the app version being released, and this ADR exists. It then
+  prints `WAIVED` with the pending count. Without that waiver it fails exactly as before;
+- the waiver file is machine-readable: `{ "version", "adr", "owner", "date", "reason" }`. `version` must equal the root
+  `package.json` version. `adr` must point to this file.
+
+## Scope
+Release **2.8.0** only. A waiver names one version, so for 2.8.1 or 2.9.0 R25 blocks again unless the owner records a new
+decision (a new ADR and a new waiver).
+
+## Consequences
+- 2.8.0 users of Arabic see machine drafts for the new v2.8 strings, marked as awaiting review in About. Other languages
+  are unchanged MACHINE-CHECKED drafts. The CHANGELOG and the user guide say so.
+- LanguageTool runs as an **informational** CI check over the catalogs (`docs/translation-review.md`). It does not replace a
+  native review and never sets a status.
+
+## How to remove
+Delete `tools/r25-waiver.json` (or let the version move on). R25 then blocks every release again until each `@pendingReview`
+list is empty, i.e. a native speaker has reviewed the strings and their keys have been removed from the list. Keep this ADR
+as the record of the 2.8.0 decision.
