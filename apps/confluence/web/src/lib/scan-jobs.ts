@@ -35,6 +35,22 @@ export interface ScanJob {
   displayOnly?: boolean;
 }
 
+/** Consecutive slices of at most `n` items, in order (n < 1 is treated as 1). */
+export function chunk<T>(xs: readonly T[], n: number): T[][] {
+  const size = Math.max(1, Math.floor(n));
+  const out: T[][] = [];
+  for (let i = 0; i < xs.length; i += size) out.push(xs.slice(i, i + size));
+  return out;
+}
+
+/** TEST ONLY: lets a test make v2 throw. Production code never writes it. */
+export const v2TestHook: { score: typeof scoreV2 } = { score: scoreV2 };
+
+/** v2 is logged beside Classic and must never take Classic down: a fault gives null (the field is simply not computed). */
+function guardedV2(k: Kline[], o: Parameters<typeof scoreV2>[1]): V2Result | null {
+  try { return v2TestHook.score(k, o); } catch { return null; }
+}
+
 export function packKlines(k: Kline[]): Float64Array {
   const out = new Float64Array(k.length * 6);
   for (let i = 0; i < k.length; i++) {
@@ -98,7 +114,7 @@ export function runCatchUp(job: ScanJob, klines: Kline[]): { rows: LedgerRow[]; 
     });
     if (row) {
       // v2.8 (WP23): v2 on the same window Classic used for this row; logged, never scored.
-      row.v2 = v2Compact(scoreV2(window, { intervalMs: job.intervalMs, volumeAvailable: job.volumeAvailable, assetClass: job.assetClass }), row.t);
+      row.v2 = v2Compact(guardedV2(window, { intervalMs: job.intervalMs, volumeAvailable: job.volumeAvailable, assetClass: job.assetClass }), row.t);
       rows.push(row);
     }
   }
@@ -155,7 +171,7 @@ export function runScanJob(job: ScanJob): ScanJobResult {
     return { key: job.key, score: scoreSeries([], { intervalMs: job.intervalMs, volumeAvailable: false }), pattern: emptySignal("catch-up"), catchUpRows: cu.rows, ...(cu.gap ? { gap: cu.gap } : {}) };
   }
   const score = scoreSeries(klines, { intervalMs: job.intervalMs, volumeAvailable: job.volumeAvailable, assetClass: job.assetClass, profile: job.profile });
-  const v2 = scoreV2(klines, { intervalMs: job.intervalMs, volumeAvailable: job.volumeAvailable, assetClass: job.assetClass });
+  const v2 = guardedV2(klines, { intervalMs: job.intervalMs, volumeAvailable: job.volumeAvailable, assetClass: job.assetClass });
   if (!score.usable) return { key: job.key, score, pattern: emptySignal("Insufficient data"), v2 };
   const lastTime = klines.length ? klines[klines.length - 1].time : 0;
   const patternKey = job.key + (job.profile ? "|" + engineConfigId(job.profile) : "");

@@ -58,7 +58,7 @@ import {
 import type { ReversalResult } from "@/lib/reversal";
 import type { PatternSignal } from "@/lib/pattern-signal";
 import { runPanelScores, runScanJobs, scanMode } from "@/lib/scan-runner";
-import { packKlines, type ScanJob, type ScanJobResult } from "@/lib/scan-jobs";
+import { chunk, packKlines, type ScanJob, type ScanJobResult } from "@/lib/scan-jobs";
 import type { V2Result } from "@/lib/confluence-v2";
 import { createLedgerStore } from "@/lib/signal-ledger";
 import { createIndexedDBAdapter } from "@rsl/core-kit/core/rsl-storage.js";
@@ -1287,7 +1287,14 @@ export default function Home() {
           const done: Record<string, number> = {};
           for (const j of jobs) if (!j.pending) done[j.pair] = j.kl[j.kl.length - 1].time;
           if (pending.length) {
-            const res = await runScanJobs(pending.map((j) => j.job), { allowMainThread: false });
+            // v2 makes each catch-up job slower, so the jobs go to the worker 25 at a time (one message each, in order): a slow device
+            // never nears the worker timeout on one huge message. An empty answer means the worker is gone or failed: send no more.
+            const res: Awaited<ReturnType<typeof runScanJobs>> = [];
+            for (const part of chunk(pending.map((j) => j.job), 25)) {
+              const got = await runScanJobs(part, { allowMainThread: false });
+              if (!got.length) break;
+              res.push(...got);
+            }
             const byKey = new Map(res.map((x) => [x.key, x]));
             const rowsToAdd: LedgerRow[] = [];
             // v2.8 (WP21): catch-up rows log ft from the daily bars closed before each bar (same feed: one request per pair per UTC day, venue gates, 429 halt; a halt leaves ft null).

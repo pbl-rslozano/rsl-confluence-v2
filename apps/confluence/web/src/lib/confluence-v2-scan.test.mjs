@@ -2,7 +2,7 @@
 // Run: npm run test:v2-scan   (node scripts/run-engine-tests.mjs confluence-v2-scan.test.mjs)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runScanJob, runScanJobSafe, runCatchUp, packKlines, unpackKlines } from "./scan-jobs.ts";
+import { runScanJob, runScanJobSafe, runCatchUp, packKlines, unpackKlines, chunk, v2TestHook } from "./scan-jobs.ts";
 import { scoreSeries, toLedgerRow } from "./scan-pipeline.ts";
 import { scoreV2, v2Compact } from "./confluence-v2.ts";
 import { liveRow, scanShared, enrichCatchUp, applyFundTrend, applyScenarios } from "./scan-record.ts";
@@ -133,4 +133,32 @@ test("runCatchUp on 5 series x 48 rows completes; the v2 share of its time is pr
   }
   assert.equal(n, 240);
   console.log(`# catch-up: ${n} rows in ${total.toFixed(0)} ms; v2 share ${(100 * v2Time / total).toFixed(0)}%`);
+});
+
+test("chunk keeps order for 0, 25, 26 and 60 items", () => {
+  const seq = (n) => Array.from({ length: n }, (_, i) => i);
+  assert.deepEqual(chunk([], 25), []);
+  assert.deepEqual(chunk(seq(25), 25).map((c) => c.length), [25]);
+  assert.deepEqual(chunk(seq(26), 25).map((c) => c.length), [25, 1]);
+  assert.deepEqual(chunk(seq(60), 25).map((c) => c.length), [25, 25, 10]);
+  assert.deepEqual(chunk(seq(60), 25).flat(), seq(60));
+});
+
+test("a v2 fault leaves Classic score and catch-up rows unchanged and gives v2 null", () => {
+  const k = walk(1100, 5);
+  const catchJob = () => jobOf(k, { catchUp: { since: k[1090].time, max: 48, ctx: ctxOf() } });
+  const goodJob = runScanJob(jobOf(k));
+  const goodRows = runCatchUp(catchJob(), k).rows;
+  const real = v2TestHook.score;
+  v2TestHook.score = () => { throw new Error("v2 boom"); };
+  try {
+    const job = runScanJob(jobOf(k));
+    assert.equal(job.error, undefined);
+    assert.equal(job.v2, null);
+    assert.deepEqual(job.score, goodJob.score);
+    assert.deepEqual(job.pattern, goodJob.pattern);
+    const rows = runCatchUp(catchJob(), k).rows;
+    assert.equal(rows.length, goodRows.length);
+    rows.forEach((r, i) => { assert.equal(r.v2, null); const { v2: _a, ...a } = r; const { v2: _b, ...b } = goodRows[i]; assert.deepEqual(a, b); assert.ok(sanitizeLedgerRow(r)); });
+  } finally { v2TestHook.score = real; }
 });
