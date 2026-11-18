@@ -71,7 +71,7 @@ RSI, Stochastic, Williams %R and MFI vote on **every** interval, including 4h an
 ### Score, hysteresis and state
 - **Score.** The inputs are averaged per bloc, and the bloc means are combined with Classic's bloc weights (mean reversion
   phased out by Classic's 40-bar efficiency-ratio gate) into a mean in [−1, 1]; `score = round(100 × clamp(V2_GAIN × mean))`.
-  A bar with fewer than the Classic minimum of valid inputs (13 of the 18) has no score.
+  A bar with fewer than 70 % of its 18 inputs valid (Classic's minimum share: 13) has no score. The floor is counted over all 18, so without usable volume the 14 remaining inputs still score the bar.
 - **Hysteresis.** A label is entered at |score| ≥ 55 and returns to NEUTRAL below 40. The exit test runs before the entry
   test, and a bar without a score (suppressed) resets to NEUTRAL. A BUY entered at 58 therefore stays BUY at 45 (the detail
   line says "held") and ends below 40.
