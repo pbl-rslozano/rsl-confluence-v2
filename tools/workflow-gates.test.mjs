@@ -127,7 +127,8 @@ export function evaluate(expr, ctx) {
 const runs = (wf, job, ctx) => wf.triggers.has(ctx.github.event_name) && evaluate(job.if ?? "true", ctx);
 
 /* ---------- contexts ---------- */
-const dispatch = (ref, publish) => ({ github: { event_name: "workflow_dispatch", ref, event: { inputs: { publish } } }, inputs: { publish, draft: true } });
+// GitHub types the `inputs` context (boolean) but delivers github.event.inputs.* as strings ("false" is truthy).
+const dispatch = (ref, publish) => ({ github: { event_name: "workflow_dispatch", ref, event: { inputs: { publish: String(publish), draft: "true" } } }, inputs: { publish, draft: true } });
 const push = (ref, message) => ({ github: { event_name: "push", ref, event: { head_commit: { message } } }, inputs: {} });
 export const MUST_NOT_PUBLISH = {
   "publish=false dispatch from main": dispatch("refs/heads/main", false),
@@ -144,6 +145,9 @@ const TAG_PUSH = push("refs/tags/v2.8.0", "2.8.0");
 const RELEASE_COMMIT = push("refs/heads/main", "2.8.0 [release]");
 const BUILDS = ["verify", "windows", "macos", "linux", "android", "ios"];
 
+/** The only accepted dispatch clause of a publishing job (typed boolean input compared to true, main only). */
+export const DISPATCH_GATE = /\(github\.event_name == 'workflow_dispatch' && inputs\.publish == true && github\.ref == 'refs\/heads\/main'\)/;
+
 /** All findings for a set of workflow texts ({ file: text }). Empty = every gate holds. */
 export function audit(files) {
   const findings = [];
@@ -151,6 +155,7 @@ export function audit(files) {
     const wf = parseWorkflow(text);
     for (const [id, job] of Object.entries(wf.jobs)) {
       if (isPublishing(wf, job)) {
+        if (wf.triggers.has("workflow_dispatch") && !DISPATCH_GATE.test(job.if ?? "")) findings.push(`${file}:${id} has no \`inputs.publish == true && github.ref == 'refs/heads/main'\` dispatch gate`);
         for (const [name, ctx] of Object.entries(MUST_NOT_PUBLISH)) if (runs(wf, job, ctx)) findings.push(`${file}:${id} publishes on a ${name}`);
       } else {
         if (hasWrite(effectivePerms(wf, job))) findings.push(`${file}:${id} is a build job with write permission`);
@@ -195,6 +200,23 @@ test("release.yml publish jobs run on a v-tag push, a [release] commit and a pub
   }
 });
 
+test("every publishing job in every workflow carries the typed, main-only dispatch gate", () => {
+  let n = 0;
+  for (const [file, text] of Object.entries(WORKFLOWS)) {
+    const wf = parseWorkflow(text);
+    for (const [id, job] of Object.entries(wf.jobs)) {
+      if (!isPublishing(wf, job)) continue;
+      n++;
+      assert.match(job.if ?? "", /inputs\.publish == true && github\.ref == 'refs\/heads\/main'/, `${file}: ${id} gate`);
+      // Anything else in the gate is the tag-push clause or the owner's [release…] marker clause.
+      const rest = job.if.replace(DISPATCH_GATE, "").replace("(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))", "")
+        .replace(/\(github\.ref == 'refs\/heads\/main' && (?:contains\(github\.event\.head_commit\.message, '\[release(?:-[a-z]+)?\]'\)|\((?:contains\(github\.event\.head_commit\.message, '\[release(?:-[a-z]+)?\]'\)(?: \|\| )?)+\))\)/, "");
+      assert.match(rest, /^[\s|]*$/, `${file}: ${id} gate has an unexpected clause: ${rest}`);
+    }
+  }
+  assert.equal(n, 9, "7 in release.yml + promote-desktop + release-audit");
+});
+
 test("promote-desktop and release-audit run only on a publish=true dispatch of main, never on push", () => {
   for (const [file, id] of [["promote-desktop.yml", "promote"], ["release-audit.yml", "verify"]]) {
     const wf = parseWorkflow(WORKFLOWS[file]);
@@ -217,6 +239,23 @@ test("release.yml workflow_dispatch has a boolean `publish` input, default false
 });
 
 /* ---------- mutations: each loosening must be caught ---------- */
+// Fix round 2: GitHub delivers github.event.inputs.* as STRINGS ("false" is truthy); only `inputs.publish == true`
+// on the typed `inputs` context is a safe gate.
+test("mutation: promote-desktop gated on `inputs.publish` without `== true` is caught", () => {
+  const src = WORKFLOWS["promote-desktop.yml"];
+  const mutated = src.replace("inputs.publish == true &&", "inputs.publish &&");
+  assert.notEqual(mutated, src, "mutation applied");
+  const f = audit({ "promote-desktop.yml": mutated });
+  assert.ok(f.some((x) => x.startsWith("promote-desktop.yml:promote")), f.join("\n") || "not caught");
+});
+
+test("mutation: promote-desktop gated on `github.event.inputs.publish` (a string) is caught", () => {
+  const src = WORKFLOWS["promote-desktop.yml"];
+  const mutated = src.replace("inputs.publish == true &&", "github.event.inputs.publish &&");
+  assert.notEqual(mutated, src, "mutation applied");
+  const f = audit({ "promote-desktop.yml": mutated });
+  assert.ok(f.some((x) => x === "promote-desktop.yml:promote publishes on a publish=false dispatch from main"), f.join("\n") || "not caught");
+});
 const sneaky = `
   sneaky_upload:
     name: Upload notes
