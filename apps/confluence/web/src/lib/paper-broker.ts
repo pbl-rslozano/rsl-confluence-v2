@@ -594,7 +594,14 @@ export function updateSettings(book: PaperBook, next: RiskSettings, now = Date.n
   const invalid = validateSettings(next);
   if (invalid.length) return { ok: false, book, invalid };
   const cur = book.account.settings;
-  const loosens = LOOSENING_KEYS.some((k) => next[k] > cur[k]);
+  // K-Dense v2 (18 Nov 2026) A-L6: besides the LOOSENING_KEYS limits, more positions, the event blackout off,
+  // intraday proposals on and a lower minimum score also loosen the rules.
+  const loosens = LOOSENING_KEYS.some((k) => next[k] > cur[k])
+    || next.maxPositions > cur.maxPositions
+    || next.maxCryptoPositions > cur.maxCryptoPositions
+    || (cur.eventBlackout && !next.eventBlackout)
+    || (!cur.allowIntradayProposals && next.allowIntradayProposals)
+    || next.minScoreAbs < cur.minScoreAbs;
   const last = book.account.lastLockAt;
   if (loosens && (lockActive(book, now) || (last != null && utcDayStart(now) <= utcDayStart(last)))) return { ok: false, book, invalid: ["locked"] };
   return { ok: true, invalid, book: { ...book, account: { ...book.account, settings: { ...next } } } };

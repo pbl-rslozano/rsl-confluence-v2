@@ -13,7 +13,7 @@ ledger and paper trading must stay reproducible: converting history at today's r
    alerts, recorder and MCP keep each scan's native currency (USD ≈ USDT, EUR for EUR stablecoins, PHP on Coins.ph).
    Release check R21 enforces the boundary.
 2. **Rate source order:** Frankfurter v2 (`/v2/rates?base=USD`, central-bank blend with per-currency providers, pegs exact,
-   161 fiat currencies; code MIT, rates under each provider's terms) → fawazahmed0 currency-api via jsDelivr → its `currency-api.pages.dev` mirror (labelled
+   about 160 active fiat currencies in our 11 Nov 2026 probe; code MIT, rates under each provider's terms) → fawazahmed0 currency-api via jsDelivr → its `currency-api.pages.dev` mirror (labelled
    "community rates, method not published") → built-in official pegs (SAR, AED, QAR, OMR, BHD, JOD). One source per refresh,
    at most every 6 hours, cached on the device; > 3 days old is labelled stale.
 3. **Honesty labels:** the info line names the rate, its kind (official peg + authority, HKD band, "official rate" for
@@ -38,7 +38,7 @@ ledger and paper trading must stay reproducible: converting history at today's r
 | Option | Verdict |
 |---|---|
 | ECB reference rates directly | Official but 29 currencies (PHP included; no SAR or AED), XML without CORS → rejected as primary |
-| Frankfurter v2 | Central-bank blend with providers, 161 fiat, CORS, keyless → **primary** |
+| Frankfurter v2 | Central-bank blend with providers, about 160 fiat (11 Nov 2026 probe), CORS, keyless → **primary** |
 | open.er-api.com | Keyless, CORS, but attribution on the pages that use its rates and no redistribution; blend method undisclosed → not used as primary |
 | fawazahmed0 | Keyless, CORS, 340 codes; single-maintainer project, method and sources not published; licence not verified by us — see the repository → **fallback, labelled** |
 | Stablecoin-implied rates (e.g. USDT/PHP) | Market price, not a reference rate → shown as information (Coins.ph USDT premium), never used to convert |

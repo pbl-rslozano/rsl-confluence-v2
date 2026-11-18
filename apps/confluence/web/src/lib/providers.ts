@@ -31,13 +31,13 @@ export const PROVIDERS: readonly Provider[] = [
     terms: "https://coins.ph/terms-of-use" /* [terms URL not verified] */ },
   { id: "okx", name: "OKX", uses: "about.uses.exchange",
     apiDocs: "https://www.okx.com/docs-v5/en/",
-    terms: "https://www.okx.com/docs-v5/en/" /* the API page states the "OKX API Agreement" */ },
+    terms: "https://www.okx.com/help/okx-api-agreement" /* OKX API Agreement (last updated 28 Jul 2026), read 18 Nov 2026 — ADR-0018 §5 */ },
   { id: "coinbase", name: "Coinbase", uses: "about.uses.exchange",
     apiDocs: "https://docs.cdp.coinbase.com/exchange/introduction/welcome",
     terms: "https://www.coinbase.com/legal" /* [terms URL not verified] */ },
   { id: "upbit", name: "Upbit", uses: "about.uses.exchange",
     apiDocs: "https://global-docs.upbit.com/",
-    terms: "https://global-docs.upbit.com/" /* [terms URL not verified]; Korean docs: https://docs.upbit.com/kr */ },
+    terms: "https://upbit.com/open_api_agreement" /* Upbit Open API terms (revision effective 11 Oct 2023), read 18 Nov 2026 via docs.upbit.com — ADR-0018 §5 */ },
   // v2.8 Step 4a (WP25): market radar. All three are public, key-free, read-only data.
   { id: "binance-futures", name: "Binance USDⓈ-M Futures", uses: "about.uses.futures",
     apiDocs: "https://developers.binance.com/docs/derivatives/usds-margined-futures/general-info",
@@ -71,4 +71,12 @@ export const PROVIDERS: readonly Provider[] = [
   { id: "floatrates", name: "FloatRates", uses: "about.uses.rates",
     apiDocs: "https://www.floatrates.com",
     terms: "https://www.floatrates.com" /* [terms URL not verified] */ },
+  // K-Dense v2 (18 Nov 2026) B-L1: the two optional paid providers of the market radar. Only with the user's own key, held
+  // in the desktop gateway, which alone contacts them (ADR-0003, WP25 data-provider keys).
+  { id: "coinglass", name: "CoinGlass (paid key, desktop gateway)", uses: "about.uses.etf",
+    apiDocs: "https://docs.coinglass.com/",
+    terms: "https://www.coinglass.com/terms" },
+  { id: "whale-alert", name: "Whale Alert (paid key, desktop gateway)", uses: "about.uses.whale",
+    apiDocs: "https://developer.whale-alert.io/",
+    terms: "https://developer.whale-alert.io/terms-and-conditions.html" },
 ];

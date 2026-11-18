@@ -190,5 +190,26 @@ test("the Classic report is unchanged by v2 fields", () => {
   assert.equal(JSON.stringify(a), JSON.stringify(b));
 });
 
+// K-Dense v2 (18 Nov 2026) A-M4: the user guide says Classic labels have no hysteresis and Confluence v2 adds it. On the
+// WP23 4h evidence fixture v2's label churn is below Classic's (ADR-0017 table, all eight 1,600-bar 4h walks: 0.48 vs
+// 5.18 label changes per 100 bars). To keep the suite fast (controller ruling, round 2) this test scores the FIRST walk
+// of that fixture only (W0USDT, every bar j >= 299 on its trailing 1,000 bars, v2 attached: 1,301 rows, ~7 s).
+// Measured 18 Nov 2026 on that slice: Classic 4.77, v2 0.31 changes per 100 bars (2 walks: 4.62 vs 0.31, ~15 s).
+{
+  const { fixtureRows } = await import("./wp23-evidence.mjs");
+  const { v2ConfigId } = await import("./confluence-v2.ts");
+  const t4 = performance.now();
+  const { rows, intervalMs } = fixtureRows("4h", 1);
+  const withV2 = rows.filter((r) => r.v2?.cfg === v2ConfigId());
+  const classic = labelChurn(withV2, intervalMs).per100;
+  const v2 = labelChurn(withV2.map(asV2Row), intervalMs).per100;
+  console.log(`    4h evidence fixture, first walk: ${withV2.length} rows with v2; churn per 100 bars Classic ${classic.toFixed(2)}, v2 ${v2.toFixed(2)} (${((performance.now() - t4) / 1000).toFixed(1)} s)`);
+  test("A-M4: on the 4h evidence fixture (first walk), labelChurn(v2 rows).per100 < labelChurn(classic rows).per100", () => {
+    assert.ok(withV2.length > 1000 && withV2.length === rows.length, `${withV2.length} of ${rows.length}`);
+    assert.ok(Number.isFinite(v2) && Number.isFinite(classic));
+    assert.ok(v2 < classic, `v2 ${v2} vs classic ${classic}`);
+  });
+}
+
 console.log(`\n${passed}/${passed + failed} passed`);
 if (failed) process.exit(1);

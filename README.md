@@ -10,7 +10,7 @@ It is built from one web core with thin native shells:
 
 The common parts come from the rsL Core Kit: storage, audit, identity, i18n, brand and platform.
 
-Personal edition (ADR-0004): no licensing; credit line "Created by rsLozano".
+Personal edition (ADR-0004): no licence key; © rsLozano, all rights reserved (`LICENSE`); third-party components keep their own licences (`THIRD-PARTY-NOTICES.txt`); credit line "Created by rsLozano".
 
 New in v2.2:
 - **Signal ledger and replay backtest.** Every signal is recorded and measured after costs. See `docs/measurement.md`.

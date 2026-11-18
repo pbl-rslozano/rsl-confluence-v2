@@ -76,5 +76,35 @@ const bearSeq = () => [c(1,20,21,18,19), c(2,18,18,14,14.5), c(3,15,15,13,13.5)]
   ok("bear gap of 0.4 × ATR rejected, 0.6 × ATR accepted",
     detectFVG(bearGap(0.8), { lastBarClosed: true }).all.length === 0 && detectFVG(bearGap(1.2), { lastBarClosed: true }).all.length === 1); }
 
+// K-Dense v2 (18 Nov 2026) A-M6: FVG density on noise is recorded, not retuned (a new minGapAtr would move Classic's
+// config id). Nine seeded 1,000-bar 4h random walks — Gaussian, Student-t(3) and GARCH(1,1), each at 0.5 %, 1 % and
+// 2 % per bar, random wicks, one seed per cell — with the default options give 1 gap per 11.6 bars pooled (measured
+// 18 Nov 2026; a single 1,000-bar series varies, 1 per 9.5-13.7; the audit's grid gave 1 per 11-14); this pins the
+// pooled gaps per bar ≤ 1/10.
+{ const lcg = (seed) => { let s = seed >>> 0 || 1; return () => { s = (s * 16807) % 2147483647; return s / 2147483647; }; };
+  const walk = (kind, vol, seed) => {
+    const r = lcg(seed);
+    const gauss = () => { let u = 0, v = 0; while (!u) u = r(); while (!v) v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+    const t3 = () => { let q = 0; for (let i = 0; i < 3; i++) { const g = gauss(); q += g * g; } return gauss() / Math.sqrt(q / 3) / Math.sqrt(3); };
+    const out = []; let px = 100, h = vol * vol, eps = 0;
+    const omega = vol * vol * 0.05, a = 0.10, b = 0.85;
+    for (let i = 0; i < 1000; i++) {
+      let sig = vol;
+      if (kind === "garch") { h = omega + a * eps * eps + b * h; sig = Math.sqrt(h); }
+      eps = (kind === "t3" ? t3() : gauss()) * sig;
+      const o = px; px = px * Math.exp(eps);
+      out.push(c(Date.UTC(2025, 0, 1) + i * 4 * 3600e3, o, Math.max(o, px) * (1 + Math.abs(gauss()) * sig * 0.4), Math.min(o, px) * (1 - Math.abs(gauss()) * sig * 0.4), px));
+    }
+    return out;
+  };
+  let gaps = 0, bars = 0, idx = 0; const per = [];
+  for (const kind of ["gauss", "t3", "garch"]) for (const vol of [0.005, 0.01, 0.02]) {
+    const k = walk(kind, vol, 4242 + 1009 * idx++); // one seed per cell ("gauss" and "garch" have the same length)
+    const g = detectFVG(k, { lastBarClosed: true }).all.length;
+    per.push(`${kind} ${vol}: 1 per ${(k.length / g).toFixed(1)}`); gaps += g; bars += k.length;
+  }
+  console.log("  (FVG on noise: " + per.join(" · ") + ")");
+  ok("A-M6: default FVG options on 9 seeded 4h random walks give ≤ 1 gap per 10 bars pooled (got 1 per " + (bars / gaps).toFixed(1) + ")", gaps > 0 && gaps / bars <= 1 / 10); }
+
 console.log("\nFVG regression: " + passed + "/" + (passed+failed) + " passed");
 process.exit(failed===0?0:1);

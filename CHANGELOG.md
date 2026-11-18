@@ -4,6 +4,14 @@ Steps 1 to 5 of the v2.8 plan (`docs/superpowers/specs/2026-11-15-v2.8-architect
 credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (Step 2); Fund trend (Step 3); Market radar part 1 (Step 4a) and part 2 (Step 4b); Scenarios and Reflect view (Step 5); Fear & Greed widget (WP29); two-line header at ≥ 1280 px (owner decision, 16 Nov 2026). Engine 2.4.0 (`5c30b5c39f5ba3f2`);
 ledger rows of engine 2.3.0 stay and are reported separately.
 
+- **K-Dense v2 audit corrections (18 Nov 2026, WP19/WP20/WP22/WP26):** the no-loosening rule while a lock is active
+  also refuses more positions, the event blackout off, 1m–15m proposals on and a lower minimum score; the 26–27 Oct 2027
+  FOMC meeting (strategy only, no decision) no longer blocks paper trades; Scenarios say when the odds equal the base rate
+  (`scenario.allSameState`, all 18 catalogs, Arabic draft pending review); Data sources & thanks lists CoinGlass and
+  Whale Alert (paid key, desktop gateway) and links the OKX API Agreement and Upbit Open API terms; About's update and
+  data notes reworded; the SBOM takes the Core Kit version from its package; guide §16 names every host contacted;
+  wording fixes in the guide, `paper-trading.md`, `measurement.md`, ADR-0003/0008/0010/0015/0018 and the plan. Classic
+  unchanged (`5c30b5c39f5ba3f2`).
 - **Confluence v2 challenger (WP23, ADR-0017):** recorded on each ledger row and compared in the ledger, never shown in the
   list; Classic unchanged (`5c30b5c39f5ba3f2`); acceptance CV-1…CV-3.
 - **Catch-up in chunks (WP23):** the catch-up after a gap now goes to the scan worker in chunks of at most 25 jobs, so one

@@ -123,6 +123,20 @@ function fixtureGroups() {
   };
 }
 
+/**
+ * K-Dense v2 (18 Nov 2026) A-M4: the ledger rows of one evidence fixture ("1h" or "4h"), every row carrying its v2
+ * compact, exactly as `allMetrics` builds them (used by head-to-head.test.mjs to keep the guide's churn statement tested).
+ */
+export function fixtureRows(key, maxSeries = Infinity) {
+  const fx = fixtureGroups()[key];
+  if (!fx) throw new Error(`unknown fixture ${key}`);
+  const acc = { agree: 0, total: 0, allAgree: 0, allTotal: 0 };
+  const rows = [];
+  // maxSeries: only the first n series of the group (the same walks, in order) — keeps the unit test fast.
+  for (const { series, pair, tf } of fx.group.slice(0, maxSeries)) rows.push(...seriesRows(series, pair, tf, fx.intervalMs, acc));
+  return { rows, intervalMs: fx.intervalMs };
+}
+
 function classicOf(one, four) {
   return {
     configId: engineConfigId(),

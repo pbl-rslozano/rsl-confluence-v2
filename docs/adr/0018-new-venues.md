@@ -264,13 +264,13 @@ one-second window per gate.
   docs and terms (`lib/providers.ts`).
 - Engine unchanged: `ENGINE_VERSION` 2.4.0, config id `5c30b5c39f5ba3f2`.
 
-### 5. Terms of use (to be read and recorded before release)
+### 5. Terms of use (OKX and Upbit recorded 18 Nov 2026; Coinbase open)
 
 | Venue | Terms | Status |
 |---|---|---|
-| OKX | The OKX API docs page (<https://www.okx.com/docs-v5/en/>) states that use of the API is subject to the **"OKX API Agreement — continued use constitutes acceptance"**. | Agreement text [to be read by the owner before release] [not verified] |
-| Coinbase | <https://www.coinbase.com/legal> (Coinbase Exchange API terms to be located from there) | [to be read by the owner before release] [not verified] |
-| Upbit | <https://global-docs.upbit.com/> (Korean docs: <https://docs.upbit.com/kr>) | [to be read by the owner before release] [not verified] |
+| OKX | OKX API Agreement (okx.com/help/okx-api-agreement, last updated 28 Jul 2026), read 18 Nov 2026: public endpoints are subject to it (§3.2(a)); market data may be used solely for personal, non-commercial trading purposes and may not be redistributed or displayed to third parties without OKX's written consent (§9.4); OKX marks need consent (§9.5). This app shows OKX data only to the person running it (personal edition); names only, no logos. | Recorded 18 Nov 2026 (K-Dense v2 audit) |
+| Coinbase | <https://www.coinbase.com/legal> (Coinbase Exchange API terms to be located from there). coinbase.com/legal/market_data (Market Data Terms of Use; search title 'Last updated: February 6, 2023') could not be fetched on 18 Nov 2026. | [to be read by the owner before release] [not verified] |
+| Upbit | Upbit Open API terms (upbit.com/open_api_agreement; revision effective 11 Oct 2023), read 18 Nov 2026 via docs.upbit.com: copyright in Open API data belongs to Dunamu and it may not be used without authorisation. The `/x/upbit/` web relay therefore serves the owner's personal use only, as for Coins.ph (ADR-0013). | Recorded 18 Nov 2026 (K-Dense v2 audit) |
 
 **The Upbit web relay.**
 - Requests leave from Netlify's shared edge IPs, so an Upbit 429/418 can reach this app without the user causing it (as

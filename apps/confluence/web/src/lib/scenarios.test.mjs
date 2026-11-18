@@ -247,6 +247,21 @@ test("n_eff = matches x 2 / H", () => {
   assert.equal(f.nEff, f.baseNEff);
 });
 
+test("A-L5: constant Fund trend (every past bar in today's state) sets allSameState; odds equal the base odds", () => {
+  const bars = series(400, { seed: 4 });
+  const o = scenarioOdds(bars, flatFt(400, 20), 6, H);
+  assert.equal(o.matches, o.sampled);
+  assert.equal(o.allSameState, true);
+  assert.equal(o.fallback, null);
+  for (const b of BUCKETS) assert.equal(o.odds[b].p, o.base[b]);
+  // Mixed states: not all the same.
+  const cyc = [20, -20, 0];
+  const mixed = scenarioOdds(series(1000, { seed: 14 }), Array.from({ length: 1000 }, (_, i) => cyc[i % 3]), 6, H);
+  assert.equal(mixed.allSameState, false);
+  // No state today: never "all the same".
+  assert.equal(scenarioOdds(bars, flatFt(400, null), 6, H).allSameState, false);
+});
+
 test("no state -> overall odds", () => {
   const bars = series(400, { seed: 4 });
   const o = scenarioOdds(bars, flatFt(400, null), 6, H);
