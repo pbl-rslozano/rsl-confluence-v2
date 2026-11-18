@@ -21,7 +21,9 @@ checked and the matches by rule category. It is informational: `continue-on-erro
 the release workflow or the release checks, and it never sets or changes a catalog status. Its matches are hints for the
 native reviewer, not a review.
 - **Pinned:** LanguageTool 6.6, SHA-256 `53600506…14d11631` (full value and source in `tools/languagetool.lock.json`;
-  verified with `sha256sum -c` before use), Java 21 (Temurin) via `actions/setup-java` pinned by commit SHA.
+  verified with `sha256sum -c` before use), Java 21 (Temurin) via `actions/setup-java` pinned by commit SHA. Only the Java
+  major version is pinned; the patch release floats with what setup-java resolves for "21" (review M8, accepted for a
+  CI-only informational check).
 - **Download host (CI only):** `languagetool.org` (`https://languagetool.org/download/LanguageTool-6.6.zip`), fetched by the
   CI runner only. No remote LanguageTool API is used, and the app gains no host (ADR-0003 unchanged).
 - **Licence:** LanguageTool is LGPL-2.1-or-later. It is a CI tool only: not a dependency, not in any bundle, installer,

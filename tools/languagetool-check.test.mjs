@@ -104,6 +104,8 @@ test("CI: the LanguageTool job is informational, local, and pinned (LanguageTool
   assert.match(yml, /uses: actions\/setup-java@[0-9a-f]{40} /, "setup-java pinned by commit SHA");
   for (const m of yml.matchAll(/uses: ([^\s@]+)@(\S+)/g)) assert.match(m[2], /^[0-9a-f]{40}$/, `${m[1]} pinned by SHA`);
   assert.match(yml, /sha256sum -c/, "the download is verified against the pinned SHA-256");
+  // Review I2: setup-node v5 would try to cache pnpm (packageManager in package.json), which this job never installs.
+  assert.match(yml, /uses: actions\/setup-node@[0-9a-f]{40} # v5\n        with: \{ node-version: "\$\{\{ env\.NODE_VERSION \}\}", package-manager-cache: false \}/, "setup-node without the package-manager cache");
   assert.match(yml, /node tools\/languagetool-check\.mjs/);
   assert.match(yml, /GITHUB_STEP_SUMMARY|upload-artifact/);
   assert.doesNotMatch(yml, /api\.languagetool\.org|languagetoolplus\.com/, "no remote LanguageTool API");
