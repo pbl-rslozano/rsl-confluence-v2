@@ -32,7 +32,7 @@ import { join } from "node:path";
 import { appendFileSync, closeSync, existsSync, fstatSync, openSync, readSync, renameSync, statSync } from "node:fs";
 import {
   applyFundTrend, applyScenarios, cachedDailyBars, catchUpContext, classifySymbol, contiguousTail, DERIV_MAX_AGE_MS, detectHistoricalPattern, ENGINE_BARS, engineConfigId, enrichCatchUp, fetchMarketData, INTERVAL_MS,
-  liveRow, loadFundTrends, RADAR_INTERVAL_MS, mergeKlines, packKlines, parseDerivativeSnapshots, rateLimitCooldown, RateLimitError, runScanJobSafe, scanShared, scoreSeries, venueTypeOf,
+  guardedV2, liveRow, loadFundTrends, RADAR_INTERVAL_MS, mergeKlines, packKlines, parseDerivativeSnapshots, rateLimitCooldown, RateLimitError, runScanJobSafe, scanShared, scoreSeries, venueTypeOf,
 } from "./engine.mjs";
 import { createGuardedFetch, installGlobalFetch, loadRecorderManifest, makeRedactor } from "./net.mjs";
 import { createCandleCache, createJsonlAppender, createLedger, ensureDir, monthOf, readJson, writeJsonAtomic } from "./store.mjs";
@@ -369,7 +369,9 @@ export function createRecorder(config, { env = process.env, baseFetch = globalTh
             volumeAvailable, intervalMs: data.intervalMs, currentConfluence: score.confluence, currentReversal: score.reversal,
             cacheKey: `${source}:${tf}:${t.symbol}${config.profile ? `|${cfg}` : ""}`,
           });
-          const row = liveRow({ ...seriesOf(t, kl), pattern }, score, recordCtx, shared);
+          // v2.8 (WP23): Confluence v2 beside Classic, through the app's guard (a fault gives null; Classic is unchanged). Never takes the profile.
+          const v2 = guardedV2(kl, { intervalMs: data.intervalMs, volumeAvailable, assetClass: ac });
+          const row = liveRow({ ...seriesOf(t, kl), pattern, v2 }, score, recordCtx, shared);
           if (row) {
             live.push({ row, score });
             result.scored++;

@@ -47,7 +47,7 @@ export function chunk<T>(xs: readonly T[], n: number): T[][] {
 export const v2TestHook: { score: typeof scoreV2 } = { score: scoreV2 };
 
 /** v2 is logged beside Classic and must never take Classic down: a fault gives null (the field is simply not computed). */
-function guardedV2(k: Kline[], o: Parameters<typeof scoreV2>[1]): V2Result | null {
+export function guardedV2(k: Kline[], o: Parameters<typeof scoreV2>[1]): V2Result | null {
   try { return v2TestHook.score(k, o); } catch { return null; }
 }
 

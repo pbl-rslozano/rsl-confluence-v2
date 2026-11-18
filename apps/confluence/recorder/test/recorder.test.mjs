@@ -4,9 +4,10 @@ import assert from "node:assert/strict";
 import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
-  applyScenarios, barWhileClosed, cachedDailyBars, classifySymbol, detectHistoricalPattern, ENGINE_BARS, enrich, percentiles, resetFundTrendFeedForTests, resetRateLimitForTests, rateLimitCooldown, ret20, scoreSeries, toLedgerRow,
+  applyScenarios, barWhileClosed, cachedDailyBars, classifySymbol, detectHistoricalPattern, ENGINE_BARS, enrich, percentiles, resetFundTrendFeedForTests, resetRateLimitForTests, rateLimitCooldown, ret20, scoreSeries, scoreV2, toLedgerRow, v2Compact, v2ConfigId,
 } from "../src/engine.mjs";
 import { sanitizeLedgerRow } from "../../web/src/lib/ledger-metrics.ts";
+import { v2TestHook } from "../../web/src/lib/scan-jobs.ts";
 import { createRecorder, readHeartbeatStatus } from "../src/recorder-core.mjs";
 import { nextWake } from "../src/schedule.mjs";
 import { baseConfig, bars, currentOpen, mockExchange, quiet, STEP_4H, T0, tempDir } from "./fixtures.mjs";
@@ -73,7 +74,7 @@ test("live rows are identical to scoreSeries + toLedgerRow (+ enrich) on the sam
   const got = ledgerRows(dir);
   // v2.8 (WP21): `ft` is a logged benchmark (number or null), never part of the score; compare the rest.
   assert.ok(got.every((r) => r.ft === null || Number.isFinite(r.ft)), "every crypto row carries ft");
-  assert.deepEqual(got.map(({ ft, scb, scp, ...r }) => r), expectedLive(klBySym, T0)); // v2.8 (WP22): scb/scp are logged, never scored
+  assert.deepEqual(got.map(({ ft, scb, scp, v2, ...r }) => r), expectedLive(klBySym, T0)); // v2.8 (WP22): scb/scp are logged, never scored; (WP23) v2 likewise
   assert.equal(got[0].wb, 999, "engine saw every closed bar it was given");
   assert.equal(got[2].rk, 3, "rank = position in the scanned (class) universe, as in the app");
   assert.equal(got[2].rku, 4, "rku = position in the full unfiltered venue ranking");
@@ -197,7 +198,7 @@ test("catch-up after a gap scores every missed closed bar with the full ENGINE_B
         universeRank: FULL_RANK[u.symbol], rankSource: "now",
       });
       Object.assign(exp, enrich(exp, kl.slice(0, j + 1), { intervalMs: IV, btc: merged.BTCUSDT, rs: null }));
-      const { ft, scb, scp, ...scored } = row; // v2.8: ft (WP21) and scb/scp (WP22) are logged, not part of the scored row
+      const { ft, scb, scp, v2, ...scored } = row; // v2.8: ft (WP21), scb/scp (WP22) and v2 (WP23) are logged, not part of the scored row
       assert.deepEqual(scored, JSON.parse(JSON.stringify(exp)), `${u.symbol} ${new Date(row.t).toISOString()}`);
     }
   }
@@ -461,4 +462,73 @@ test("v2.8 (WP21): crypto rows log ft from the pair's own daily bars, once per p
   mock.timers.setTime(T0 + IV);
   await runOnce(dir, ex);
   assert.equal(ex.calls.filter((c) => dailyUrl(new URL(c.url))).length, before);
+});
+
+// ---- v2.8 (WP23 Task 7): Confluence v2 is recorded on every row with the app's code, never scored ----
+const V2_PIN = "f5c94871f16f6673";
+const v2Opts = (u) => ({ intervalMs: IV, volumeAvailable: true, assetClass: classifySymbol("binance", u.symbol) });
+
+test("v2.8 (WP23): live and catch-up rows carry the app's v2 (same window, same code, config id pinned)", async (t) => {
+  assert.equal(v2ConfigId(), V2_PIN);
+  const dir = tempDir(t);
+  const ex = mockExchange();
+  await runOnce(dir, ex);
+  const cur1 = currentOpen(T0);
+  const live = ledgerRows(dir);
+  const kl1 = Object.fromEntries(UNIVERSE.map((u) => [u.symbol, bars(u.symbol, cur1 - 999 * IV, cur1 - IV)]));
+  assert.equal(live.length, 3);
+  for (const row of live) {
+    const u = UNIVERSE.find((x) => x.symbol === row.pair);
+    const want = v2Compact(scoreV2(kl1[u.symbol], v2Opts(u)), row.t);
+    assert.ok(want, `${row.pair}: v2 is usable on the fixture`);
+    assert.deepEqual(row.v2, want, `${row.pair} live`);
+    assert.equal(row.v2.cfg, V2_PIN);
+    assert.ok(sanitizeLedgerRow(row), "the app's import sanitiser accepts a row with v2");
+  }
+
+  const t2 = T0 + 10 * IV;
+  mock.timers.setTime(t2);
+  await runOnce(dir, ex);
+  const cur2 = currentOpen(t2);
+  const merged = Object.fromEntries(UNIVERSE.map((u) => [u.symbol, bars(u.symbol, cur1 - 999 * IV, cur2 - IV)]));
+  const rows = allLedger(dir).filter((r) => r.t > cur1 - IV);
+  assert.equal(rows.length, 30);
+  for (const row of rows) {
+    const u = UNIVERSE.find((x) => x.symbol === row.pair);
+    const kl = merged[u.symbol];
+    const j = kl.findIndex((b) => b.time === row.t);
+    const want = v2Compact(scoreV2(kl.slice(Math.max(0, j - 999), j + 1), v2Opts(u)), row.t);
+    assert.deepEqual(row.v2, want, `${row.pair} ${new Date(row.t).toISOString()} (${row.rks})`);
+    assert.equal(row.v2.cfg, V2_PIN);
+  }
+});
+
+test("v2.8 (WP23): Classic fields and alerts are unchanged by v2; a v2 fault leaves every Classic field exactly as it was", async (t) => {
+  const seen = [];
+  const run = async (sub) => {
+    const dir = tempDir(t);
+    const ex = mockExchange();
+    const rec = createRecorder(baseConfig(dir, {}), { ...quiet, baseFetch: ex.fetch, env: {}, });
+    const origEvaluate = rec.alerter.evaluate.bind(rec.alerter);
+    rec.alerter.evaluate = (liveRows, ...rest) => { seen.push({ sub, rows: liveRows.map(({ row }) => ({ pair: row.pair, t: row.t, sc: row.sc, m: row.m, st: row.st })) }); return origEvaluate(liveRows, ...rest); };
+    const result = await rec.run(undefined, { once: true });
+    return { dir, result };
+  };
+  const withV2 = await run("v2");
+  const realScore = v2TestHook.score;
+  v2TestHook.score = () => { throw new Error("v2 fault (test)"); };
+  let faulted;
+  try { faulted = await run("fault"); } finally { v2TestHook.score = realScore; }
+
+  const a = ledgerRows(withV2.dir), b = ledgerRows(faulted.dir);
+  assert.equal(a.length, 3);
+  assert.ok(a.every((r) => r.v2 && r.v2.cfg === V2_PIN), "v2 recorded when healthy");
+  assert.ok(b.every((r) => !("v2" in r) || r.v2 === null), "a v2 fault gives no v2 field");
+  assert.deepEqual(a.map(({ v2, ...r }) => r), b.map(({ v2, ...r }) => r), "rows minus v2 are deep-equal with and without v2");
+  assert.deepEqual([withV2.result.written, withV2.result.duplicates, withV2.result.alerts], [faulted.result.written, faulted.result.duplicates, faulted.result.alerts]);
+  assert.equal(faulted.result.written, 3, "a v2 fault never stops Classic recording");
+  const bySub = (sub) => seen.filter((x) => x.sub === sub).flatMap((x) => x.rows);
+  assert.equal(bySub("v2").length, 3, "the alerter observed the live rows");
+  assert.deepEqual(bySub("v2"), bySub("fault"), "the alerter sees the same Classic sc/m/st either way");
+  assert.deepEqual(bySub("v2"), a.map((r) => ({ pair: r.pair, t: r.t, sc: r.sc, m: r.m, st: r.st })), "the alerter's rows carry Classic's sc/m/st");
 });
