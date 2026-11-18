@@ -755,6 +755,7 @@
   "sc.showOnChart": "チャートに表示",
   "sc.hideFromChart": "チャートから消す",
   "sc.sampleAll": "過去の局面 {cases} 件(全ての足) · 有効サンプル {neff}",
+  "scenario.allSameState": "Every past bar here is in the same Fund-trend state, so these odds equal the base rate",
   "chart.reflect": "反転表示（価格軸を反転）",
   "chart.reflected": "反転中",
   "ledger.sc.title": "シナリオ検証",

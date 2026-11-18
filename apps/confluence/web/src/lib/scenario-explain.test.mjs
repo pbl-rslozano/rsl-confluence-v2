@@ -212,5 +212,14 @@ test("sampleLine: similar moments normally; all sampled bars with the overall n_
   for (const k of ["sc.sample", "sc.sampleAll"]) assert.ok(k in en, "en.json lacks " + k);
 });
 
+test("A-L5: sampleLine says the odds equal the base rate when every past bar is in today's Fund-trend state", () => {
+  const en = JSON.parse(readFileSync(join(process.cwd(), "src", "rsl", "i18n", "en.json"), "utf8"));
+  const same = sampleLine(result({ odds: { matches: 400, nEff: 133.33, sampled: 400, withState: 400, allSameState: true } }).odds);
+  assert.deepEqual(same, { key: "scenario.allSameState", vars: { neff: 133.3 } });
+  assert.equal(en["scenario.allSameState"], "Every past bar here is in the same Fund-trend state, so these odds equal the base rate");
+  const normal = sampleLine(result({ odds: { matches: 245, nEff: 81.66, sampled: 400, allSameState: false } }).odds);
+  assert.equal(normal.key, "sc.sample");
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

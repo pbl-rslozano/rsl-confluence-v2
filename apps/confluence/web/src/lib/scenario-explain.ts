@@ -154,5 +154,8 @@ export function sheetNotes(result: ScenarioResult, barsHeld: number): ExplainPar
  */
 export function sampleLine(o: ScenarioOdds): ExplainPart {
   const neff = Math.round(o.nEff * 10) / 10;
+  // K-Dense v2 (18 Nov 2026) A-L5: when every past bar is in today's Fund-trend state the "similar" moments are all of
+  // them, so say the odds equal the base rate instead of counting "similar past moments".
+  if (!o.fallback && o.allSameState) return { key: "scenario.allSameState", vars: { neff } };
   return o.fallback ? { key: "sc.sampleAll", vars: { cases: o.sampled, neff } } : { key: "sc.sample", vars: { cases: o.matches, neff } };
 }

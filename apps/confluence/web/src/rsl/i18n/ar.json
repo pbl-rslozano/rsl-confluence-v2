@@ -386,7 +386,8 @@
     "ledger.v2.v2",
     "ledger.v2.notCompared",
     "ledger.v2.note",
-    "ledger.v2.otherVersions"
+    "ledger.v2.otherVersions",
+    "scenario.allSameState"
   ],
   "app.subtitle": "ماسح توافق مؤشرات العملات المشفّرة",
   "ctx.page": "الماسح",
@@ -1142,6 +1143,7 @@
   "sc.showOnChart": "عرض على الرسم البياني",
   "sc.hideFromChart": "إخفاء من الرسم البياني",
   "sc.sampleAll": "{cases} لحظة سابقة (كل الشموع) · العينة الفعلية {neff}",
+  "scenario.allSameState": "كل الشموع السابقة هنا في حالة اتجاه الصندوق نفسها، لذا تساوي هذه الاحتمالات المعدل الأساسي",
   "chart.reflect": "عرض معكوس (عكس محور السعر)",
   "chart.reflected": "معكوس",
   "ledger.sc.title": "فحص السيناريوهات",

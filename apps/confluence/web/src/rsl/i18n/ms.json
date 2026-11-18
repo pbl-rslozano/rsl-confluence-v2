@@ -755,6 +755,7 @@
   "sc.showOnChart": "Tunjukkan pada carta",
   "sc.hideFromChart": "Sembunyikan daripada carta",
   "sc.sampleAll": "{cases} detik lalu (semua bar) · sampel berkesan {neff}",
+  "scenario.allSameState": "Every past bar here is in the same Fund-trend state, so these odds equal the base rate",
   "chart.reflect": "Paparan cermin (terbalikkan paksi harga)",
   "chart.reflected": "Dicerminkan",
   "ledger.sc.title": "Semakan senario",

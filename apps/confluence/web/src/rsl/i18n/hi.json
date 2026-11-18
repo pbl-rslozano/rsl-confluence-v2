@@ -755,6 +755,7 @@
   "sc.showOnChart": "चार्ट पर दिखाएँ",
   "sc.hideFromChart": "चार्ट से छिपाएँ",
   "sc.sampleAll": "{cases} पिछले क्षण (सभी बार) · प्रभावी नमूना {neff}",
+  "scenario.allSameState": "Every past bar here is in the same Fund-trend state, so these odds equal the base rate",
   "chart.reflect": "प्रतिबिंब दृश्य (मूल्य अक्ष उलटें)",
   "chart.reflected": "प्रतिबिंबित",
   "ledger.sc.title": "परिदृश्य जाँच",

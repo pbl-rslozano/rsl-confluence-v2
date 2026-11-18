@@ -254,6 +254,8 @@ export interface ScenarioOdds {
   sigmaH: number;
   withState: number;
   sampled: number;
+  /** K-Dense v2 (18 Nov 2026) A-L5: every sampled past bar is in today's Fund-trend state, so the odds equal the base rate. */
+  allSameState: boolean;
 }
 
 /**
@@ -312,7 +314,8 @@ export function scenarioOdds(bars: Kline[], ftAt: (number | null)[], h: ScHorizo
     const [lo, hi] = wilson(p * nEff, nEff);
     odds[b] = { p, lo, hi, cases: counts[b] };
   }
-  return { state, fallback, matches, nEff, odds, base, baseNEff, sigmaH, withState, sampled };
+  const allSameState = state !== null && matches === sampled;
+  return { state, fallback, matches, nEff, odds, base, baseNEff, sigmaH, withState, sampled, allSameState };
 }
 
 /** Per bucket, the simulated path whose end-of-horizon x is nearest the bucket's median x (ties -> lowest index); empty -> null. */
