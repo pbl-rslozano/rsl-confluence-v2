@@ -11,6 +11,22 @@ English (source) and Arabic are **APPROVED**. The other 16 languages (ja, fil, b
 
 **Tier-1 drafts pending review (v2.8, final review I-1).** A tier-1 catalog (ar) never shows English: every string is translated, except the keys in `TIER1_SAME_AS_EN` (tickers and technical tokens such as `PSR`, `SHA-256 {sha}`). New or changed strings get an Arabic machine draft and their key goes into the catalog's `@pendingReview` list. The catalog stays APPROVED for its reviewed strings, and About shows *approved — N new strings await native-speaker review*. The validator rejects an English-identical tier-1 string and a malformed list (unknown, metadata or repeated keys; any list on a tier-2 catalog). Release check **R25** fails a **release** while any list is non-empty. CI passes `--release` only on release builds (version tags, manual dispatch, `[release…]` commits on main); a merge run only reports the count. After the native reviewer passes a string, remove its key from `@pendingReview`. **2.8.0 owner waiver (ADR-0020, 17 Nov 2026):** 2.8.0 ships with the Arabic v2.8 strings still pending; R25 still counts them and passes a 2.8.0 release only as `WAIVED`, on `tools/r25-waiver.json` (owner, date, reason, and `version` equal to the app version) whose ADR exists. Deleting the waiver, or any other version, re-blocks a release.
 
+**LanguageTool (informational, 2.8.0, owner decision 17 Nov 2026).** Workflow `languagetool`
+(`.github/workflows/languagetool.yml`; pull requests that touch the catalogs, and manual dispatch) runs LanguageTool
+**locally on the CI runner** over the catalogs for ar, de, es, fr, it, ja, pt (pt-BR), ru, zh, fil (checked as Tagalog,
+`tl-PH`) and en. `tools/languagetool-check.mjs` extracts the strings, leaving out ICU placeholders (`{name}`; plural and
+select keep their `other` text) and brand strings and the build stamp (never translated), and runs the LanguageTool
+command line on each catalog. The job summary and the `languagetool-report` artifact list, per catalog, the strings
+checked and the matches by rule category. It is informational: `continue-on-error`, never a required check, not part of
+the release workflow or the release checks, and it never sets or changes a catalog status. Its matches are hints for the
+native reviewer, not a review.
+- **Pinned:** LanguageTool 6.6, SHA-256 `53600506…14d11631` (full value and source in `tools/languagetool.lock.json`;
+  verified with `sha256sum -c` before use), Java 21 (Temurin) via `actions/setup-java` pinned by commit SHA.
+- **Download host (CI only):** `languagetool.org` (`https://languagetool.org/download/LanguageTool-6.6.zip`), fetched by the
+  CI runner only. No remote LanguageTool API is used, and the app gains no host (ADR-0003 unchanged).
+- **Licence:** LanguageTool is LGPL-2.1-or-later. It is a CI tool only: not a dependency, not in any bundle, installer,
+  SBOM or third-party notice, so the shipped-component licence policy (R24) does not apply to it.
+
 **Automated checks (every push and pull request):** key parity with English, ICU argument names, CLDR plural categories, protected brand/technical tokens, status rules, the **safety lock** (`tools/i18n-safety-lock.json`: `paper.banner` and `status.disclaimer` cannot change without a reviewed lock renewal), and acceptance **L-1** (all 18 languages at 390 px and 1366 px: header, list toolbar, footer, About/Paper/Ledger dialogs — no clipped labels, no raw placeholders). LLMs, including Claude, may help reviewers but never set CERTIFIED.
 
 **How to certify a language:** open a pull request with the *Certify a language* template (`.github/PULL_REQUEST_TEMPLATE/certify-language.md`). The reviewer works through the checklist below and approves the PR. The author sets `@status: CERTIFIED`, `@reviewer` (full name), `@reviewerGithub` (the reviewer's GitHub login), `@certifiedAt` and `@certifiedHash` (`node apps/confluence/web/scripts/catalog-status.mjs hash <lang>`).
