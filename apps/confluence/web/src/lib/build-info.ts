@@ -1,9 +1,9 @@
 export const BUILD_INFO = {
-  version: "2.7.0",
-  build: 20261111,
-  label: "2.7.0",
-  releaseDate: "11.11.2026",
-  updatedAt: "2026-11-11T00:00:00.000Z",
+  version: "2.8.0",
+  build: 20261118,
+  label: "2.8.0",
+  releaseDate: "18.11.2026",
+  updatedAt: "2026-11-18T00:00:00.000Z",
 } as const;
 
 /**

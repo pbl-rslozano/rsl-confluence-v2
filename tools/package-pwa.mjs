@@ -5,7 +5,7 @@
  *   pnpm build:pwa     (builds the html target, then runs this)
  *
  * Refuses an out/ that was built for tauri or capacitor (out/.rsl-target).
- * Output: dist/rsL-Confluence-<ver>-pwa.zip + .sha256, e.g. rsL-Confluence-2.7.0-pwa.zip (SemVer from the root
+ * Output: dist/rsL-Confluence-<ver>-pwa.zip + .sha256, e.g. rsL-Confluence-2.8.0-pwa.zip (SemVer from the root
  * package.json, no "v", no year — KIT-003)
  */
 import { readFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";

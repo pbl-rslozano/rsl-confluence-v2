@@ -38,7 +38,8 @@
  *       (tools/third-party-notices.mjs --check), private workspace packages UNLICENSED, no Binance Vision archive
  *       file (CC BY-NC-SA 4.0) tracked and .gitignore keeps them out
  *   R25 (--release) tier-1 translations reviewed (final review I-1): no tier-1 catalog string still flagged
- *       @pendingReview (machine drafts). A merge run reports the count as SKIP and does not fail.
+ *       @pendingReview (machine drafts). A merge run reports the count as SKIP and does not fail. A release passes as
+ *       WAIVED only on an owner waiver for exactly this version (tools/r25-waiver.json + its ADR; ADR-0020).
  */
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -342,9 +343,13 @@ if (process.argv.includes("--with-tests")) {
 
 /* R25 — tier-1 translations reviewed before a release (final review I-1). Merge runs report only. */
 {
-  const { checkTranslationReview } = await import("./checks/translation-review.mjs");
+  const { checkTranslationReview, applyR25Waiver } = await import("./checks/translation-review.mjs");
   const r = checkTranslationReview(ROOT, { release: process.argv.includes("--release") });
-  if (process.argv.includes("--release")) check("R25", "Tier-1 translations reviewed: no string pending native-speaker review", r.ok, r.ok ? r.summary : r.findings.join("; "));
+  // ADR-0020: a release passes with pending strings only on the owner's waiver for exactly this version (WAIVED).
+  if (process.argv.includes("--release")) {
+    const w = applyR25Waiver(ROOT, r, { version: ver });
+    check("R25", w.label, w.ok, w.ok ? w.summary : w.findings.join("; "));
+  }
   else console.log(`SKIP  R25  Tier-1 translation review — release builds only (--release): ${r.summary}`);
 }
 

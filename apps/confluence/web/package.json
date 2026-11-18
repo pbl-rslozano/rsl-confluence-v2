@@ -1,6 +1,6 @@
 {
   "name": "@rsl/confluence-web",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "description": "rsL Confluence Terminal \u2014 web core (Next.js static export) shared by the Tauri, Capacitor and PWA shells.",
   "author": "rsLozano",
   "private": true,

@@ -1,78 +1,101 @@
-# v2.8.0 — in progress, Steps 1 to 5, WP28 and WP23 (not released; app still reports v2.7.0)
+# v2.8.0 — 18 November 2026 · build 20261118
 
 Steps 1 to 5 of the v2.8 plan (`docs/superpowers/specs/2026-11-15-v2.8-architecture-design.md`): safety fixes, licence
 credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (Step 2); Fund trend (Step 3); Market radar part 1 (Step 4a) and part 2 (Step 4b); Scenarios and Reflect view (Step 5); Fear & Greed widget (WP29); two-line header at ≥ 1280 px (owner decision, 16 Nov 2026). Engine 2.4.0 (`5c30b5c39f5ba3f2`);
 ledger rows of engine 2.3.0 stay and are reported separately.
 
-- **K-Dense v2 audit corrections (18 Nov 2026, WP19/WP20/WP22/WP26):** the no-loosening rule while a lock is active
-  also refuses more positions, the event blackout off, 1m–15m proposals on and a lower minimum score; the 26–27 Oct 2027
-  FOMC meeting (strategy only, no decision) no longer blocks paper trades; Scenarios say when the odds equal the base rate
-  (`scenario.allSameState`, all 18 catalogs, Arabic draft pending review); Data sources & thanks lists CoinGlass and
-  Whale Alert (paid key, desktop gateway) and links the OKX API Agreement and Upbit Open API terms; About's update and
-  data notes reworded; the SBOM takes the Core Kit version from its package; guide §16 names every host contacted;
-  wording fixes in the guide, `paper-trading.md`, `measurement.md`, ADR-0003/0008/0010/0015/0018 and the plan. Classic
-  unchanged (`5c30b5c39f5ba3f2`).
-- **Confluence v2 challenger (WP23, ADR-0017):** recorded on each ledger row and compared in the ledger, never shown in the
-  list; Classic unchanged (`5c30b5c39f5ba3f2`); acceptance CV-1…CV-3.
-- **Catch-up in chunks (WP23):** the catch-up after a gap now goes to the scan worker in chunks of at most 25 jobs, so one
-  message stays short on a slow phone; the rows and their order are unchanged.
-- **Encrypted cloud backup (WP28, ADR-0019):** About → Cloud backup (collapsed, off by default): an AES-256-GCM backup of
-  your records (ledger rows with their outcome snapshots, universe snapshots and recorded gaps; pre-registrations and
-  trials; the paper journal with its trade notes; settings) in your own cloud storage; restore merges and never removes a
-  row to make room, and stops cleanly when the device's storage is full. B2 and R2 use the local gateway started by hand.
-  Acceptance BK-1…BK-4.
-- **Two-line header (owner decision 16 Nov 2026, spec §3 item 9):** at 1280 px and wider the header's control ribbon
-  takes exactly two lines (it took three at 1280–1366 px). Rate sources, Watchlists, Alert inbox, Saved scans, API,
-  Contact, About and Language (flag only) are icon buttons with their unchanged accessible names and a tooltip on hover
-  and on keyboard focus; the selects are narrower; the System / Light / Dark switch is one button cycling System → Light →
-  Dark (`theme.cycle` in all 18 catalogs; Arabic draft pending review); all other labels keep their text. Below 1280 px
-  the header is unchanged. New acceptance check **HD-1**; the
-  DS-1 baseline is re-captured from this build; theme checks choose a theme through the visible control.
-  Review fixes: the workspace chip is capped at 7rem at ≥ 1280 px (ellipsis; full name kept for screen readers), so the
-  24-character short names the wizard allows stay on two lines (HD-1 now also runs ru, and ru/de/fr with a 24-character
-  name); below 1280 px every header control keeps its box (±1 px) and gets no new `title` (HD-1 compares them at 1024 px);
-  focus tooltips are no longer announced twice. The PWA zip is now `rsL-Confluence-<SemVer>-pwa.zip`
-  (e.g. `rsL-Confluence-2.7.0-pwa.zip`, KIT-003) and the kit's brand helper types accept a missing version or build.
-- **Version stamp (KIT-003, owner decision 16 Nov 2026):** the version and build metadata format
-  is SemVer plus the build date everywhere: `2.7.0 (build 20261111)` in the header brand block, `Powered by rsL Confluence
-  Terminal · 2.7.0 · build 20261111` in the footer and About, no leading "v" and no year (was `v2.7 2026 · build 20261111`).
-  rsL Core Kit 1.2.0 (was shown as `v1.1 2026`): `buildStamp()` pads a short version to `MAJOR.MINOR.PATCH`, ignores `year`
-  and `poweredBy()` follows the identity skill's footer form; the Coffee Kit shows `1.1.0` (its data is unchanged); backups
-  record the same stamp in `appVersion`; the user guide, README, release check R19 and the SBOM component use it too.
-  Guard: `tools/semver-stamp.test.mjs`, kit tests, `KIT-MANIFEST.sha256` regenerated (R4). Past entries keep their old format.
-- **Scenarios, Heikin-Ashi and Reflect view (WP22 + WP24, Step 5):** a collapsed **Scenarios (simulation)** section after the Pattern
-  panel: 200 direction-neutral paths of 6-candle blocks from the coin's own past (volatility within ±15 points, widening to ±30
-  then all bars), 6- and 24-bar horizons, 2.5–97.5 and 16–84 % bands, odds for Continue / Pause / Reverse (Up / Range / Down on a flat
-  trend) from the Fund trend state with n_eff ≥ 20 and an overall-odds fallback, Wilson ranges, base rates and a rule-based
-  explanation in 18 languages; **Show on chart** draws the fan and hollow dashed simulated candles with Play. "Possible scenarios
-  from past data — not a forecast." Opt-in **Heikin-Ashi** (display only) and **Reflect view** (mirrors the price axis; key **I**;
-  "Reflected" badge) in the Indicators menu. Ledger fields `scb` and `scp` (13 CSV columns, strict import, official H = 6 run on
-  the last 1,000 bars, logged and never scored) and a collapsed **Scenario check** (band coverage against 68 / 95 %, three-outcome
-  Brier against the base rate). No new host, no new dependency; engine 2.4.0 unchanged. ADR-0016; acceptance SC-1…SC-7, RV-1…RV-3.
-- **Paper safety (WP19):** 10% drawdown lock (Stop + close all at the next open of each chart; pending positions cancelled;
-  typed RESET restarts the 10% from current equity, disabled while closes are pending); open losses count in the daily and
-  weekly locks; no loosening while a lock is active; costs inside the risk budget (a clean stop-out ≈ −1 R); event
-  blackout around FOMC/CPI/NFP (2 h before, 1 h after; ECB never blocks) with 2027 dates; crypto cap 3; depeg gate;
-  time stop (off, preset 24 bars); intraday proposals off by default; total notional capped at 1×; risk > 1 % warning;
-  measured slippage in fills; More statistics (profit factor, Wilson range, R histogram, MAE/MFE), Add a note, rejected
+- **New in 2.8.0:** OKX, Coinbase and Upbit sources, Fund trend, Market radar, Scenarios and encrypted cloud backup.
+- **Windows and macOS installers are unsigned in 2.8.0**; Android stays signed.
+  Owner decision of 18 Nov 2026. The Windows installers are not code-signed and the Mac app is ad-hoc signed and not
+  notarised by Apple. Windows SmartScreen may show "Windows protected your PC" with an unknown publisher: choose
+  **More info → Run anyway**. macOS Gatekeeper blocks the first launch: on macOS 15 open **System Settings → Privacy &
+  Security** and choose **Open Anyway** (on macOS 15, right-click → **Open** no longer skips this check). Check each
+  file against its `.sha256` first (user guide §1).
+- **Translations are drafts, not certified**; the new Arabic strings await native review.
+  Owner decision of 17 Nov 2026. No language is CERTIFIED: the 16 tier-2 languages stay machine-checked drafts, and
+  the new and changed v2.8 Arabic strings are machine drafts pending native-speaker review (About shows the count).
+  Release check **R25** passes this release only on the recorded owner waiver (ADR-0020). A LanguageTool pass now runs
+  in CI as an informational check.
+- **Paper-trading fixes:** While a loss lock is active, more settings can no longer be loosened, and the October 2027 FOMC meeting no longer blocks paper trades.
+  Audit corrections of 18 Nov 2026 (WP19/WP20/WP22/WP26).
+  The no-loosening rule while a lock is active also refuses more positions, the event blackout off, 1m–15m proposals
+  on and a lower minimum score; the 26–27 Oct 2027 FOMC meeting (strategy only, no decision) no longer blocks paper
+  trades; Scenarios say when the odds equal the base rate (`scenario.allSameState`, all 18 catalogs, Arabic draft
+  pending review); Data sources & thanks lists CoinGlass and Whale Alert (paid key, desktop gateway) and links the OKX
+  API Agreement and Upbit Open API terms; About's update and data notes reworded; the SBOM takes the Core Kit version
+  from its package; guide §16 names every host contacted; wording fixes in the guide, `paper-trading.md`,
+  `measurement.md`, ADR-0003/0008/0010/0015/0018 and the plan. Classic unchanged (`5c30b5c39f5ba3f2`).
+- **Confluence v2 challenger (WP23, ADR-0017):** A test challenger is recorded and compared in the ledger.
+  It is never shown in the list; Classic unchanged (`5c30b5c39f5ba3f2`); acceptance CV-1…CV-3.
+- **Catch-up in chunks (WP23):** The catch-up after a gap goes to the scan worker in chunks.
+  At most 25 jobs per chunk, so one message stays short on a slow phone; the rows and their order are unchanged.
+- **Encrypted cloud backup (WP28, ADR-0019):** An optional encrypted backup to your own cloud storage.
+  About → Cloud backup (collapsed, off by default): an AES-256-GCM backup of your records (ledger rows with their
+  outcome snapshots, universe snapshots and recorded gaps; pre-registrations and trials; the paper journal with its
+  trade notes; settings) in your own cloud storage; restore merges and never removes a row to make room, and stops
+  cleanly when the device's storage is full. B2 and R2 use the local gateway started by hand. Acceptance BK-1…BK-4.
+- **Two-line header (owner decision 16 Nov 2026, spec §3 item 9):** The header's controls take two lines at 1280 px and wider.
+  At 1280 px and wider the header's control ribbon takes exactly two lines (it took three at 1280–1366 px). Rate
+  sources, Watchlists, Alert inbox, Saved scans, API, Contact, About and Language (flag only) are icon buttons with
+  their unchanged accessible names and a tooltip on hover and on keyboard focus; the selects are narrower; the System
+  / Light / Dark switch is one button cycling System → Light → Dark (`theme.cycle` in all 18 catalogs; Arabic draft
+  pending review); all other labels keep their text. Below 1280 px the header is unchanged. New acceptance check
+  **HD-1**; the DS-1 baseline is re-captured from this build; theme checks choose a theme through the visible control.
+  Review fixes: the workspace chip is capped at 7rem at ≥ 1280 px (ellipsis; full name kept for screen readers), so
+  the 24-character short names the wizard allows stay on two lines (HD-1 now also runs ru, and ru/de/fr with a
+  24-character name); below 1280 px every header control keeps its box (±1 px) and gets no new `title` (HD-1 compares
+  them at 1024 px); focus tooltips are no longer announced twice. The PWA zip is now `rsL-Confluence-<SemVer>-pwa.zip`
+  (e.g. `rsL-Confluence-2.8.0-pwa.zip`, KIT-003) and the kit's brand helper types accept a missing version or build.
+- **Version stamp (KIT-003, owner decision 16 Nov 2026):** The version stamp is SemVer plus the build date.
+  The version and build metadata format is SemVer plus the build date everywhere: `2.8.0 (build 20261118)` in the
+  header brand block, `Powered by rsL Confluence Terminal · 2.8.0 · build 20261118` in the footer and About, no
+  leading "v" and no year (was `v2.7 2026 · build 20261111`). rsL Core Kit 1.2.0 (was shown as `v1.1 2026`):
+  `buildStamp()` pads a short version to `MAJOR.MINOR.PATCH`, ignores `year` and `poweredBy()` follows the identity
+  skill's footer form; the Coffee Kit shows `1.1.0` (its data is unchanged); backups record the same stamp in
+  `appVersion`; the user guide, README, release check R19 and the SBOM component use it too. Guard:
+  `tools/semver-stamp.test.mjs`, kit tests, `KIT-MANIFEST.sha256` regenerated (R4). Past entries keep their old
+  format.
+- **Scenarios, Heikin-Ashi and Reflect view (WP22 + WP24, Step 5):** Simulated paths from the coin's own past, plus two chart views.
+  A collapsed **Scenarios (simulation)** section after the Pattern panel: 200 direction-neutral paths of 6-candle
+  blocks from the coin's own past (volatility within ±15 points, widening to ±30 then all bars), 6- and 24-bar
+  horizons, 2.5–97.5 and 16–84 % bands, odds for Continue / Pause / Reverse (Up / Range / Down on a flat trend) from
+  the Fund trend state with n_eff ≥ 20 and an overall-odds fallback, Wilson ranges, base rates and a rule-based
+  explanation in 18 languages; **Show on chart** draws the fan and hollow dashed simulated candles with Play.
+  "Possible scenarios from past data — not a forecast." Opt-in **Heikin-Ashi** (display only) and **Reflect view**
+  (mirrors the price axis; key **I**; "Reflected" badge) in the Indicators menu. Ledger fields `scb` and `scp` (13 CSV
+  columns, strict import, official H = 6 run on the last 1,000 bars, logged and never scored) and a collapsed
+  **Scenario check** (band coverage against 68 / 95 %, three-outcome Brier against the base rate). No new host, no new
+  dependency; engine 2.4.0 unchanged. ADR-0016; acceptance SC-1…SC-7, RV-1…RV-3.
+- **Paper safety (WP19):** A 10% drawdown lock and stricter paper limits.
+  10% drawdown lock (Stop + close all at the next open of each chart; pending positions cancelled; typed RESET
+  restarts the 10% from current equity, disabled while closes are pending); open losses count in the daily and weekly
+  locks; no loosening while a lock is active; costs inside the risk budget (a clean stop-out ≈ −1 R); event blackout
+  around FOMC/CPI/NFP (2 h before, 1 h after; ECB never blocks) with 2027 dates; crypto cap 3; depeg gate; time stop
+  (off, preset 24 bars); intraday proposals off by default; total notional capped at 1×; risk > 1 % warning; measured
+  slippage in fills; More statistics (profit factor, Wilson range, R histogram, MAE/MFE), Add a note, rejected
   proposals with their bracket outcome. New limits in a collapsed **More limits** section.
-- **Signals and measurement (WP19):** Pattern calls a direction only past a Wilson lower bound (20–40 analogues, "Too few
-  analogues"); FVG minimum gap 0.5 × ATR(14), "FVG adjustment (unvalidated)"; honest wording for paper, power, macro and
-  reversal; ledger records the 18 votes, Pattern and derivative context, shows days needed at the current Sharpe and imports
-  CSV; confirmatory DSR counts active pre-registrations; ATR-bracket outcome in the replay CLI; noise regressions.
-- **Data (WP19):** Binance quote volume and trade count, a crypto liquidity floor (default $1M, scan setting; a pair holding
-  a paper position still gets its bars for the simulator), used-weight pacing in the Node tools; the gateway refuses write
-  or unknown-permission keys (Bitget: only known read-only authorities pass).
-- **Licences (WP20):** THIRD-PARTY-NOTICES.txt in every bundle, About → Open-source licences with the trademark line, full
-  OFL font texts, Rust and mobile notices, WebView2 terms, rate-provider credits (ExchangeRate-API, ECB), SBOM licences and
-  scope, release check **R24** licence policy, Binance Vision archive notice, root `LICENSE`.
-- **Smooth loading (WP27):** rows appear at once from on-device history ("updating" / "not updated" badges, display only),
-  watchlist or top 10 first, then batches of 20, delta fetch of new bars only; acceptance PG-1, PG-2.
-- **New exchanges (WP26, ADR-0018):** **OKX Spot**, **OKX Perpetual** (USDT-margined), **Coinbase (US)** (USD, USDT) and
-  **Upbit (KR)** (KRW, USDT, BTC) are scan sources, with public prices only and no keys, orders, referral codes or embedded
-  pages. Closed bars only: OKX's open bar (`confirm "0"`) and the forming row of Coinbase and Upbit are never scored. Pages
-  are merged without duplicates, capped at 16 requests per series (OKX needs at most 5) and scored cold below 1,000 bars. Each venue is paced
-  at 80 % of its documented limit (OKX candles 16/s and history 8/s; Coinbase 8/s; Upbit 8/s).
+- **Signals and measurement (WP19):** Honest Pattern and FVG labels; the ledger records more.
+  Pattern calls a direction only past a Wilson lower bound (20–40 analogues, "Too few analogues"); FVG minimum gap 0.5
+  × ATR(14), "FVG adjustment (unvalidated)"; honest wording for paper, power, macro and reversal; ledger records the
+  18 votes, Pattern and derivative context, shows days needed at the current Sharpe and imports CSV; confirmatory DSR
+  counts active pre-registrations; ATR-bracket outcome in the replay CLI; noise regressions.
+- **Data (WP19):** A liquidity floor, request pacing and safer gateway keys.
+  Binance quote volume and trade count, a crypto liquidity floor (default $1M, scan setting; a pair holding a paper
+  position still gets its bars for the simulator), used-weight pacing in the Node tools; the gateway refuses write or
+  unknown-permission keys (Bitget: only known read-only authorities pass).
+- **Licences (WP20):** Open-source licences and data credits are shown and checked.
+  THIRD-PARTY-NOTICES.txt in every bundle, About → Open-source licences with the trademark line, full OFL font texts,
+  Rust and mobile notices, WebView2 terms, rate-provider credits (ExchangeRate-API, ECB), SBOM licences and scope,
+  release check **R24** licence policy, Binance Vision archive notice, root `LICENSE`.
+- **Smooth loading (WP27):** Rows appear at once from on-device history.
+  Rows appear at once from on-device history ("updating" / "not updated" badges, display only), watchlist or top 10
+  first, then batches of 20, delta fetch of new bars only; acceptance PG-1, PG-2.
+- **New exchanges (WP26, ADR-0018):** OKX, Coinbase and Upbit are scan sources, read-only and keyless.
+  **OKX Spot**, **OKX Perpetual** (USDT-margined), **Coinbase (US)** (USD, USDT) and **Upbit (KR)** (KRW, USDT, BTC)
+  are scan sources, with public prices only and no keys, orders, referral codes or embedded pages. Closed bars only:
+  OKX's open bar (`confirm "0"`) and the forming row of Coinbase and Upbit are never scored. Pages are merged without
+  duplicates, capped at 16 requests per series (OKX needs at most 5) and scored cold below 1,000 bars. Each venue is
+  paced at 80 % of its documented limit (OKX candles 16/s and history 8/s; Coinbase 8/s; Upbit 8/s).
   - Timeframes a venue lacks are built from complete shorter candles: Coinbase weeks start Monday 00:00 UTC and its
     months are calendar months.
   - Upbit's KRW prices follow the display currency; its BTC-market prices stay in BTC. Volume is valued with Upbit's own
@@ -83,35 +106,39 @@ ledger rows of engine 2.3.0 stay and are reported separately.
   - Hosts: `www.okx.com` and `api.exchange.coinbase.com` are fetched directly (CSP). `api.upbit.com` is reached only
     through the read-only relay: the `/x/upbit/` rewrite on the web, path-scoped native access in the apps (ADR-0003
     amendment, R8/R16). A refused relay is "feed unavailable" for Upbit alone.
-- **View on [exchange] and Data sources & thanks (WP26):** the detail sheet ends with a plain link to the pair on the
-  exchange's own site, opening in the browser. About gains a collapsed **Data sources & thanks** listing 13 providers with
-  their API docs and terms, as names in text. Venue terms and link patterns are to be checked by the owner before
-  release (ADR-0018). Acceptance **EX-1**…**EX-6** and **ID-2.6**.
-- **Fund trend (WP21):** a second opinion from closed daily bars, adapted from the published time-series-momentum research
-  (Moskowitz–Ooi–Pedersen 2012; Hurst–Ooi–Pedersen 2017, *Journal of Portfolio Management*), not any fund's positions: −100…+100 from 30, 91 and 365-day
-  returns scaled by EWMA volatility, plus **Fund size** (40 % volatility target, at most 200 %). Crypto only, at least 366
-  daily bars, else "not enough history" or n/a; daily bars are fetched once per coin per UTC day behind the scan, on builds
-  that fetch directly (the hosted web version shows no Fund trend values). Off by default: **Fund trend ribbon** and **panel** (Confluence
-  score, Fund trend, Fund size, Fund rank) at the end of the chart's Indicators menu; disagreement hatching and ◆ (score
-  at least 55 against Fund trend of the opposite sign at 25 or more; list ◆ only with the ribbon on); **Disagreement
-  pulse** (3 pulses, Off, Keep pulsing) and an optional **Fund rank** column in Scoring profile. The ledger records `ft`
-  and the report adds **Fund trend sign** beside 20-bar momentum; CSV column `fund_trend`. It never votes: engine
-  `5c30b5c39f5ba3f2` unchanged. Acceptance **FT-1**…**FT-5**.
-- **Market radar, part 1 (WP25):** a collapsed **Radar** tab on the right edge (left in Arabic and Urdu), key **R**, opens a
-  panel below the header (side panel from 1,024 px, bottom sheet below; remembered per device; no slide with reduced motion).
-  Sections: **Positioning** (Binance USDⓈ-M BTC and ETH funding with 30-day percentile, open interest and 24 h change,
+- **View on [exchange] and Data sources & thanks (WP26):** Links to each pair on its exchange and a list of data sources.
+  The detail sheet ends with a plain link to the pair on the exchange's own site, opening in the browser. About gains
+  a collapsed **Data sources & thanks** listing 13 providers with their API docs and terms, as names in text. Venue
+  terms and link patterns are to be checked by the owner before release (ADR-0018). Acceptance **EX-1**…**EX-6** and
+  **ID-2.6**.
+- **Fund trend (WP21):** An opt-in second opinion from closed daily bars.
+  A second opinion from closed daily bars, adapted from the published time-series-momentum research
+  (Moskowitz–Ooi–Pedersen 2012; Hurst–Ooi–Pedersen 2017, *Journal of Portfolio Management*), not any fund's positions:
+  −100…+100 from 30, 91 and 365-day returns scaled by EWMA volatility, plus **Fund size** (40 % volatility target, at
+  most 200 %). Crypto only, at least 366 daily bars, else "not enough history" or n/a; daily bars are fetched once per
+  coin per UTC day behind the scan, on builds that fetch directly (the hosted web version shows no Fund trend values).
+  Off by default: **Fund trend ribbon** and **panel** (Confluence score, Fund trend, Fund size, Fund rank) at the end
+  of the chart's Indicators menu; disagreement hatching and ◆ (score at least 55 against Fund trend of the opposite
+  sign at 25 or more; list ◆ only with the ribbon on); **Disagreement pulse** (3 pulses, Off, Keep pulsing) and an
+  optional **Fund rank** column in Scoring profile. The ledger records `ft` and the report adds **Fund trend sign**
+  beside 20-bar momentum; CSV column `fund_trend`. It never votes: engine `5c30b5c39f5ba3f2` unchanged. Acceptance
+  **FT-1**…**FT-5**.
+- **Market radar, part 1 (WP25):** A Radar panel with market context that never votes.
+  A collapsed **Radar** tab on the right edge (left in Arabic and Urdu), key **R**, opens a panel below the header
+  (side panel from 1,024 px, bottom sheet below; remembered per device; no slide with reduced motion). Sections:
+  **Positioning** (Binance USDⓈ-M BTC and ETH funding with 30-day percentile, open interest and 24 h change,
   long/short, taker ratio, basis), **Buyer pressure** (Binance spot BTC taker-buy share; Asia, Europe and US session
-  shares), **Regional demand** (US, Korea and Philippines premiums against Binance BTCUSDT; the Korea figure leaves out the
-  won's own premium on USDT), **Institutions** (CFTC CME Bitcoin and Ether, asset managers vs leveraged funds; ETF flows
-  from an imported `date,issuer,flow_usd` CSV) and **Alerts** (exchange price break-away with standing premiums, volume
-  spike z ≥ 3, depeg tiers, stablecoin supply jump; thresholds are adjustable starting values). Context, never a vote:
-  no score, signal or paper rule changes and no alert blocks or places a trade. Radar hosts are contacted only while the panel is
-  open or **Record radar context** (Scoring profile, default off) is on: new hosts `fapi.binance.com`,
-  `publicreporting.cftc.gov` and `stablecoins.llama.fi` (ADR-0003 amendment, R8). The ledger gains `rad` and eight
-  `radar_*` CSV columns after `fund_trend` (newest reading at or before the bar's close, at most 2 h old; null when
-  off); the recorder gains `--radar on|off`. Live ETF flows and Whale Alert transfers (desktop-gateway keys),
-  liquidations and the cascade alert are part 2. Acceptance **RD-1**…**RD-7**.
-- **Market radar, part 2 (WP25, Step 4b):**
+  shares), **Regional demand** (US, Korea and Philippines premiums against Binance BTCUSDT; the Korea figure leaves
+  out the won's own premium on USDT), **Institutions** (CFTC CME Bitcoin and Ether, asset managers vs leveraged funds;
+  ETF flows from an imported `date,issuer,flow_usd` CSV) and **Alerts** (exchange price break-away with standing
+  premiums, volume spike z ≥ 3, depeg tiers, stablecoin supply jump; thresholds are adjustable starting values).
+  Context, never a vote: no score, signal or paper rule changes and no alert blocks or places a trade. Radar hosts are
+  contacted only while the panel is open or **Record radar context** (Scoring profile, default off) is on: new hosts
+  `fapi.binance.com`, `publicreporting.cftc.gov` and `stablecoins.llama.fi` (ADR-0003 amendment, R8). The ledger gains
+  `rad` and eight `radar_*` CSV columns after `fund_trend` (newest reading at or before the bar's close, at most 2 h
+  old; null when off); the recorder gains `--radar on|off`. Live ETF flows and Whale Alert transfers (desktop-gateway
+  keys), liquidations and the cascade alert are part 2. Acceptance **RD-1**…**RD-7**.
+- **Market radar, part 2 (WP25, Step 4b):** Liquidations, provider keys, ETF flows and large transfers join the Radar.
   - **Liquidations and the cascade alert:** the Radar's Positioning section lists the last hour of Bybit and Binance BTC/ETH
     perpetual liquidations (long and short, read live from two websockets that open only while the panel is open or
     recording is on; Binance is labelled *sampled*), a cascade status per venue ("collecting the baseline" until 720 complete
@@ -136,27 +163,37 @@ ledger rows of engine 2.3.0 stay and are reported separately.
     button; a Whale Alert key the provider refuses shows a fixed line and is retried once per 15 minutes (or when added again)
     instead of "Connecting"; direction-control characters are stripped from transfer names on both sides; the recorder no
     longer writes false `liq:*` heartbeat errors with `--once` or before a venue connects.
-- **Design unchanged (spec §3):** acceptance **DS-1** (main screen) and **DS-2** (detail sheet top and chart layers, paper
-  dialog, ledger dialog) compare the layout at rest with text masked against baselines captured from the v2.7.0-web build.
-- **Languages:** the new and changed v2.8 strings are Arabic drafts awaiting native-speaker review (About shows the count;
-  release check **R25** blocks a release until they are reviewed). The Step 4b radar strings are machine-checked drafts in the
-  other 16 languages; earlier v2.8 radar strings still show in English there.
-- **Coffee tip card (owner addition, no WP):** About → *☕ Treat the developer to a coffee*, collapsed above Open-source
-  licences — the rsL Coffee Kit v1.1 2026 (build 20261115) card images for GCash, PayPal and Bitcoin, copied unchanged
-  into `src/rsl/coffee-kit.json` and shown verbatim; optional and never a fee (nothing gated, never opens by itself); only
-  Bitcoin has **Copy address**. Unit tests pin the six image hashes and scan for contact details; acceptance **CK-1**.
-- **Fear & Greed (WP29):** a collapsed **Fear & Greed** chip at the end of the counts line opens a panel with the Crypto
-  Fear & Greed Index from Alternative.me: a 0 to 100 gauge (band colours; darkened on the light theme for contrast), the
-  last 31 days as bars (mirrored in Arabic and Urdu; the gauge is not) and the source named right under the gauge, linked
-  to its page. Context only: it never reaches a score, a signal, an alert or a paper rule. Closed by default and
-  remembered per device. `api.alternative.me` is contacted only while the panel is open: the cached value shows at once,
-  a request follows when there is none or it is over an hour old, the panel re-checks every 15 minutes while open and
-  closing cancels a request in flight. New host in the CSP, the egress manifest and an ADR-0003 amendment (R8); no new
-  dependency. Acceptance **FG-1**, **FG-2**; DS-1 hides the chip (spec §3 item 8). The strings are Arabic drafts awaiting
-  review and English in the other 16 languages.
-- **Docs:** user guide chapters for WP19, WP20, WP21, WP25 (part 1), WP26, WP27, WP28 and WP29; ADR-0018 (new venues); R19 accepts this "in progress" entry above the released v2.7.0.
-- **Before going back to v2.7, export the paper journal** (Paper → Export CSV) and note your open positions: v2.7 cannot
-  read the v2.8 paper account format and starts a fresh 10,000 USDT account over it on its first scan.
+- **Design unchanged (spec §3):** Acceptance checks hold the layout at rest to the 2.7 design.
+  Acceptance **DS-1** (main screen) and **DS-2** (detail sheet top and chart layers, paper dialog, ledger dialog)
+  compare the layout at rest with text masked against baselines captured from the v2.7.0-web build.
+- **Languages:** The new v2.8 strings are drafts awaiting review.
+  The new and changed v2.8 strings are Arabic drafts awaiting native-speaker review (About shows the count; release
+  check **R25** blocks a release until they are reviewed; for 2.8.0 the owner waived it, ADR-0020). The Step 4b radar
+  strings are machine-checked drafts in the other 16 languages; earlier v2.8 radar strings still show in English
+  there.
+- **Coffee tip card (owner addition, no WP):** An optional tip card in About.
+  About → *☕ Treat the developer to a coffee*, collapsed above Open-source licences — the rsL Coffee Kit v1.1 2026
+  (build 20261115) card images for GCash, PayPal and Bitcoin, copied unchanged into `src/rsl/coffee-kit.json` and
+  shown verbatim; optional and never a fee (nothing gated, never opens by itself); only Bitcoin has **Copy address**.
+  Unit tests pin the six image hashes and scan for contact details; acceptance **CK-1**.
+- **Fear & Greed (WP29):** An opt-in Fear & Greed panel.
+  A collapsed **Fear & Greed** chip at the end of the counts line opens a panel with the Crypto Fear & Greed Index
+  from Alternative.me: a 0 to 100 gauge (band colours; darkened on the light theme for contrast), the last 31 days as
+  bars (mirrored in Arabic and Urdu; the gauge is not) and the source named right under the gauge, linked to its page.
+  Context only: it never reaches a score, a signal, an alert or a paper rule. Closed by default and remembered per
+  device. `api.alternative.me` is contacted only while the panel is open: the cached value shows at once, a request
+  follows when there is none or it is over an hour old, the panel re-checks every 15 minutes while open and closing
+  cancels a request in flight. New host in the CSP, the egress manifest and an ADR-0003 amendment (R8); no new
+  dependency. Acceptance **FG-1**, **FG-2**; DS-1 hides the chip (spec §3 item 8). The strings are Arabic drafts
+  awaiting review and English in the other 16 languages.
+- **Docs:** User guide chapters and ADRs for every change.
+  Guide chapters for WP19, WP20, WP21, WP25 (part 1), WP26, WP27, WP28 and WP29; ADR-0018 (new venues); ADR-0020
+  (R25 owner waiver for 2.8.0); install notes for the unsigned 2.8.0 installers (§1).
+- **Release workflow:** A manual run builds the installers without publishing unless `publish` is ticked.
+  The new `publish` input is off by default and publishes only from main; tag pushes and `[release]` commits on main
+  publish as before.
+- **Before going back to v2.7, export the paper journal** (Paper → Export CSV) and note your open positions.
+  v2.7 cannot read the v2.8 paper account format and starts a fresh 10,000 USDT account over it on its first scan.
 
 # v2.7.0 — 11 November 2026 · build 20261111
 

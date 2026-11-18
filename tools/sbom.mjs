@@ -2,7 +2,7 @@
 /**
  * sbom.mjs — CycloneDX 1.6 JSON SBOM for rsL Confluence Terminal.
  *
- *   node tools/sbom.mjs            → dist/rsL-Confluence-<version>-sbom.cdx.json   (e.g. rsL-Confluence-2.7.0-sbom.cdx.json)
+ *   node tools/sbom.mjs            → dist/rsL-Confluence-<version>-sbom.cdx.json   (e.g. rsL-Confluence-2.8.0-sbom.cdx.json)
  *   node tools/sbom.mjs --out <path>   → that file instead (tests)
  *
  * Sources: pnpm-lock.yaml (npm packages, with integrity hashes) and

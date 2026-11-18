@@ -16,7 +16,7 @@
 
 // Stamped per release (release check R15: v<APP.version>-<APP.build>); a new value is what makes browsers
 // see a new service worker, so the "Reload to update" notice can appear (ADR-0012).
-const CACHE_VERSION = "v2.7.0-20261111";
+const CACHE_VERSION = "v2.8.0-20261118";
 const SHELL_CACHE = `confluence-shell-${CACHE_VERSION}`;
 const ASSET_CACHE = `confluence-assets-${CACHE_VERSION}`;
 

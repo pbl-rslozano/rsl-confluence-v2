@@ -66,6 +66,36 @@ test("the app stamp, footer and kit label use SemVer", () => {
   assert.ok(readFileSync(join(ROOT, "docs/kit-issues/KIT-003.md"), "utf8").startsWith("# KIT-003"), "KIT-003 records the owner decision");
 });
 
+// 2.8.0 release prep (18 Nov 2026): one version and one build everywhere the release stamps them. The root package.json
+// is the source; a bump that misses a file (as the 2.7.0 bump had to be checked by hand, commit 5f8ae4d) fails here.
+test("every version-bearing file carries the root package.json version and app-info's build", () => {
+  const read = (p) => readFileSync(join(ROOT, p), "utf8");
+  const version = JSON.parse(read("package.json")).version;
+  const build = APP.build;
+  assert.match(build, /^\d{8}$/);
+  const found = {
+    "apps/confluence/web/package.json": JSON.parse(read("apps/confluence/web/package.json")).version,
+    "apps/confluence/desktop/package.json": JSON.parse(read("apps/confluence/desktop/package.json")).version,
+    "apps/confluence/gateway/package.json": JSON.parse(read("apps/confluence/gateway/package.json")).version,
+    "apps/confluence/mobile/package.json": JSON.parse(read("apps/confluence/mobile/package.json")).version,
+    "src-tauri/Cargo.toml": /^\[package\][^[]*?^version = "([^"]+)"/m.exec(read("apps/confluence/desktop/src-tauri/Cargo.toml"))?.[1],
+    "src-tauri/Cargo.lock": /\[\[package\]\]\nname = "rsl-confluence-desktop"\nversion = "([^"]+)"/.exec(read("apps/confluence/desktop/src-tauri/Cargo.lock"))?.[1],
+    "tauri.conf.json": JSON.parse(read("apps/confluence/desktop/src-tauri/tauri.conf.json")).version,
+    "rsl/app-info.ts": APP.version,
+    "build-info.ts version": /version:\s*"([^"]+)"/.exec(read("apps/confluence/web/src/lib/build-info.ts"))?.[1],
+    "build-info.ts label": /label:\s*"([^"]+)"/.exec(read("apps/confluence/web/src/lib/build-info.ts"))?.[1],
+  };
+  const wrong = Object.entries(found).filter(([, v]) => v !== version).map(([f, v]) => `${f}: ${v}`);
+  assert.deepEqual(wrong, [], `not ${version}:\n${wrong.join("\n")}`);
+  const info = read("apps/confluence/web/src/lib/build-info.ts");
+  assert.equal(/build:\s*(\d+)/.exec(info)?.[1], build, "build-info.ts build = app-info build");
+  const [y, m, d] = [build.slice(0, 4), build.slice(4, 6), build.slice(6, 8)];
+  assert.equal(/releaseDate:\s*"([^"]+)"/.exec(info)?.[1], `${d}.${m}.${y}`, "releaseDate is the build date (DD.MM.YYYY)");
+  assert.equal(/updatedAt:\s*"([^"]+)"/.exec(info)?.[1], `${y}-${m}-${d}T00:00:00.000Z`, "updatedAt is the build date");
+  assert.equal(/const CACHE_VERSION = "([^"]+)"/.exec(read("apps/confluence/web/public/sw.js"))?.[1], `v${version}-${build}`, "sw.js cache name");
+  assert.equal(JSON.parse(read("packages/core/package.json")).version, "1.2.0", "the Core Kit keeps its own version");
+});
+
 test("the SBOM file name is rsL-Confluence-<SemVer>-sbom.cdx.json in the writer and in R9 (no v, no year)", () => {
   const writer = readFileSync(join(ROOT, "tools/sbom.mjs"), "utf8");
   const r9 = readFileSync(join(ROOT, "tools/release-check.mjs"), "utf8");

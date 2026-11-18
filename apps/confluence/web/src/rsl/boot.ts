@@ -63,7 +63,7 @@ export interface BootResult {
   adapters: Adapters;
 }
 
-const VERSION = buildStamp(APP); // KIT-003: "2.7.0 (build 20261111)"
+const VERSION = buildStamp(APP); // KIT-003: "2.8.0 (build 20261118)"
 const LOCAL_SNAPSHOT_KEY = "rsl-conf-premigration-snapshot";
 
 /** Ordered, forward-only, idempotent. Never edit a shipped migration — add a new one. */

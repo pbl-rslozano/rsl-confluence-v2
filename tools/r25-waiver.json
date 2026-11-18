@@ -1,0 +1,8 @@
+{
+  "@note": "Owner waiver for release check R25 (ADR-0020). Applies to this version only; delete this file to re-block a release while tier-1 strings are pending native review.",
+  "version": "2.8.0",
+  "adr": "docs/adr/0020-release-2.8.0-translations-pending-review.md",
+  "owner": "rsLozano",
+  "date": "2026-11-17",
+  "reason": "Owner decision of 17 Nov 2026: 2.8.0 ships its translations as drafts without native validation; nothing is CERTIFIED and the Arabic v2.8 strings stay @pendingReview."
+}

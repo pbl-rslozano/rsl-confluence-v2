@@ -1,0 +1,53 @@
+# LanguageTool — informational spelling and grammar pass over the UI catalogs (2.8.0, owner decision 17 Nov 2026).
+# Runs LanguageTool LOCALLY on the runner (no remote API) over the catalogs for ar, de, es, fr, it, ja, pt, ru, zh,
+# fil (as Tagalog, tl) and en, and writes a summary (strings checked, matches by rule category) to the job summary and
+# an artifact. Informational: continue-on-error, never a required check, never part of the release workflow or a
+# release check, never sets a catalog status. LanguageTool (LGPL-2.1-or-later) is a CI-only tool, downloaded from
+# languagetool.org at the exact version and SHA-256 in tools/languagetool.lock.json, and never shipped.
+name: languagetool
+
+on:
+  pull_request:
+    paths:
+      - "apps/confluence/web/src/rsl/i18n/**"
+      - "tools/languagetool-check.mjs"
+      - "tools/languagetool.lock.json"
+      - ".github/workflows/languagetool.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22.23.4"
+
+jobs:
+  languagetool:
+    name: LanguageTool — catalogs (informational, never blocks)
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with: { node-version: "${{ env.NODE_VERSION }}", package-manager-cache: false }
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with: { distribution: temurin, java-version: "21" }
+      - name: Download LanguageTool (pinned version and SHA-256)
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./tools/languagetool.lock.json').version")"
+          url="$(node -p "require('./tools/languagetool.lock.json').url")"
+          sha="$(node -p "require('./tools/languagetool.lock.json').sha256")"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/LanguageTool.zip" "$url"
+          echo "$sha  $RUNNER_TEMP/LanguageTool.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/LanguageTool.zip" -d "$RUNNER_TEMP/lt"
+          echo "LT_DIR=$RUNNER_TEMP/lt/LanguageTool-$version" >> "$GITHUB_ENV"
+      - name: Check the catalogs with the local LanguageTool
+        run: node tools/languagetool-check.mjs --lt "$LT_DIR" --out languagetool-report
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: languagetool-report
+          path: languagetool-report/
+          if-no-files-found: warn
