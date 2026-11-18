@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
   ROOT, npmInventory, buildNotices, checkNotices, checkRustInventory, checkNativeNotices, parseCargoLock, isBuildOnly,
+  cp1252Unencodable,
 } from "./third-party-notices.mjs";
 
 const inv = npmInventory();
@@ -144,3 +145,13 @@ test("CLI: --check passes on the repository; --out writes the notices file", () 
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+
+// 2.8.0 release build (18 Nov 2026): the Windows MSI (WiX) shows bundle.licenseFile on its licence page and WiX refuses
+// any character outside code page 1252 (LGHT0311) — the "→" in LICENSE failed the first 2.8.0 Windows build.
+test("the desktop licence file (WiX MSI licence page) uses only code page 1252 characters", () => {
+  assert.deepEqual(cp1252Unencodable("ASCII, é, — and € are fine"), []);
+  assert.deepEqual(cp1252Unencodable("About → Open-source licences"), ["→"]);
+  const conf = JSON.parse(readFileSync(join(ROOT, "apps/confluence/desktop/src-tauri/tauri.conf.json"), "utf8"));
+  const text = readFileSync(join(ROOT, "apps/confluence/desktop/src-tauri", conf.bundle.licenseFile), "utf8");
+  assert.deepEqual(cp1252Unencodable(text), [], "LICENSE has characters the MSI licence page cannot show");
+});
