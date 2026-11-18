@@ -40,7 +40,7 @@ rsl-confluence/
 
 ## Run the app (no build needed)
 1. Install **Node.js LTS** once (https://nodejs.org).
-2. Unzip `rsL-Confluence-<version>-pwa.zip` (e.g. `rsL-Confluence-2.7.0-pwa.zip`) into a folder.
+2. Unzip `rsL-Confluence-<version>-pwa.zip` (e.g. `rsL-Confluence-2.8.0-pwa.zip`) into a folder.
 3. Double-click **`Start-Confluence-Terminal.cmd`** (Windows) or run `./start-confluence-terminal.sh` (macOS/Linux). The app opens on `http://127.0.0.1:8770/`, reachable from this computer only. Keep the launcher window open; close it to stop.
 4. Optional: in Chrome/Edge use *Install app* in the address bar for a desktop icon (start the launcher first each time).
 
@@ -57,7 +57,7 @@ npm run gateway                                # optional localhost gateway (rea
 pnpm recorder -- --source binance --tf 4h --limit 30 --out ./recorder-data   # headless recorder (docs/recorder.md)
 pnpm archive -- --list                         # archived symbols incl. delisted (survivorship-safe replay data)
 pnpm typecheck && pnpm lint
-pnpm build:pwa                                 # → dist/rsL-Confluence-2.7.0-pwa.zip (+ .sha256)
+pnpm build:pwa                                 # → dist/rsL-Confluence-2.8.0-pwa.zip (+ .sha256)
 pnpm sbom && node tools/release-check.mjs --with-tests
 pnpm build:desktop                             # Tauri (needs Rust + platform toolchain)
 pnpm --filter @rsl/confluence-mobile sync      # Capacitor (then open android/ or ios/)

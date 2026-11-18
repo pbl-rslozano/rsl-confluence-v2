@@ -1,9 +1,20 @@
-# v2.8.0 — in progress, Steps 1 to 5, WP28 and WP23 (not released; app still reports v2.7.0)
+# v2.8.0 — 18 November 2026 · build 20261118
 
 Steps 1 to 5 of the v2.8 plan (`docs/superpowers/specs/2026-11-15-v2.8-architecture-design.md`): safety fixes, licence
 credits and smooth loading (Step 1); OKX, Coinbase and Upbit as scan sources (Step 2); Fund trend (Step 3); Market radar part 1 (Step 4a) and part 2 (Step 4b); Scenarios and Reflect view (Step 5); Fear & Greed widget (WP29); two-line header at ≥ 1280 px (owner decision, 16 Nov 2026). Engine 2.4.0 (`5c30b5c39f5ba3f2`);
 ledger rows of engine 2.3.0 stay and are reported separately.
 
+- **New in 2.8.0:** OKX, Coinbase and Upbit sources, Fund trend, Market radar, Scenarios and encrypted cloud backup.
+- **Windows and macOS installers are unsigned in 2.8.0** (owner decision, 18 Nov 2026; Android stays signed).
+  The Windows installers are not code-signed and the Mac app is ad-hoc signed and not notarised by Apple. Windows
+  SmartScreen may show "Windows protected your PC" with an unknown publisher: choose **More info → Run anyway**. macOS
+  Gatekeeper blocks the first launch: on macOS 15 open **System Settings → Privacy & Security** and choose **Open Anyway**
+  (on macOS 15, right-click → **Open** no longer skips this check). Check each file against its `.sha256` first
+  (user guide §1).
+- **Translations are drafts, not certified** (owner decision, 17 Nov 2026); the new Arabic strings await native review.
+  No language is CERTIFIED: the 16 tier-2 languages stay machine-checked drafts, and the new and changed v2.8 Arabic
+  strings are machine drafts pending native-speaker review (About shows the count). Release check **R25** passes this
+  release only on the recorded owner waiver (ADR-0020). A LanguageTool pass now runs in CI as an informational check.
 - **K-Dense v2 audit corrections (18 Nov 2026, WP19/WP20/WP22/WP26):** the no-loosening rule while a lock is active
   also refuses more positions, the event blackout off, 1m–15m proposals on and a lower minimum score; the 26–27 Oct 2027
   FOMC meeting (strategy only, no decision) no longer blocks paper trades; Scenarios say when the odds equal the base rate
@@ -32,10 +43,10 @@ ledger rows of engine 2.3.0 stay and are reported separately.
   24-character short names the wizard allows stay on two lines (HD-1 now also runs ru, and ru/de/fr with a 24-character
   name); below 1280 px every header control keeps its box (±1 px) and gets no new `title` (HD-1 compares them at 1024 px);
   focus tooltips are no longer announced twice. The PWA zip is now `rsL-Confluence-<SemVer>-pwa.zip`
-  (e.g. `rsL-Confluence-2.7.0-pwa.zip`, KIT-003) and the kit's brand helper types accept a missing version or build.
+  (e.g. `rsL-Confluence-2.8.0-pwa.zip`, KIT-003) and the kit's brand helper types accept a missing version or build.
 - **Version stamp (KIT-003, owner decision 16 Nov 2026):** the version and build metadata format
-  is SemVer plus the build date everywhere: `2.7.0 (build 20261111)` in the header brand block, `Powered by rsL Confluence
-  Terminal · 2.7.0 · build 20261111` in the footer and About, no leading "v" and no year (was `v2.7 2026 · build 20261111`).
+  is SemVer plus the build date everywhere: `2.8.0 (build 20261118)` in the header brand block, `Powered by rsL Confluence
+  Terminal · 2.8.0 · build 20261118` in the footer and About, no leading "v" and no year (was `v2.7 2026 · build 20261111`).
   rsL Core Kit 1.2.0 (was shown as `v1.1 2026`): `buildStamp()` pads a short version to `MAJOR.MINOR.PATCH`, ignores `year`
   and `poweredBy()` follows the identity skill's footer form; the Coffee Kit shows `1.1.0` (its data is unchanged); backups
   record the same stamp in `appVersion`; the user guide, README, release check R19 and the SBOM component use it too.
@@ -139,7 +150,7 @@ ledger rows of engine 2.3.0 stay and are reported separately.
 - **Design unchanged (spec §3):** acceptance **DS-1** (main screen) and **DS-2** (detail sheet top and chart layers, paper
   dialog, ledger dialog) compare the layout at rest with text masked against baselines captured from the v2.7.0-web build.
 - **Languages:** the new and changed v2.8 strings are Arabic drafts awaiting native-speaker review (About shows the count;
-  release check **R25** blocks a release until they are reviewed). The Step 4b radar strings are machine-checked drafts in the
+  release check **R25** blocks a release until they are reviewed; for 2.8.0 the owner waived it, ADR-0020). The Step 4b radar strings are machine-checked drafts in the
   other 16 languages; earlier v2.8 radar strings still show in English there.
 - **Coffee tip card (owner addition, no WP):** About → *☕ Treat the developer to a coffee*, collapsed above Open-source
   licences — the rsL Coffee Kit v1.1 2026 (build 20261115) card images for GCash, PayPal and Bitcoin, copied unchanged
@@ -154,7 +165,10 @@ ledger rows of engine 2.3.0 stay and are reported separately.
   closing cancels a request in flight. New host in the CSP, the egress manifest and an ADR-0003 amendment (R8); no new
   dependency. Acceptance **FG-1**, **FG-2**; DS-1 hides the chip (spec §3 item 8). The strings are Arabic drafts awaiting
   review and English in the other 16 languages.
-- **Docs:** user guide chapters for WP19, WP20, WP21, WP25 (part 1), WP26, WP27, WP28 and WP29; ADR-0018 (new venues); R19 accepts this "in progress" entry above the released v2.7.0.
+- **Docs:** user guide chapters for WP19, WP20, WP21, WP25 (part 1), WP26, WP27, WP28 and WP29; ADR-0018 (new venues); ADR-0020 (R25 owner waiver for 2.8.0); install notes for the unsigned 2.8.0
+  installers (§1).
+- **Release workflow:** a manual run builds the installers without publishing unless its new `publish` input is ticked
+  (default off); tag pushes and `[release]` commits publish as before.
 - **Before going back to v2.7, export the paper journal** (Paper → Export CSV) and note your open positions: v2.7 cannot
   read the v2.8 paper account format and starts a fresh 10,000 USDT account over it on its first scan.
 

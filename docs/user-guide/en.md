@@ -1,16 +1,16 @@
 <!-- wp:WP11 --> <!-- wp:WP16 -->
-# rsL Confluence Terminal 2.7.0 — User guide
+# rsL Confluence Terminal 2.8.0 — User guide
 
 The rsL Confluence Terminal is a multi-indicator market scanner. For every asset it runs 18 indicator votes on **closed bars**, combines them into a score from −100 to +100, and shows a **Master Signal**. It also records every signal so you can measure, over weeks, whether the signals would have helped you.
 
 > **Important.** The Terminal is an analysis tool, not financial advice. It reads public market prices only and never places an order on any exchange. Paper trading is simulated.
 
-**v2.8 (in progress, Step 1 — WP19, WP20, WP27):** a 10% **drawdown lock** with RESET and more paper limits, a
-**liquidity floor** for thin crypto pairs, honest Pattern and fair-value-gap labels, the **open-source licences** and data
-credits, and a list that **appears at once** from saved history while the scan refreshes it (sections 4, 5, 6, 7, 8, 9, 11, 12, 13, 16, with new
-rows in 20 and 21).
-
-**v2.8 (in progress, Step 4a — WP25, part 1):** a **Market radar** panel (the **Radar** tab, or **R**) with positioning, buyer pressure, regional premiums, CFTC positions, an ETF CSV import and alerts for price break-away, volume spikes, depegs and stablecoin supply jumps: context only, never a vote, and fetched only while it is open or recording is on (sections 10, 11, 16, 19). Liquidations come later.
+**New in 2.8.0:** a 10% **drawdown lock** and more paper limits, a **liquidity floor** for thin crypto pairs, honest
+Pattern and fair-value-gap labels, the **open-source licences** and data credits, a list that **appears at once** from saved
+history; **OKX, Coinbase and Upbit** as sources; **Fund trend**; the **Market radar** (the **Radar** tab, or **R**) with
+liquidations and large transfers; **Scenarios**, Heikin-Ashi and Reflect view; **Fear & Greed**; an **encrypted cloud
+backup**; and a two-line header from 1280 px. Translations are drafts: the new Arabic strings await native-speaker review.
+The Windows and macOS installers of 2.8.0 are **not signed** (see *Unsigned installers* in §1).
 
 **New in v2.7:** choose the **stablecoin** each exchange is quoted in (USDT, USDC, FDUSD, USD1 … or the deepest one per coin), show prices in **any currency** at official reference rates, and **zoom, pan and go full screen** on the chart (pinch on phones).
 
@@ -41,12 +41,21 @@ rows in 20 and 21).
 ## 1. Install
 | Device | How |
 |---|---|
-| **Windows 10/11** | Run the `.msi` (or `-setup.exe`) installer from the latest Windows release. |
-| **Mac (macOS 15+)** | Open the `.dmg` and drag the app to Applications. The Mac build is not notarized by Apple: on first launch, right-click the app and choose **Open**. |
+| **Windows 10/11** | Run the `.msi` (or `-setup.exe`) installer from the latest Windows release. 2.8.0 is not code-signed: if SmartScreen says *Windows protected your PC*, choose **More info → Run anyway** (see *Unsigned installers* below). |
+| **Mac (macOS 15+)** | Open the `.dmg` (named `…-unnotarized.dmg`) and drag the app to Applications. The Mac build is ad-hoc signed and not notarized by Apple, so macOS blocks the first launch: open **System Settings → Privacy & Security** and choose **Open Anyway** (see *Unsigned installers* below). |
 | **Linux (64-bit)** | From the Linux release: `.deb` for Debian/Ubuntu (`sudo apt install ./<file>.deb`), `.rpm` for Fedora/openSUSE (`sudo dnf install ./<file>.rpm`), or the `.AppImage` for any distribution (`chmod +x` it, then run it). The packages are not signed; compare the file with its `.sha256`. |
 | **Android 10+** | Install the release `.apk`. Allow "install unknown apps" for your file manager once. **Coming from v2.6:** see *Android: moving from v2.6* below. |
 | **iPhone / iPad** | Install the release `.ipa` with Sideloadly. Or open the web version and choose *Share → Add to Home Screen*. |
 | **Web / PWA** | Open the published web app (effervescent-bubblegum-1e5c03.netlify.app) and choose *Install app* (Chrome/Edge) or *Add to Home Screen* (phones). To run it on one computer only, install Node.js LTS once (nodejs.org), unzip the `-pwa.zip` from the web release, start **`Start-Confluence-Terminal.cmd`** (macOS/Linux: `start-confluence-terminal.sh`) and keep its window open. It serves the app on `http://127.0.0.1:8770/`. Opening `index.html` directly does **not** work. The web app is personal: it is kept out of search engines, so keep its address yourself. |
+
+**Unsigned installers (2.8.0, owner decision 18 Nov 2026).** The Windows and macOS installers of 2.8.0 carry no
+code-signing certificate, and the Mac app is not notarized by Apple. Android stays signed with the release key; Linux
+packages were never signed. Before installing, compare the file with its `.sha256` (*Check a download* below).
+- **Windows:** SmartScreen may show *Windows protected your PC* and *Unknown publisher*. Choose **More info**, then
+  **Run anyway**. Windows may also ask again the first time the app starts.
+- **macOS 15 and later:** the first launch is blocked ("Apple could not verify …"). Choose **Done**, open **System Settings →
+  Privacy & Security**, scroll to *Security*, choose **Open Anyway** next to the app's name and confirm with your password.
+  On macOS 15, right-click → **Open** no longer skips this check.
 
 **Android developer verification (v2.8 note).** Google's developer verification applies to sideloaded apps from 2027
 (a first phase starts on 30 Sep 2026 in Brazil, Indonesia, Singapore and Thailand; Google expands it to all apps on certified devices in 2027). The release `.apk` is installed outside the
@@ -1052,4 +1061,4 @@ The desktop app also has menus: **File** (Export backup…, Restore backup…), 
 ✉ in the header writes to rslozano@gmail.com with the app name as the subject. Include the version, build and source commit from **About** with any question.
 
 ---
-Powered by rsL Confluence Terminal · 2.7.0 · build 20261111 — Created by rsLozano
+Powered by rsL Confluence Terminal · 2.8.0 · build 20261118 — Created by rsLozano
