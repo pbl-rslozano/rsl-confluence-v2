@@ -527,12 +527,13 @@ async function ds1Snapshot() {
 //   detail §3.8  "View on [exchange]" (WP26, end of the sheet, below the compared region)   [data-testid=view-on-exchange]
 //          §3.1  "Scenarios (simulation)" (WP22, collapsed, right after the Pattern panel)  [data-testid=scenarios-section]
 //   ledger §3.4  collapsed Scenario check at the end of the dialog (WP22)               [data-testid=ledger-scenario-check]
+//          §3 item 4  collapsed "Classic vs Confluence v2 (test)", just before the Scenario check (WP23)   [data-testid=ledger-v2-compare]
 // §3.5 block reasons and §3.7 text inside existing boxes need no exclusion (text is masked). Never add a selector for
 // anything that is not on the §3 list.
 const DS2_ALLOWED = {
   detail: ['[data-testid="view-on-exchange"]', '[data-testid="scenarios-section"]'],
   paper: ['[data-testid="paper-more-limits"]', '[data-testid="paper-more-stats"]', '[data-testid="paper-add-note"]', '[data-testid="paper-lock-drawdown"]', '[data-testid="paper-drawdown"]', '[data-testid="paper-warning"]'],
-  ledger: ['[data-testid="ledger-scenario-check"]'],
+  ledger: ['[data-testid="ledger-scenario-check"]', '[data-testid="ledger-v2-compare"]'],
 };
 async function ds2Snapshot() {
   const { c, p, seen } = await dsContext();
@@ -3031,6 +3032,64 @@ async function hdPinnedBoxes(w, h, lang) {
     record("SC-7", "Scenario check: collapsed section at the end of the ledger dialog; CSV export carries the scenario columns with values; with no closed outcomes it says so",
       rest.sections === 1 && rest.last === "ledger-scenario-check" && rest.expanded === "false" && rest.allowed
         && cols.length === 13 && sc7.allScenario && lo95 < 0 && /No closed 6-bar outcomes for rows with Scenarios yet\./.test(none ?? ""), sc7);
+    await c.close();
+  }
+
+  /* ===== v2.8 WP23 Task 9: the collapsed Classic vs Confluence v2 section of the ledger dialog ===== */
+  /* acceptance-ids: CV-3 */
+  if (!DS_ONLY && !HD_ONLY && !BK_ONLY) {
+    const c = await newContext(browser);
+    await mockExchanges(c);
+    const p = await c.newPage();
+    await p.goto(BASE, { waitUntil: "domcontentloaded" });
+    await completeFirstRun(p);
+    await waitRows(p);
+    await p.getByRole("button", { name: /Signal ledger \(forward test\)/ }).click();
+    await p.waitForSelector("text=Signals recorded");
+    const sec = p.getByTestId("ledger-v2-compare");
+    await sec.waitFor({ timeout: 10000 }).catch(() => null);
+    const toggle = p.getByTestId("ledger-v2-toggle");
+    // The ledger lists the rows it loaded when it opened: reopen it until the scan's rows are recorded.
+    for (let tries = 0; tries < 8 && !(await p.getByRole("button", { name: "Export CSV" }).isEnabled()); tries++) {
+      await p.waitForTimeout(1500);
+      await p.keyboard.press("Escape");
+      await p.waitForFunction(() => !document.querySelector('[role="dialog"]'), null, { timeout: 10000 });
+      await p.getByRole("button", { name: /Signal ledger \(forward test\)/ }).click();
+      await p.getByTestId("ledger-v2-compare").waitFor({ timeout: 10000 });
+      await p.waitForTimeout(500);
+    }
+    // (a) collapsed, immediately before the Scenario check (which stays last)
+    const rest = {
+      sections: await sec.count(),
+      expanded: await toggle.getAttribute("aria-expanded").catch(() => null),
+      next: await sec.evaluate((e) => e.nextElementSibling?.getAttribute("data-testid") ?? null).catch(() => null),
+      scenarioLast: await p.getByTestId("ledger-scenario-check").evaluate((e) => !e.nextElementSibling || e.nextElementSibling.getAttribute("data-slot") === "dialog-close" || !!e.nextElementSibling.matches("button")).catch(() => false),
+      allowed: DS2_ALLOWED.ledger.includes('[data-testid="ledger-v2-compare"]'),
+    };
+    // (b) expanded: the browser's v2 config id equals the id pinned in the Node test
+    const pin = (/const V2_PIN = "([0-9a-f]{16})"/.exec(fs.readFileSync(path.join(__dirname, "..", "..", "apps", "confluence", "web", "src", "lib", "confluence-v2.test.mjs"), "utf8")) ?? [])[1] ?? null;
+    await toggle.click();
+    await p.waitForTimeout(300);
+    const text = ((await sec.innerText()) ?? "").replace(/\s+/g, " ");
+    const shownId = (/Confluence v2 engine ([0-9a-f]{16})/.exec(text) ?? [])[1] ?? null;
+    const pairsN = Number((/(\d+) bars labelled by both engines/.exec(text) ?? [])[1] ?? 0);
+    const expandedNow = await toggle.getAttribute("aria-expanded").catch(() => null);
+    // (d) CSV
+    const [dl] = await Promise.all([p.waitForEvent("download"), p.getByRole("button", { name: "Export CSV" }).click()]);
+    const cv3Path = path.join(OUT, "ledger-export-cv3.csv");
+    await dl.saveAs(cv3Path);
+    const lines = fs.readFileSync(cv3Path, "utf8").replace(/^\uFEFF/, "").trim().split(/\r?\n/);
+    const head = lines[0].split(",").map((x) => x.replace(/^"|"$/g, ""));
+    // The four v2 columns follow scenario_fallback (the export then appends the net_return_h* outcome columns).
+    const tail4 = head.slice(head.indexOf("v2_config_id"), head.indexOf("v2_config_id") + 4);
+    const btc = (lines.slice(1).find((l) => /BTCUSDT/.test(l)) ?? "").split(",").map((x) => x.replace(/^"|"$/g, ""));
+    const cell = (name) => btc[head.indexOf(name)];
+    const cv3 = { rest, pin, shownId, pairsN, expandedNow, tail4, csvCfg: cell("v2_config_id"), csvDir: cell("v2_direction"), text: text.slice(0, 300) };
+    record("CV-3", "Ledger: collapsed Classic vs Confluence v2 section before the Scenario check; the browser's v2 config id equals the pinned one; rows carry v2 and the CSV exports its four columns",
+      rest.sections === 1 && rest.expanded === "false" && rest.next === "ledger-scenario-check" && rest.scenarioLast && rest.allowed
+        && !!pin && shownId === pin && expandedNow === "true"
+        && pairsN >= 1 && /No closed outcomes on these bars yet\./.test(text) && /Comparison only\. Classic stays the engine/.test(text)
+        && tail4.join() === "v2_config_id,v2_score,v2_direction,v2_strength" && cell("v2_config_id") === pin && ["-1", "0", "1"].includes(cell("v2_direction")), cv3);
     await c.close();
   }
 

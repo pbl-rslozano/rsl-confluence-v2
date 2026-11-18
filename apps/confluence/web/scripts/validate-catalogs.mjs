@@ -54,6 +54,7 @@ const VARS = { version: "2.5.2", build: "20261108", size: "19.4 MB", event: "FOM
   rank: 2, m: 300, pct: 10, series: "binance|4h", move: "+0.42 %", sim: 81, remaining: 2, exchange: "Binance Spot",
   pctl: 99, chg: "+1.00 %", share: 60, asia: 30, europe: 30, us: 40, venue: "Coinbase", z: "3.4", usd: "$1.2B", label: "Live ETF flows", long: "1,000", short: "500", net: "+500", delta: "+50", rejected: 1, duplicates: 0, level: "Severe", reference: "USDT", min: 1, max: 6,
   score: "+62", exit: 40, // v2.8 (WP23 Task 8): Confluence v2 line
+  hit: "55.0 %", edge: "+3.0", ic: "1.50", psr: "0.70", churn: "12.5", // v2.8 (WP23 Task 9): Classic vs Confluence v2
   median: "$40K", mult: "3.4", longPct: 62, have: 12,
   amount: "1.2K", symbol: "USDT", from: "Binance", to: "unknown wallet", chain: "ethereum", // v2.8 (+ Step 4b liquidations, large transfers)
   current: "System", next: "Light", // v2.8 header (owner decision 16 Nov 2026): theme.cycle

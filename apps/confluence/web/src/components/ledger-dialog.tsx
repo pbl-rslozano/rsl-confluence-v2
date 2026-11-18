@@ -52,7 +52,9 @@ import {
 import { loadHistoricalSeries, mergeKlines, saveHistoricalSeries } from "@/lib/history-store";
 import { fetchHistory, INTERVAL_MS, RateLimitError, type DataSource } from "@/lib/market-client";
 import { engineConfigId } from "@/lib/engine-config";
+import { v2ConfigId } from "@/lib/confluence-v2";
 import { realizedLogReturn, scenarioCheck, type ScenarioCheck } from "@/lib/scenario-check";
+import { asV2Row, labelChurn, pairedOutcomes, sideOf } from "@/lib/head-to-head";
 
 
 interface Props {
@@ -71,6 +73,16 @@ interface Props {
 const fmtBps = (v: number) => (Number.isFinite(v) ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}` : "—");
 const fmtPct = (v: number) => (Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : "—");
 const fmtNum = (v: number, d = 2) => (Number.isFinite(v) ? v.toFixed(d) : "—");
+
+/** v2.8 (WP23): what the collapsed head-to-head section reads. `paired` = closed outcomes per horizon on the compared bars. */
+interface H2HView {
+  n: number;
+  notCompared: number;
+  paired: Map<number, number>;
+  classic: LedgerReport | null;
+  v2: LedgerReport | null;
+  churn: { classic: number; v2: number };
+}
 
 export function LedgerDialog({ open, onOpenChange, store, source, timeframe, assetClass, getLiveKlines, configId = engineConfigId() }: Props) {
   const { t, id, platform, audit, announce } = useRsl();
@@ -98,6 +110,9 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
   /** v2.8 (WP22): the collapsed Scenario check (logged, never scored). */
   const [scCheck, setScCheck] = useState<ScenarioCheck | null>(null);
   const [scOpen, setScOpen] = useState(false);
+  /** v2.8 (WP23): the collapsed Classic vs Confluence v2 comparison on the same rows and outcomes (never scored, never gates). */
+  const [h2h, setH2h] = useState<H2HView | null>(null);
+  const [v2Open, setV2Open] = useState(false);
   /** Generation guard: only the newest measurement may update state. */
   const generation = useRef(0);
   const viewClass: AssetClass = assetClass === "all" ? "crypto" : (assetClass as AssetClass);
@@ -234,9 +249,28 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
         const confOut = new Map([...outcomes].map(([h, list]) => [h, list.filter((o) => ids.has(o.row.id))]));
         conf = await buildReportAsync({ rows: after, outcomes: confOut, costBps, trials: confTrials, intervalMs, momentum: momentumSign });
       }
+      // v2.8 (WP23): the same rows and the same measured outcomes, once with Classic's label and once with v2's.
+      // No extra kline loads or snapshot writes: every outcome above is reused.
+      const withV2 = usable.filter((r) => r.v2);
+      let h2hView: H2HView = { n: withV2.length, notCompared: usable.length - withV2.length, paired: new Map(), classic: null, v2: null, churn: { classic: NaN, v2: NaN } };
+      if (withV2.length) {
+        const pairs = pairedOutcomes(outcomes);
+        const v2Rows = withV2.map((r) => asV2Row(r) as LedgerRow);
+        const opts = { costBps, trials, intervalMs, momentum: momentumSign };
+        const [cRep, vRep] = [
+          await buildReportAsync({ rows: withV2, outcomes: pairs.classic, ...opts }),
+          await buildReportAsync({ rows: v2Rows, outcomes: pairs.v2, ...opts }),
+        ];
+        h2hView = {
+          ...h2hView, classic: cRep, v2: vRep,
+          paired: new Map([...pairs.classic].map(([h, list]) => [h, list.length])),
+          churn: { classic: labelChurn(withV2, intervalMs).per100, v2: labelChurn(v2Rows, intervalMs).per100 },
+        };
+      }
       if (gen !== generation.current) return;
       setReport(full);
       setConfirm(conf);
+      setH2h(h2hView);
       setScCheck(scenarioCheck(scItems, intervalMs, scSkipped));
     } catch (error) {
       if (gen === generation.current) setFailure(error instanceof Error ? error.message : String(error));
@@ -610,6 +644,48 @@ export function LedgerDialog({ open, onOpenChange, store, source, timeframe, ass
             <Download className="h-3.5 w-3.5" />{t("ledger.export")}
           </Button>
         </div>
+
+        <section data-testid="ledger-v2-compare" className="rounded-lg border border-zinc-800 px-3 py-2 text-xs">
+          <button
+            type="button"
+            data-testid="ledger-v2-toggle"
+            aria-expanded={v2Open}
+            aria-controls="ledger-v2-body"
+            className="font-medium text-zinc-300"
+            onClick={() => setV2Open((v) => !v)}
+          >
+            {t("ledger.v2.title")}
+          </button>
+          {v2Open && (
+            <div id="ledger-v2-body" className="mt-2 space-y-1 text-zinc-400">
+              <p>{t("ledger.v2.engine", { id: v2ConfigId() })}</p>
+              {!h2h || h2h.n === 0 ? (
+                <p>{t("ledger.v2.none")}</p>
+              ) : (
+                <>
+                  <p>{t("ledger.v2.pairs", { n: h2h.n, h: horizon })}</p>
+                  {!h2h.classic || !h2h.v2 || !(h2h.paired.get(horizon) ?? 0) ? (
+                    <p>{t("ledger.v2.noOutcomes")}</p>
+                  ) : (
+                    (["classic", "v2"] as const).map((side) => {
+                      const x = sideOf(h2h[side] as LedgerReport, horizon, h2h.churn[side]);
+                      return (
+                        <p key={side}>
+                          {t(side === "classic" ? "ledger.v2.classic" : "ledger.v2.v2", {
+                            n: x.n, hit: fmtPct(x.hitRate), net: fmtBps(x.meanNetBps), edge: fmtBps(x.edgeBps),
+                            ic: fmtNum(x.icT), psr: fmtNum(x.psr), churn: fmtNum(x.churnPer100, 1),
+                          })}
+                        </p>
+                      );
+                    })
+                  )}
+                  {h2h.notCompared > 0 && <p>{t("ledger.v2.notCompared", { n: h2h.notCompared })}</p>}
+                </>
+              )}
+              <p>{t("ledger.v2.note")}</p>
+            </div>
+          )}
+        </section>
 
         <section data-testid="ledger-scenario-check" className="rounded-lg border border-zinc-800 px-3 py-2 text-xs">
           <button

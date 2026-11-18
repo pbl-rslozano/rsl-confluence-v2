@@ -376,7 +376,16 @@
     "v2.line",
     "v2.lineHeld",
     "v2.lineNoData",
-    "v2.lineNote"
+    "v2.lineNote",
+    "ledger.v2.title",
+    "ledger.v2.engine",
+    "ledger.v2.none",
+    "ledger.v2.pairs",
+    "ledger.v2.noOutcomes",
+    "ledger.v2.classic",
+    "ledger.v2.v2",
+    "ledger.v2.notCompared",
+    "ledger.v2.note"
   ],
   "app.subtitle": "ماسح توافق مؤشرات العملات المشفّرة",
   "ctx.page": "الماسح",
@@ -1209,5 +1218,14 @@
   "v2.line": "Confluence v2 (تجريبي): {label} · الدرجة {score}",
   "v2.lineHeld": "Confluence v2 (تجريبي): {label} · الدرجة {score} · محتفظ بها حتى تعود الدرجة إلى داخل ±{exit}",
   "v2.lineNoData": "Confluence v2 (تجريبي): لا توجد بيانات",
-  "v2.lineNote": "منافس يُسجَّل للمقارنة فقط. لا يغيّر القائمة أو الإشارات أو التنبيهات أو الصفقات الورقية."
+  "v2.lineNote": "منافس يُسجَّل للمقارنة فقط. لا يغيّر القائمة أو الإشارات أو التنبيهات أو الصفقات الورقية.",
+  "ledger.v2.title": "Classic مقابل Confluence v2 (تجريبي)",
+  "ledger.v2.engine": "محرك Confluence v2 ‏{id}",
+  "ledger.v2.none": "لا توجد بعد صفوف تتضمن Confluence v2 في هذا العرض.",
+  "ledger.v2.pairs": "{n} شمعة صنّفها المحركان (الأفق +{h})؛ ويُقاس كلاهما على النتائج نفسها",
+  "ledger.v2.noOutcomes": "لا توجد بعد نتائج مغلقة على هذه الشموع.",
+  "ledger.v2.classic": "Classic: {n} إشارة · نسبة الإصابة {hit} · متوسط الصافي {net} نقطة أساس · الأفضلية {edge} نقطة أساس · IC t ‏{ic} · PSR ‏{psr} · {churn} تغيير في التصنيف لكل 100 شمعة",
+  "ledger.v2.v2": "Confluence v2: {n} إشارة · نسبة الإصابة {hit} · متوسط الصافي {net} نقطة أساس · الأفضلية {edge} نقطة أساس · IC t ‏{ic} · PSR ‏{psr} · {churn} تغيير في التصنيف لكل 100 شمعة",
+  "ledger.v2.notCompared": "سُجّل {n} صفًا دون Confluence v2 (قبل WP23 أو لقلة السجل) ولا تُقارن.",
+  "ledger.v2.note": "للمقارنة فقط. يبقى Classic المحرك المعتمد للقائمة والتصنيفات والتنبيهات والتداول الورقي؛ ولا يُنقل شيء إلى غيره دون قرار لاحق من المالك."
 }

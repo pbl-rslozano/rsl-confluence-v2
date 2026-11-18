@@ -28,7 +28,8 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, write
 import { dirname, join, resolve } from "node:path";
 import { scoreSeries, toLedgerRow } from "./scan-pipeline.ts";
 import { enrich } from "./enrichment.ts";
-import { scoreV2, v2Compact } from "./confluence-v2.ts";
+import { scoreV2, v2Compact, v2ConfigId } from "./confluence-v2.ts";
+import { asV2Row, labelChurn, sideOf } from "./head-to-head.ts";
 import { ENGINE_BARS, engineConfigId, ENGINE_VERSION } from "./engine-config.ts";
 import { barCloseTime, contiguousTail, fetchHistoryRange, INTERVAL_MS, loadInstrumentTypes } from "./market-client.ts";
 import { hashId } from "./signal-ledger.ts";
@@ -326,6 +327,29 @@ for (const [name, pair] of Object.entries(reports)) {
     lines.push("");
   }
 }
+// v2.8 (WP23 Task 9): Classic vs Confluence v2 on the SAME rows and outcomes (logged, never scored; Classic's report above is unchanged).
+const h2hLines = [`## Classic vs Confluence v2 (test) — engine ${v2ConfigId()}`, ""];
+{
+  const withV2 = rows.filter((r) => r.v2);
+  if (!withV2.length) {
+    h2hLines.push(noV2 ? "Not run: --no-v2 left Confluence v2 out of these rows." : "No rows with Confluence v2 in this replay.");
+  } else {
+    const v2Rows = withV2.map(asV2Row);
+    const classicRep = measure(withV2);
+    const v2Rep = measure(v2Rows);
+    const churn = { classic: labelChurn(withV2, intervalMs).per100, v2: labelChurn(v2Rows, intervalMs).per100 };
+    h2hLines.push(`${withV2.length} bars labelled by both engines (${rows.length - withV2.length} rows without v2 not compared); both are measured on the same outcomes.`, "");
+    h2hLines.push("| h | engine | n | hit | mean net bp | edge bp | IC t | PSR | label changes /100 bars |", "|---|---|---|---|---|---|---|---|---|");
+    for (const h of DEFAULT_HORIZONS) {
+      for (const [name, rep, ch] of [["Classic", classicRep, churn.classic], ["Confluence v2", v2Rep, churn.v2]]) {
+        const x = sideOf(rep, h, ch);
+        h2hLines.push(`| ${h} | ${name} | ${x.n} | ${Number.isFinite(x.hitRate) ? f(x.hitRate * 100) + "%" : "—"} | ${f(x.meanNetBps)} | ${f(x.edgeBps)} | ${f(x.icT, 2)} | ${f(x.psr, 2)} | ${f(x.churnPer100)} |`);
+      }
+    }
+  }
+  h2hLines.push("");
+}
+lines.push(...h2hLines);
 if (brackets) {
   lines.push("## Outcome mode atr-bracket (2×ATR stop, 2R target, stop first, gap at the open; one trade at a time per pair)", "");
   lines.push("| set | n | mean R | hit (95 % CI) | stops | targets |", "|---|---|---|---|---|---|");
@@ -333,4 +357,5 @@ if (brackets) {
   lines.push("");
 }
 writeFileSync(join(outDir, "report.md"), lines.join("\n") + "\n");
+console.log("\n" + h2hLines.join("\n"));
 console.log(`\n${rows.length} rows → ${outDir}/ledger.csv, report.json, report.md (${meta.seconds}s)`);
